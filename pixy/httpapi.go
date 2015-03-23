@@ -14,26 +14,28 @@ const (
 	NetworkTCP  = "tcp"
 	NetworkUnix = "unix"
 
-	hContentLength = "Content-Length"
+	// HTTP Headers:
+	contentLength = "Content-Length"
 
-	fTopicName  = "topic"
-	fRoutingKey = "key"
+	// API call parameters:
+	topicName  = "topic"
+	routingKey = "key"
 )
 
 type HTTPAPIServer struct {
-	addr        string
-	listener    net.Listener
-	httpServer  *manners.GracefulServer
-	kafkaClient IKafkaClient
-	errorCh     chan error
+	addr       string
+	listener   net.Listener
+	httpServer *manners.GracefulServer
+	producer   Producer
+	errorCh    chan error
 }
 
 // SpawnHTTPAPIServer starts an HTTP server instance that accepts API requests
 // on the specified network/address and forwards them to the associated
 // Kafka client. The server initialization is performed asynchronously and
-// if it fails then the error is sent down to `HTTPAPIServer.errorCh`.
-func SpawnHTTPAPIServer(network, addr string, kafkaClient IKafkaClient) (*HTTPAPIServer, error) {
-	as, err := NewHTTPAPIServer(network, addr, kafkaClient)
+// if it fails then the error is sent down to `HTTPAPIServer.ErrorCh()`.
+func SpawnHTTPAPIServer(network, addr string, producer Producer) (*HTTPAPIServer, error) {
+	as, err := NewHTTPAPIServer(network, addr, producer)
 	if err != nil {
 		return nil, err
 	}
@@ -44,9 +46,9 @@ func SpawnHTTPAPIServer(network, addr string, kafkaClient IKafkaClient) (*HTTPAP
 // NewHTTPAPIServer creates an HTTP server instance that will accept API
 // requests specified network/address and forwards them to the associated
 // Kafka client.
-func NewHTTPAPIServer(network, addr string, kafkaClient IKafkaClient) (*HTTPAPIServer, error) {
-	if kafkaClient == nil {
-		return nil, fmt.Errorf("kafkaClient must be specified")
+func NewHTTPAPIServer(network, addr string, producer Producer) (*HTTPAPIServer, error) {
+	if producer == nil {
+		return nil, fmt.Errorf("producer must be specified")
 	}
 	// Start listening on the specified unix domain socket address.
 	listener, err := net.Listen(network, addr)
@@ -57,20 +59,20 @@ func NewHTTPAPIServer(network, addr string, kafkaClient IKafkaClient) (*HTTPAPIS
 	router := mux.NewRouter()
 	httpServer := manners.NewWithServer(&http.Server{Handler: router})
 	as := &HTTPAPIServer{
-		addr:        addr,
-		listener:    manners.NewListener(listener),
-		httpServer:  httpServer,
-		kafkaClient: kafkaClient,
-		errorCh:     make(chan error, 1),
+		addr:       addr,
+		listener:   manners.NewListener(listener),
+		httpServer: httpServer,
+		producer:   producer,
+		errorCh:    make(chan error, 1),
 	}
 	// Configure the API request handlers.
-	produceUrl := fmt.Sprintf("/topics/{%s}", fTopicName)
+	produceUrl := fmt.Sprintf("/topics/{%s}", topicName)
 	router.HandleFunc(produceUrl, as.handleProduce).Methods("POST")
 	return as, nil
 }
 
 // Starts triggers asynchronous HTTP server start. If it fails then the error
-// will be sent down to `HTTPAPIServer.errorCh`.
+// will be sent down to `HTTPAPIServer.ErrorCh()`.
 func (as *HTTPAPIServer) Start() {
 	goGo(fmt.Sprintf("API@%s", as.addr), nil, func() {
 		defer close(as.errorCh)
@@ -98,23 +100,23 @@ func (as *HTTPAPIServer) Stop() {
 func (as *HTTPAPIServer) handleProduce(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
-	topic := mux.Vars(r)[fTopicName]
-	key := getParamBytes(r, fRoutingKey)
+	topic := mux.Vars(r)[topicName]
+	key := getParamBytes(r, routingKey)
 
 	// Get the message body from the HTTP request.
-	messageSizeStr := r.Header.Get(hContentLength)
+	messageSizeStr := r.Header.Get(contentLength)
 	messageSize, err := strconv.Atoi(messageSizeStr)
 	if err != nil || messageSize < 0 {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(fmt.Sprintf("Invalid or missing %s header: %s",
-			hContentLength, messageSizeStr)))
+			contentLength, messageSizeStr)))
 		return
 	}
 	message := make([]byte, messageSize)
 	r.Body.Read(message)
 
 	// Asynchronously submit the message to the Kafka client.
-	as.kafkaClient.Produce(topic, key, message)
+	as.producer.Produce(topic, key, message)
 	w.WriteHeader(http.StatusOK)
 }
 

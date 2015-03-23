@@ -12,6 +12,11 @@ import (
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 )
 
+const (
+	testBroker = "localhost:9092"
+	testSocket = "kafka-pixy.sock"
+)
+
 type ServiceSuite struct {
 	serviceCfg *ServiceCfg
 	tkc        *TestKafkaClient
@@ -27,9 +32,11 @@ func (s *ServiceSuite) SetUpSuite(c *C) {
 
 func (s *ServiceSuite) SetUpTest(c *C) {
 	s.serviceCfg = &ServiceCfg{
-		UnixAddr:    path.Join(os.TempDir(), "kafka-pixy.sock"),
-		BrokerAddrs: []string{"localhost:9092"},
+		UnixAddr:    path.Join(os.TempDir(), testSocket),
+		BrokerAddrs: []string{testBroker},
 	}
+	os.Remove(s.serviceCfg.UnixAddr)
+
 	s.tkc = NewTestKafkaClient(s.serviceCfg.BrokerAddrs)
 	s.unixClient = NewUDSHTTPClient(s.serviceCfg.UnixAddr)
 	s.tcpClient = &http.Client{}
@@ -163,7 +170,7 @@ func (s *ServiceSuite) TestTCPDoesNotWork(c *C) {
 	c.Assert(r, IsNil)
 }
 
-// TCP API is not started by default.
+// API is served on a TCP socket if it is explicitly configured.
 func (s *ServiceSuite) TestBothAPI(c *C) {
 	offsetsBefore := s.tkc.getOffsets("service-test")
 	s.serviceCfg.TCPAddr = "127.0.0.1:55502"
@@ -197,4 +204,25 @@ func (s *ServiceSuite) TestStoppedServerCall(c *C) {
 		"", strings.NewReader("Kitty"))
 	c.Assert(err.Error(), Equals, "Post http://_/topics/service-test?key=foo: EOF")
 	c.Assert(r, IsNil)
+}
+
+// If the TCP API Server crashes then the service terminates gracefully.
+func (s *ServiceSuite) TestTCPServerCrash(c *C) {
+	s.serviceCfg.TCPAddr = "127.0.0.1:55502"
+	svc, _ := SpawnService(s.serviceCfg)
+	// When
+	svc.tcpServer.errorCh <- fmt.Errorf("Kaboom!")
+	// Then
+	svc.Stop()
+	svc.Wait4Stop()
+}
+
+// If the Unix API Server crashes then the service terminates gracefully.
+func (s *ServiceSuite) TestUnixServerCrash(c *C) {
+	svc, _ := SpawnService(s.serviceCfg)
+	// When
+	svc.unixServer.errorCh <- fmt.Errorf("Kaboom!")
+	// Then
+	svc.Stop()
+	svc.Wait4Stop()
 }

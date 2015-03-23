@@ -31,7 +31,9 @@ func (s *HTTPAPISuite) SetUpSuite(c *C) {
 }
 
 func (s *HTTPAPISuite) SetUpTest(c *C) {
-	s.addr = path.Join(os.TempDir(), "kafka-pixy.sock")
+	s.addr = path.Join(os.TempDir(), testSocket)
+	os.Remove(s.addr)
+
 	s.httpClient = NewUDSHTTPClient(s.addr)
 	var err error
 	s.as, err = SpawnHTTPAPIServer(NetworkUnix, s.addr, s)

@@ -14,11 +14,11 @@ type ServiceCfg struct {
 }
 
 type Service struct {
-	kafkaClient  *KafkaClient
-	unixServer   *HTTPAPIServer
-	tcpServer    *HTTPAPIServer
-	quitCh       chan struct{}
-	supervisorWg sync.WaitGroup
+	kafkaClient *KafkaClient
+	unixServer  *HTTPAPIServer
+	tcpServer   *HTTPAPIServer
+	quitCh      chan struct{}
+	wg          sync.WaitGroup
 }
 
 func SpawnService(cfg *ServiceCfg) (*Service, error) {
@@ -50,7 +50,7 @@ func SpawnService(cfg *ServiceCfg) (*Service, error) {
 		quitCh:      make(chan struct{}),
 	}
 
-	goGo("Service Supervisor", &s.supervisorWg, s.supervisor)
+	goGo("Service Supervisor", &s.wg, s.supervisor)
 	return s, nil
 }
 
@@ -59,7 +59,7 @@ func (s *Service) Stop() {
 }
 
 func (s *Service) Wait4Stop() {
-	s.supervisorWg.Wait()
+	s.wg.Wait()
 }
 
 // supervisor takes care of the service graceful shutdown.
@@ -78,12 +78,12 @@ func (s *Service) supervisor() {
 		goto shutdown
 	case err, ok := <-s.unixServer.ErrorCh():
 		if ok {
-			log.Fatalf("Unix socket based HTTP API crashed, cause=(%v)", err)
+			log.Errorf("Unix socket based HTTP API crashed, cause=(%v)", err)
 		}
 		goto shutdown
 	case err, ok := <-tcpServerErrorCh:
 		if ok {
-			log.Fatalf("TCP socket based HTTP API crashed, cause=(%v)", err)
+			log.Errorf("TCP socket based HTTP API crashed, cause=(%v)", err)
 		}
 		goto shutdown
 	}

@@ -2,7 +2,6 @@ package pixy
 
 import (
 	"fmt"
-	"math"
 	"strconv"
 
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/Shopify/sarama"
@@ -24,7 +23,7 @@ func (s *KafkaSuite) SetUpSuite(c *C) {
 func (s *KafkaSuite) SetUpTest(c *C) {
 	s.handOffCh = make(chan *producerResult, 100)
 	s.cfg = NewKafkaClientCfg()
-	s.cfg.BrokerAddrs = []string{"127.0.0.1:9092"}
+	s.cfg.BrokerAddrs = []string{testBroker}
 	s.cfg.HandOffCh = s.handOffCh
 	s.tkc = NewTestKafkaClient(s.cfg.BrokerAddrs)
 }
@@ -89,8 +88,7 @@ func (s *KafkaSuite) TestProduceNilKey(c *C) {
 	c.Assert(s.failedMessages(), DeepEquals, []string{})
 	delta0 := offsetsAfter[0] - offsetsBefore[0]
 	delta1 := offsetsAfter[1] - offsetsBefore[1]
-	imbalance := int(math.Abs(float64(delta1 - delta0)))
-	if imbalance > 20 {
+	if delta0 == 0 || delta1 == 0 {
 		panic(fmt.Errorf("Too high imbalance: %v != %v", delta0, delta1))
 	}
 }

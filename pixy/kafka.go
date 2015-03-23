@@ -14,7 +14,7 @@ const (
 	chanBufferSize = 100
 )
 
-type IKafkaClient interface {
+type Producer interface {
 	// Produce accepts `message` to be asynchronously written to Kafka. The
 	// message is guaranteed to be submitted to Kafka eventually, but that may
 	// not happen instantaneously if the destination Kafka broker is down. In
@@ -123,7 +123,7 @@ func (kc *KafkaClient) Wait4Stop() {
 	kc.wg.Wait()
 }
 
-// Close must be called if a `KafkaClient` instance that has not been started
+// Close must be called if a `KafkaClient` instance, that has not been started,
 // needs to be discarded.
 func (kc *KafkaClient) Close() {
 	kc.wrappedProducer.Close()
@@ -152,7 +152,7 @@ func (kc *KafkaClient) Produce(topic string, key, message []byte) {
 
 // merger receives both acknowledged messages and producer errors from the
 // respective `sarama.Producer` channels, constructs `ProducerResult`s out of
-// them and sends the constructed `ProducerResult` instances to `resultCh` to
+// them and sends the constructed `producerResult` instances to `resultCh` to
 // be further inspected by the `dispatcher` goroutine.
 //
 // It keeps running until both `sarama.Producer` output channels are closed,
@@ -193,7 +193,7 @@ mergeLoop:
 // via `dispatchCh` and when the `sarama.Producer` stop is triggered.
 func (kc *KafkaClient) dispatcher() {
 	dispatcherCh := kc.dispatcherCh
-	prodInputCh := kc.wrappedProducer.Input()
+	prodInputCh := (chan<- *sarama.ProducerMessage)(nil)
 	pendingMsgCount := 0
 	// The normal operation loop is implemented as two-stroke machine. On the
 	// first stroke a message is received from `dispatchCh`, and on the second
