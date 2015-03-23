@@ -193,7 +193,7 @@ mergeLoop:
 // via `dispatchCh` and when the `sarama.Producer` stop is triggered.
 func (kc *KafkaClient) dispatcher() {
 	dispatcherCh := kc.dispatcherCh
-	prodInputCh := (chan<- *sarama.ProducerMessage)(nil)
+	var prodInputCh chan<- *sarama.ProducerMessage
 	pendingMsgCount := 0
 	// The normal operation loop is implemented as two-stroke machine. On the
 	// first stroke a message is received from `dispatchCh`, and on the second

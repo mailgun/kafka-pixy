@@ -15,8 +15,8 @@ import (
 
 const (
 	defaultBrokers  = "localhost:9092"
-	defaultUnixAddr = "/tmp/kafka-pixy.sock"
-	defaultPIDFile  = "/tmp/kafka-pixy.pid"
+	defaultUnixAddr = "/var/run/kafka-pixy.sock"
+	defaultPIDFile  = "/var/run/kafka-pixy.pid"
 )
 
 var (
@@ -41,13 +41,13 @@ func main() {
 
 	if err := writePID(pidFile); err != nil {
 		log.Errorf("Failed to write PID file, cause=(%v)", err)
-		return
+		os.Exit(1)
 	}
 
 	svc, err := pixy.SpawnService(&cfg)
 	if err != nil {
 		log.Errorf("Failed to start service, cause=(%v)", err)
-		return
+		os.Exit(1)
 	}
 
 	// Spawn OS signal listener to ensure graceful stop.

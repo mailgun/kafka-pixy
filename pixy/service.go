@@ -75,19 +75,15 @@ func (s *Service) supervisor() {
 	// Block to wait for quit signal or an API server crash.
 	select {
 	case <-s.quitCh:
-		goto shutdown
 	case err, ok := <-s.unixServer.ErrorCh():
 		if ok {
 			log.Errorf("Unix socket based HTTP API crashed, cause=(%v)", err)
 		}
-		goto shutdown
 	case err, ok := <-tcpServerErrorCh:
 		if ok {
 			log.Errorf("TCP socket based HTTP API crashed, cause=(%v)", err)
 		}
-		goto shutdown
 	}
-shutdown:
 	// Initiate stop of all API servers.
 	s.unixServer.Stop()
 	if s.tcpServer != nil {
