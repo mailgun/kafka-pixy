@@ -24,7 +24,7 @@ listener but that is mostly for debugging purposes.
 
 ### Produce
 
-`POST /produce/<topic>?key=<key>` - submits a message to the Kafka topic with
+`POST /topics/<topic>?key=<key>` - submits a message to the Kafka topic with
 name **topic**, using a hash of **key** to determine the shard where the message
 should go to. The body of the request represents the message that
 is submitted to Kafka as is. If **key** is not specified then the message is
@@ -32,13 +32,22 @@ submitted to a random shard. Note that it is not the same as specifying an empty
 key value, for empty string is a valid key value, and therefore all messages
 with an empty key value go to the same shard.
 
+E.g. if a Kafka-Pixy processes has been started with the `--tcpAddr=0.0.0.0:8080`
+argument, then you can test it using **curl** as follows:
+
+```
+curl -X POST localhost:8080/topics/foo?key=bar \
+     -H 'Content-Type: application/json' \
+     -d '{"bar": "bazz"}'
+```
+
 ## Command Line
 
 Kafa-pixy accepts the following command line parameters:
 
- Parameter | Default              | Description
------------|----------------------|--------------------------------------------
- brokers   | localhost:9092       | Comma separated list of Kafka brokers. Note that these are just seed brokers. The rest brokers are discovered automatically.
- unixAddr  | /tmp/kafka-pixy.sock | Unix Domain Socket that the primary HTTP API should listen on.
- tcpAddr   | N/A                  | TCP interface where the secondary HTTP API should listen. If not specified then Kafka-Pixy won't listen on a TCP socket.
- pidFile   | /tmp/kafka-pixy.pid  | Name of the pid file to create.
+ Parameter | Default                  | Description
+-----------|--------------------------|----------------------------------------
+ brokers   | localhost:9092           | Comma separated list of Kafka brokers. Note that these are just seed brokers. The rest brokers are discovered automatically.
+ unixAddr  | /var/run/kafka-pixy.sock | Unix Domain Socket that the primary HTTP API should listen on.
+ tcpAddr   |                          | TCP interface where the secondary HTTP API should listen. If not specified then Kafka-Pixy won't listen on a TCP socket.
+ pidFile   | /var/run/kafka-pixy.pid  | Name of the pid file to create.
