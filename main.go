@@ -44,6 +44,7 @@ func main() {
 		os.Exit(1)
 	}
 
+	log.Infof("Starting with config: %v", cfg)
 	svc, err := pixy.SpawnService(&cfg)
 	if err != nil {
 		log.Errorf("Failed to start service, cause=(%v)", err)
