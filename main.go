@@ -30,21 +30,20 @@ func init() {
 	flag.StringVar(&cfg.TCPAddr, "tcpAddr", "",
 		"TCP address that the HTTP API should listen on")
 	b := flag.String("brokers", defaultBrokers, "Comma separated list of brokers")
-	cfg.BrokerAddrs = strings.Split(*b, ",")
 	flag.StringVar(&pidFile, "pidFile", defaultPIDFile, "Path to the PID file")
+	flag.Parse()
+	cfg.BrokerAddrs = strings.Split(*b, ",")
 }
 
 func main() {
 	log.Init([]*log.LogConfig{&log.LogConfig{Name: "syslog"}})
-
-	flag.Parse()
 
 	if err := writePID(pidFile); err != nil {
 		log.Errorf("Failed to write PID file, cause=(%v)", err)
 		os.Exit(1)
 	}
 
-	log.Infof("Starting with config: %v", cfg)
+	log.Infof("Starting with config: %+v", cfg)
 	svc, err := pixy.SpawnService(&cfg)
 	if err != nil {
 		log.Errorf("Failed to start service, cause=(%v)", err)
