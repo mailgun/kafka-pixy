@@ -68,7 +68,12 @@ func (b *Broker) Open(conf *Config) error {
 	go withRecover(func() {
 		defer b.lock.Unlock()
 
-		b.conn, b.connErr = net.DialTimeout("tcp", b.addr, conf.Net.DialTimeout)
+		dialer := net.Dialer{
+			Timeout:   conf.Net.DialTimeout,
+			KeepAlive: conf.Net.KeepAlive,
+		}
+
+		b.conn, b.connErr = dialer.Dial("tcp", b.addr)
 		if b.connErr != nil {
 			b.conn = nil
 			atomic.StoreInt32(&b.opened, 0)
@@ -80,7 +85,11 @@ func (b *Broker) Open(conf *Config) error {
 		b.done = make(chan bool)
 		b.responses = make(chan responsePromise, b.conf.Net.MaxOpenRequests-1)
 
-		Logger.Printf("Connected to broker %s\n", b.addr)
+		if b.id >= 0 {
+			Logger.Printf("Connected to broker at %s (registered as #%d)\n", b.addr, b.id)
+		} else {
+			Logger.Printf("Connected to broker at %s (unregistered)\n", b.addr)
+		}
 		go withRecover(b.responseReceiver)
 	})
 
@@ -96,16 +105,9 @@ func (b *Broker) Connected() (bool, error) {
 	return b.conn != nil, b.connErr
 }
 
-func (b *Broker) Close() (err error) {
+func (b *Broker) Close() error {
 	b.lock.Lock()
 	defer b.lock.Unlock()
-	defer func() {
-		if err == nil {
-			Logger.Printf("Closed connection to broker %s\n", b.addr)
-		} else {
-			Logger.Printf("Failed to close connection to broker %s: %s\n", b.addr, err)
-		}
-	}()
 
 	if b.conn == nil {
 		return ErrNotConnected
@@ -114,7 +116,7 @@ func (b *Broker) Close() (err error) {
 	close(b.responses)
 	<-b.done
 
-	err = b.conn.Close()
+	err := b.conn.Close()
 
 	b.conn = nil
 	b.connErr = nil
@@ -123,7 +125,13 @@ func (b *Broker) Close() (err error) {
 
 	atomic.StoreInt32(&b.opened, 0)
 
-	return
+	if err == nil {
+		Logger.Printf("Closed connection to broker %s\n", b.addr)
+	} else {
+		Logger.Printf("Error while closing connection to broker %s: %s\n", b.addr, err)
+	}
+
+	return err
 }
 
 // ID returns the broker ID retrieved from Kafka's metadata, or -1 if that is not known.

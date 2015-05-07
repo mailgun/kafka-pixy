@@ -40,8 +40,8 @@ type KafkaClientCfg struct {
 
 type KafkaClient struct {
 	cfg             *KafkaClientCfg
-	wrappedClient   *sarama.Client
-	wrappedProducer *sarama.Producer
+	wrappedClient   sarama.Client
+	wrappedProducer sarama.AsyncProducer
 	dispatcherCh    chan *sarama.ProducerMessage
 	resultCh        chan *producerResult
 	handOffCh       chan<- *producerResult
@@ -79,7 +79,8 @@ func NewKafkaClient(cfg *KafkaClientCfg) (*KafkaClient, error) {
 
 	kafkaCfg := sarama.NewConfig()
 	kafkaCfg.ClientID = clientID
-	kafkaCfg.Producer.AckSuccesses = true
+	kafkaCfg.Producer.Return.Successes = true
+	kafkaCfg.Producer.Return.Errors = true
 	kafkaCfg.Producer.Compression = sarama.CompressionSnappy
 	kafkaCfg.Producer.Retry.Backoff = time.Second
 	kafkaCfg.Producer.Flush.Frequency = 500 * time.Millisecond
@@ -90,7 +91,7 @@ func NewKafkaClient(cfg *KafkaClientCfg) (*KafkaClient, error) {
 		return nil, fmt.Errorf("failed to create Kafka client, cause=(%v)", err)
 	}
 
-	wrappedProducer, err := sarama.NewProducerFromClient(wrappedClient)
+	wrappedProducer, err := sarama.NewAsyncProducerFromClient(wrappedClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Kafka producer, cause=(%v)", err)
 	}
