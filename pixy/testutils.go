@@ -42,8 +42,8 @@ func ResponseBody(r *http.Response) string {
 }
 
 type TestKafkaClient struct {
-	client   *sarama.Client
-	consumer *sarama.Consumer
+	client   sarama.Client
+	consumer sarama.Consumer
 }
 
 func NewTestKafkaClient(brokers []string) *TestKafkaClient {
@@ -72,7 +72,7 @@ func (tkc *TestKafkaClient) getOffsets(topic string) []int64 {
 		panic(err)
 	}
 	for _, p := range partitions {
-		offset, err := tkc.client.GetOffset(topic, p, sarama.LatestOffsets)
+		offset, err := tkc.client.GetOffset(topic, p, sarama.OffsetNewest)
 		if err != nil {
 			panic(err)
 		}

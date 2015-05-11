@@ -12,6 +12,10 @@ type Config struct {
 		DialTimeout  time.Duration // How long to wait for the initial connection to succeed before timing out and returning an error (default 30s).
 		ReadTimeout  time.Duration // How long to wait for a response before timing out and returning an error (default 30s).
 		WriteTimeout time.Duration // How long to wait for a transmit to succeed before timing out and returning an error (default 30s).
+
+		// KeepAlive specifies the keep-alive period for an active network connection.
+		// If zero, keep-alives are disabled. (default is 0: disabled).
+		KeepAlive time.Duration
 	}
 
 	// Metadata is the namespace for metadata management properties used by the Client, and shared by the Producer/Consumer.
@@ -41,8 +45,16 @@ type Config struct {
 		// Generates partitioners for choosing the partition to send messages to (defaults to hashing the message key).
 		// Similar to the `partitioner.class` setting for the JVM producer.
 		Partitioner PartitionerConstructor
-		// If enabled, successfully delivered messages will be returned on the Successes channel (default disabled).
-		AckSuccesses bool
+
+		// Return specifies what channels will be populated. If they are set to true, you must read from
+		// the respective channels to prevent deadlock.
+		Return struct {
+			// If enabled, successfully delivered messages will be returned on the Successes channel (default disabled).
+			Successes bool
+
+			// If enabled, messages that failed to deliver will be returned on the Errors channel, including error (default enabled).
+			Errors bool
+		}
 
 		// The following config options control how often messages are batched up and sent to the broker. By default,
 		// messages are sent as fast as possible, and all messages received while the current batch is in-flight are placed
@@ -68,6 +80,11 @@ type Config struct {
 
 	// Consumer is the namespace for configuration related to consuming messages, used by the Consumer.
 	Consumer struct {
+		Retry struct {
+			// How long to wait after a failing to read from a partition before trying again (default 2s).
+			Backoff time.Duration
+		}
+
 		// Fetch is the namespace for controlling how many bytes are retrieved by any given request.
 		Fetch struct {
 			// The minimum number of message bytes to fetch in a request - the broker will wait until at least this many are available.
@@ -87,6 +104,13 @@ type Config struct {
 		// 100-500ms is a reasonable range for most cases. Kafka only supports precision up to milliseconds; nanoseconds will be truncated.
 		// Equivalent to the JVM's `fetch.wait.max.ms`.
 		MaxWaitTime time.Duration
+
+		// Return specifies what channels will be populated. If they are set to true, you must read from
+		// them to prevent deadlock.
+		Return struct {
+			// If enabled, any errors that occured while consuming are returned on the Errors channel (default disabled).
+			Errors bool
+		}
 	}
 
 	// A user-provided string sent with every request to the brokers for logging, debugging, and auditing purposes.
@@ -117,10 +141,13 @@ func NewConfig() *Config {
 	c.Producer.Partitioner = NewHashPartitioner
 	c.Producer.Retry.Max = 3
 	c.Producer.Retry.Backoff = 100 * time.Millisecond
+	c.Producer.Return.Errors = true
 
 	c.Consumer.Fetch.Min = 1
 	c.Consumer.Fetch.Default = 32768
+	c.Consumer.Retry.Backoff = 2 * time.Second
 	c.Consumer.MaxWaitTime = 250 * time.Millisecond
+	c.Consumer.Return.Errors = false
 
 	c.ChannelBufferSize = 256
 
@@ -163,19 +190,21 @@ func (c *Config) Validate() error {
 		return ConfigurationError("Invalid Net.ReadTimeout, must be > 0")
 	case c.Net.WriteTimeout <= 0:
 		return ConfigurationError("Invalid Net.WriteTimeout, must be > 0")
+	case c.Net.KeepAlive < 0:
+		return ConfigurationError("Invalid Net.KeepAlive, must be >= 0")
 	}
 
 	// validate the Metadata values
 	switch {
 	case c.Metadata.Retry.Max < 0:
 		return ConfigurationError("Invalid Metadata.Retry.Max, must be >= 0")
-	case c.Metadata.Retry.Backoff <= time.Duration(0):
-		return ConfigurationError("Invalid Metadata.Retry.Backoff, must be > 0")
-	case c.Metadata.RefreshFrequency < time.Duration(0):
+	case c.Metadata.Retry.Backoff < 0:
+		return ConfigurationError("Invalid Metadata.Retry.Backoff, must be >= 0")
+	case c.Metadata.RefreshFrequency < 0:
 		return ConfigurationError("Invalid Metadata.RefreshFrequency, must be >= 0")
 	}
 
-	// validate the Produce values
+	// validate the Producer values
 	switch {
 	case c.Producer.MaxMessageBytes <= 0:
 		return ConfigurationError("Invalid Producer.MaxMessageBytes, must be > 0")
@@ -196,12 +225,12 @@ func (c *Config) Validate() error {
 	case c.Producer.Flush.MaxMessages > 0 && c.Producer.Flush.MaxMessages < c.Producer.Flush.Messages:
 		return ConfigurationError("Invalid Producer.Flush.MaxMessages, must be >= Producer.Flush.Messages when set")
 	case c.Producer.Retry.Max < 0:
-		return ConfigurationError("Invalid Producer.MaxRetries, must be >= 0")
+		return ConfigurationError("Invalid Producer.Retry.Max, must be >= 0")
 	case c.Producer.Retry.Backoff < 0:
-		return ConfigurationError("Invalid Producer.RetryBackoff, must be >= 0")
+		return ConfigurationError("Invalid Producer.Retry.Backoff, must be >= 0")
 	}
 
-	// validate the Consume values
+	// validate the Consumer values
 	switch {
 	case c.Consumer.Fetch.Min <= 0:
 		return ConfigurationError("Invalid Consumer.Fetch.Min, must be > 0")
@@ -211,6 +240,8 @@ func (c *Config) Validate() error {
 		return ConfigurationError("Invalid Consumer.Fetch.Max, must be >= 0")
 	case c.Consumer.MaxWaitTime < 1*time.Millisecond:
 		return ConfigurationError("Invalid Consumer.MaxWaitTime, must be > 1ms")
+	case c.Consumer.Retry.Backoff < 0:
+		return ConfigurationError("Invalid Consumer.Retry.Backoff, must be >= 0")
 	}
 
 	// validate misc shared values
