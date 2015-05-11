@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/Shopify/sarama"
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 )
 
@@ -215,6 +216,45 @@ func (s *ServiceSuite) TestTCPServerCrash(c *C) {
 	// Then
 	svc.Stop()
 	svc.Wait4Stop()
+}
+
+// Messages that have maximum possible size indeed go through. Note that we
+// assume that the broker's limit is the same as the producer's one or higher.
+func (s *ServiceSuite) TestLargestMessage(c *C) {
+	offsetsBefore := s.tkc.getOffsets("service-test")
+	maxMsgSize := sarama.NewConfig().Producer.MaxMessageBytes - max_size_adjustment
+	msg := GenMessage(maxMsgSize)
+	s.serviceCfg.TCPAddr = "127.0.0.1:55503"
+	svc, _ := SpawnService(s.serviceCfg)
+	// When
+	r := PostChunked(s.tcpClient, "http://127.0.0.1:55503/topics/service-test?key=foo", msg)
+	svc.Stop()
+	svc.Wait4Stop()
+	// Then
+	AssertHTTPResp(c, r, http.StatusOK, "")
+	offsetsAfter := s.tkc.getOffsets("service-test")
+	messages := s.tkc.getMessages("service-test", offsetsBefore, offsetsAfter)
+	readMsg := messages[1][0]
+	c.Assert(readMsg, Equals, msg)
+}
+
+// Messages that are larger then producer's MaxMessageBytes size are silently
+// dropped. Note that we assume that the broker's limit is the same as the
+// producer's one or higher.
+func (s *ServiceSuite) TestMessageTooLarge(c *C) {
+	offsetsBefore := s.tkc.getOffsets("service-test")
+	maxMsgSize := sarama.NewConfig().Producer.MaxMessageBytes - max_size_adjustment + 1
+	msg := GenMessage(maxMsgSize)
+	s.serviceCfg.TCPAddr = "127.0.0.1:55504"
+	svc, _ := SpawnService(s.serviceCfg)
+	// When
+	r := PostChunked(s.tcpClient, "http://127.0.0.1:55504/topics/service-test?key=foo", msg)
+	svc.Stop()
+	svc.Wait4Stop()
+	// Then
+	AssertHTTPResp(c, r, http.StatusOK, "")
+	offsetsAfter := s.tkc.getOffsets("service-test")
+	c.Assert(offsetsAfter, DeepEquals, offsetsBefore)
 }
 
 // If the Unix API Server crashes then the service terminates gracefully.

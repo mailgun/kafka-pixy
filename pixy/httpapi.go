@@ -2,6 +2,7 @@ package pixy
 
 import (
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"strconv"
@@ -104,16 +105,31 @@ func (as *HTTPAPIServer) handleProduce(w http.ResponseWriter, r *http.Request) {
 	key := getParamBytes(r, routingKey)
 
 	// Get the message body from the HTTP request.
-	messageSizeStr := r.Header.Get(contentLength)
-	messageSize, err := strconv.Atoi(messageSizeStr)
-	if err != nil || messageSize < 0 {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(fmt.Sprintf("Invalid or missing %s header: %s",
-			contentLength, messageSizeStr)))
+	if _, ok := r.Header[contentLength]; !ok {
+		errorText := fmt.Sprintf("Missing %s header", contentLength)
+		http.Error(w, errorText, http.StatusBadRequest)
 		return
 	}
-	message := make([]byte, messageSize)
-	r.Body.Read(message)
+	messageSizeStr := r.Header.Get(contentLength)
+	messageSize, err := strconv.Atoi(messageSizeStr)
+	if err != nil {
+		errorText := fmt.Sprintf("Invalid %s header: %s", contentLength, messageSizeStr)
+		http.Error(w, errorText, http.StatusBadRequest)
+		return
+	}
+
+	message, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		errorText := fmt.Sprintf("Failed to read a message: cause=(%v)", err)
+		http.Error(w, errorText, http.StatusBadRequest)
+		return
+	}
+	if len(message) != messageSize {
+		errorText := fmt.Sprintf("Message size does not match %s: expected=%v, actual=%v",
+			contentLength, messageSize, len(message))
+		http.Error(w, errorText, http.StatusBadRequest)
+		return
+	}
 
 	// Asynchronously submit the message to the Kafka client.
 	as.producer.Produce(topic, key, message)
