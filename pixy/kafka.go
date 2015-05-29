@@ -79,6 +79,7 @@ func NewKafkaClient(cfg *KafkaClientCfg) (*KafkaClient, error) {
 
 	kafkaCfg := sarama.NewConfig()
 	kafkaCfg.ClientID = clientID
+	kafkaCfg.Producer.RequiredAcks = sarama.WaitForAll
 	kafkaCfg.Producer.Return.Successes = true
 	kafkaCfg.Producer.Return.Errors = true
 	kafkaCfg.Producer.Compression = sarama.CompressionSnappy
