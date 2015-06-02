@@ -27,7 +27,7 @@ type HTTPAPIServer struct {
 	addr       string
 	listener   net.Listener
 	httpServer *manners.GracefulServer
-	producer   Producer
+	kafkaProxy KafkaProxy
 	errorCh    chan error
 }
 
@@ -35,8 +35,8 @@ type HTTPAPIServer struct {
 // on the specified network/address and forwards them to the associated
 // Kafka client. The server initialization is performed asynchronously and
 // if it fails then the error is sent down to `HTTPAPIServer.ErrorCh()`.
-func SpawnHTTPAPIServer(network, addr string, producer Producer) (*HTTPAPIServer, error) {
-	as, err := NewHTTPAPIServer(network, addr, producer)
+func SpawnHTTPAPIServer(network, addr string, kafkaProxy KafkaProxy) (*HTTPAPIServer, error) {
+	as, err := NewHTTPAPIServer(network, addr, kafkaProxy)
 	if err != nil {
 		return nil, err
 	}
@@ -47,9 +47,9 @@ func SpawnHTTPAPIServer(network, addr string, producer Producer) (*HTTPAPIServer
 // NewHTTPAPIServer creates an HTTP server instance that will accept API
 // requests specified network/address and forwards them to the associated
 // Kafka client.
-func NewHTTPAPIServer(network, addr string, producer Producer) (*HTTPAPIServer, error) {
-	if producer == nil {
-		return nil, fmt.Errorf("producer must be specified")
+func NewHTTPAPIServer(network, addr string, kafkaProxy KafkaProxy) (*HTTPAPIServer, error) {
+	if kafkaProxy == nil {
+		return nil, fmt.Errorf("kafkaProxy must be specified")
 	}
 	// Start listening on the specified unix domain socket address.
 	listener, err := net.Listen(network, addr)
@@ -63,7 +63,7 @@ func NewHTTPAPIServer(network, addr string, producer Producer) (*HTTPAPIServer, 
 		addr:       addr,
 		listener:   manners.NewListener(listener),
 		httpServer: httpServer,
-		producer:   producer,
+		kafkaProxy: kafkaProxy,
 		errorCh:    make(chan error, 1),
 	}
 	// Configure the API request handlers.
@@ -131,8 +131,8 @@ func (as *HTTPAPIServer) handleProduce(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Asynchronously submit the message to the Kafka client.
-	as.producer.Produce(topic, key, message)
+	// Asynchronously submit the message to the Kafka cluster.
+	as.kafkaProxy.Produce(topic, key, message)
 	w.WriteHeader(http.StatusOK)
 }
 

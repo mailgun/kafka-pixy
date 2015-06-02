@@ -14,7 +14,7 @@ type ServiceCfg struct {
 }
 
 type Service struct {
-	kafkaClient *KafkaClient
+	kafkaClient *KafkaProxyImpl
 	unixServer  *HTTPAPIServer
 	tcpServer   *HTTPAPIServer
 	quitCh      chan struct{}
@@ -22,29 +22,29 @@ type Service struct {
 }
 
 func SpawnService(cfg *ServiceCfg) (*Service, error) {
-	kafkaClientCfg := NewKafkaClientCfg()
+	kafkaClientCfg := NewKafkaProxyCfg()
 	kafkaClientCfg.BrokerAddrs = cfg.BrokerAddrs
-	kafkaClient, err := NewKafkaClient(kafkaClientCfg)
+	kafkaProxy, err := NewKafkaProxy(kafkaClientCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to spawn Kafka client, cause=(%v)", err)
 	}
 
-	unixServer, err := NewHTTPAPIServer(NetworkUnix, cfg.UnixAddr, kafkaClient)
+	unixServer, err := NewHTTPAPIServer(NetworkUnix, cfg.UnixAddr, kafkaProxy)
 	if err != nil {
-		kafkaClient.Close()
+		kafkaProxy.Dispose()
 		return nil, fmt.Errorf("failed to start Unix socket based HTTP API, cause=(%v)", err)
 	}
 
 	var tcpServer *HTTPAPIServer
 	if cfg.TCPAddr != "" {
-		if tcpServer, err = NewHTTPAPIServer(NetworkTCP, cfg.TCPAddr, kafkaClient); err != nil {
-			kafkaClient.Close()
+		if tcpServer, err = NewHTTPAPIServer(NetworkTCP, cfg.TCPAddr, kafkaProxy); err != nil {
+			kafkaProxy.Dispose()
 			return nil, fmt.Errorf("failed to start TCP socket based HTTP API, cause=(%v)", err)
 		}
 	}
 
 	s := &Service{
-		kafkaClient: kafkaClient,
+		kafkaClient: kafkaProxy,
 		unixServer:  unixServer,
 		tcpServer:   tcpServer,
 		quitCh:      make(chan struct{}),

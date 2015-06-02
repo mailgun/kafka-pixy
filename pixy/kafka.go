@@ -14,12 +14,15 @@ const (
 	chanBufferSize = 100
 )
 
-type Producer interface {
-	// Produce accepts `message` to be asynchronously written to Kafka. The
-	// message is guaranteed to be submitted to Kafka eventually, but that may
-	// not happen instantaneously if the destination Kafka broker is down. In
-	// that case the message is deferred and submitted to the broker as soon as
-	// it gets back online.
+// KafkaProxy defines interface of the engine behind Kafka-Pixy. It has the
+// only concrete implementation that is `KafkaPixyImpl` and provided mainly to
+// allow mocking it API frontend unit tests.
+type KafkaProxy interface {
+	// Produce accepts a message to be asynchronously sent to the configured
+	// Kafka cluster. It is possible that the message may be dropped if the
+	// destination Kafka broker (the leader of the topic partition that the
+	// message belongs to), keeps rejecting it or stays network unreachable for
+	// an extended period of time (see the retry policy in `sarama.ClientCfg`).
 	//
 	// If `topic` does not exist then it is created with the default queue
 	// parameters on the broker determined by `key`.
@@ -27,25 +30,26 @@ type Producer interface {
 	Produce(topic string, key, message []byte)
 }
 
-type KafkaClientCfg struct {
-	// Comma separated list of brokers.
-	BrokerAddrs []string
-	// A period of time that the client gives to `sarama.Producer` to submit
-	// buffered messages to Kafka. Should be large enough to avoid event loss
-	// when shutdown is performed during Kafka leader election.
-	ShutdownTimeout time.Duration
-	// A channel to dump failed messages into.
-	HandOffCh chan<- *producerResult
+type KafkaProxyImpl struct {
+	cfg           *KafkaProxyCfg
+	kafkaClient   sarama.Client
+	kafkaProducer sarama.AsyncProducer
+	dispatcherCh  chan *sarama.ProducerMessage
+	resultCh      chan *producerResult
+	deadMessageCh chan<- *producerResult
+	wg            sync.WaitGroup
 }
 
-type KafkaClient struct {
-	cfg             *KafkaClientCfg
-	wrappedClient   sarama.Client
-	wrappedProducer sarama.AsyncProducer
-	dispatcherCh    chan *sarama.ProducerMessage
-	resultCh        chan *producerResult
-	handOffCh       chan<- *producerResult
-	wg              sync.WaitGroup
+type KafkaProxyCfg struct {
+	// BrokerAddrs is a slice of Kafka broker connection strings.
+	BrokerAddrs []string
+	// A period of time that a proxy should allow to `sarama.Producer` to
+	// submit buffered messages to Kafka. Should be large enough to avoid
+	// event loss when shutdown is performed during Kafka leader election.
+	ShutdownTimeout time.Duration
+	// DeadMessageCh is a channel to dump undelivered messages into. It is used
+	// in testing only.
+	DeadMessageCh chan<- *producerResult
 }
 
 type producerResult struct {
@@ -53,25 +57,25 @@ type producerResult struct {
 	err error
 }
 
-func NewKafkaClientCfg() *KafkaClientCfg {
-	return &KafkaClientCfg{
+func NewKafkaProxyCfg() *KafkaProxyCfg {
+	return &KafkaProxyCfg{
 		ShutdownTimeout: 30 * time.Second,
 	}
 }
 
-// SpawnKafkaClient creates a `KafkaClient` instance and starts its internal
+// SpawnKafkaProxy creates a `KafkaProxy` instance and starts its internal
 // goroutines.
-func SpawnKafkaClient(cfg *KafkaClientCfg) (*KafkaClient, error) {
-	kc, err := NewKafkaClient(cfg)
+func SpawnKafkaProxy(cfg *KafkaProxyCfg) (*KafkaProxyImpl, error) {
+	kpi, err := NewKafkaProxy(cfg)
 	if err != nil {
 		return nil, err
 	}
-	kc.Start()
-	return kc, nil
+	kpi.Start()
+	return kpi, nil
 }
 
-// NewKafkaClient creates a `KafkaClient` instance.
-func NewKafkaClient(cfg *KafkaClientCfg) (*KafkaClient, error) {
+// NewKafkaProxy creates a `KafkaProxyImpl` instance.
+func NewKafkaProxy(cfg *KafkaProxyCfg) (*KafkaProxyImpl, error) {
 	clientID, err := newClientID()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate client id, cause=(%v)", err)
@@ -87,49 +91,49 @@ func NewKafkaClient(cfg *KafkaClientCfg) (*KafkaClient, error) {
 	kafkaCfg.Producer.Flush.Frequency = 500 * time.Millisecond
 	kafkaCfg.Producer.Flush.Bytes = 1024 * 1024
 
-	wrappedClient, err := sarama.NewClient(cfg.BrokerAddrs, kafkaCfg)
+	kafkaClient, err := sarama.NewClient(cfg.BrokerAddrs, kafkaCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Kafka client, cause=(%v)", err)
 	}
 
-	wrappedProducer, err := sarama.NewAsyncProducerFromClient(wrappedClient)
+	kafkaProducer, err := sarama.NewAsyncProducerFromClient(kafkaClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Kafka producer, cause=(%v)", err)
 	}
 
-	kc := &KafkaClient{
-		cfg:             cfg,
-		wrappedClient:   wrappedClient,
-		wrappedProducer: wrappedProducer,
-		dispatcherCh:    make(chan *sarama.ProducerMessage, chanBufferSize),
-		resultCh:        make(chan *producerResult, chanBufferSize),
-		handOffCh:       cfg.HandOffCh,
+	kpi := &KafkaProxyImpl{
+		cfg:           cfg,
+		kafkaClient:   kafkaClient,
+		kafkaProducer: kafkaProducer,
+		dispatcherCh:  make(chan *sarama.ProducerMessage, chanBufferSize),
+		resultCh:      make(chan *producerResult, chanBufferSize),
+		deadMessageCh: cfg.DeadMessageCh,
 	}
-	return kc, nil
+	return kpi, nil
 }
 
 // Start triggers asynchronous start of internal goroutines.
-func (kc *KafkaClient) Start() {
-	goGo("Merger", &kc.wg, kc.merger)
-	goGo("Dispatcher", &kc.wg, kc.dispatcher)
+func (kpi *KafkaProxyImpl) Start() {
+	goGo("Merger", &kpi.wg, kpi.merger)
+	goGo("Dispatcher", &kpi.wg, kpi.dispatcher)
 }
 
 // Stop triggers asynchronous client shutdown. Caller should use `wg` passed
-// to `SpawnKafkaClient` in order to wait for shutdown completion.
-func (kc *KafkaClient) Stop() {
-	close(kc.dispatcherCh)
+// to `SpawnKafkaProxy` in order to wait for shutdown completion.
+func (kpi *KafkaProxyImpl) Stop() {
+	close(kpi.dispatcherCh)
 }
 
 // Wait4Stop blocks until all internal goroutines are stopped.
-func (kc *KafkaClient) Wait4Stop() {
-	kc.wg.Wait()
+func (kpi *KafkaProxyImpl) Wait4Stop() {
+	kpi.wg.Wait()
 }
 
-// Close must be called if a `KafkaClient` instance, that has not been started,
-// needs to be discarded.
-func (kc *KafkaClient) Close() {
-	kc.wrappedProducer.Close()
-	kc.wrappedClient.Close()
+// Dispose must be called if a `KafkaProxyImpl` instance, that has not been
+// started with the `Start()` method needs to be discarded.
+func (kpi *KafkaProxyImpl) Dispose() {
+	kpi.kafkaProducer.Close()
+	kpi.kafkaClient.Close()
 }
 
 // Produce submits a message to the specified topic of the Kafka cluster using
@@ -137,7 +141,7 @@ func (kc *KafkaClient) Close() {
 //
 // An attempt to call `Produce` after the client stop has been triggered will
 // result in panic.
-func (kc *KafkaClient) Produce(topic string, key, message []byte) {
+func (kpi *KafkaProxyImpl) Produce(topic string, key, message []byte) {
 	// Preserve `nil` values while converting from `[]byte` to `sarama.Encoder`.
 	var keyEncoderOrNil sarama.Encoder
 	if key != nil {
@@ -149,7 +153,7 @@ func (kc *KafkaClient) Produce(topic string, key, message []byte) {
 		Key:   keyEncoderOrNil,
 		Value: sarama.ByteEncoder(message),
 	}
-	kc.dispatcherCh <- prodMsg
+	kpi.dispatcherCh <- prodMsg
 }
 
 // merger receives both acknowledged messages and producer errors from the
@@ -158,11 +162,11 @@ func (kc *KafkaClient) Produce(topic string, key, message []byte) {
 // be further inspected by the `dispatcher` goroutine.
 //
 // It keeps running until both `sarama.Producer` output channels are closed,
-// Then it closes the `KafkaClient.resultCh` to notify the `dispatcher`
+// Then it closes the `KafkaProxyImpl.resultCh` to notify the `dispatcher`
 // goroutine that all pending messages are processed and exits.
-func (kc *KafkaClient) merger() {
-	prodSuccessesCh := kc.wrappedProducer.Successes()
-	prodErrorsCh := kc.wrappedProducer.Errors()
+func (kpi *KafkaProxyImpl) merger() {
+	prodSuccessesCh := kpi.kafkaProducer.Successes()
+	prodErrorsCh := kpi.kafkaProducer.Errors()
 mergeLoop:
 	for channelsOpened := 2; channelsOpened > 0; {
 		select {
@@ -172,29 +176,29 @@ mergeLoop:
 				prodSuccessesCh = nil
 				continue mergeLoop
 			}
-			kc.resultCh <- &producerResult{msg: ackedMsg}
+			kpi.resultCh <- &producerResult{msg: ackedMsg}
 		case prodErr, channelOpened := <-prodErrorsCh:
 			if !channelOpened {
 				channelsOpened -= 1
 				prodErrorsCh = nil
 				continue mergeLoop
 			}
-			kc.resultCh <- &producerResult{msg: prodErr.Msg, err: prodErr.Err}
+			kpi.resultCh <- &producerResult{msg: prodErr.Msg, err: prodErr.Err}
 		}
 	}
 	// Close the result channel to notify the `dispatcher` goroutine that all
 	// pending messages have been processed.
-	close(kc.resultCh)
+	close(kpi.resultCh)
 }
 
-// dispatcher is the main `KafkaClient` goroutine. It receives messages from
+// dispatcher is the main `KafkaProxyImpl` goroutine. It receives messages from
 // `dispatchedCh` where they are send to by `Produce` method and submits them
 // to `sarama.Producer` for actual delivery. The dispatcher main goal is to
 // ensure that buffered messages are not lost during graceful shutdown. It
 // achieves that by allowing a time period after it stops receiving messages
 // via `dispatchCh` and when the `sarama.Producer` stop is triggered.
-func (kc *KafkaClient) dispatcher() {
-	dispatcherCh := kc.dispatcherCh
+func (kpi *KafkaProxyImpl) dispatcher() {
+	dispatcherCh := kpi.dispatcherCh
 	var prodInputCh chan<- *sarama.ProducerMessage
 	pendingMsgCount := 0
 	// The normal operation loop is implemented as two-stroke machine. On the
@@ -211,13 +215,13 @@ func (kc *KafkaClient) dispatcher() {
 			}
 			pendingMsgCount += 1
 			dispatcherCh = nil
-			prodInputCh = kc.wrappedProducer.Input()
+			prodInputCh = kpi.kafkaProducer.Input()
 		case prodInputCh <- prodMsg:
-			dispatcherCh = kc.dispatcherCh
+			dispatcherCh = kpi.dispatcherCh
 			prodInputCh = nil
-		case prodResult := <-kc.resultCh:
+		case prodResult := <-kpi.resultCh:
 			pendingMsgCount -= 1
-			kc.processResult(prodResult)
+			kpi.processResult(prodResult)
 		}
 	}
 gracefulShutdown:
@@ -226,38 +230,38 @@ gracefulShutdown:
 	// drops messages from the internal retry buffer down to its error channel.
 	// To make sure that all pending messages are submitted we give the Kafka
 	// cluster some time to recover, before we make the producer stop.
-	shutdownTimeoutCh := time.After(kc.cfg.ShutdownTimeout)
+	shutdownTimeoutCh := time.After(kpi.cfg.ShutdownTimeout)
 	for pendingMsgCount > 0 {
 		select {
 		case <-shutdownTimeoutCh:
 			goto shutdownNow
-		case prodResult := <-kc.resultCh:
+		case prodResult := <-kpi.resultCh:
 			pendingMsgCount -= 1
-			kc.processResult(prodResult)
+			kpi.processResult(prodResult)
 		}
 	}
 shutdownNow:
 	log.Infof("Stopping producer: pendingMsgCount=%d", pendingMsgCount)
-	kc.wrappedProducer.AsyncClose()
-	for prodResult := range kc.resultCh {
-		kc.processResult(prodResult)
+	kpi.kafkaProducer.AsyncClose()
+	for prodResult := range kpi.resultCh {
+		kpi.processResult(prodResult)
 	}
-	kc.wrappedClient.Close()
+	kpi.kafkaClient.Close()
 }
 
 // processResult inspects the production results and in case if it is an error
-// and a hand off channel was provided to `SpawnKafkaClient` the result is sent
+// and a hand off channel was provided to `SpawnKafkaProxy` the result is sent
 // down to that channel. The `handOffCh` is intended mainly for testing but can
 // also be used to implement some disaster recovery logic. E.g. write failed
 // messages to a local file, or something along these lines.
-func (kc *KafkaClient) processResult(result *producerResult) {
+func (kpi *KafkaProxyImpl) processResult(result *producerResult) {
 	if result.err != nil {
 		prodMsgRepr := fmt.Sprintf(`{Topic: "%s", Key: "%s", Value: "%s"}`,
 			result.msg.Topic, result.msg.Key, result.msg.Value)
 		log.Errorf("Failed to submit message: msg=%v, cause=(%v)",
 			prodMsgRepr, result.err)
-		if kc.handOffCh != nil {
-			kc.handOffCh <- result
+		if kpi.deadMessageCh != nil {
+			kpi.deadMessageCh <- result
 		}
 	}
 }

@@ -9,7 +9,7 @@ import (
 )
 
 type KafkaSuite struct {
-	cfg       *KafkaClientCfg
+	cfg       *KafkaProxyCfg
 	tkc       *TestKafkaClient
 	handOffCh chan *producerResult
 }
@@ -22,9 +22,9 @@ func (s *KafkaSuite) SetUpSuite(c *C) {
 
 func (s *KafkaSuite) SetUpTest(c *C) {
 	s.handOffCh = make(chan *producerResult, 100)
-	s.cfg = NewKafkaClientCfg()
+	s.cfg = NewKafkaProxyCfg()
 	s.cfg.BrokerAddrs = []string{testBroker}
-	s.cfg.HandOffCh = s.handOffCh
+	s.cfg.DeadMessageCh = s.handOffCh
 	s.tkc = NewTestKafkaClient(s.cfg.BrokerAddrs)
 }
 
@@ -36,33 +36,33 @@ func (s *KafkaSuite) TearDownTest(c *C) {
 // A started client can be stopped.
 func (s *KafkaSuite) TestStartAndStop(c *C) {
 	// Given
-	kafkaClient, err := SpawnKafkaClient(s.cfg)
+	kpi, err := SpawnKafkaProxy(s.cfg)
 	c.Assert(err, IsNil)
-	c.Assert(kafkaClient, NotNil)
+	c.Assert(kpi, NotNil)
 	// When
-	kafkaClient.Stop()
+	kpi.Stop()
 	// Then
-	kafkaClient.Wait4Stop()
+	kpi.Wait4Stop()
 }
 
 // If `key` is not `nil` then produced messages are deterministically
 // distributed between partitions based on the `key` hash.
 func (s *KafkaSuite) TestProduce(c *C) {
 	// Given
-	kafkaClient, _ := SpawnKafkaClient(s.cfg)
+	kpi, _ := SpawnKafkaProxy(s.cfg)
 	offsetsBefore := s.tkc.getOffsets("kafka-clt-test")
 	// When
 	for i := 0; i < 100; i++ {
-		kafkaClient.Produce("kafka-clt-test", []byte("1"), []byte(strconv.Itoa(i)))
+		kpi.Produce("kafka-clt-test", []byte("1"), []byte(strconv.Itoa(i)))
 	}
 	for i := 0; i < 100; i++ {
-		kafkaClient.Produce("kafka-clt-test", []byte("2"), []byte(strconv.Itoa(i)))
+		kpi.Produce("kafka-clt-test", []byte("2"), []byte(strconv.Itoa(i)))
 	}
 	for i := 0; i < 100; i++ {
-		kafkaClient.Produce("kafka-clt-test", []byte("3"), []byte(strconv.Itoa(i)))
+		kpi.Produce("kafka-clt-test", []byte("3"), []byte(strconv.Itoa(i)))
 	}
-	kafkaClient.Stop()
-	kafkaClient.Wait4Stop()
+	kpi.Stop()
+	kpi.Wait4Stop()
 	offsetsAfter := s.tkc.getOffsets("kafka-clt-test")
 	// Then
 	c.Assert(s.failedMessages(), DeepEquals, []string{})
@@ -75,14 +75,14 @@ func (s *KafkaSuite) TestProduce(c *C) {
 // all available partitions.
 func (s *KafkaSuite) TestProduceNilKey(c *C) {
 	// Given
-	kafkaClient, _ := SpawnKafkaClient(s.cfg)
+	kpi, _ := SpawnKafkaProxy(s.cfg)
 	offsetsBefore := s.tkc.getOffsets("kafka-clt-test")
 	// When
 	for i := 0; i < 100; i++ {
-		kafkaClient.Produce("kafka-clt-test", nil, []byte(strconv.Itoa(i)))
+		kpi.Produce("kafka-clt-test", nil, []byte(strconv.Itoa(i)))
 	}
-	kafkaClient.Stop()
-	kafkaClient.Wait4Stop()
+	kpi.Stop()
+	kpi.Wait4Stop()
 	offsetsAfter := s.tkc.getOffsets("kafka-clt-test")
 	// Then
 	c.Assert(s.failedMessages(), DeepEquals, []string{})
@@ -99,15 +99,15 @@ func (s *KafkaSuite) TestProduceNilKey(c *C) {
 func (s *KafkaSuite) TestTooSmallShutdownTimeout(c *C) {
 	// Given
 	s.cfg.ShutdownTimeout = 0
-	kafkaClient, _ := SpawnKafkaClient(s.cfg)
+	kpi, _ := SpawnKafkaProxy(s.cfg)
 	offsetsBefore := s.tkc.getOffsets("kafka-clt-test")
 	// When
 	for i := 0; i < 100; i++ {
 		v := []byte(strconv.Itoa(i))
-		kafkaClient.Produce("kafka-clt-test", v, v)
+		kpi.Produce("kafka-clt-test", v, v)
 	}
-	kafkaClient.Stop()
-	kafkaClient.Wait4Stop()
+	kpi.Stop()
+	kpi.Wait4Stop()
 	offsetsAfter := s.tkc.getOffsets("kafka-clt-test")
 	// Then
 	c.Assert(s.failedMessages(), DeepEquals, []string{})
@@ -120,14 +120,14 @@ func (s *KafkaSuite) TestTooSmallShutdownTimeout(c *C) {
 // submitted to a particular partition determined by the empty key hash.
 func (s *KafkaSuite) TestProduceEmptyKey(c *C) {
 	// Given
-	kafkaClient, _ := SpawnKafkaClient(s.cfg)
+	kpi, _ := SpawnKafkaProxy(s.cfg)
 	offsetsBefore := s.tkc.getOffsets("kafka-clt-test")
 	// When
 	for i := 0; i < 100; i++ {
-		kafkaClient.Produce("kafka-clt-test", []byte{}, []byte(strconv.Itoa(i)))
+		kpi.Produce("kafka-clt-test", []byte{}, []byte(strconv.Itoa(i)))
 	}
-	kafkaClient.Stop()
-	kafkaClient.Wait4Stop()
+	kpi.Stop()
+	kpi.Wait4Stop()
 	offsetsAfter := s.tkc.getOffsets("kafka-clt-test")
 	// Then
 	c.Assert(s.failedMessages(), DeepEquals, []string{})
