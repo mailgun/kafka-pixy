@@ -7,31 +7,35 @@ import (
 	"time"
 )
 
-// writerLogger outputs the logs to the underlying writer
+// writerLogger is a generic type of a logger that sends messages to the underlying io.Writer.
 type writerLogger struct {
+	sev Severity
+
 	w io.Writer
 }
 
-func NewConsoleLogger(config *LogConfig) (Logger, error) {
-	return &writerLogger{w: os.Stdout}, nil
+func (l *writerLogger) Writer(sev Severity) io.Writer {
+	// is this logger configured to log at the provided severity?
+	if sev >= l.sev {
+		return l.w
+	}
+	return nil
 }
 
-func (l *writerLogger) Info(message string) {
-	l.print(message)
+// consoleLogger is a type of writerLogger that sends messages to the standard output.
+type consoleLogger struct {
+	*writerLogger // provides Writer() through embedding
 }
 
-func (l *writerLogger) Warning(message string) {
-	l.print(message)
+func NewConsoleLogger(conf Config) (Logger, error) {
+	sev, err := severityFromString(conf.Severity)
+	if err != nil {
+		return nil, err
+	}
+	return &consoleLogger{&writerLogger{sev, os.Stdout}}, nil
 }
 
-func (l *writerLogger) Error(message string) {
-	l.print(message)
-}
-
-func (l *writerLogger) Fatal(message string) {
-	l.print(message)
-}
-
-func (l *writerLogger) print(message string) {
-	fmt.Fprintf(l.w, "%v: %v\n", time.Now().UTC().Format(time.StampMilli), message)
+func (l *consoleLogger) FormatMessage(sev Severity, caller *CallerInfo, format string, args ...interface{}) string {
+	return fmt.Sprintf("%v %s %s PID:%d [%s:%d:%s] %s\n",
+		time.Now().UTC().Format(time.StampMilli), appname, sev, pid, caller.FileName, caller.LineNo, caller.FuncName, fmt.Sprintf(format, args...))
 }

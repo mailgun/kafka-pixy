@@ -1,45 +1,60 @@
 package log
 
 import (
+	"fmt"
+	"io"
 	"log/syslog"
-	"os"
-	"path/filepath"
 )
 
-// Syslogger sends all your logs to syslog
-// Note: the logs are going to MAIL_LOG facility
+// sysLogger logs messages to rsyslog MAIL_LOG facility.
 type sysLogger struct {
-	writer *syslog.Writer
+	sev Severity
+
+	infoW  io.Writer
+	warnW  io.Writer
+	errorW io.Writer
 }
 
-var newSyslogWriter = syslog.New // for mocking in tests
-
-func NewSysLogger(config *LogConfig) (Logger, error) {
-	writer, err := newSyslogWriter(syslog.LOG_MAIL, getAppName())
+func NewSysLogger(conf Config) (Logger, error) {
+	infoW, err := syslog.New(syslog.LOG_MAIL|syslog.LOG_INFO, appname)
 	if err != nil {
 		return nil, err
 	}
 
-	return &sysLogger{writer: writer}, nil
+	warnW, err := syslog.New(syslog.LOG_MAIL|syslog.LOG_WARNING, appname)
+	if err != nil {
+		return nil, err
+	}
+
+	errorW, err := syslog.New(syslog.LOG_MAIL|syslog.LOG_ERR, appname)
+	if err != nil {
+		return nil, err
+	}
+
+	sev, err := severityFromString(conf.Severity)
+	if err != nil {
+		return nil, err
+	}
+
+	return &sysLogger{sev, infoW, warnW, errorW}, nil
 }
 
-// Get process name
-func getAppName() string {
-	return filepath.Base(os.Args[0])
+func (l *sysLogger) Writer(sev Severity) io.Writer {
+	// is this logger configured to log at the provided severity?
+	if sev >= l.sev {
+		// return an appropriate writer
+		switch sev {
+		case SeverityInfo:
+			return l.infoW
+		case SeverityWarning:
+			return l.warnW
+		default:
+			return l.errorW
+		}
+	}
+	return nil
 }
 
-func (l *sysLogger) Info(message string) {
-	l.writer.Info(message)
-}
-
-func (l *sysLogger) Warning(message string) {
-	l.writer.Warning(message)
-}
-
-func (l *sysLogger) Error(message string) {
-	l.writer.Err(message)
-}
-
-func (l *sysLogger) Fatal(message string) {
-	l.writer.Emerg(message)
+func (l *sysLogger) FormatMessage(sev Severity, caller *CallerInfo, format string, args ...interface{}) string {
+	return fmt.Sprintf("%s [%s:%d] %s", sev, caller.FileName, caller.LineNo, fmt.Sprintf(format, args...))
 }

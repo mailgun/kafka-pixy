@@ -1,203 +1,103 @@
 package log
 
 import (
-	"errors"
 	"fmt"
-	"os"
-	"runtime"
-	"strings"
-	"sync/atomic"
+	"io"
 )
 
 var loggers []Logger
 
-var pid = os.Getpid()
-var currentSeverity Severity
-
-// Severity implementation is borrowed from glog, uses sync/atomic int32
-type Severity int32
-
+// Supported log types.
 const (
-	SeverityInfo Severity = iota
-	SeverityWarn
-	SeverityError
-	SeverityFatal
+	Console = "console"
+	Syslog  = "syslog"
+	UDPLog  = "udplog"
 )
 
-var severityName = map[Severity]string{
-	SeverityInfo:  "INFO",
-	SeverityWarn:  "WARN",
-	SeverityError: "ERROR",
-	SeverityFatal: "FATAL",
-}
-
-// get returns the value of the severity.
-func (s *Severity) Get() Severity {
-	return Severity(atomic.LoadInt32((*int32)(s)))
-}
-
-// set sets the value of the severity.
-func (s *Severity) Set(val Severity) {
-	atomic.StoreInt32((*int32)(s), int32(val))
-}
-
-// less returns if this severity is greater than passed severity
-func (s *Severity) Gt(val Severity) bool {
-	return s.Get() > val
-}
-
-func (s Severity) String() string {
-	n, ok := severityName[s]
-	if !ok {
-		return "UNKNOWN SEVERITY"
-	}
-	return n
-}
-
-func SeverityFromString(s string) (Severity, error) {
-	s = strings.ToUpper(s)
-	for k, val := range severityName {
-		if val == s {
-			return k, nil
-		}
-	}
-	return -1, fmt.Errorf("unsupported severity: %s", s)
-}
-
-// Logger is a unified interface for all loggers.
+// Logger is an interface that should be implemented by all loggers wishing to participate
+// in the logger chain initialized by this package.
 type Logger interface {
-	Info(string)
-	Warning(string)
-	Error(string)
-	Fatal(string)
+	// Writer returns logger's underlying io.Writer used to write log messages to.
+	//
+	// It may be, for example, the standard output for a console logger or a socket
+	// connection for a UDP logger.
+	//
+	// Should return `nil` if the logger is not supposed to log at the specified severity.
+	Writer(Severity) io.Writer
+
+	// FormatMessage constructs and returns a final message that will go to the logger's
+	// output channel.
+	FormatMessage(Severity, *CallerInfo, string, ...interface{}) string
 }
 
-type logger struct{}
-
-// Logging configuration to be passed to all loggers during initialization.
-type LogConfig struct {
+// Config represents a configuration of an individual logger.
+type Config struct {
+	// Name is a logger's identificator used to instantiate a proper logger type
+	// from a config.
 	Name string
+
+	// Severity indicates the minimum severity a logger will be logging messages at.
+	Severity string
 }
 
-func (c LogConfig) String() string {
-	return fmt.Sprintf("LogConfig(Name=%v)", c.Name)
+// Init initializes the logging package with the provided loggers.
+func Init(l ...Logger) {
+	for _, logger := range l {
+		loggers = append(loggers, logger)
+	}
 }
 
-// SetSeverity sets current logging severity. Acceptable values are SeverityInfo, SeverityWarn, SeverityError, SeverityFatal
-func SetSeverity(s Severity) {
-	currentSeverity.Set(s)
-}
-
-// GetSeverity returns currently set severity.
-func GetSeverity() Severity {
-	return currentSeverity
-}
-
-// Logging initialization, must be called at the beginning of your cool app.
-func Init(logConfigs []*LogConfig) error {
-	for _, config := range logConfigs {
-		logger, err := newLogger(config)
+// InitWithConfig instantiates loggers based on the provided configs and initializes
+// the package with them.
+func InitWithConfig(configs ...Config) error {
+	for _, config := range configs {
+		l, err := NewLogger(config)
 		if err != nil {
 			return err
 		}
-		loggers = append(loggers, logger)
+		loggers = append(loggers, l)
 	}
 	return nil
 }
 
-// Make a proper logger from a given configuration.
-func newLogger(config *LogConfig) (Logger, error) {
+// NewLogger makes a proper logger from the given configuration.
+func NewLogger(config Config) (Logger, error) {
 	switch config.Name {
-	case "console":
+	case Console:
 		return NewConsoleLogger(config)
-	case "syslog":
+	case Syslog:
 		return NewSysLogger(config)
+	case UDPLog:
+		return NewUDPLogger(config)
 	}
-	return nil, errors.New(fmt.Sprintf("Unknown logger: %v", config))
+	return nil, fmt.Errorf("unknown logger: %v", config)
 }
 
 // Infof logs to the INFO log.
 func Infof(format string, args ...interface{}) {
-	if currentSeverity.Gt(SeverityInfo) {
-		return
-	}
-	message := makeMessage(SeverityInfo, format, args...)
 	for _, logger := range loggers {
-		logger.Info(message)
+		writeMessage(logger, 1, SeverityInfo, format, args...)
 	}
 }
 
-// Warningf logs to the WARNING and INFO logs.
+// Warningf logs to the WARN and INFO logs.
 func Warningf(format string, args ...interface{}) {
-	if currentSeverity.Gt(SeverityWarn) {
-		return
-	}
-	message := makeMessage(SeverityWarn, format, args...)
 	for _, logger := range loggers {
-		logger.Warning(message)
+		writeMessage(logger, 1, SeverityWarning, format, args...)
 	}
 }
 
-// Errorf logs to the ERROR, WARNING, and INFO logs.
+// Errorf logs to the ERROR, WARN, and INFO logs.
 func Errorf(format string, args ...interface{}) {
-	if currentSeverity.Gt(SeverityError) {
-		return
-	}
-	message := makeMessage(SeverityError, format, args...)
 	for _, logger := range loggers {
-		logger.Error(message)
+		writeMessage(logger, 1, SeverityError, format, args...)
 	}
 }
 
-// Fatalf logs to the FATAL, ERROR, WARNING, and INFO logs,
-// including a stack trace of all running goroutines, then calls os.Exit(255).
-func Fatalf(format string, args ...interface{}) {
-	if currentSeverity.Gt(SeverityFatal) {
-		return
+func writeMessage(logger Logger, callDepth int, sev Severity, format string, args ...interface{}) {
+	caller := getCallerInfo(callDepth + 1)
+	if w := logger.Writer(sev); w != nil {
+		message := logger.FormatMessage(sev, caller, format, args...)
+		io.WriteString(w, message)
 	}
-	message := makeMessage(SeverityFatal, format, args...)
-	stacks := stackTraces()
-	for _, logger := range loggers {
-		logger.Fatal(message)
-		logger.Fatal(stacks)
-	}
-
-	exit()
-}
-
-func makeMessage(sev Severity, format string, args ...interface{}) string {
-	file, line := callerInfo()
-	return fmt.Sprintf("%s PID:%d [%s:%d] %s", sev, pid, file, line, fmt.Sprintf(format, args...))
-}
-
-// Return stack traces of all the running goroutines.
-func stackTraces() string {
-	trace := make([]byte, 100000)
-	nbytes := runtime.Stack(trace, true)
-	return string(trace[:nbytes])
-}
-
-// Return a file name and a line number.
-func callerInfo() (string, int) {
-	_, file, line, ok := runtimeCaller(3) // number of frames to the user's call.
-
-	if !ok {
-		file = "unknown"
-		line = 0
-	} else {
-		slashPosition := strings.LastIndex(file, "/")
-		if slashPosition >= 0 {
-			file = file[slashPosition+1:]
-		}
-	}
-
-	return file, line
-}
-
-// runtime functions for mocking
-
-var runtimeCaller = runtime.Caller
-
-var exit = func() {
-	os.Exit(255)
 }

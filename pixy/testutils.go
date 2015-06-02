@@ -28,8 +28,8 @@ var initLogOnce = sync.Once{}
 
 func InitTestLog() {
 	initLogOnce.Do(func() {
-		log.Init([]*log.LogConfig{&log.LogConfig{Name: "console"}})
-		log.SetSeverity(log.SeverityInfo)
+		consoleLogger, _ := log.NewConsoleLogger(log.Config{Severity: "info"})
+		log.Init(consoleLogger)
 	})
 }
 
