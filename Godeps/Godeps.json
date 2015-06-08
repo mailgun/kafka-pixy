@@ -6,14 +6,9 @@
 	],
 	"Deps": [
 		{
-			"ImportPath": "code.google.com/p/snappy-go/snappy",
-			"Comment": "null-20",
-			"Rev": "8850bd446ad6f18a271a08aae26bdf85bdf87c7f"
-		},
-		{
 			"ImportPath": "github.com/Shopify/sarama",
-			"Comment": "v1.4.0",
-			"Rev": "68beb72dad7e7fce710fcff49995795fa0e3da6e"
+			"Comment": "v1.4.2",
+			"Rev": "d546818f24718ecca1fe4c84c2b834109746da86"
 		},
 		{
 			"ImportPath": "github.com/eapache/go-resiliency/breaker",
@@ -24,6 +19,10 @@
 			"ImportPath": "github.com/eapache/queue",
 			"Comment": "v1.0.1-2-gd1df561",
 			"Rev": "d1df561eb6b9ffdac8dd98f943e9e9096c76c059"
+		},
+		{
+			"ImportPath": "github.com/golang/snappy/snappy",
+			"Rev": "eaa750b9bf4dcb7cb20454be850613b66cda3273"
 		},
 		{
 			"ImportPath": "github.com/gorilla/context",
