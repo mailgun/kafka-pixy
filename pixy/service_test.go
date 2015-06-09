@@ -222,7 +222,7 @@ func (s *ServiceSuite) TestTCPServerCrash(c *C) {
 // assume that the broker's limit is the same as the producer's one or higher.
 func (s *ServiceSuite) TestLargestMessage(c *C) {
 	offsetsBefore := s.tkc.getOffsets("service-test")
-	maxMsgSize := sarama.NewConfig().Producer.MaxMessageBytes - max_size_adjustment
+	maxMsgSize := sarama.NewConfig().Producer.MaxMessageBytes - ProdMsgMetadataSize([]byte("foo"))
 	msg := GenMessage(maxMsgSize)
 	s.serviceCfg.TCPAddr = "127.0.0.1:55503"
 	svc, _ := SpawnService(s.serviceCfg)
@@ -243,7 +243,7 @@ func (s *ServiceSuite) TestLargestMessage(c *C) {
 // producer's one or higher.
 func (s *ServiceSuite) TestMessageTooLarge(c *C) {
 	offsetsBefore := s.tkc.getOffsets("service-test")
-	maxMsgSize := sarama.NewConfig().Producer.MaxMessageBytes - max_size_adjustment + 1
+	maxMsgSize := sarama.NewConfig().Producer.MaxMessageBytes - ProdMsgMetadataSize([]byte("foo")) + 1
 	msg := GenMessage(maxMsgSize)
 	s.serviceCfg.TCPAddr = "127.0.0.1:55504"
 	svc, _ := SpawnService(s.serviceCfg)
