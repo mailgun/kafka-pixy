@@ -8,33 +8,33 @@ import (
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 )
 
-type KafkaSuite struct {
-	cfg       *KafkaProxyCfg
-	tkc       *TestKafkaClient
-	handOffCh chan *producerResult
+type ProducerSuite struct {
+	cfg           *KafkaProxyCfg
+	tkc           *TestKafkaClient
+	deadMessageCh chan *ProductionResult
 }
 
-var _ = Suite(&KafkaSuite{})
+var _ = Suite(&ProducerSuite{})
 
-func (s *KafkaSuite) SetUpSuite(c *C) {
+func (s *ProducerSuite) SetUpSuite(c *C) {
 	InitTestLog()
 }
 
-func (s *KafkaSuite) SetUpTest(c *C) {
-	s.handOffCh = make(chan *producerResult, 100)
+func (s *ProducerSuite) SetUpTest(c *C) {
+	s.deadMessageCh = make(chan *ProductionResult, 100)
 	s.cfg = NewKafkaProxyCfg()
 	s.cfg.BrokerAddrs = testBrokers
-	s.cfg.DeadMessageCh = s.handOffCh
+	s.cfg.DeadMessageCh = s.deadMessageCh
 	s.tkc = NewTestKafkaClient(s.cfg.BrokerAddrs)
 }
 
-func (s *KafkaSuite) TearDownTest(c *C) {
-	close(s.handOffCh)
+func (s *ProducerSuite) TearDownTest(c *C) {
+	close(s.deadMessageCh)
 	s.tkc.Close()
 }
 
 // A started client can be stopped.
-func (s *KafkaSuite) TestStartAndStop(c *C) {
+func (s *ProducerSuite) TestStartAndStop(c *C) {
 	// Given
 	kpi, err := SpawnKafkaProxy(s.cfg)
 	c.Assert(err, IsNil)
@@ -47,19 +47,19 @@ func (s *KafkaSuite) TestStartAndStop(c *C) {
 
 // If `key` is not `nil` then produced messages are deterministically
 // distributed between partitions based on the `key` hash.
-func (s *KafkaSuite) TestProduce(c *C) {
+func (s *ProducerSuite) TestProduce(c *C) {
 	// Given
 	kpi, _ := SpawnKafkaProxy(s.cfg)
 	offsetsBefore := s.tkc.getOffsets("kafka-clt-test")
 	// When
 	for i := 0; i < 100; i++ {
-		kpi.Produce("kafka-clt-test", []byte("1"), []byte(strconv.Itoa(i)))
+		kpi.AsyncProduce("kafka-clt-test", []byte("1"), []byte(strconv.Itoa(i)))
 	}
 	for i := 0; i < 100; i++ {
-		kpi.Produce("kafka-clt-test", []byte("2"), []byte(strconv.Itoa(i)))
+		kpi.AsyncProduce("kafka-clt-test", []byte("2"), []byte(strconv.Itoa(i)))
 	}
 	for i := 0; i < 100; i++ {
-		kpi.Produce("kafka-clt-test", []byte("3"), []byte(strconv.Itoa(i)))
+		kpi.AsyncProduce("kafka-clt-test", []byte("3"), []byte(strconv.Itoa(i)))
 	}
 	kpi.Stop()
 	kpi.Wait4Stop()
@@ -73,13 +73,13 @@ func (s *KafkaSuite) TestProduce(c *C) {
 // If `key` of a produced message is `nil` then it is submitted to a random
 // partition. Therefore a batch of such messages is evenly distributed among
 // all available partitions.
-func (s *KafkaSuite) TestProduceNilKey(c *C) {
+func (s *ProducerSuite) TestProduceNilKey(c *C) {
 	// Given
 	kpi, _ := SpawnKafkaProxy(s.cfg)
 	offsetsBefore := s.tkc.getOffsets("kafka-clt-test")
 	// When
 	for i := 0; i < 100; i++ {
-		kpi.Produce("kafka-clt-test", nil, []byte(strconv.Itoa(i)))
+		kpi.AsyncProduce("kafka-clt-test", nil, []byte(strconv.Itoa(i)))
 	}
 	kpi.Stop()
 	kpi.Wait4Stop()
@@ -96,7 +96,7 @@ func (s *KafkaSuite) TestProduceNilKey(c *C) {
 // Even though wrapped `sarama.Producer` is instructed to stop immediately on
 // client stop due to `ShutdownTimeout == 0`, still none of messages is lost.
 // because none of them are retries. This test is mostly to increase coverage.
-func (s *KafkaSuite) TestTooSmallShutdownTimeout(c *C) {
+func (s *ProducerSuite) TestTooSmallShutdownTimeout(c *C) {
 	// Given
 	s.cfg.ShutdownTimeout = 0
 	kpi, _ := SpawnKafkaProxy(s.cfg)
@@ -104,7 +104,7 @@ func (s *KafkaSuite) TestTooSmallShutdownTimeout(c *C) {
 	// When
 	for i := 0; i < 100; i++ {
 		v := []byte(strconv.Itoa(i))
-		kpi.Produce("kafka-clt-test", v, v)
+		kpi.AsyncProduce("kafka-clt-test", v, v)
 	}
 	kpi.Stop()
 	kpi.Wait4Stop()
@@ -118,13 +118,13 @@ func (s *KafkaSuite) TestTooSmallShutdownTimeout(c *C) {
 
 // If `key` of a produced message is empty then it is deterministically
 // submitted to a particular partition determined by the empty key hash.
-func (s *KafkaSuite) TestProduceEmptyKey(c *C) {
+func (s *ProducerSuite) TestProduceEmptyKey(c *C) {
 	// Given
 	kpi, _ := SpawnKafkaProxy(s.cfg)
 	offsetsBefore := s.tkc.getOffsets("kafka-clt-test")
 	// When
 	for i := 0; i < 100; i++ {
-		kpi.Produce("kafka-clt-test", []byte{}, []byte(strconv.Itoa(i)))
+		kpi.AsyncProduce("kafka-clt-test", []byte{}, []byte(strconv.Itoa(i)))
 	}
 	kpi.Stop()
 	kpi.Wait4Stop()
@@ -135,11 +135,11 @@ func (s *KafkaSuite) TestProduceEmptyKey(c *C) {
 	c.Assert(offsetsAfter[1], Equals, offsetsBefore[1]+100)
 }
 
-func (s *KafkaSuite) failedMessages() []string {
+func (s *ProducerSuite) failedMessages() []string {
 	b := []string{}
 	for {
 		select {
-		case prodResult := <-s.handOffCh:
+		case prodResult := <-s.deadMessageCh:
 			b = append(b, string(prodResult.msg.Value.(sarama.ByteEncoder)))
 		default:
 			return b

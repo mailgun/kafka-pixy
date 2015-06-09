@@ -159,7 +159,7 @@ func (s *HTTPAPISuite) TestRequestAfterStop(c *C) {
 	c.Assert(err.Error(), Equals, "Post http://_/topics/httpapi-test?key=2: EOF")
 }
 
-func (s *HTTPAPISuite) Produce(topic string, key, message []byte) {
+func (s *HTTPAPISuite) AsyncProduce(topic string, key, message []byte) {
 	s.produced = append(s.produced, &production{topic, key, message})
 }
 

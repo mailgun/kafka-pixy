@@ -24,21 +24,23 @@ type Service struct {
 func SpawnService(cfg *ServiceCfg) (*Service, error) {
 	kafkaClientCfg := NewKafkaProxyCfg()
 	kafkaClientCfg.BrokerAddrs = cfg.BrokerAddrs
-	kafkaProxy, err := NewKafkaProxy(kafkaClientCfg)
+	kafkaProxy, err := SpawnKafkaProxy(kafkaClientCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to spawn Kafka client, cause=(%v)", err)
 	}
 
 	unixServer, err := NewHTTPAPIServer(NetworkUnix, cfg.UnixAddr, kafkaProxy)
 	if err != nil {
-		kafkaProxy.Dispose()
+		kafkaProxy.Stop()
+		kafkaProxy.Wait4Stop()
 		return nil, fmt.Errorf("failed to start Unix socket based HTTP API, cause=(%v)", err)
 	}
 
 	var tcpServer *HTTPAPIServer
 	if cfg.TCPAddr != "" {
 		if tcpServer, err = NewHTTPAPIServer(NetworkTCP, cfg.TCPAddr, kafkaProxy); err != nil {
-			kafkaProxy.Dispose()
+			kafkaProxy.Stop()
+			kafkaProxy.Wait4Stop()
 			return nil, fmt.Errorf("failed to start TCP socket based HTTP API, cause=(%v)", err)
 		}
 	}
@@ -66,7 +68,6 @@ func (s *Service) Wait4Stop() {
 func (s *Service) supervisor() {
 	var tcpServerErrorCh <-chan error
 
-	s.kafkaClient.Start()
 	s.unixServer.Start()
 	if s.tcpServer != nil {
 		s.tcpServer.Start()

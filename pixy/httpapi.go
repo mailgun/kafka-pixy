@@ -15,12 +15,12 @@ const (
 	NetworkTCP  = "tcp"
 	NetworkUnix = "unix"
 
-	// HTTP Headers:
-	contentLength = "Content-Length"
+	// HTTP headers used by the API.
+	HeaderContentLength = "Content-Length"
 
-	// API call parameters:
-	topicName  = "topic"
-	routingKey = "key"
+	// HTTP request parameters.
+	ParamTopic = "topic"
+	ParamKey   = "key"
 )
 
 type HTTPAPIServer struct {
@@ -67,7 +67,7 @@ func NewHTTPAPIServer(network, addr string, kafkaProxy KafkaProxy) (*HTTPAPIServ
 		errorCh:    make(chan error, 1),
 	}
 	// Configure the API request handlers.
-	produceUrl := fmt.Sprintf("/topics/{%s}", topicName)
+	produceUrl := fmt.Sprintf("/topics/{%s}", ParamTopic)
 	router.HandleFunc(produceUrl, as.handleProduce).Methods("POST")
 	return as, nil
 }
@@ -101,23 +101,22 @@ func (as *HTTPAPIServer) Stop() {
 func (as *HTTPAPIServer) handleProduce(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
-	topic := mux.Vars(r)[topicName]
-	key := getParamBytes(r, routingKey)
+	topic := mux.Vars(r)[ParamTopic]
+	key := getParamBytes(r, ParamKey)
 
 	// Get the message body from the HTTP request.
-	if _, ok := r.Header[contentLength]; !ok {
-		errorText := fmt.Sprintf("Missing %s header", contentLength)
+	if _, ok := r.Header[HeaderContentLength]; !ok {
+		errorText := fmt.Sprintf("Missing %s header", HeaderContentLength)
 		http.Error(w, errorText, http.StatusBadRequest)
 		return
 	}
-	messageSizeStr := r.Header.Get(contentLength)
+	messageSizeStr := r.Header.Get(HeaderContentLength)
 	messageSize, err := strconv.Atoi(messageSizeStr)
 	if err != nil {
-		errorText := fmt.Sprintf("Invalid %s header: %s", contentLength, messageSizeStr)
+		errorText := fmt.Sprintf("Invalid %s header: %s", HeaderContentLength, messageSizeStr)
 		http.Error(w, errorText, http.StatusBadRequest)
 		return
 	}
-
 	message, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		errorText := fmt.Sprintf("Failed to read a message: cause=(%v)", err)
@@ -126,13 +125,13 @@ func (as *HTTPAPIServer) handleProduce(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(message) != messageSize {
 		errorText := fmt.Sprintf("Message size does not match %s: expected=%v, actual=%v",
-			contentLength, messageSize, len(message))
+			HeaderContentLength, messageSize, len(message))
 		http.Error(w, errorText, http.StatusBadRequest)
 		return
 	}
 
 	// Asynchronously submit the message to the Kafka cluster.
-	as.kafkaProxy.Produce(topic, key, message)
+	as.kafkaProxy.AsyncProduce(topic, key, message)
 	w.WriteHeader(http.StatusOK)
 }
 

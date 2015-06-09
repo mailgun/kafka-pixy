@@ -41,7 +41,7 @@ func ResponseBody(r *http.Response) string {
 		return ""
 	}
 	defer r.Body.Close()
-	size, _ := strconv.Atoi(r.Header.Get(contentLength))
+	size, _ := strconv.Atoi(r.Header.Get(HeaderContentLength))
 	body := make([]byte, size)
 	r.Body.Read(body)
 	return string(body)
