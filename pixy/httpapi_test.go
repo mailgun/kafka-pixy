@@ -7,14 +7,9 @@ import (
 	"os"
 	"path"
 	"strings"
-	"testing"
 
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 )
-
-func Test(t *testing.T) {
-	TestingT(t)
-}
 
 type HTTPAPISuite struct {
 	addr       string

@@ -23,7 +23,7 @@ func (s *KafkaSuite) SetUpSuite(c *C) {
 func (s *KafkaSuite) SetUpTest(c *C) {
 	s.handOffCh = make(chan *producerResult, 100)
 	s.cfg = NewKafkaProxyCfg()
-	s.cfg.BrokerAddrs = []string{testBroker}
+	s.cfg.BrokerAddrs = testBrokers
 	s.cfg.DeadMessageCh = s.handOffCh
 	s.tkc = NewTestKafkaClient(s.cfg.BrokerAddrs)
 }

@@ -14,7 +14,6 @@ import (
 )
 
 const (
-	testBroker = "localhost:9092"
 	testSocket = "kafka-pixy.sock"
 )
 
@@ -34,7 +33,7 @@ func (s *ServiceSuite) SetUpSuite(c *C) {
 func (s *ServiceSuite) SetUpTest(c *C) {
 	s.serviceCfg = &ServiceCfg{
 		UnixAddr:    path.Join(os.TempDir(), testSocket),
-		BrokerAddrs: []string{testBroker},
+		BrokerAddrs: testBrokers,
 	}
 	os.Remove(s.serviceCfg.UnixAddr)
 
