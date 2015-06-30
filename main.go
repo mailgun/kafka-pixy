@@ -50,6 +50,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Clean up the unix domain socket file in case we failed to clean up on
+	// shutdown the last time. Otherwise the service won't be able to listen
+	// on this address and the service will terminated immediately.
+	if err := os.Remove(serviceCfg.UnixAddr); err != nil && err.(*os.PathError).Err != os.ErrNotExist {
+		log.Errorf("Cannot remove %s", serviceCfg.UnixAddr)
+	}
+
 	log.Infof("Starting with config: %+v", serviceCfg)
 	svc, err := pixy.SpawnService(&serviceCfg)
 	if err != nil {
