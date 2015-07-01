@@ -1,14 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
-	"encoding/json"
 
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
 	"github.com/mailgun/kafka-pixy/pixy"
@@ -40,6 +41,9 @@ func init() {
 }
 
 func main() {
+	// Make go runtime execute in parallel as many goroutines as there are CPUs.
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
 	if err := initLogging(); err != nil {
 		fmt.Printf("Failed to initialize logger, cause=(%v)\n", err)
 		os.Exit(1)
