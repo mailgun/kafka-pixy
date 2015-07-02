@@ -29,11 +29,13 @@ listener but that is mostly for debugging purposes.
 
 `POST /topics/<topic>?key=<key>` - submits a message to the Kafka topic with
 name **topic**, using a hash of **key** to determine the shard where the message
-should go to. The body of the request represents the message that
-is submitted to Kafka as is. If **key** is not specified then the message is
-submitted to a random shard. Note that it is not the same as specifying an empty
-key value, for empty string is a valid key value, and therefore all messages
-with an empty key value go to the same shard.
+should go to. The content type should be `application/json` and the body of the
+request is a json object that represents a message. 
+
+If **key** is not specified then the message is submitted to a random shard.
+Note that it is not the same as specifying an empty key value, for empty string
+is a valid key value, and therefore all messages with an empty key value go to
+the same shard.
 
 E.g. if a Kafka-Pixy processes has been started with the `--tcpAddr=0.0.0.0:8080`
 argument, then you can test it using **curl** as follows:
