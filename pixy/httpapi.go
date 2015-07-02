@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/gorilla/mux"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/manners"
 )
@@ -131,7 +132,7 @@ func (as *HTTPAPIServer) handleProduce(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Asynchronously submit the message to the Kafka cluster.
-	as.kafkaClient.AsyncProduce(topic, key, message)
+	as.kafkaClient.AsyncProduce(topic, toEncoderPreservingNil(key), sarama.StringEncoder(message))
 	w.WriteHeader(http.StatusOK)
 }
 

@@ -37,7 +37,7 @@ func opeOf(scopeName string) string {
 // returns `nil` if the passed slice is `nil`.
 func toEncoderPreservingNil(b []byte) sarama.Encoder {
 	if b != nil {
-		return sarama.ByteEncoder(b)
+		return sarama.StringEncoder(b)
 	}
 	return nil
 }

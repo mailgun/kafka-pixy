@@ -8,6 +8,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/Shopify/sarama"
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 )
 
@@ -64,8 +65,8 @@ func (s *HTTPAPISuite) TestPostMessage(c *C) {
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
 	c.Assert(s.produced[0], DeepEquals, &production{
 		topic:   "httpapi-test",
-		key:     []byte("test-key"),
-		message: []byte("foo bar"),
+		key:     sarama.StringEncoder("test-key"),
+		message: sarama.StringEncoder("foo bar"),
 	})
 }
 
@@ -78,8 +79,8 @@ func (s *HTTPAPISuite) TestPostMessageEmptyKey(c *C) {
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
 	c.Assert(s.produced[0], DeepEquals, &production{
 		topic:   "httpapi-test",
-		key:     []byte{}, // Key is empty
-		message: []byte("foo bar"),
+		key:     sarama.StringEncoder(""), // Key is empty
+		message: sarama.StringEncoder("foo bar"),
 	})
 }
 
@@ -93,7 +94,7 @@ func (s *HTTPAPISuite) TestPostMessageNoKey(c *C) {
 	c.Assert(s.produced[0], DeepEquals, &production{
 		topic:   "httpapi-test",
 		key:     nil, // Key is not specified
-		message: []byte("foo bar"),
+		message: sarama.StringEncoder("foo bar"),
 	})
 }
 
@@ -116,8 +117,8 @@ func (s *HTTPAPISuite) TestPostMessageEscapedKey(c *C) {
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
 	c.Assert(s.produced[0], DeepEquals, &production{
 		topic:   "httpapi-test",
-		key:     []byte("&/Ой?:"),
-		message: []byte("foo bar"),
+		key:     sarama.StringEncoder("&/Ой?:"),
+		message: sarama.StringEncoder("foo bar"),
 	})
 }
 
@@ -135,7 +136,7 @@ func (s *HTTPAPISuite) TestTCPServer(c *C) {
 	c.Assert(s.produced[0], DeepEquals, &production{
 		topic:   "httpapi-test",
 		key:     nil,
-		message: []byte("foo bar"),
+		message: sarama.StringEncoder("foo bar"),
 	})
 	as.Stop()
 	<-as.ErrorCh()
@@ -159,12 +160,12 @@ func (s *HTTPAPISuite) TestRequestAfterStop(c *C) {
 	c.Assert(err.Error(), Equals, "Post http://_/topics/httpapi-test?key=2: EOF")
 }
 
-func (s *HTTPAPISuite) AsyncProduce(topic string, key, message []byte) {
+func (s *HTTPAPISuite) AsyncProduce(topic string, key, message sarama.Encoder) {
 	s.produced = append(s.produced, &production{topic, key, message})
 }
 
 type production struct {
 	topic   string
-	key     []byte
-	message []byte
+	key     sarama.Encoder
+	message sarama.Encoder
 }

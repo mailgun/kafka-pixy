@@ -23,7 +23,7 @@ type KafkaClient interface {
 	// If `topic` does not exist then it is created with the default queue
 	// parameters on the broker determined by `key`.
 	// If `key` is `nil` then the message is placed into a random partition.
-	AsyncProduce(topic string, key, message []byte)
+	AsyncProduce(topic string, key, message sarama.Encoder)
 }
 
 // KafkaProxyImpl is the sole implementation of the `KafkaProxy` interface.
@@ -106,7 +106,7 @@ func (kci *KafkaClientImpl) Wait4Stop() {
 
 // AsyncProduce submits a message to the specified topic of the Kafka cluster
 // using `key` to navigate the message to a particular shard.
-func (kci *KafkaClientImpl) AsyncProduce(topic string, key, message []byte) {
+func (kci *KafkaClientImpl) AsyncProduce(topic string, key, message sarama.Encoder) {
 	kci.producer.AsyncProduce(topic, key, message)
 }
 

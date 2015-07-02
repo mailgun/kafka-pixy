@@ -53,11 +53,11 @@ func (s *ProducerSuite) TestProduce(c *C) {
 	offsetsBefore := s.tkc.getOffsets("test.4")
 	// When
 	for i := 0; i < 10; i++ {
-		kci.AsyncProduce("test.4", []byte("1"), []byte(strconv.Itoa(i)))
-		kci.AsyncProduce("test.4", []byte("2"), []byte(strconv.Itoa(i)))
-		kci.AsyncProduce("test.4", []byte("3"), []byte(strconv.Itoa(i)))
-		kci.AsyncProduce("test.4", []byte("4"), []byte(strconv.Itoa(i)))
-		kci.AsyncProduce("test.4", []byte("5"), []byte(strconv.Itoa(i)))
+		kci.AsyncProduce("test.4", sarama.StringEncoder("1"), sarama.StringEncoder(strconv.Itoa(i)))
+		kci.AsyncProduce("test.4", sarama.StringEncoder("2"), sarama.StringEncoder(strconv.Itoa(i)))
+		kci.AsyncProduce("test.4", sarama.StringEncoder("3"), sarama.StringEncoder(strconv.Itoa(i)))
+		kci.AsyncProduce("test.4", sarama.StringEncoder("4"), sarama.StringEncoder(strconv.Itoa(i)))
+		kci.AsyncProduce("test.4", sarama.StringEncoder("5"), sarama.StringEncoder(strconv.Itoa(i)))
 	}
 	kci.Stop()
 	kci.Wait4Stop()
@@ -79,7 +79,7 @@ func (s *ProducerSuite) TestProduceNilKey(c *C) {
 	offsetsBefore := s.tkc.getOffsets("test.4")
 	// When
 	for i := 0; i < 100; i++ {
-		kci.AsyncProduce("test.4", nil, []byte(strconv.Itoa(i)))
+		kci.AsyncProduce("test.4", nil, sarama.StringEncoder(strconv.Itoa(i)))
 	}
 	kci.Stop()
 	kci.Wait4Stop()
@@ -103,7 +103,7 @@ func (s *ProducerSuite) TestTooSmallShutdownTimeout(c *C) {
 	offsetsBefore := s.tkc.getOffsets("test.4")
 	// When
 	for i := 0; i < 100; i++ {
-		v := []byte(strconv.Itoa(i))
+		v := sarama.StringEncoder(strconv.Itoa(i))
 		kci.AsyncProduce("test.4", v, v)
 	}
 	kci.Stop()
@@ -126,7 +126,7 @@ func (s *ProducerSuite) TestProduceEmptyKey(c *C) {
 	offsetsBefore := s.tkc.getOffsets("test.4")
 	// When
 	for i := 0; i < 10; i++ {
-		kci.AsyncProduce("test.4", []byte{}, []byte(strconv.Itoa(i)))
+		kci.AsyncProduce("test.4", sarama.StringEncoder(""), sarama.StringEncoder(strconv.Itoa(i)))
 	}
 	kci.Stop()
 	kci.Wait4Stop()

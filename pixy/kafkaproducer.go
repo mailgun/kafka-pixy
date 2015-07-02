@@ -10,7 +10,8 @@ import (
 )
 
 const (
-	chanBufferSize = 128
+	chanBufferSize       = 128
+	maxEncoderReprLength = 4096
 )
 
 // KafkaProducer builds on top of `sarama.AsyncProducer` to improve the
@@ -69,11 +70,11 @@ func (kp *KafkaProducer) Wait4Stop() {
 
 // AsyncProduce submits a message to the specified topic of the Kafka cluster
 // using `key` to navigate the message to a particular shard.
-func (kp *KafkaProducer) AsyncProduce(topic string, key, message []byte) {
+func (kp *KafkaProducer) AsyncProduce(topic string, key, message sarama.Encoder) {
 	prodMsg := &sarama.ProducerMessage{
 		Topic: topic,
-		Key:   toEncoderPreservingNil(key),
-		Value: sarama.ByteEncoder(message),
+		Key:   key,
+		Value: message,
 	}
 	kp.dispatcherCh <- prodMsg
 }
@@ -175,10 +176,29 @@ func (kp *KafkaProducer) handleProduceResult(result *ProduceResult) {
 		return
 	}
 	prodMsgRepr := fmt.Sprintf(`{Topic: "%s", Key: "%s", Value: "%s"}`,
-		result.Msg.Topic, result.Msg.Key, result.Msg.Value)
+		result.Msg.Topic, encoderRepr(result.Msg.Key), encoderRepr(result.Msg.Value))
 	log.Errorf("Failed to submit message: msg=%v, cause=(%v)",
 		prodMsgRepr, result.Err)
 	if kp.deadMessageCh != nil {
 		kp.deadMessageCh <- result
 	}
+}
+
+// encoderRepr returns the string representation of an encoder value. The value
+// is truncated to `maxEncoderReprLength`.
+func encoderRepr(e sarama.Encoder) string {
+	var repr string
+	switch e := e.(type) {
+	case sarama.StringEncoder:
+		repr = string(e)
+	case sarama.ByteEncoder:
+		repr = fmt.Sprintf("%X", []byte(e))
+	default:
+		repr = fmt.Sprint(e)
+	}
+	if length := len(repr); length > maxEncoderReprLength {
+		repr = fmt.Sprintf("%s... (%d bytes more)",
+			repr[:maxEncoderReprLength], length-maxEncoderReprLength)
+	}
+	return repr
 }
