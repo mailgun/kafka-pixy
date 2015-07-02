@@ -29,8 +29,21 @@ listener but that is mostly for debugging purposes.
 
 `POST /topics/<topic>?key=<key>` - submits a message to the Kafka topic with
 name **topic**, using a hash of **key** to determine the shard where the message
-should go to. The content type should be `application/json` and the body of the
-request is a json object that represents a message. 
+should go. The content type can be either `text/plain` or `application/json`. 
+
+By default a message is submitted to Kafka asynchronously, that is the HTTP
+request completes as soon as the proxy gets the message, and actual message
+submission to Kafka is performed afterwards. In this case the successful
+completion of the HTTP request does not guarantee that the message will ever
+get into Kafka, although the proxy will do its best to make that happen (retry
+several times and such). If delivery guarantee is of priority over request
+execution time, then synchronous delivery may be requested specifying the
+**sync** parameter (exact value does not matter). In this case the request
+blocks until the message is submitted to all in-sync replicas
+(see [Kafka Documentation](http://kafka.apache.org/documentation.html) search
+for to "Availability and Durability Guarantees"). If the returned HTTP
+status code is anything but 200 OK then the message has not been submitted to
+Kafka and the response body contains the error details.
 
 If **key** is not specified then the message is submitted to a random shard.
 Note that it is not the same as specifying an empty key value, for empty string
@@ -41,7 +54,7 @@ E.g. if a Kafka-Pixy processes has been started with the `--tcpAddr=0.0.0.0:8080
 argument, then you can test it using **curl** as follows:
 
 ```
-curl -X POST localhost:8080/topics/foo?key=bar \
+curl -X POST localhost:8080/topics/foo?key=bar&sync \
      -H 'Content-Type: application/json' \
      -d '{"bar": "bazz"}'
 ```

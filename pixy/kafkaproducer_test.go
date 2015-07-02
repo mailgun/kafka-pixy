@@ -45,9 +45,36 @@ func (s *ProducerSuite) TestStartAndStop(c *C) {
 	kci.Wait4Stop()
 }
 
+func (s *ProducerSuite) TestProduce(c *C) {
+	// Given
+	kci, _ := SpawnKafkaClient(s.cfg)
+	offsetsBefore := s.tkc.getOffsets("test.4")
+	// When
+	err := kci.Produce("test.4", sarama.StringEncoder("1"), sarama.StringEncoder("Foo"))
+	// Then
+	c.Assert(err, IsNil)
+	offsetsAfter := s.tkc.getOffsets("test.4")
+	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0]+1)
+	// Cleanup
+	kci.Stop()
+	kci.Wait4Stop()
+}
+
+func (s *ProducerSuite) TestProduceInvalidTopic(c *C) {
+	// Given
+	kci, _ := SpawnKafkaClient(s.cfg)
+	// When
+	err := kci.Produce("no-such-topic", sarama.StringEncoder("1"), sarama.StringEncoder("Foo"))
+	// Then
+	c.Assert(err, Equals, sarama.ErrUnknownTopicOrPartition)
+	// Cleanup
+	kci.Stop()
+	kci.Wait4Stop()
+}
+
 // If `key` is not `nil` then produced messages are deterministically
 // distributed between partitions based on the `key` hash.
-func (s *ProducerSuite) TestProduce(c *C) {
+func (s *ProducerSuite) TestAsyncProduce(c *C) {
 	// Given
 	kci, _ := SpawnKafkaClient(s.cfg)
 	offsetsBefore := s.tkc.getOffsets("test.4")
@@ -73,7 +100,7 @@ func (s *ProducerSuite) TestProduce(c *C) {
 // If `key` of a produced message is `nil` then it is submitted to a random
 // partition. Therefore a batch of such messages is evenly distributed among
 // all available partitions.
-func (s *ProducerSuite) TestProduceNilKey(c *C) {
+func (s *ProducerSuite) TestAsyncProduceNilKey(c *C) {
 	// Given
 	kci, _ := SpawnKafkaClient(s.cfg)
 	offsetsBefore := s.tkc.getOffsets("test.4")
@@ -120,7 +147,7 @@ func (s *ProducerSuite) TestTooSmallShutdownTimeout(c *C) {
 
 // If `key` of a produced message is empty then it is deterministically
 // submitted to a particular partition determined by the empty key hash.
-func (s *ProducerSuite) TestProduceEmptyKey(c *C) {
+func (s *ProducerSuite) TestAsyncProduceEmptyKey(c *C) {
 	// Given
 	kci, _ := SpawnKafkaClient(s.cfg)
 	offsetsBefore := s.tkc.getOffsets("test.4")
