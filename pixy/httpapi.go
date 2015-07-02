@@ -24,19 +24,19 @@ const (
 )
 
 type HTTPAPIServer struct {
-	addr       string
-	listener   net.Listener
-	httpServer *manners.GracefulServer
-	kafkaProxy KafkaProxy
-	errorCh    chan error
+	addr        string
+	listener    net.Listener
+	httpServer  *manners.GracefulServer
+	kafkaClient KafkaClient
+	errorCh     chan error
 }
 
 // SpawnHTTPAPIServer starts an HTTP server instance that accepts API requests
 // on the specified network/address and forwards them to the associated
 // Kafka client. The server initialization is performed asynchronously and
 // if it fails then the error is sent down to `HTTPAPIServer.ErrorCh()`.
-func SpawnHTTPAPIServer(network, addr string, kafkaProxy KafkaProxy) (*HTTPAPIServer, error) {
-	as, err := NewHTTPAPIServer(network, addr, kafkaProxy)
+func SpawnHTTPAPIServer(network, addr string, kafkaClient KafkaClient) (*HTTPAPIServer, error) {
+	as, err := NewHTTPAPIServer(network, addr, kafkaClient)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +47,7 @@ func SpawnHTTPAPIServer(network, addr string, kafkaProxy KafkaProxy) (*HTTPAPISe
 // NewHTTPAPIServer creates an HTTP server instance that will accept API
 // requests specified network/address and forwards them to the associated
 // Kafka client.
-func NewHTTPAPIServer(network, addr string, kafkaProxy KafkaProxy) (*HTTPAPIServer, error) {
+func NewHTTPAPIServer(network, addr string, kafkaProxy KafkaClient) (*HTTPAPIServer, error) {
 	if kafkaProxy == nil {
 		return nil, fmt.Errorf("kafkaProxy must be specified")
 	}
@@ -60,11 +60,11 @@ func NewHTTPAPIServer(network, addr string, kafkaProxy KafkaProxy) (*HTTPAPIServ
 	router := mux.NewRouter()
 	httpServer := manners.NewWithServer(&http.Server{Handler: router})
 	as := &HTTPAPIServer{
-		addr:       addr,
-		listener:   manners.NewListener(listener),
-		httpServer: httpServer,
-		kafkaProxy: kafkaProxy,
-		errorCh:    make(chan error, 1),
+		addr:        addr,
+		listener:    manners.NewListener(listener),
+		httpServer:  httpServer,
+		kafkaClient: kafkaProxy,
+		errorCh:     make(chan error, 1),
 	}
 	// Configure the API request handlers.
 	produceUrl := fmt.Sprintf("/topics/{%s}", ParamTopic)
@@ -131,7 +131,7 @@ func (as *HTTPAPIServer) handleProduce(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Asynchronously submit the message to the Kafka cluster.
-	as.kafkaProxy.AsyncProduce(topic, key, message)
+	as.kafkaClient.AsyncProduce(topic, key, message)
 	w.WriteHeader(http.StatusOK)
 }
 

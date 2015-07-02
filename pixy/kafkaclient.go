@@ -13,7 +13,7 @@ import (
 // and consume messages as well as a number of topic introspection and
 // management functions. Most of these functions are exposed by the Kafka-Pixy
 // service via an HTTP API.
-type KafkaProxy interface {
+type KafkaClient interface {
 	// Produce accepts a message to be asynchronously sent to the configured
 	// Kafka cluster. It is possible that the message may be dropped if the
 	// destination Kafka broker (the leader of the topic partition that the
@@ -27,14 +27,14 @@ type KafkaProxy interface {
 }
 
 // KafkaProxyImpl is the sole implementation of the `KafkaProxy` interface.
-type KafkaProxyImpl struct {
-	cfg         *KafkaProxyCfg
-	kafkaClient sarama.Client
-	producer    *GracefulProducer
-	wg          sync.WaitGroup
+type KafkaClientImpl struct {
+	config       *KafkaClientCfg
+	saramaClient sarama.Client
+	producer     *KafkaProducer
+	wg           sync.WaitGroup
 }
 
-type KafkaProxyCfg struct {
+type KafkaClientCfg struct {
 	// BrokerAddrs is a slice of Kafka broker connection strings.
 	BrokerAddrs []string
 	// A period of time that a proxy should allow to `sarama.Producer` to
@@ -43,71 +43,71 @@ type KafkaProxyCfg struct {
 	ShutdownTimeout time.Duration
 	// DeadMessageCh is a channel to dump undelivered messages into. It is used
 	// in testing only.
-	DeadMessageCh chan<- *ProductionResult
+	DeadMessageCh chan<- *ProduceResult
 }
 
-func NewKafkaProxyCfg() *KafkaProxyCfg {
-	return &KafkaProxyCfg{
+func NewKafkaClientCfg() *KafkaClientCfg {
+	return &KafkaClientCfg{
 		ShutdownTimeout: 30 * time.Second,
 	}
 }
 
 // SpawnKafkaProxy creates a `KafkaProxy` instance and starts its internal
 // goroutines.
-func SpawnKafkaProxy(cfg *KafkaProxyCfg) (*KafkaProxyImpl, error) {
+func SpawnKafkaClient(config *KafkaClientCfg) (*KafkaClientImpl, error) {
 	clientID, err := newClientID()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate client id, cause=(%v)", err)
 	}
 
-	kafkaCfg := sarama.NewConfig()
-	kafkaCfg.ClientID = clientID
-	kafkaCfg.Producer.RequiredAcks = sarama.WaitForAll
-	kafkaCfg.Producer.Return.Successes = true
-	kafkaCfg.Producer.Return.Errors = true
-	kafkaCfg.Producer.Compression = sarama.CompressionSnappy
-	kafkaCfg.Producer.Retry.Backoff = time.Second
-	kafkaCfg.Producer.Flush.Frequency = 500 * time.Millisecond
-	kafkaCfg.Producer.Flush.Bytes = 1024 * 1024
+	saramaCfg := sarama.NewConfig()
+	saramaCfg.ClientID = clientID
+	saramaCfg.Producer.RequiredAcks = sarama.WaitForAll
+	saramaCfg.Producer.Return.Successes = true
+	saramaCfg.Producer.Return.Errors = true
+	saramaCfg.Producer.Compression = sarama.CompressionSnappy
+	saramaCfg.Producer.Retry.Backoff = time.Second
+	saramaCfg.Producer.Flush.Frequency = 500 * time.Millisecond
+	saramaCfg.Producer.Flush.Bytes = 1024 * 1024
 
-	kafkaClient, err := sarama.NewClient(cfg.BrokerAddrs, kafkaCfg)
+	kafkaClient, err := sarama.NewClient(config.BrokerAddrs, saramaCfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Kafka client, cause=(%v)", err)
+		return nil, fmt.Errorf("failed to create sarama client, cause=(%v)", err)
 	}
 
-	gracefulProducer, err := SpawnGracefulProducer(kafkaClient, cfg.ShutdownTimeout, cfg.DeadMessageCh)
+	gracefulProducer, err := SpawnKafkaProducer(kafkaClient, config.ShutdownTimeout, config.DeadMessageCh)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create graceful producer, cause=(%v)", err)
 	}
 
-	kpi := &KafkaProxyImpl{
-		cfg:         cfg,
-		kafkaClient: kafkaClient,
-		producer:    gracefulProducer,
+	kci := &KafkaClientImpl{
+		config:       config,
+		saramaClient: kafkaClient,
+		producer:     gracefulProducer,
 	}
 
 	if err != nil {
 		return nil, err
 	}
-	return kpi, nil
+	return kci, nil
 }
 
 // Stop triggers asynchronous proxy shutdown. Use `Wait4Stop` to wait for
 // the proxy to shutdown.
-func (kpi *KafkaProxyImpl) Stop() {
-	kpi.producer.Stop()
+func (kci *KafkaClientImpl) Stop() {
+	kci.producer.Stop()
 }
 
 // Wait4Stop blocks until all internal goroutines are stopped.
-func (kpi *KafkaProxyImpl) Wait4Stop() {
-	kpi.producer.Wait4Stop()
-	kpi.kafkaClient.Close()
+func (kci *KafkaClientImpl) Wait4Stop() {
+	kci.producer.Wait4Stop()
+	kci.saramaClient.Close()
 }
 
 // AsyncProduce submits a message to the specified topic of the Kafka cluster
 // using `key` to navigate the message to a particular shard.
-func (kpi *KafkaProxyImpl) AsyncProduce(topic string, key, message []byte) {
-	kpi.producer.AsyncProduce(topic, key, message)
+func (kci *KafkaClientImpl) AsyncProduce(topic string, key, message []byte) {
+	kci.producer.AsyncProduce(topic, key, message)
 }
 
 // newClientID creates a client id that should be used when connecting to

@@ -9,9 +9,9 @@ import (
 )
 
 type ProducerSuite struct {
-	cfg           *KafkaProxyCfg
+	cfg           *KafkaClientCfg
 	tkc           *TestKafkaClient
-	deadMessageCh chan *ProductionResult
+	deadMessageCh chan *ProduceResult
 }
 
 var _ = Suite(&ProducerSuite{})
@@ -21,8 +21,8 @@ func (s *ProducerSuite) SetUpSuite(c *C) {
 }
 
 func (s *ProducerSuite) SetUpTest(c *C) {
-	s.deadMessageCh = make(chan *ProductionResult, 100)
-	s.cfg = NewKafkaProxyCfg()
+	s.deadMessageCh = make(chan *ProduceResult, 100)
+	s.cfg = NewKafkaClientCfg()
 	s.cfg.BrokerAddrs = testBrokers
 	s.cfg.DeadMessageCh = s.deadMessageCh
 	s.tkc = NewTestKafkaClient(s.cfg.BrokerAddrs)
@@ -36,38 +36,38 @@ func (s *ProducerSuite) TearDownTest(c *C) {
 // A started client can be stopped.
 func (s *ProducerSuite) TestStartAndStop(c *C) {
 	// Given
-	kpi, err := SpawnKafkaProxy(s.cfg)
+	kci, err := SpawnKafkaClient(s.cfg)
 	c.Assert(err, IsNil)
-	c.Assert(kpi, NotNil)
+	c.Assert(kci, NotNil)
 	// When
-	kpi.Stop()
+	kci.Stop()
 	// Then
-	kpi.Wait4Stop()
+	kci.Wait4Stop()
 }
 
 // If `key` is not `nil` then produced messages are deterministically
 // distributed between partitions based on the `key` hash.
 func (s *ProducerSuite) TestProduce(c *C) {
 	// Given
-	kpi, _ := SpawnKafkaProxy(s.cfg)
-	offsetsBefore := s.tkc.getOffsets("kafka-clt-test")
+	kci, _ := SpawnKafkaClient(s.cfg)
+	offsetsBefore := s.tkc.getOffsets("test.4")
 	// When
-	for i := 0; i < 100; i++ {
-		kpi.AsyncProduce("kafka-clt-test", []byte("1"), []byte(strconv.Itoa(i)))
+	for i := 0; i < 10; i++ {
+		kci.AsyncProduce("test.4", []byte("1"), []byte(strconv.Itoa(i)))
+		kci.AsyncProduce("test.4", []byte("2"), []byte(strconv.Itoa(i)))
+		kci.AsyncProduce("test.4", []byte("3"), []byte(strconv.Itoa(i)))
+		kci.AsyncProduce("test.4", []byte("4"), []byte(strconv.Itoa(i)))
+		kci.AsyncProduce("test.4", []byte("5"), []byte(strconv.Itoa(i)))
 	}
-	for i := 0; i < 100; i++ {
-		kpi.AsyncProduce("kafka-clt-test", []byte("2"), []byte(strconv.Itoa(i)))
-	}
-	for i := 0; i < 100; i++ {
-		kpi.AsyncProduce("kafka-clt-test", []byte("3"), []byte(strconv.Itoa(i)))
-	}
-	kpi.Stop()
-	kpi.Wait4Stop()
-	offsetsAfter := s.tkc.getOffsets("kafka-clt-test")
+	kci.Stop()
+	kci.Wait4Stop()
+	offsetsAfter := s.tkc.getOffsets("test.4")
 	// Then
 	c.Assert(s.failedMessages(), DeepEquals, []string{})
-	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0]+200)
-	c.Assert(offsetsAfter[1], Equals, offsetsBefore[1]+100)
+	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0]+20)
+	c.Assert(offsetsAfter[1], Equals, offsetsBefore[1]+10)
+	c.Assert(offsetsAfter[2], Equals, offsetsBefore[2]+10)
+	c.Assert(offsetsAfter[3], Equals, offsetsBefore[3]+10)
 }
 
 // If `key` of a produced message is `nil` then it is submitted to a random
@@ -75,15 +75,15 @@ func (s *ProducerSuite) TestProduce(c *C) {
 // all available partitions.
 func (s *ProducerSuite) TestProduceNilKey(c *C) {
 	// Given
-	kpi, _ := SpawnKafkaProxy(s.cfg)
-	offsetsBefore := s.tkc.getOffsets("kafka-clt-test")
+	kci, _ := SpawnKafkaClient(s.cfg)
+	offsetsBefore := s.tkc.getOffsets("test.4")
 	// When
 	for i := 0; i < 100; i++ {
-		kpi.AsyncProduce("kafka-clt-test", nil, []byte(strconv.Itoa(i)))
+		kci.AsyncProduce("test.4", nil, []byte(strconv.Itoa(i)))
 	}
-	kpi.Stop()
-	kpi.Wait4Stop()
-	offsetsAfter := s.tkc.getOffsets("kafka-clt-test")
+	kci.Stop()
+	kci.Wait4Stop()
+	offsetsAfter := s.tkc.getOffsets("test.4")
 	// Then
 	c.Assert(s.failedMessages(), DeepEquals, []string{})
 	delta0 := offsetsAfter[0] - offsetsBefore[0]
@@ -99,40 +99,44 @@ func (s *ProducerSuite) TestProduceNilKey(c *C) {
 func (s *ProducerSuite) TestTooSmallShutdownTimeout(c *C) {
 	// Given
 	s.cfg.ShutdownTimeout = 0
-	kpi, _ := SpawnKafkaProxy(s.cfg)
-	offsetsBefore := s.tkc.getOffsets("kafka-clt-test")
+	kci, _ := SpawnKafkaClient(s.cfg)
+	offsetsBefore := s.tkc.getOffsets("test.4")
 	// When
 	for i := 0; i < 100; i++ {
 		v := []byte(strconv.Itoa(i))
-		kpi.AsyncProduce("kafka-clt-test", v, v)
+		kci.AsyncProduce("test.4", v, v)
 	}
-	kpi.Stop()
-	kpi.Wait4Stop()
-	offsetsAfter := s.tkc.getOffsets("kafka-clt-test")
+	kci.Stop()
+	kci.Wait4Stop()
+	offsetsAfter := s.tkc.getOffsets("test.4")
 	// Then
 	c.Assert(s.failedMessages(), DeepEquals, []string{})
-	delta0 := offsetsAfter[0] - offsetsBefore[0]
-	delta1 := offsetsAfter[1] - offsetsBefore[1]
-	c.Assert(delta0+delta1, Equals, int64(100))
+	delta := int64(0)
+	for i := 0; i < 4; i++ {
+		delta += offsetsAfter[i] - offsetsBefore[i]
+	}
+	c.Assert(delta, Equals, int64(100))
 }
 
 // If `key` of a produced message is empty then it is deterministically
 // submitted to a particular partition determined by the empty key hash.
 func (s *ProducerSuite) TestProduceEmptyKey(c *C) {
 	// Given
-	kpi, _ := SpawnKafkaProxy(s.cfg)
-	offsetsBefore := s.tkc.getOffsets("kafka-clt-test")
+	kci, _ := SpawnKafkaClient(s.cfg)
+	offsetsBefore := s.tkc.getOffsets("test.4")
 	// When
-	for i := 0; i < 100; i++ {
-		kpi.AsyncProduce("kafka-clt-test", []byte{}, []byte(strconv.Itoa(i)))
+	for i := 0; i < 10; i++ {
+		kci.AsyncProduce("test.4", []byte{}, []byte(strconv.Itoa(i)))
 	}
-	kpi.Stop()
-	kpi.Wait4Stop()
-	offsetsAfter := s.tkc.getOffsets("kafka-clt-test")
+	kci.Stop()
+	kci.Wait4Stop()
+	offsetsAfter := s.tkc.getOffsets("test.4")
 	// Then
 	c.Assert(s.failedMessages(), DeepEquals, []string{})
 	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0])
-	c.Assert(offsetsAfter[1], Equals, offsetsBefore[1]+100)
+	c.Assert(offsetsAfter[1], Equals, offsetsBefore[1])
+	c.Assert(offsetsAfter[2], Equals, offsetsBefore[2])
+	c.Assert(offsetsAfter[3], Equals, offsetsBefore[3]+10)
 }
 
 func (s *ProducerSuite) failedMessages() []string {
@@ -140,7 +144,7 @@ func (s *ProducerSuite) failedMessages() []string {
 	for {
 		select {
 		case prodResult := <-s.deadMessageCh:
-			b = append(b, string(prodResult.msg.Value.(sarama.ByteEncoder)))
+			b = append(b, string(prodResult.Msg.Value.(sarama.ByteEncoder)))
 		default:
 			return b
 		}
