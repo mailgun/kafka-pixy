@@ -1,4 +1,7 @@
 # Kafka-Pixy
+
+[![Build Status](https://travis-ci.org/mailgun/kafka-pixy.svg?branch=master)](https://travis-ci.org/mailgun/kafka-pixy)
+
 Kafka-Pixy is a local aggregating HTTP proxy to Kafka messaging cluster. It is
 designed to hide the complexity of the Kafka client protocol and provide a
 stupid simple HTTP API that is trivial to implement in any language.
