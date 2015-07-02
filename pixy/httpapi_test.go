@@ -7,14 +7,9 @@ import (
 	"os"
 	"path"
 	"strings"
-	"testing"
 
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 )
-
-func Test(t *testing.T) {
-	TestingT(t)
-}
 
 type HTTPAPISuite struct {
 	addr       string
@@ -164,7 +159,7 @@ func (s *HTTPAPISuite) TestRequestAfterStop(c *C) {
 	c.Assert(err.Error(), Equals, "Post http://_/topics/httpapi-test?key=2: EOF")
 }
 
-func (s *HTTPAPISuite) Produce(topic string, key, message []byte) {
+func (s *HTTPAPISuite) AsyncProduce(topic string, key, message []byte) {
 	s.produced = append(s.produced, &production{topic, key, message})
 }
 

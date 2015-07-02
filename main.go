@@ -1,14 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
-	"encoding/json"
 
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
 	"github.com/mailgun/kafka-pixy/pixy"
@@ -40,6 +41,9 @@ func init() {
 }
 
 func main() {
+	// Make go runtime execute in parallel as many goroutines as there are CPUs.
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
 	if err := initLogging(); err != nil {
 		fmt.Printf("Failed to initialize logger, cause=(%v)\n", err)
 		os.Exit(1)
@@ -48,6 +52,13 @@ func main() {
 	if err := writePID(pidFile); err != nil {
 		log.Errorf("Failed to write PID file, cause=(%v)", err)
 		os.Exit(1)
+	}
+
+	// Clean up the unix domain socket file in case we failed to clean up on
+	// shutdown the last time. Otherwise the service won't be able to listen
+	// on this address and the service will terminated immediately.
+	if err := os.Remove(serviceCfg.UnixAddr); err != nil && err.(*os.PathError).Err != os.ErrNotExist {
+		log.Errorf("Cannot remove %s", serviceCfg.UnixAddr)
 	}
 
 	log.Infof("Starting with config: %+v", serviceCfg)

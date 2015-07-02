@@ -16,14 +16,6 @@ import (
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 )
 
-const (
-	// max_size_adjustment needs to be subtracted from sarama.Config.Producer.MaxMessageBytes
-	// to get the actual size of the message that can be sent. The value was
-	// determined experimentally, and it is unclear why the actual max message
-	// size is smaller then the configured limit.
-	max_size_adjustment = 29
-)
-
 var initLogOnce = sync.Once{}
 
 func InitTestLog() {
@@ -49,7 +41,7 @@ func ResponseBody(r *http.Response) string {
 		return ""
 	}
 	defer r.Body.Close()
-	size, _ := strconv.Atoi(r.Header.Get(contentLength))
+	size, _ := strconv.Atoi(r.Header.Get(HeaderContentLength))
 	body := make([]byte, size)
 	r.Body.Read(body)
 	return string(body)
@@ -194,4 +186,12 @@ func AssertHTTPResp(c *C, resp *http.Response, expectedStatusCode int, expectedB
 	resp.Body.Close()
 	c.Assert(string(body), DeepEquals, expectedBody)
 	c.Assert(resp.StatusCode, Equals, expectedStatusCode)
+}
+
+func ProdMsgMetadataSize(key []byte) int {
+	size := 26 // the metadata overhead of CRC, flags, etc.
+	if key != nil {
+		size += sarama.ByteEncoder(key).Length()
+	}
+	return size
 }
