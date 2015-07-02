@@ -146,8 +146,9 @@ func (s *ProducerSuite) failedMessages() []string {
 		case prodResult := <-s.deadMessageCh:
 			b = append(b, string(prodResult.Msg.Value.(sarama.ByteEncoder)))
 		default:
-			return b
+			goto done
 		}
 	}
+done:
 	return b
 }

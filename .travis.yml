@@ -13,7 +13,7 @@ env:
     - KAFKA_VERSION=0.8.2.1
 
 before_install:
-  - export REPOSITORY_ROOT=${TRAVIS_BUILD_DIR}
+  - export REPOSITORY_ROOT=${TRAVIS_BUILD_DIR}/Godeps/_workspace/src/github.com/Shopify/sarama
   - Godeps/_workspace/src/github.com/Shopify/sarama/vagrant/install_cluster.sh
   - Godeps/_workspace/src/github.com/Shopify/sarama/vagrant/boot_cluster.sh
   - Godeps/_workspace/src/github.com/Shopify/sarama/vagrant/create_topics.sh
@@ -21,7 +21,6 @@ before_install:
 script:
  - make test
  - make vet
- - make errcheck
  - make fmt
 
 matrix:

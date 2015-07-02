@@ -17,7 +17,7 @@ vet: install_go_vet
 	go vet ./...
 
 errcheck: install_errcheck
-	errcheck github.com/mailgun/sarama/...
+	errcheck github.com/mailgun/kafka-pixy
 
 fmt:
 	@if [ -n "$$(go fmt ./...)" ]; then echo 'Please run go fmt on your code.' && exit 1; fi
