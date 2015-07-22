@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/Shopify/sarama"
+	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 )
 
 // KafkaProxy is a Kafka client that provides high-level functions to produce
@@ -42,19 +42,44 @@ type KafkaClientImpl struct {
 type KafkaClientCfg struct {
 	// BrokerAddrs is a slice of Kafka broker connection strings.
 	BrokerAddrs []string
-	// A period of time that a proxy should allow to `sarama.Producer` to
-	// submit buffered messages to Kafka. Should be large enough to avoid
-	// event loss when shutdown is performed during Kafka leader election.
-	ShutdownTimeout time.Duration
-	// DeadMessageCh is a channel to dump undelivered messages into. It is used
-	// in testing only.
-	DeadMessageCh chan<- *ProduceResult
+	Producer    struct {
+		// The period of time that a proxy should allow to `sarama.Producer` to
+		// submit buffered messages to Kafka. It should be large enough to avoid
+		// event loss when shutdown is performed during Kafka leader election.
+		ShutdownTimeout time.Duration
+		// DeadMessageCh is a channel to dump undelivered messages into. It is
+		// used in testing only.
+		DeadMessageCh chan<- *ProduceResult
+	}
+	Consumer struct {
+		// A consume request will wait at most this much until a message from
+		// the specified group/topic becomes available. This timeout is
+		// necessary to account for consumer rebalancing that happens whenever
+		// a new consumer joins a group or subscribes to a topic.
+		RequestTimeout time.Duration
+		// The period of time that a proxy should keep registration with a
+		// consumer group or subscription for a topic in absence of requests
+		// to the consumer group or topic.
+		RegistrationTimeout time.Duration
+		// If a request returns an error then it is repeated after this period
+		// of time.
+		BackOffTimeout time.Duration
+		// A consumer should wait this much after it gets notification that a
+		// consumer joined/left its consumer group before it should rebalance.
+		RebalanceDelay time.Duration
+	}
+	ChannelBufferSize int
 }
 
 func NewKafkaClientCfg() *KafkaClientCfg {
-	return &KafkaClientCfg{
-		ShutdownTimeout: 30 * time.Second,
-	}
+	config := &KafkaClientCfg{}
+	config.Producer.ShutdownTimeout = 30 * time.Second
+	config.Consumer.RequestTimeout = 3 * time.Second
+	config.Consumer.RegistrationTimeout = 20 * time.Second
+	config.Consumer.BackOffTimeout = 500 * time.Millisecond
+	config.Consumer.RebalanceDelay = 250 * time.Millisecond
+	config.ChannelBufferSize = 256
+	return config
 }
 
 // SpawnKafkaProxy creates a `KafkaProxy` instance and starts its internal
@@ -80,7 +105,8 @@ func SpawnKafkaClient(config *KafkaClientCfg) (*KafkaClientImpl, error) {
 		return nil, fmt.Errorf("failed to create sarama client, cause=(%v)", err)
 	}
 
-	gracefulProducer, err := SpawnKafkaProducer(kafkaClient, config.ShutdownTimeout, config.DeadMessageCh)
+	gracefulProducer, err := SpawnKafkaProducer(kafkaClient,
+		config.Producer.ShutdownTimeout, config.Producer.DeadMessageCh)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create graceful producer, cause=(%v)", err)
 	}

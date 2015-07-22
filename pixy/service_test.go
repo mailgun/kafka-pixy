@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/Shopify/sarama"
+	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 )
 
@@ -33,7 +33,7 @@ func (s *ServiceSuite) SetUpSuite(c *C) {
 func (s *ServiceSuite) SetUpTest(c *C) {
 	s.serviceCfg = &ServiceCfg{
 		UnixAddr:    path.Join(os.TempDir(), testSocket),
-		BrokerAddrs: testBrokers,
+		BrokerAddrs: testKafkaPeers,
 	}
 	os.Remove(s.serviceCfg.UnixAddr)
 

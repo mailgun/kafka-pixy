@@ -52,7 +52,7 @@ func SpawnService(cfg *ServiceCfg) (*Service, error) {
 		quitCh:      make(chan struct{}),
 	}
 
-	goGo("Service Supervisor", &s.wg, s.supervisor)
+	goGo(&s.wg, s.supervisor)
 	return s, nil
 }
 
@@ -66,6 +66,7 @@ func (s *Service) Wait4Stop() {
 
 // supervisor takes care of the service graceful shutdown.
 func (s *Service) supervisor() {
+	defer logScope("Service Supervisor")()
 	var tcpServerErrorCh <-chan error
 
 	s.unixServer.Start()

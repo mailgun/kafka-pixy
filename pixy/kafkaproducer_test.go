@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/Shopify/sarama"
+	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 )
 
@@ -23,8 +23,8 @@ func (s *ProducerSuite) SetUpSuite(c *C) {
 func (s *ProducerSuite) SetUpTest(c *C) {
 	s.deadMessageCh = make(chan *ProduceResult, 100)
 	s.cfg = NewKafkaClientCfg()
-	s.cfg.BrokerAddrs = testBrokers
-	s.cfg.DeadMessageCh = s.deadMessageCh
+	s.cfg.BrokerAddrs = testKafkaPeers
+	s.cfg.Producer.DeadMessageCh = s.deadMessageCh
 	s.tkc = NewTestKafkaClient(s.cfg.BrokerAddrs)
 }
 
@@ -125,7 +125,7 @@ func (s *ProducerSuite) TestAsyncProduceNilKey(c *C) {
 // because none of them are retries. This test is mostly to increase coverage.
 func (s *ProducerSuite) TestTooSmallShutdownTimeout(c *C) {
 	// Given
-	s.cfg.ShutdownTimeout = 0
+	s.cfg.Producer.ShutdownTimeout = 0
 	kci, _ := SpawnKafkaClient(s.cfg)
 	offsetsBefore := s.tkc.getOffsets("test.4")
 	// When

@@ -15,15 +15,22 @@ const (
 )
 
 var (
-	testBrokers []string
+	testKafkaPeers     []string
+	testZookeeperPeers []string
 )
 
 func init() {
-	kafkaPeers := os.Getenv("KAFKA_PEERS")
-	if kafkaPeers == "" {
-		kafkaPeers = VagrantKafkaPeers
+	kafkaPeersStr := os.Getenv("KAFKA_PEERS")
+	if kafkaPeersStr == "" {
+		kafkaPeersStr = VagrantKafkaPeers
 	}
-	testBrokers = strings.Split(kafkaPeers, ",")
+	testKafkaPeers = strings.Split(kafkaPeersStr, ",")
+
+	zookeeperPeersStr := os.Getenv("ZOOKEEPER_PEERS")
+	if zookeeperPeersStr == "" {
+		zookeeperPeersStr = VagrantZookeeperPeers
+	}
+	testZookeeperPeers = strings.Split(zookeeperPeersStr, ",")
 }
 
 func Test(t *testing.T) {

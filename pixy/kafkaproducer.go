@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
+	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 )
 
 const (
@@ -52,8 +52,8 @@ func SpawnKafkaProducer(saramaClient sarama.Client, shutdownTimeout time.Duratio
 		dispatcherCh:    make(chan *sarama.ProducerMessage, chanBufferSize),
 		resultCh:        make(chan *ProduceResult, chanBufferSize),
 	}
-	goGo("ProducerMerger", &kp.wg, kp.merger)
-	goGo("ProducerDispatcher", &kp.wg, kp.dispatcher)
+	goGo(&kp.wg, kp.merger)
+	goGo(&kp.wg, kp.dispatcher)
 	return kp, nil
 }
 
@@ -98,6 +98,7 @@ func (kp *KafkaProducer) AsyncProduce(topic string, key, message sarama.Encoder)
 // closed. Then it closes the `resultCh` to notify the `dispatcher` goroutine
 // that all pending messages have been processed and exits.
 func (kp *KafkaProducer) merger() {
+	defer logScope("ProducerMerger")()
 	nilOrProdSuccessesCh := kp.saramaProducer.Successes()
 	nilOrProdErrorsCh := kp.saramaProducer.Errors()
 mergeLoop:
@@ -131,6 +132,7 @@ mergeLoop:
 // allowing some graceful period after it stops receiving messages and stopping
 // the embedded `sarama.AsyncProducer`.
 func (kp *KafkaProducer) dispatcher() {
+	defer logScope("ProducerDispatcher")()
 	nilOrDispatcherCh := kp.dispatcherCh
 	var nilOrProdInputCh chan<- *sarama.ProducerMessage
 	pendingMsgCount := 0

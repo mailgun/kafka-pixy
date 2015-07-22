@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/gorilla/mux"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/manners"
+	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 )
 
 const (
@@ -77,7 +77,8 @@ func NewHTTPAPIServer(network, addr string, kafkaProxy KafkaClient) (*HTTPAPISer
 // Starts triggers asynchronous HTTP server start. If it fails then the error
 // will be sent down to `HTTPAPIServer.ErrorCh()`.
 func (as *HTTPAPIServer) Start() {
-	goGo(fmt.Sprintf("API@%s", as.addr), nil, func() {
+	goGo(nil, func() {
+		defer logScope(fmt.Sprintf("API@%s", as.addr))()
 		defer close(as.errorCh)
 		if err := as.httpServer.Serve(as.listener); err != nil {
 			as.errorCh <- fmt.Errorf("HTTP API listener failed, cause=(%v)", err)
