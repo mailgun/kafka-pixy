@@ -80,15 +80,15 @@ func (s *ServiceSuite) TestProduce(c *C) {
 	// When
 	for i := 0; i < 10; i++ {
 		s.unixClient.Post("http://_/topics/test.4?key=1",
-			"", strings.NewReader(strconv.Itoa(i)))
+			"text/plain", strings.NewReader(strconv.Itoa(i)))
 		s.unixClient.Post("http://_/topics/test.4?key=2",
-			"", strings.NewReader(strconv.Itoa(i)))
+			"text/plain", strings.NewReader(strconv.Itoa(i)))
 		s.unixClient.Post("http://_/topics/test.4?key=3",
-			"", strings.NewReader(strconv.Itoa(i)))
+			"text/plain", strings.NewReader(strconv.Itoa(i)))
 		s.unixClient.Post("http://_/topics/test.4?key=4",
-			"", strings.NewReader(strconv.Itoa(i)))
+			"text/plain", strings.NewReader(strconv.Itoa(i)))
 		s.unixClient.Post("http://_/topics/test.4?key=5",
-			"", strings.NewReader(strconv.Itoa(i)))
+			"text/plain", strings.NewReader(strconv.Itoa(i)))
 	}
 	svc.Stop()
 	svc.Wait4Stop()
@@ -110,7 +110,7 @@ func (s *ServiceSuite) TestProduceNilKey(c *C) {
 	// When
 	for i := 0; i < 100; i++ {
 		s.unixClient.Post("http://_/topics/test.4",
-			"", strings.NewReader(strconv.Itoa(i)))
+			"text/plain", strings.NewReader(strconv.Itoa(i)))
 	}
 	svc.Stop()
 	svc.Wait4Stop()
@@ -132,7 +132,7 @@ func (s *ServiceSuite) TestProduceEmptyKey(c *C) {
 	// When
 	for i := 0; i < 10; i++ {
 		s.unixClient.Post("http://_/topics/test.4?key=",
-			"", strings.NewReader(strconv.Itoa(i)))
+			"text/plain", strings.NewReader(strconv.Itoa(i)))
 	}
 	svc.Stop()
 	svc.Wait4Stop()
@@ -150,7 +150,7 @@ func (s *ServiceSuite) TestUtf8Message(c *C) {
 	offsetsBefore := s.tkc.getOffsets("test.4")
 	// When
 	s.unixClient.Post("http://_/topics/test.4?key=foo",
-		"", strings.NewReader("Превед Медвед"))
+		"text/plain", strings.NewReader("Превед Медвед"))
 	svc.Stop()
 	svc.Wait4Stop()
 	// Then
@@ -165,7 +165,7 @@ func (s *ServiceSuite) TestTCPDoesNotWork(c *C) {
 	svc, _ := SpawnService(s.serviceCfg)
 	// When
 	r, err := s.tcpClient.Post("http://localhost:55501/topics/test.4?key=foo",
-		"", strings.NewReader("Hello Kitty"))
+		"text/plain", strings.NewReader("Hello Kitty"))
 	// Then
 	svc.Stop()
 	svc.Wait4Stop()
@@ -181,9 +181,9 @@ func (s *ServiceSuite) TestBothAPI(c *C) {
 	svc, _ := SpawnService(s.serviceCfg)
 	// When
 	_, err1 := s.tcpClient.Post("http://localhost:55502/topics/test.4?key=foo",
-		"", strings.NewReader("Превед"))
+		"text/plain", strings.NewReader("Превед"))
 	_, err2 := s.unixClient.Post("http://_/topics/test.4?key=foo",
-		"", strings.NewReader("Kitty"))
+		"text/plain", strings.NewReader("Kitty"))
 	// Then
 	svc.Stop()
 	svc.Wait4Stop()
@@ -198,14 +198,14 @@ func (s *ServiceSuite) TestBothAPI(c *C) {
 func (s *ServiceSuite) TestStoppedServerCall(c *C) {
 	svc, _ := SpawnService(s.serviceCfg)
 	_, err := s.unixClient.Post("http://_/topics/test.4?key=foo",
-		"", strings.NewReader("Hello"))
+		"text/plain", strings.NewReader("Hello"))
 	c.Assert(err, IsNil)
 	// When
 	svc.Stop()
 	svc.Wait4Stop()
 	// Then
 	r, err := s.unixClient.Post("http://_/topics/test.4?key=foo",
-		"", strings.NewReader("Kitty"))
+		"text/plain", strings.NewReader("Kitty"))
 	c.Assert(err.Error(), Equals, "Post http://_/topics/test.4?key=foo: EOF")
 	c.Assert(r, IsNil)
 }
@@ -258,6 +258,36 @@ func (s *ServiceSuite) TestMessageTooLarge(c *C) {
 	AssertHTTPResp(c, r, http.StatusOK, "")
 	offsetsAfter := s.tkc.getOffsets("test.4")
 	c.Assert(offsetsAfter, DeepEquals, offsetsBefore)
+}
+
+func (s *ServiceSuite) TestSyncProduce(c *C) {
+	// Given
+	svc, _ := SpawnService(s.serviceCfg)
+	offsetsBefore := s.tkc.getOffsets("test.4")
+	// When
+	r, err := s.unixClient.Post("http://_/topics/test.4?key=1&sync",
+		"text/plain", strings.NewReader("Foo"))
+	svc.Stop()
+	svc.Wait4Stop()
+	offsetsAfter := s.tkc.getOffsets("test.4")
+	// Then
+	c.Assert(err, IsNil)
+	AssertHTTPResp(c, r, http.StatusOK, "")
+	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0]+1)
+}
+
+func (s *ServiceSuite) TestSyncProduceInvalidTopic(c *C) {
+	// Given
+	svc, _ := SpawnService(s.serviceCfg)
+	// When
+	r, err := s.unixClient.Post("http://_/topics/no-such-topic?sync=true",
+		"text/plain", strings.NewReader("Foo"))
+	svc.Stop()
+	svc.Wait4Stop()
+	// Then
+	c.Assert(err, IsNil)
+	AssertHTTPResp(c, r, http.StatusNotFound,
+		fmt.Sprintf("%s\n", sarama.ErrUnknownTopicOrPartition.Error()))
 }
 
 // If the Unix API Server crashes then the service terminates gracefully.

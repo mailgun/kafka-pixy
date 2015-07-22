@@ -22,6 +22,7 @@ const (
 	// HTTP request parameters.
 	ParamTopic = "topic"
 	ParamKey   = "key"
+	ParamSync  = "sync"
 )
 
 type HTTPAPIServer struct {
@@ -104,6 +105,7 @@ func (as *HTTPAPIServer) handleProduce(w http.ResponseWriter, r *http.Request) {
 
 	topic := mux.Vars(r)[ParamTopic]
 	key := getParamBytes(r, ParamKey)
+	_, isSync := r.Form[ParamSync]
 
 	// Get the message body from the HTTP request.
 	if _, ok := r.Header[HeaderContentLength]; !ok {
@@ -131,6 +133,18 @@ func (as *HTTPAPIServer) handleProduce(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if isSync {
+		switch err := as.kafkaClient.Produce(
+			topic, toEncoderPreservingNil(key), sarama.StringEncoder(message)); err {
+		case nil:
+			w.WriteHeader(http.StatusOK)
+		case sarama.ErrUnknownTopicOrPartition:
+			http.Error(w, err.Error(), http.StatusNotFound)
+		default:
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
 	// Asynchronously submit the message to the Kafka cluster.
 	as.kafkaClient.AsyncProduce(topic, toEncoderPreservingNil(key), sarama.StringEncoder(message))
 	w.WriteHeader(http.StatusOK)

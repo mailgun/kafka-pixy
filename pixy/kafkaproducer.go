@@ -68,8 +68,18 @@ func (kp *KafkaProducer) Wait4Stop() {
 	kp.wg.Wait()
 }
 
-// AsyncProduce submits a message to the specified topic of the Kafka cluster
-// using `key` to navigate the message to a particular shard.
+func (kp *KafkaProducer) Produce(topic string, key, message sarama.Encoder) error {
+	replyCh := make(chan error, 1)
+	prodMsg := &sarama.ProducerMessage{
+		Topic:    topic,
+		Key:      key,
+		Value:    message,
+		Metadata: replyCh,
+	}
+	kp.dispatcherCh <- prodMsg
+	return <-replyCh
+}
+
 func (kp *KafkaProducer) AsyncProduce(topic string, key, message sarama.Encoder) {
 	prodMsg := &sarama.ProducerMessage{
 		Topic: topic,
@@ -172,6 +182,9 @@ shutdownNow:
 // then logs it and flushes it down the `deadMessageCh` if one had been
 // configured.
 func (kp *KafkaProducer) handleProduceResult(result *ProduceResult) {
+	if replyCh, ok := result.Msg.Metadata.(chan error); ok {
+		replyCh <- result.Err
+	}
 	if result.Err == nil {
 		return
 	}

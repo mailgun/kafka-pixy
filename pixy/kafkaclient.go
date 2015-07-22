@@ -14,15 +14,20 @@ import (
 // management functions. Most of these functions are exposed by the Kafka-Pixy
 // service via an HTTP API.
 type KafkaClient interface {
-	// Produce accepts a message to be asynchronously sent to the configured
-	// Kafka cluster. It is possible that the message may be dropped if the
-	// destination Kafka broker (the leader of the topic partition that the
-	// message belongs to), keeps rejecting it or stays network unreachable for
-	// an extended period of time (see the retry policy in `sarama.ClientCfg`).
+	// Produce submits a message to the specified `topic` of the Kafka cluster
+	// using `key` to identify a destination partition. The exact algorithm
+	// used to map keys to partitions is implementation specific but it is
+	// guaranteed that it returns consistent results. If `key` is `nil`, then
+	// the message is placed into a random partition.
 	//
-	// If `topic` does not exist then it is created with the default queue
-	// parameters on the broker determined by `key`.
-	// If `key` is `nil` then the message is placed into a random partition.
+	// Errors usually indicate a catastrophic failure of the Kafka cluster, or
+	// missing topic if there cluster is not configured to auto create topics.
+	Produce(topic string, key, message sarama.Encoder) error
+
+	// AsyncProduce is an asynchronously counterpart of the `Produce` function.
+	// Errors are silently ignored.
+	//
+	// TODO Consider implementing some sort of dead message processing.
 	AsyncProduce(topic string, key, message sarama.Encoder)
 }
 
@@ -104,8 +109,10 @@ func (kci *KafkaClientImpl) Wait4Stop() {
 	kci.saramaClient.Close()
 }
 
-// AsyncProduce submits a message to the specified topic of the Kafka cluster
-// using `key` to navigate the message to a particular shard.
+func (kci *KafkaClientImpl) Produce(topic string, key, message sarama.Encoder) error {
+	return kci.producer.Produce(topic, key, message)
+}
+
 func (kci *KafkaClientImpl) AsyncProduce(topic string, key, message sarama.Encoder) {
 	kci.producer.AsyncProduce(topic, key, message)
 }
