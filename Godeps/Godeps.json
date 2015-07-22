@@ -6,11 +6,6 @@
 	],
 	"Deps": [
 		{
-			"ImportPath": "github.com/Shopify/sarama",
-			"Comment": "v1.4.2",
-			"Rev": "d546818f24718ecca1fe4c84c2b834109746da86"
-		},
-		{
 			"ImportPath": "github.com/eapache/go-resiliency/breaker",
 			"Comment": "v1",
 			"Rev": "6800482f2c813e689c88b7ed3282262385011890"
@@ -33,6 +28,10 @@
 			"Rev": "e718e932ee606838744df844eb75064959eb74bc"
 		},
 		{
+			"ImportPath": "github.com/mailgun/kazoo-go",
+			"Rev": "fd6a2cebd3bae711a956e9a7f9505d361a1afbaf"
+		},
+		{
 			"ImportPath": "github.com/mailgun/log",
 			"Rev": "5aaa76573581bbbc327dbf69c11527aef7f085c2"
 		},
@@ -40,6 +39,15 @@
 			"ImportPath": "github.com/mailgun/manners",
 			"Comment": "0.3.1-22-g439abb1",
 			"Rev": "439abb10d384a9ca69a511be39f29580ee5009c6"
+		},
+		{
+			"ImportPath": "github.com/mailgun/sarama",
+			"Comment": "v1.4.2-18-g33c420b",
+			"Rev": "33c420b246e1e89e0b94729205bd48500dbf0f85"
+		},
+		{
+			"ImportPath": "github.com/samuel/go-zookeeper/zk",
+			"Rev": "f575d971918451b5ee43b95e9c5a3d1f8b9fb92c"
 		},
 		{
 			"ImportPath": "gopkg.in/check.v1",
