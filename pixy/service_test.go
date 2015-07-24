@@ -169,8 +169,8 @@ func (s *ServiceSuite) TestTCPDoesNotWork(c *C) {
 	// Then
 	svc.Stop()
 	svc.Wait4Stop()
-	c.Assert(err.Error(), Equals,
-		"Post http://localhost:55501/topics/test.4?key=foo: dial tcp 127.0.0.1:55501: connection refused")
+	c.Assert(err.Error(), Matches,
+		"Post http://localhost:55501/topics/test.4\\?key=foo: .* connection refused")
 	c.Assert(r, IsNil)
 }
 
