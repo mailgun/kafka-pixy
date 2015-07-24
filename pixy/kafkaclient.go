@@ -42,19 +42,21 @@ type KafkaClientImpl struct {
 type KafkaClientCfg struct {
 	// BrokerAddrs is a slice of Kafka broker connection strings.
 	BrokerAddrs []string
-	// A period of time that a proxy should allow to `sarama.Producer` to
-	// submit buffered messages to Kafka. Should be large enough to avoid
-	// event loss when shutdown is performed during Kafka leader election.
-	ShutdownTimeout time.Duration
-	// DeadMessageCh is a channel to dump undelivered messages into. It is used
-	// in testing only.
-	DeadMessageCh chan<- *ProduceResult
+	Producer    struct {
+		// The period of time that a proxy should allow to `sarama.Producer` to
+		// submit buffered messages to Kafka. It should be large enough to avoid
+		// event loss when shutdown is performed during Kafka leader election.
+		ShutdownTimeout time.Duration
+		// DeadMessageCh is a channel to dump undelivered messages into. It is
+		// used in testing only.
+		DeadMessageCh chan<- *ProduceResult
+	}
 }
 
 func NewKafkaClientCfg() *KafkaClientCfg {
-	return &KafkaClientCfg{
-		ShutdownTimeout: 30 * time.Second,
-	}
+	config := &KafkaClientCfg{}
+	config.Producer.ShutdownTimeout = 30 * time.Second
+	return config
 }
 
 // SpawnKafkaProxy creates a `KafkaProxy` instance and starts its internal
@@ -80,7 +82,8 @@ func SpawnKafkaClient(config *KafkaClientCfg) (*KafkaClientImpl, error) {
 		return nil, fmt.Errorf("failed to create sarama client, cause=(%v)", err)
 	}
 
-	gracefulProducer, err := SpawnKafkaProducer(kafkaClient, config.ShutdownTimeout, config.DeadMessageCh)
+	gracefulProducer, err := SpawnKafkaProducer(kafkaClient,
+		config.Producer.ShutdownTimeout, config.Producer.DeadMessageCh)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create graceful producer, cause=(%v)", err)
 	}
@@ -97,15 +100,9 @@ func SpawnKafkaClient(config *KafkaClientCfg) (*KafkaClientImpl, error) {
 	return kci, nil
 }
 
-// Stop triggers asynchronous proxy shutdown. Use `Wait4Stop` to wait for
-// the proxy to shutdown.
+// Stop shuts down all client goroutines and releases all resources.
 func (kci *KafkaClientImpl) Stop() {
 	kci.producer.Stop()
-}
-
-// Wait4Stop blocks until all internal goroutines are stopped.
-func (kci *KafkaClientImpl) Wait4Stop() {
-	kci.producer.Wait4Stop()
 	kci.saramaClient.Close()
 }
 

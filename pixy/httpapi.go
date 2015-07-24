@@ -77,7 +77,8 @@ func NewHTTPAPIServer(network, addr string, kafkaProxy KafkaClient) (*HTTPAPISer
 // Starts triggers asynchronous HTTP server start. If it fails then the error
 // will be sent down to `HTTPAPIServer.ErrorCh()`.
 func (as *HTTPAPIServer) Start() {
-	goGo(fmt.Sprintf("API@%s", as.addr), nil, func() {
+	goGo(nil, func() {
+		defer logScope(fmt.Sprintf("API@%s", as.addr))()
 		defer close(as.errorCh)
 		if err := as.httpServer.Serve(as.listener); err != nil {
 			as.errorCh <- fmt.Errorf("HTTP API listener failed, cause=(%v)", err)
@@ -92,10 +93,10 @@ func (as *HTTPAPIServer) ErrorCh() <-chan error {
 	return as.errorCh
 }
 
-// Stop triggers HTTP API listener stop. The caller should wait on `wg` passed
-// to the respective call of `Start` if it needs to know when the lister is
-// stopped and all pending requests has completed gracefully.
-func (as *HTTPAPIServer) Stop() {
+// AsyncStop triggers HTTP API listener stop. If a caller wants to know when
+// the server terminates it should read from the `Error()` channel that will be
+// closed upon server termination.
+func (as *HTTPAPIServer) AsyncStop() {
 	as.httpServer.Close()
 }
 

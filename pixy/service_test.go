@@ -33,7 +33,7 @@ func (s *ServiceSuite) SetUpSuite(c *C) {
 func (s *ServiceSuite) SetUpTest(c *C) {
 	s.serviceCfg = &ServiceCfg{
 		UnixAddr:    path.Join(os.TempDir(), testSocket),
-		BrokerAddrs: testBrokers,
+		BrokerAddrs: testKafkaPeers,
 	}
 	os.Remove(s.serviceCfg.UnixAddr)
 

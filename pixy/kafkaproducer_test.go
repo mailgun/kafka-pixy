@@ -23,8 +23,8 @@ func (s *ProducerSuite) SetUpSuite(c *C) {
 func (s *ProducerSuite) SetUpTest(c *C) {
 	s.deadMessageCh = make(chan *ProduceResult, 100)
 	s.cfg = NewKafkaClientCfg()
-	s.cfg.BrokerAddrs = testBrokers
-	s.cfg.DeadMessageCh = s.deadMessageCh
+	s.cfg.BrokerAddrs = testKafkaPeers
+	s.cfg.Producer.DeadMessageCh = s.deadMessageCh
 	s.tkc = NewTestKafkaClient(s.cfg.BrokerAddrs)
 }
 
@@ -41,8 +41,6 @@ func (s *ProducerSuite) TestStartAndStop(c *C) {
 	c.Assert(kci, NotNil)
 	// When
 	kci.Stop()
-	// Then
-	kci.Wait4Stop()
 }
 
 func (s *ProducerSuite) TestProduce(c *C) {
@@ -57,7 +55,6 @@ func (s *ProducerSuite) TestProduce(c *C) {
 	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0]+1)
 	// Cleanup
 	kci.Stop()
-	kci.Wait4Stop()
 }
 
 func (s *ProducerSuite) TestProduceInvalidTopic(c *C) {
@@ -69,7 +66,6 @@ func (s *ProducerSuite) TestProduceInvalidTopic(c *C) {
 	c.Assert(err, Equals, sarama.ErrUnknownTopicOrPartition)
 	// Cleanup
 	kci.Stop()
-	kci.Wait4Stop()
 }
 
 // If `key` is not `nil` then produced messages are deterministically
@@ -87,7 +83,6 @@ func (s *ProducerSuite) TestAsyncProduce(c *C) {
 		kci.AsyncProduce("test.4", sarama.StringEncoder("5"), sarama.StringEncoder(strconv.Itoa(i)))
 	}
 	kci.Stop()
-	kci.Wait4Stop()
 	offsetsAfter := s.tkc.getOffsets("test.4")
 	// Then
 	c.Assert(s.failedMessages(), DeepEquals, []string{})
@@ -109,7 +104,6 @@ func (s *ProducerSuite) TestAsyncProduceNilKey(c *C) {
 		kci.AsyncProduce("test.4", nil, sarama.StringEncoder(strconv.Itoa(i)))
 	}
 	kci.Stop()
-	kci.Wait4Stop()
 	offsetsAfter := s.tkc.getOffsets("test.4")
 	// Then
 	c.Assert(s.failedMessages(), DeepEquals, []string{})
@@ -125,7 +119,7 @@ func (s *ProducerSuite) TestAsyncProduceNilKey(c *C) {
 // because none of them are retries. This test is mostly to increase coverage.
 func (s *ProducerSuite) TestTooSmallShutdownTimeout(c *C) {
 	// Given
-	s.cfg.ShutdownTimeout = 0
+	s.cfg.Producer.ShutdownTimeout = 0
 	kci, _ := SpawnKafkaClient(s.cfg)
 	offsetsBefore := s.tkc.getOffsets("test.4")
 	// When
@@ -134,7 +128,6 @@ func (s *ProducerSuite) TestTooSmallShutdownTimeout(c *C) {
 		kci.AsyncProduce("test.4", v, v)
 	}
 	kci.Stop()
-	kci.Wait4Stop()
 	offsetsAfter := s.tkc.getOffsets("test.4")
 	// Then
 	c.Assert(s.failedMessages(), DeepEquals, []string{})
@@ -156,7 +149,6 @@ func (s *ProducerSuite) TestAsyncProduceEmptyKey(c *C) {
 		kci.AsyncProduce("test.4", sarama.StringEncoder(""), sarama.StringEncoder(strconv.Itoa(i)))
 	}
 	kci.Stop()
-	kci.Wait4Stop()
 	offsetsAfter := s.tkc.getOffsets("test.4")
 	// Then
 	c.Assert(s.failedMessages(), DeepEquals, []string{})

@@ -32,7 +32,6 @@ func SpawnService(cfg *ServiceCfg) (*Service, error) {
 	unixServer, err := NewHTTPAPIServer(NetworkUnix, cfg.UnixAddr, kafkaClient)
 	if err != nil {
 		kafkaClient.Stop()
-		kafkaClient.Wait4Stop()
 		return nil, fmt.Errorf("failed to start Unix socket based HTTP API, cause=(%v)", err)
 	}
 
@@ -40,7 +39,6 @@ func SpawnService(cfg *ServiceCfg) (*Service, error) {
 	if cfg.TCPAddr != "" {
 		if tcpServer, err = NewHTTPAPIServer(NetworkTCP, cfg.TCPAddr, kafkaClient); err != nil {
 			kafkaClient.Stop()
-			kafkaClient.Wait4Stop()
 			return nil, fmt.Errorf("failed to start TCP socket based HTTP API, cause=(%v)", err)
 		}
 	}
@@ -52,7 +50,7 @@ func SpawnService(cfg *ServiceCfg) (*Service, error) {
 		quitCh:      make(chan struct{}),
 	}
 
-	goGo("Service Supervisor", &s.wg, s.supervisor)
+	goGo(&s.wg, s.supervisor)
 	return s, nil
 }
 
@@ -66,6 +64,7 @@ func (s *Service) Wait4Stop() {
 
 // supervisor takes care of the service graceful shutdown.
 func (s *Service) supervisor() {
+	defer logScope("Service Supervisor")()
 	var tcpServerErrorCh <-chan error
 
 	s.unixServer.Start()
@@ -86,9 +85,9 @@ func (s *Service) supervisor() {
 		}
 	}
 	// Initiate stop of all API servers.
-	s.unixServer.Stop()
+	s.unixServer.AsyncStop()
 	if s.tcpServer != nil {
-		s.tcpServer.Stop()
+		s.tcpServer.AsyncStop()
 	}
 	// Wait until all API servers are stopped.
 	<-s.unixServer.ErrorCh()
@@ -97,5 +96,4 @@ func (s *Service) supervisor() {
 	}
 	// Only when all API servers are stopped it is safe to stop the Kafka client.
 	s.kafkaClient.Stop()
-	s.kafkaClient.Wait4Stop()
 }

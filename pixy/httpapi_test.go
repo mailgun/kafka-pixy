@@ -41,7 +41,7 @@ func (s *HTTPAPISuite) SetUpTest(c *C) {
 
 func (s *HTTPAPISuite) TearDownTest(c *C) {
 	if s.as != nil {
-		s.as.Stop()
+		s.as.AsyncStop()
 		<-s.as.ErrorCh()
 	}
 }
@@ -138,7 +138,7 @@ func (s *HTTPAPISuite) TestTCPServer(c *C) {
 		key:     nil,
 		message: sarama.StringEncoder("foo bar"),
 	})
-	as.Stop()
+	as.AsyncStop()
 	<-as.ErrorCh()
 }
 
@@ -150,7 +150,7 @@ func (s *HTTPAPISuite) TestRequestAfterStop(c *C) {
 		"", strings.NewReader("foo"))
 	c.Assert(err, IsNil)
 	// When
-	s.as.Stop()
+	s.as.AsyncStop()
 	<-s.as.ErrorCh()
 	s.as = nil
 	// Then
