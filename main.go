@@ -36,14 +36,21 @@ func init() {
 		"Unix domain socket address that the HTTP API should listen on")
 	flag.StringVar(&config.TCPAddr, "tcpAddr", "",
 		"TCP address that the HTTP API should listen on")
-	brokers := flag.String("brokers", defaultKafkaPeers, "Comma separated list of brokers")
-	zookeeper := flag.String("zookeeper", defaultZookeeperPeers, "Comma separated list of ZooKeeper nodes")
+	brokers := *flag.String("brokers", defaultKafkaPeers, "Comma separated list of brokers")
+	zookeeper := *flag.String("zookeeper", defaultZookeeperPeers, "Comma separated list of ZooKeeper nodes followed by optional chroot")
 	flag.StringVar(&pidFile, "pidFile", defaultPIDFile, "Path to the PID file")
 	flag.StringVar(&loggingJSONCfg, "logging", defaultLoggingCfg, "Logging configuration")
 	flag.Parse()
 
-	config.Kafka.SeedPeers = strings.Split(*brokers, ",")
-	config.ZooKeeper.SeedPeers = strings.Split(*zookeeper, ",")
+	config.Kafka.SeedPeers = strings.Split(brokers, ",")
+
+	chrootStartIdx := strings.Index(zookeeper, "/")
+	if chrootStartIdx >= 0 {
+		config.ZooKeeper.SeedPeers = strings.Split(zookeeper[:chrootStartIdx], ",")
+		config.ZooKeeper.Chroot = zookeeper[chrootStartIdx:]
+	} else {
+		config.ZooKeeper.SeedPeers = strings.Split(zookeeper, ",")
+	}
 }
 
 func main() {

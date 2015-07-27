@@ -454,9 +454,6 @@ func (c *Conn) authenticate() error {
 		return ErrSessionExpired
 	}
 
-	if c.sessionID != r.SessionID {
-		atomic.StoreUint32(&c.xid, 0)
-	}
 	c.timeout = r.TimeOut
 	c.sessionID = r.SessionID
 	c.passwd = r.Passwd
