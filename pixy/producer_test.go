@@ -4,51 +4,51 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/Shopify/sarama"
+	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 )
 
-type ProducerSuite struct {
-	cfg           *KafkaClientCfg
+type GracefulProducerSuite struct {
+	config        *Config
 	tkc           *TestKafkaClient
-	deadMessageCh chan *ProduceResult
+	deadMessageCh chan *sarama.ProducerMessage
 }
 
-var _ = Suite(&ProducerSuite{})
+var _ = Suite(&GracefulProducerSuite{})
 
-func (s *ProducerSuite) SetUpSuite(c *C) {
+func (s *GracefulProducerSuite) SetUpSuite(c *C) {
 	InitTestLog()
 }
 
-func (s *ProducerSuite) SetUpTest(c *C) {
-	s.deadMessageCh = make(chan *ProduceResult, 100)
-	s.cfg = NewKafkaClientCfg()
-	s.cfg.BrokerAddrs = testKafkaPeers
-	s.cfg.Producer.DeadMessageCh = s.deadMessageCh
-	s.tkc = NewTestKafkaClient(s.cfg.BrokerAddrs)
+func (s *GracefulProducerSuite) SetUpTest(c *C) {
+	s.deadMessageCh = make(chan *sarama.ProducerMessage, 100)
+	s.config = NewConfig()
+	s.config.Kafka.SeedPeers = testKafkaPeers
+	s.config.Producer.DeadMessageCh = s.deadMessageCh
+	s.tkc = NewTestKafkaClient(s.config.Kafka.SeedPeers)
 }
 
-func (s *ProducerSuite) TearDownTest(c *C) {
+func (s *GracefulProducerSuite) TearDownTest(c *C) {
 	close(s.deadMessageCh)
 	s.tkc.Close()
 }
 
 // A started client can be stopped.
-func (s *ProducerSuite) TestStartAndStop(c *C) {
+func (s *GracefulProducerSuite) TestStartAndStop(c *C) {
 	// Given
-	kci, err := SpawnKafkaClient(s.cfg)
+	kci, err := SpawnGracefulProducer(s.config)
 	c.Assert(err, IsNil)
 	c.Assert(kci, NotNil)
 	// When
 	kci.Stop()
 }
 
-func (s *ProducerSuite) TestProduce(c *C) {
+func (s *GracefulProducerSuite) TestProduce(c *C) {
 	// Given
-	kci, _ := SpawnKafkaClient(s.cfg)
+	kci, _ := SpawnGracefulProducer(s.config)
 	offsetsBefore := s.tkc.getOffsets("test.4")
 	// When
-	err := kci.Produce("test.4", sarama.StringEncoder("1"), sarama.StringEncoder("Foo"))
+	_, err := kci.Produce("test.4", sarama.StringEncoder("1"), sarama.StringEncoder("Foo"))
 	// Then
 	c.Assert(err, IsNil)
 	offsetsAfter := s.tkc.getOffsets("test.4")
@@ -57,11 +57,11 @@ func (s *ProducerSuite) TestProduce(c *C) {
 	kci.Stop()
 }
 
-func (s *ProducerSuite) TestProduceInvalidTopic(c *C) {
+func (s *GracefulProducerSuite) TestProduceInvalidTopic(c *C) {
 	// Given
-	kci, _ := SpawnKafkaClient(s.cfg)
+	kci, _ := SpawnGracefulProducer(s.config)
 	// When
-	err := kci.Produce("no-such-topic", sarama.StringEncoder("1"), sarama.StringEncoder("Foo"))
+	_, err := kci.Produce("no-such-topic", sarama.StringEncoder("1"), sarama.StringEncoder("Foo"))
 	// Then
 	c.Assert(err, Equals, sarama.ErrUnknownTopicOrPartition)
 	// Cleanup
@@ -70,9 +70,9 @@ func (s *ProducerSuite) TestProduceInvalidTopic(c *C) {
 
 // If `key` is not `nil` then produced messages are deterministically
 // distributed between partitions based on the `key` hash.
-func (s *ProducerSuite) TestAsyncProduce(c *C) {
+func (s *GracefulProducerSuite) TestAsyncProduce(c *C) {
 	// Given
-	kci, _ := SpawnKafkaClient(s.cfg)
+	kci, _ := SpawnGracefulProducer(s.config)
 	offsetsBefore := s.tkc.getOffsets("test.4")
 	// When
 	for i := 0; i < 10; i++ {
@@ -95,9 +95,9 @@ func (s *ProducerSuite) TestAsyncProduce(c *C) {
 // If `key` of a produced message is `nil` then it is submitted to a random
 // partition. Therefore a batch of such messages is evenly distributed among
 // all available partitions.
-func (s *ProducerSuite) TestAsyncProduceNilKey(c *C) {
+func (s *GracefulProducerSuite) TestAsyncProduceNilKey(c *C) {
 	// Given
-	kci, _ := SpawnKafkaClient(s.cfg)
+	kci, _ := SpawnGracefulProducer(s.config)
 	offsetsBefore := s.tkc.getOffsets("test.4")
 	// When
 	for i := 0; i < 100; i++ {
@@ -117,10 +117,10 @@ func (s *ProducerSuite) TestAsyncProduceNilKey(c *C) {
 // Even though wrapped `sarama.Producer` is instructed to stop immediately on
 // client stop due to `ShutdownTimeout == 0`, still none of messages is lost.
 // because none of them are retries. This test is mostly to increase coverage.
-func (s *ProducerSuite) TestTooSmallShutdownTimeout(c *C) {
+func (s *GracefulProducerSuite) TestTooSmallShutdownTimeout(c *C) {
 	// Given
-	s.cfg.Producer.ShutdownTimeout = 0
-	kci, _ := SpawnKafkaClient(s.cfg)
+	s.config.Producer.ShutdownTimeout = 0
+	kci, _ := SpawnGracefulProducer(s.config)
 	offsetsBefore := s.tkc.getOffsets("test.4")
 	// When
 	for i := 0; i < 100; i++ {
@@ -140,9 +140,9 @@ func (s *ProducerSuite) TestTooSmallShutdownTimeout(c *C) {
 
 // If `key` of a produced message is empty then it is deterministically
 // submitted to a particular partition determined by the empty key hash.
-func (s *ProducerSuite) TestAsyncProduceEmptyKey(c *C) {
+func (s *GracefulProducerSuite) TestAsyncProduceEmptyKey(c *C) {
 	// Given
-	kci, _ := SpawnKafkaClient(s.cfg)
+	kci, _ := SpawnGracefulProducer(s.config)
 	offsetsBefore := s.tkc.getOffsets("test.4")
 	// When
 	for i := 0; i < 10; i++ {
@@ -158,12 +158,12 @@ func (s *ProducerSuite) TestAsyncProduceEmptyKey(c *C) {
 	c.Assert(offsetsAfter[3], Equals, offsetsBefore[3]+10)
 }
 
-func (s *ProducerSuite) failedMessages() []string {
+func (s *GracefulProducerSuite) failedMessages() []string {
 	b := []string{}
 	for {
 		select {
-		case prodResult := <-s.deadMessageCh:
-			b = append(b, string(prodResult.Msg.Value.(sarama.ByteEncoder)))
+		case prodMsg := <-s.deadMessageCh:
+			b = append(b, string(prodMsg.Value.(sarama.ByteEncoder)))
 		default:
 			goto done
 		}

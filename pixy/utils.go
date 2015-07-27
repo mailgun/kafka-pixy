@@ -1,35 +1,23 @@
 package pixy
 
 import (
+	"errors"
+	"net"
 	"sync"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/Shopify/sarama"
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
+	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 )
 
 type none struct{}
 
-func goGo(wg *sync.WaitGroup, f func()) {
-	if wg != nil {
-		wg.Add(1)
-	}
+// spawn starts function `f` as a goroutine making it a member of the `wg`
+// wait group.
+func spawn(wg *sync.WaitGroup, f func()) {
+	wg.Add(1)
 	go func() {
-		if wg != nil {
-			defer wg.Done()
-		}
+		defer wg.Done()
 		f()
 	}()
-}
-
-// logSc is supposed to be used along with `opeOf` to log boundaries of a
-// function, as follows `defer logSc(opeOf(<function-name>))`.
-// opeOf is supposed to be used along with `logSc` to log boundaries of a
-// function, as follows `defer logSc(opeOf(<function-name>))`.
-func logScope(funcName string) func() {
-	log.Infof("<%s> entered", funcName)
-	return func() {
-		log.Infof("<%s> leaving", funcName)
-	}
 }
 
 // toEncoderPreservingNil converts a slice of bytes to `sarama.Encoder` but
@@ -39,4 +27,25 @@ func toEncoderPreservingNil(b []byte) sarama.Encoder {
 		return sarama.StringEncoder(b)
 	}
 	return nil
+}
+
+func getIP() (net.IP, error) {
+	interfaceAddrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil, err
+	}
+	var ipv6 net.IP
+	for _, interfaceAddr := range interfaceAddrs {
+		if ipAddr, ok := interfaceAddr.(*net.IPNet); ok && !ipAddr.IP.IsLoopback() {
+			ipv4 := ipAddr.IP.To4()
+			if ipv4 != nil {
+				return ipv4, nil
+			}
+			ipv6 = ipAddr.IP
+		}
+	}
+	if ipv6 != nil {
+		return ipv6, nil
+	}
+	return nil, errors.New("Unknown IP address")
 }

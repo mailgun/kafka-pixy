@@ -24,7 +24,7 @@ import (
 
 var (
 	ErrNoServer   = errors.New("zk: could not connect to a server")
-	DefaultLogger = defaultLogger{}
+	DefaultLogger Logger = defaultLogger{}
 )
 
 const (

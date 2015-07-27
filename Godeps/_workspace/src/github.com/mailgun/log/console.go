@@ -36,6 +36,6 @@ func NewConsoleLogger(conf Config) (Logger, error) {
 }
 
 func (l *consoleLogger) FormatMessage(sev Severity, caller *CallerInfo, format string, args ...interface{}) string {
-	return fmt.Sprintf("%v %s %s PID:%d [%s:%d:%s] %s\n",
-		time.Now().UTC().Format(time.StampMilli), appname, sev, pid, caller.FileName, caller.LineNo, caller.FuncName, fmt.Sprintf(format, args...))
+	return fmt.Sprintf("%s %s %s\n",
+		time.Now().UTC().Format(time.RFC3339Nano), sev, fmt.Sprintf(format, args...))
 }

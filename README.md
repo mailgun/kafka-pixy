@@ -11,7 +11,7 @@ Kafka works best when messages are read/written in batches, but from application
 standpoint it is easier to deal with individual message read/writes. Kafka-Pixy
 provides message based API to clients, but internally it collects them in
 batches and submits them the way Kafka likes it the best. This behavior plays
-very well with the microservice architecture, where there are usually many tiny
+very well with the microservices architecture, where there are usually many tiny
 assorted service instances running on one beefy physical host. So Kafka-Pixy
 installed on that host would aggregate messages from all the service instances,
 herby effectively using the network bandwidth.
@@ -27,7 +27,7 @@ listener but that is mostly for debugging purposes.
 
 ### Produce
 
-`POST /topics/<topic>?key=<key>` - submits a message to the Kafka topic with
+`POST /topics/<topic>/messages?key=<key>` - submits a message to the topic with
 name **topic**, using a hash of **key** to determine the shard where the message
 should go. The content type can be either `text/plain` or `application/json`. 
 
@@ -54,7 +54,7 @@ E.g. if a Kafka-Pixy processes has been started with the `--tcpAddr=0.0.0.0:8080
 argument, then you can test it using **curl** as follows:
 
 ```
-curl -X POST localhost:8080/topics/foo?key=bar&sync \
+curl -X POST localhost:8080/topics/foo/messages?key=bar&sync \
      -H 'Content-Type: application/json' \
      -d '{"bar": "bazz"}'
 ```

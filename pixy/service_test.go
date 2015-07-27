@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/Shopify/sarama"
+	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 )
 
@@ -18,7 +18,7 @@ const (
 )
 
 type ServiceSuite struct {
-	serviceCfg *ServiceCfg
+	config     *Config
 	tkc        *TestKafkaClient
 	unixClient *http.Client
 	tcpClient  *http.Client
@@ -31,29 +31,27 @@ func (s *ServiceSuite) SetUpSuite(c *C) {
 }
 
 func (s *ServiceSuite) SetUpTest(c *C) {
-	s.serviceCfg = &ServiceCfg{
-		UnixAddr:    path.Join(os.TempDir(), testSocket),
-		BrokerAddrs: testKafkaPeers,
-	}
-	os.Remove(s.serviceCfg.UnixAddr)
+	s.config = NewConfig()
+	s.config.UnixAddr = path.Join(os.TempDir(), testSocket)
+	s.config.Kafka.SeedPeers = testKafkaPeers
+	os.Remove(s.config.UnixAddr)
 
-	s.tkc = NewTestKafkaClient(s.serviceCfg.BrokerAddrs)
-	s.unixClient = NewUDSHTTPClient(s.serviceCfg.UnixAddr)
+	s.tkc = NewTestKafkaClient(s.config.Kafka.SeedPeers)
+	s.unixClient = NewUDSHTTPClient(s.config.UnixAddr)
 	s.tcpClient = &http.Client{}
 }
 
 func (s *ServiceSuite) TestStartAndStop(c *C) {
-	svc, err := SpawnService(s.serviceCfg)
+	svc, err := SpawnService(s.config)
 	c.Assert(err, IsNil)
 	svc.Stop()
-	svc.Wait4Stop()
 }
 
 func (s *ServiceSuite) TestInvalidUnixAddr(c *C) {
 	// Given
-	s.serviceCfg.UnixAddr = "/tmp"
+	s.config.UnixAddr = "/tmp"
 	// When
-	svc, err := SpawnService(s.serviceCfg)
+	svc, err := SpawnService(s.config)
 	// Then
 	c.Assert(err.Error(), Equals,
 		"failed to start Unix socket based HTTP API, cause=(failed to create listener, cause=(listen unix /tmp: bind: address already in use))")
@@ -62,12 +60,12 @@ func (s *ServiceSuite) TestInvalidUnixAddr(c *C) {
 
 func (s *ServiceSuite) TestInvalidBrokers(c *C) {
 	// Given
-	s.serviceCfg.BrokerAddrs = []string{"localhost:12345"}
+	s.config.Kafka.SeedPeers = []string{"localhost:12345"}
 	// When
-	svc, err := SpawnService(s.serviceCfg)
+	svc, err := SpawnService(s.config)
 	// Then
 	c.Assert(err.Error(), Equals,
-		"failed to spawn Kafka client, cause=(failed to create sarama client, cause=(kafka: Client has run out of available brokers to talk to. Is your cluster reachable?))")
+		"failed to spawn Kafka client, cause=(failed to create sarama.Client, cause=(kafka: client has run out of available brokers to talk to (Is your cluster reachable?)))")
 	c.Assert(svc, IsNil)
 }
 
@@ -75,23 +73,22 @@ func (s *ServiceSuite) TestInvalidBrokers(c *C) {
 // distributed between partitions based on the `key` hash.
 func (s *ServiceSuite) TestProduce(c *C) {
 	// Given
-	svc, _ := SpawnService(s.serviceCfg)
+	svc, _ := SpawnService(s.config)
 	offsetsBefore := s.tkc.getOffsets("test.4")
 	// When
 	for i := 0; i < 10; i++ {
-		s.unixClient.Post("http://_/topics/test.4?key=1",
+		s.unixClient.Post("http://_/topics/test.4/messages?key=1",
 			"text/plain", strings.NewReader(strconv.Itoa(i)))
-		s.unixClient.Post("http://_/topics/test.4?key=2",
+		s.unixClient.Post("http://_/topics/test.4/messages?key=2",
 			"text/plain", strings.NewReader(strconv.Itoa(i)))
-		s.unixClient.Post("http://_/topics/test.4?key=3",
+		s.unixClient.Post("http://_/topics/test.4/messages?key=3",
 			"text/plain", strings.NewReader(strconv.Itoa(i)))
-		s.unixClient.Post("http://_/topics/test.4?key=4",
+		s.unixClient.Post("http://_/topics/test.4/messages?key=4",
 			"text/plain", strings.NewReader(strconv.Itoa(i)))
-		s.unixClient.Post("http://_/topics/test.4?key=5",
+		s.unixClient.Post("http://_/topics/test.4/messages?key=5",
 			"text/plain", strings.NewReader(strconv.Itoa(i)))
 	}
 	svc.Stop()
-	svc.Wait4Stop()
 	offsetsAfter := s.tkc.getOffsets("test.4")
 	// Then
 	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0]+20)
@@ -105,15 +102,14 @@ func (s *ServiceSuite) TestProduce(c *C) {
 // all available partitions.
 func (s *ServiceSuite) TestProduceNilKey(c *C) {
 	// Given
-	svc, _ := SpawnService(s.serviceCfg)
+	svc, _ := SpawnService(s.config)
 	offsetsBefore := s.tkc.getOffsets("test.4")
 	// When
 	for i := 0; i < 100; i++ {
-		s.unixClient.Post("http://_/topics/test.4",
+		s.unixClient.Post("http://_/topics/test.4/messages",
 			"text/plain", strings.NewReader(strconv.Itoa(i)))
 	}
 	svc.Stop()
-	svc.Wait4Stop()
 	offsetsAfter := s.tkc.getOffsets("test.4")
 	// Then
 	delta0 := offsetsAfter[0] - offsetsBefore[0]
@@ -127,15 +123,14 @@ func (s *ServiceSuite) TestProduceNilKey(c *C) {
 // If `key` of a produced message is empty then it is deterministically
 // submitted to a particular partition determined by the empty key hash.
 func (s *ServiceSuite) TestProduceEmptyKey(c *C) {
-	svc, _ := SpawnService(s.serviceCfg)
+	svc, _ := SpawnService(s.config)
 	offsetsBefore := s.tkc.getOffsets("test.4")
 	// When
 	for i := 0; i < 10; i++ {
-		s.unixClient.Post("http://_/topics/test.4?key=",
+		s.unixClient.Post("http://_/topics/test.4/messages?key=",
 			"text/plain", strings.NewReader(strconv.Itoa(i)))
 	}
 	svc.Stop()
-	svc.Wait4Stop()
 	offsetsAfter := s.tkc.getOffsets("test.4")
 	// Then
 	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0])
@@ -146,13 +141,12 @@ func (s *ServiceSuite) TestProduceEmptyKey(c *C) {
 
 // Utf8 messages are submitted without a problem.
 func (s *ServiceSuite) TestUtf8Message(c *C) {
-	svc, _ := SpawnService(s.serviceCfg)
+	svc, _ := SpawnService(s.config)
 	offsetsBefore := s.tkc.getOffsets("test.4")
 	// When
-	s.unixClient.Post("http://_/topics/test.4?key=foo",
+	s.unixClient.Post("http://_/topics/test.4/messages?key=foo",
 		"text/plain", strings.NewReader("Превед Медвед"))
 	svc.Stop()
-	svc.Wait4Stop()
 	// Then
 	offsetsAfter := s.tkc.getOffsets("test.4")
 	msgs := s.tkc.getMessages("test.4", offsetsBefore, offsetsAfter)
@@ -162,31 +156,30 @@ func (s *ServiceSuite) TestUtf8Message(c *C) {
 
 // TCP API is not started by default.
 func (s *ServiceSuite) TestTCPDoesNotWork(c *C) {
-	svc, _ := SpawnService(s.serviceCfg)
+	svc, _ := SpawnService(s.config)
 	// When
-	r, err := s.tcpClient.Post("http://localhost:55501/topics/test.4?key=foo",
+	r, err := s.tcpClient.Post("http://localhost:55501/topics/test.4/messages?key=foo",
 		"text/plain", strings.NewReader("Hello Kitty"))
 	// Then
 	svc.Stop()
-	svc.Wait4Stop()
 	c.Assert(err.Error(), Matches,
-		"Post http://localhost:55501/topics/test.4\\?key=foo: .* connection refused")
+		"Post http://localhost:55501/topics/test.4/messages\\?key=foo: .* connection refused")
 	c.Assert(r, IsNil)
 }
 
 // API is served on a TCP socket if it is explicitly configured.
 func (s *ServiceSuite) TestBothAPI(c *C) {
 	offsetsBefore := s.tkc.getOffsets("test.4")
-	s.serviceCfg.TCPAddr = "127.0.0.1:55502"
-	svc, _ := SpawnService(s.serviceCfg)
+	s.config.TCPAddr = "127.0.0.1:55502"
+	svc, err := SpawnService(s.config)
+	c.Assert(err, IsNil)
 	// When
-	_, err1 := s.tcpClient.Post("http://localhost:55502/topics/test.4?key=foo",
+	_, err1 := s.tcpClient.Post("http://localhost:55502/topics/test.4/messages?key=foo",
 		"text/plain", strings.NewReader("Превед"))
-	_, err2 := s.unixClient.Post("http://_/topics/test.4?key=foo",
+	_, err2 := s.unixClient.Post("http://_/topics/test.4/messages?key=foo",
 		"text/plain", strings.NewReader("Kitty"))
 	// Then
 	svc.Stop()
-	svc.Wait4Stop()
 	c.Assert(err1, IsNil)
 	c.Assert(err2, IsNil)
 	offsetsAfter := s.tkc.getOffsets("test.4")
@@ -196,29 +189,27 @@ func (s *ServiceSuite) TestBothAPI(c *C) {
 }
 
 func (s *ServiceSuite) TestStoppedServerCall(c *C) {
-	svc, _ := SpawnService(s.serviceCfg)
-	_, err := s.unixClient.Post("http://_/topics/test.4?key=foo",
+	svc, _ := SpawnService(s.config)
+	_, err := s.unixClient.Post("http://_/topics/test.4/messages?key=foo",
 		"text/plain", strings.NewReader("Hello"))
 	c.Assert(err, IsNil)
 	// When
 	svc.Stop()
-	svc.Wait4Stop()
 	// Then
-	r, err := s.unixClient.Post("http://_/topics/test.4?key=foo",
+	r, err := s.unixClient.Post("http://_/topics/test.4/messages?key=foo",
 		"text/plain", strings.NewReader("Kitty"))
-	c.Assert(err.Error(), Equals, "Post http://_/topics/test.4?key=foo: EOF")
+	c.Assert(err.Error(), Equals, "Post http://_/topics/test.4/messages?key=foo: EOF")
 	c.Assert(r, IsNil)
 }
 
 // If the TCP API Server crashes then the service terminates gracefully.
 func (s *ServiceSuite) TestTCPServerCrash(c *C) {
-	s.serviceCfg.TCPAddr = "127.0.0.1:55502"
-	svc, _ := SpawnService(s.serviceCfg)
+	s.config.TCPAddr = "127.0.0.1:55502"
+	svc, _ := SpawnService(s.config)
 	// When
 	svc.tcpServer.errorCh <- fmt.Errorf("Kaboom!")
 	// Then
 	svc.Stop()
-	svc.Wait4Stop()
 }
 
 // Messages that have maximum possible size indeed go through. Note that we
@@ -227,12 +218,11 @@ func (s *ServiceSuite) TestLargestMessage(c *C) {
 	offsetsBefore := s.tkc.getOffsets("test.4")
 	maxMsgSize := sarama.NewConfig().Producer.MaxMessageBytes - ProdMsgMetadataSize([]byte("foo"))
 	msg := GenMessage(maxMsgSize)
-	s.serviceCfg.TCPAddr = "127.0.0.1:55503"
-	svc, _ := SpawnService(s.serviceCfg)
+	s.config.TCPAddr = "127.0.0.1:55503"
+	svc, _ := SpawnService(s.config)
 	// When
-	r := PostChunked(s.tcpClient, "http://127.0.0.1:55503/topics/test.4?key=foo", msg)
+	r := PostChunked(s.tcpClient, "http://127.0.0.1:55503/topics/test.4/messages?key=foo", msg)
 	svc.Stop()
-	svc.Wait4Stop()
 	// Then
 	AssertHTTPResp(c, r, http.StatusOK, "")
 	offsetsAfter := s.tkc.getOffsets("test.4")
@@ -248,12 +238,11 @@ func (s *ServiceSuite) TestMessageTooLarge(c *C) {
 	offsetsBefore := s.tkc.getOffsets("test.4")
 	maxMsgSize := sarama.NewConfig().Producer.MaxMessageBytes - ProdMsgMetadataSize([]byte("foo")) + 1
 	msg := GenMessage(maxMsgSize)
-	s.serviceCfg.TCPAddr = "127.0.0.1:55504"
-	svc, _ := SpawnService(s.serviceCfg)
+	s.config.TCPAddr = "127.0.0.1:55504"
+	svc, _ := SpawnService(s.config)
 	// When
-	r := PostChunked(s.tcpClient, "http://127.0.0.1:55504/topics/test.4?key=foo", msg)
+	r := PostChunked(s.tcpClient, "http://127.0.0.1:55504/topics/test.4/messages?key=foo", msg)
 	svc.Stop()
-	svc.Wait4Stop()
 	// Then
 	AssertHTTPResp(c, r, http.StatusOK, "")
 	offsetsAfter := s.tkc.getOffsets("test.4")
@@ -262,13 +251,12 @@ func (s *ServiceSuite) TestMessageTooLarge(c *C) {
 
 func (s *ServiceSuite) TestSyncProduce(c *C) {
 	// Given
-	svc, _ := SpawnService(s.serviceCfg)
+	svc, _ := SpawnService(s.config)
 	offsetsBefore := s.tkc.getOffsets("test.4")
 	// When
-	r, err := s.unixClient.Post("http://_/topics/test.4?key=1&sync",
+	r, err := s.unixClient.Post("http://_/topics/test.4/messages?key=1&sync",
 		"text/plain", strings.NewReader("Foo"))
 	svc.Stop()
-	svc.Wait4Stop()
 	offsetsAfter := s.tkc.getOffsets("test.4")
 	// Then
 	c.Assert(err, IsNil)
@@ -278,12 +266,11 @@ func (s *ServiceSuite) TestSyncProduce(c *C) {
 
 func (s *ServiceSuite) TestSyncProduceInvalidTopic(c *C) {
 	// Given
-	svc, _ := SpawnService(s.serviceCfg)
+	svc, _ := SpawnService(s.config)
 	// When
 	r, err := s.unixClient.Post("http://_/topics/no-such-topic?sync=true",
 		"text/plain", strings.NewReader("Foo"))
 	svc.Stop()
-	svc.Wait4Stop()
 	// Then
 	c.Assert(err, IsNil)
 	AssertHTTPResp(c, r, http.StatusNotFound,
@@ -292,10 +279,9 @@ func (s *ServiceSuite) TestSyncProduceInvalidTopic(c *C) {
 
 // If the Unix API Server crashes then the service terminates gracefully.
 func (s *ServiceSuite) TestUnixServerCrash(c *C) {
-	svc, _ := SpawnService(s.serviceCfg)
+	svc, _ := SpawnService(s.config)
 	// When
 	svc.unixServer.errorCh <- fmt.Errorf("Kaboom!")
 	// Then
 	svc.Stop()
-	svc.Wait4Stop()
 }
