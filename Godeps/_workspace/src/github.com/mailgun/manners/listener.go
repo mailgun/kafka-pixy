@@ -28,7 +28,9 @@ func NewListener(l net.Listener) *GracefulListener {
 type gracefulConn struct {
 	net.Conn
 	lastHTTPState http.ConnState
-	forceClosed   bool
+	// protected tells whether the connection is going to defer server shutdown
+	// until the current HTTP request is completed.
+	protected bool
 }
 
 type gracefulAddr struct {

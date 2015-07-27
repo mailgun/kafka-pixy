@@ -6,9 +6,8 @@
 	],
 	"Deps": [
 		{
-			"ImportPath": "github.com/Shopify/sarama",
-			"Comment": "v1.4.2",
-			"Rev": "d546818f24718ecca1fe4c84c2b834109746da86"
+			"ImportPath": "github.com/davecgh/go-spew/spew",
+			"Rev": "f9f629a1d082960e5d1747f33c2b378612615fea"
 		},
 		{
 			"ImportPath": "github.com/eapache/go-resiliency/breaker",
@@ -21,16 +20,20 @@
 			"Rev": "d1df561eb6b9ffdac8dd98f943e9e9096c76c059"
 		},
 		{
-			"ImportPath": "github.com/golang/snappy/snappy",
-			"Rev": "eaa750b9bf4dcb7cb20454be850613b66cda3273"
+			"ImportPath": "github.com/golang/snappy",
+			"Rev": "0c7f8a7704bfec561913f4df52c832f094ef56f0"
 		},
 		{
 			"ImportPath": "github.com/gorilla/context",
-			"Rev": "708054d61e5a2918b9f4e9700000ee611dcf03f5"
+			"Rev": "215affda49addc4c8ef7e2534915df2c8c35c6cd"
 		},
 		{
 			"ImportPath": "github.com/gorilla/mux",
-			"Rev": "e718e932ee606838744df844eb75064959eb74bc"
+			"Rev": "8096f47503459bcc74d1f4c487b7e6e42e5746b5"
+		},
+		{
+			"ImportPath": "github.com/mailgun/kazoo-go",
+			"Rev": "02a3868e9b87153285439cd27a39c0a2984a13af"
 		},
 		{
 			"ImportPath": "github.com/mailgun/log",
@@ -38,8 +41,17 @@
 		},
 		{
 			"ImportPath": "github.com/mailgun/manners",
-			"Comment": "0.3.1-22-g439abb1",
-			"Rev": "439abb10d384a9ca69a511be39f29580ee5009c6"
+			"Comment": "0.3.1-24-g8518c51",
+			"Rev": "8518c51825e4aec9d3de17203b2b409dd0c5e5c5"
+		},
+		{
+			"ImportPath": "github.com/mailgun/sarama",
+			"Comment": "v1.4.3-47-gf4b75bf",
+			"Rev": "f4b75bf29b03d793fa225dc1a665211a311e2242"
+		},
+		{
+			"ImportPath": "github.com/samuel/go-zookeeper/zk",
+			"Rev": "f575d971918451b5ee43b95e9c5a3d1f8b9fb92c"
 		},
 		{
 			"ImportPath": "gopkg.in/check.v1",

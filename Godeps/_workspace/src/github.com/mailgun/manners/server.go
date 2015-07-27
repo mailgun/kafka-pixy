@@ -231,30 +231,30 @@ func (s *GracefulServer) Serve(listener net.Listener) error {
 		gracefulConn := retrieveGracefulConn(conn)
 		oldState := gracefulConn.lastHTTPState
 		gracefulConn.lastHTTPState = newState
+
 		switch newState {
 		case http.StateNew:
 			// New connection -> StateNew
+			gracefulConn.protected = true
 			s.StartRoutine()
 
 		case http.StateActive:
 			// (StateNew, StateIdle) -> StateActive
 			if gracefulHandler.IsClosed() {
 				gracefulConn.Close()
-				gracefulConn.forceClosed = true
-			} else {
-				if oldState == http.StateIdle {
-					s.StartRoutine()
-				}
+				break
 			}
 
-		case http.StateIdle:
-			// StateActive -> StateIdle
-			s.FinishRoutine()
+			if !gracefulConn.protected {
+				gracefulConn.protected = true
+				s.StartRoutine()
+			}
 
-		case http.StateClosed, http.StateHijacked:
-			// (StateNew, StateActive, StateIdle) -> (StateClosed, StateHiJacked)
-			if oldState != http.StateIdle && !gracefulConn.forceClosed {
+		default:
+			// (StateNew, StateActive) -> (StateIdle, StateClosed, StateHiJacked)
+			if gracefulConn.protected {
 				s.FinishRoutine()
+				gracefulConn.protected = false
 			}
 		}
 
