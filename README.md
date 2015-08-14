@@ -59,6 +59,33 @@ curl -X POST localhost:8080/topics/foo/messages?key=bar&sync \
      -d '{"bar": "bazz"}'
 ```
 
+### Consume
+
+`GET /topics/<topic>/messages?group=<group>` - consumes a message from the topic
+with name **topic** on behalf of a consumer group with name **group**. If there
+are no new messages in the topic the request will block waiting for 3 seconds.
+If there are no messages produced during this long poll waiting then the request
+will return **408** Request Timeout error, otherwise the response will be a JSON
+document of the following structure:
+
+```json
+{
+    "key": <base64 encoded key>,
+    "value": <base64 encoded message body>,
+    "partition": <partition number>,
+    "offset": <message offset>
+}
+```
+e.g.:
+```json
+{
+    "key": "0JzQsNGA0YPRgdGP",
+    "value": "0JzQvtGPINC70Y7QsdC40LzQsNGPINC00L7Rh9C10L3RjNC60LA=",
+    "partition": 0,
+    "offset": 13}
+}
+```
+
 ## Command Line
 
 Kafa-pixy accepts the following command line parameters:
