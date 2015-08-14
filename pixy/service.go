@@ -101,6 +101,7 @@ func (c *Config) kazooConfig() *kazoo.Config {
 
 type Service struct {
 	producer   *GracefulProducer
+	consumer   *SmartConsumer
 	unixServer *HTTPAPIServer
 	tcpServer  *HTTPAPIServer
 	quitCh     chan struct{}
@@ -110,22 +111,28 @@ type Service struct {
 func SpawnService(config *Config) (*Service, error) {
 	producer, err := SpawnGracefulProducer(config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to spawn Kafka client, cause=(%v)", err)
+		return nil, fmt.Errorf("failed to spawn producer, cause=(%s)", err)
 	}
-	unixServer, err := NewHTTPAPIServer(NetworkUnix, config.UnixAddr, producer)
+	consumer, err := SpawnSmartConsumer(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to spawn consumer, cause=(%s)", err)
+	}
+	unixServer, err := NewHTTPAPIServer(NetworkUnix, config.UnixAddr, producer, consumer)
 	if err != nil {
 		producer.Stop()
 		return nil, fmt.Errorf("failed to start Unix socket based HTTP API, cause=(%v)", err)
 	}
 	var tcpServer *HTTPAPIServer
 	if config.TCPAddr != "" {
-		if tcpServer, err = NewHTTPAPIServer(NetworkTCP, config.TCPAddr, producer); err != nil {
+		tcpServer, err = NewHTTPAPIServer(NetworkTCP, config.TCPAddr, producer, consumer)
+		if err != nil {
 			producer.Stop()
 			return nil, fmt.Errorf("failed to start TCP socket based HTTP API, cause=(%v)", err)
 		}
 	}
 	s := &Service{
 		producer:   producer,
+		consumer:   consumer,
 		unixServer: unixServer,
 		tcpServer:  tcpServer,
 		quitCh:     make(chan struct{}),
@@ -171,8 +178,12 @@ func (s *Service) supervisor() {
 	if s.tcpServer != nil {
 		<-s.tcpServer.ErrorCh()
 	}
-	// Only when all API servers are stopped it is safe to stop the Kafka client.
-	s.producer.Stop()
+	// There are no more requests in flight at this point so it is safe to stop
+	// all Kafka clients.
+	var wg sync.WaitGroup
+	spawn(&wg, s.producer.Stop)
+	spawn(&wg, s.consumer.Stop)
+	wg.Wait()
 }
 
 // newClientID creates a unique id that identifies this particular Kafka-Pixy

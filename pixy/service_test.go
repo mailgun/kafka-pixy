@@ -34,6 +34,7 @@ func (s *ServiceSuite) SetUpTest(c *C) {
 	s.config = NewConfig()
 	s.config.UnixAddr = path.Join(os.TempDir(), testSocket)
 	s.config.Kafka.SeedPeers = testKafkaPeers
+	s.config.ZooKeeper.SeedPeers = testZookeeperPeers
 	os.Remove(s.config.UnixAddr)
 
 	s.tkc = NewTestKafkaClient(s.config.Kafka.SeedPeers)
@@ -58,14 +59,14 @@ func (s *ServiceSuite) TestInvalidUnixAddr(c *C) {
 	c.Assert(svc, IsNil)
 }
 
-func (s *ServiceSuite) TestInvalidBrokers(c *C) {
+func (s *ServiceSuite) TestInvalidKafkaPeers(c *C) {
 	// Given
 	s.config.Kafka.SeedPeers = []string{"localhost:12345"}
 	// When
 	svc, err := SpawnService(s.config)
 	// Then
 	c.Assert(err.Error(), Equals,
-		"failed to spawn Kafka client, cause=(failed to create sarama.Client, cause=(kafka: client has run out of available brokers to talk to (Is your cluster reachable?)))")
+		"failed to spawn producer, cause=(failed to create sarama.Client, cause=(kafka: client has run out of available brokers to talk to (Is your cluster reachable?)))")
 	c.Assert(svc, IsNil)
 }
 
@@ -284,4 +285,56 @@ func (s *ServiceSuite) TestUnixServerCrash(c *C) {
 	svc.unixServer.errorCh <- fmt.Errorf("Kaboom!")
 	// Then
 	svc.Stop()
+}
+
+func (s *ServiceSuite) TestConsumeNoGroup(c *C) {
+	// Given
+	svc, _ := SpawnService(s.config)
+	// When
+	r, err := s.unixClient.Get("http://_/topics/test.4/messages")
+	svc.Stop()
+	// Then
+	c.Assert(err, IsNil)
+	AssertHTTPResp(c, r, http.StatusBadRequest, "One consumer group is expected, but 0 provided\n")
+}
+
+func (s *ServiceSuite) TestConsumeManyGroups(c *C) {
+	// Given
+	svc, _ := SpawnService(s.config)
+	// When
+	r, err := s.unixClient.Get("http://_/topics/test.4/messages?group=a&group=b")
+	svc.Stop()
+	// Then
+	c.Assert(err, IsNil)
+	AssertHTTPResp(c, r, http.StatusBadRequest, "One consumer group is expected, but 2 provided\n")
+}
+
+func (s *ServiceSuite) TestConsumeInvalidTopic(c *C) {
+	// Given
+	svc, _ := SpawnService(s.config)
+	// When
+	r, err := s.unixClient.Get("http://_/topics/no-such-topic/messages?group=foo")
+	svc.Stop()
+	// Then
+	c.Assert(err, IsNil)
+	AssertHTTPResp(c, r, http.StatusRequestTimeout,
+		"</smartConsumer.*/foo.*/no-such-topic.*> timeout\n")
+}
+
+func (s *ServiceSuite) TestConsumeSingleMessage(c *C) {
+	// Given
+	ResetOffsets(c, "foo", "test.4")
+	produced := GenMessages(c, "service.consume", "test.4", map[string]int{"B": 1})
+	svc, _ := SpawnService(s.config)
+	// When
+	r, err := s.unixClient.Get("http://_/topics/test.4/messages?group=foo")
+	svc.Stop()
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(r.StatusCode, Equals, http.StatusOK)
+	body := ParseJSONBody(c, r)
+	c.Assert(ParseBase64(c, body["key"].(string)), Equals, "B")
+	c.Assert(ParseBase64(c, body["value"].(string)), Equals, ProdMsgVal(produced["B"][0]))
+	c.Assert(int(body["partition"].(float64)), Equals, 3)
+	c.Assert(int64(body["offset"].(float64)), Equals, produced["B"][0].Offset)
 }

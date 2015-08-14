@@ -2,6 +2,8 @@ package pixy
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -274,3 +276,32 @@ type MessageSlice []*sarama.ProducerMessage
 func (p MessageSlice) Len() int           { return len(p) }
 func (p MessageSlice) Less(i, j int) bool { return p[i].Offset < p[j].Offset }
 func (p MessageSlice) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
+
+func ParseJSONBody(c *C, res *http.Response) map[string]interface{} {
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		c.Error(err)
+		return nil
+	}
+	res.Body.Close()
+	var parsedBody map[string]interface{}
+	if err := json.Unmarshal(body, &parsedBody); err != nil {
+		c.Error(err)
+		return nil
+	}
+	return parsedBody
+}
+
+func ParseBase64(c *C, encoded string) string {
+	decoder := base64.NewDecoder(base64.StdEncoding, strings.NewReader(encoded))
+	decoded, err := ioutil.ReadAll(decoder)
+	if err != nil {
+		c.Error(err)
+		return ""
+	}
+	return string(decoded)
+}
+
+func ProdMsgVal(prodMsg *sarama.ProducerMessage) string {
+	return string(prodMsg.Value.(sarama.StringEncoder))
+}
