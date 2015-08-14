@@ -134,48 +134,39 @@ func GenMessage(size int) string {
 // `0, nil`. This kind of reader is useful to simulate HTTP requests that
 // require several read operations on the request body to get all of it.
 type ChunkReader struct {
-	chunks   []string
-	chunk    string
-	pause    time.Duration
-	chunkDue time.Time
+	buf         []byte
+	begin       int
+	chunkSize   int
+	pause       time.Duration
+	shouldPause bool
 }
 
 func NewChunkReader(s string, count int, pause time.Duration) *ChunkReader {
-	chunkSize := len(s) / count
-	chunks := make([]string, count, count+1)
-	for i := 0; i < count; i++ {
-		begin := chunkSize * i
-		end := begin + chunkSize
-		chunks[i] = s[begin:end]
-	}
-	if count*chunkSize != len(s) {
-		chunks = append(chunks, s[chunkSize*count:])
-	}
 	return &ChunkReader{
-		chunks:   chunks,
-		pause:    pause,
-		chunkDue: time.Now().Add(pause),
+		buf:       []byte(s),
+		chunkSize: len(s) / count,
+		pause:     pause,
 	}
 }
 
 func (cr *ChunkReader) Read(b []byte) (n int, err error) {
-	if len(cr.chunk) == 0 {
-		if len(cr.chunks) == 0 {
-			return 0, io.EOF
-		}
-		cr.chunk = cr.chunks[0]
-		cr.chunks = cr.chunks[1:]
-		cr.chunkDue = time.Now().Add(cr.pause)
+	if cr.begin == len(cr.buf) {
+		return 0, io.EOF
 	}
-
-	waitFor := time.Now().Sub(cr.chunkDue)
-	if waitFor > 0 {
-		time.Sleep(waitFor)
+	if cr.shouldPause = !cr.shouldPause; cr.shouldPause {
+		time.Sleep(cr.pause)
 		return 0, nil
 	}
-
-	copied := copy(b, cr.chunk)
-	cr.chunk = cr.chunk[copied:]
+	chunkSize := cr.chunkSize
+	if len(b) < chunkSize {
+		chunkSize = len(b)
+	}
+	if len(cr.buf)-cr.begin < chunkSize {
+		chunkSize = len(cr.buf) - cr.begin
+	}
+	end := cr.begin + chunkSize
+	copied := copy(b, cr.buf[cr.begin:end])
+	cr.begin = end
 	return copied, nil
 }
 
