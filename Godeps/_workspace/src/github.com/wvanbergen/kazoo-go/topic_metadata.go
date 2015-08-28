@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+
+	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/samuel/go-zookeeper/zk"
 )
 
 // Topic interacts with Kafka's topic metadata in Zookeeper.
@@ -12,6 +14,7 @@ type Topic struct {
 	kz   *Kazoo
 }
 
+// TopicList is a type that implements the sortable interface for a list of Topic instances.
 type TopicList []*Topic
 
 // Partition interacts with Kafka's partition metadata in Zookeeper.
@@ -21,9 +24,10 @@ type Partition struct {
 	Replicas []int32
 }
 
+// PartitionList is a type that implements the sortable interface for a list of Partition instances
 type PartitionList []*Partition
 
-// Topics returns a map of all registered Kafka topics.
+// Topics returns a list of all registered Kafka topics.
 func (kz *Kazoo) Topics() (TopicList, error) {
 	root := fmt.Sprintf("%s/brokers/topics", kz.conf.Chroot)
 	children, _, err := kz.conn.Children(root)
@@ -38,12 +42,33 @@ func (kz *Kazoo) Topics() (TopicList, error) {
 	return result, nil
 }
 
+// WatchTopics returns a list of all registered Kafka topics, and
+// watches that list for changes.
+func (kz *Kazoo) WatchTopics() (TopicList, <-chan zk.Event, error) {
+	root := fmt.Sprintf("%s/brokers/topics", kz.conf.Chroot)
+	children, _, c, err := kz.conn.ChildrenW(root)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	result := make(TopicList, 0, len(children))
+	for _, name := range children {
+		result = append(result, kz.Topic(name))
+	}
+	return result, c, nil
+}
+
 // Topic returns a Topic instance for a given topic name
 func (kz *Kazoo) Topic(topic string) *Topic {
 	return &Topic{Name: topic, kz: kz}
 }
 
-// Partitions returns a map of all partitions for the topic.
+// Exists returns true if the topic exists on the Kafka cluster.
+func (t *Topic) Exists() (bool, error) {
+	return t.kz.exists(fmt.Sprintf("%s/brokers/topics/%s", t.kz.conf.Chroot, t.Name))
+}
+
+// Partitions returns a list of all partitions for the topic.
 func (t *Topic) Partitions() (PartitionList, error) {
 	node := fmt.Sprintf("%s/brokers/topics/%s", t.kz.conf.Chroot, t.Name)
 	value, _, err := t.kz.conn.Get(node)
@@ -51,6 +76,24 @@ func (t *Topic) Partitions() (PartitionList, error) {
 		return nil, err
 	}
 
+	return t.parsePartitions(value)
+}
+
+// WatchPartitions returns a list of all partitions for the topic, and watches the topic for changes.
+func (t *Topic) WatchPartitions() (PartitionList, <-chan zk.Event, error) {
+	node := fmt.Sprintf("%s/brokers/topics/%s", t.kz.conf.Chroot, t.Name)
+	value, _, c, err := t.kz.conn.GetW(node)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	list, err := t.parsePartitions(value)
+	return list, c, err
+}
+
+// parsePartitions pases the JSON representation of the partitions
+// that is stored as data on the topic node in Zookeeper.
+func (t *Topic) parsePartitions(value []byte) (PartitionList, error) {
 	type topicMetadata struct {
 		Partitions map[string][]int32 `json:"partitions"`
 	}
@@ -100,6 +143,25 @@ func (t *Topic) Config() (map[string]string, error) {
 	return topicConfig.ConfigMap, nil
 }
 
+// Topic returns the Topic of this partition.
+func (p *Partition) Topic() *Topic {
+	return p.topic
+}
+
+// Key returns a unique identifier for the partition, using the form "topic/partition".
+func (p *Partition) Key() string {
+	return fmt.Sprintf("%s/%d", p.topic.Name, p.ID)
+}
+
+// PreferredReplica returns the preferred replica for this partition.
+func (p *Partition) PreferredReplica() int32 {
+	if len(p.Replicas) > 0 {
+		return p.Replicas[0]
+	} else {
+		return -1
+	}
+}
+
 // Leader returns the broker ID of the broker that is currently the leader for the partition.
 func (p *Partition) Leader() (int32, error) {
 	if state, err := p.state(); err != nil {
@@ -134,11 +196,14 @@ func (p *Partition) UsesPreferredReplica() (bool, error) {
 	}
 }
 
+// partitionState represents the partition state as it is stored as JSON
+// in Zookeeper on the partition's state node.
 type partitionState struct {
 	Leader int32   `json:"leader"`
 	ISR    []int32 `json:"isr"`
 }
 
+// state retrieves and parses the partition State
 func (p *Partition) state() (partitionState, error) {
 	var state partitionState
 	node := fmt.Sprintf("%s/brokers/topics/%s/partitions/%d/state", p.topic.kz.conf.Chroot, p.topic.Name, p.ID)
@@ -182,7 +247,7 @@ func (pl PartitionList) Len() int {
 }
 
 func (pl PartitionList) Less(i, j int) bool {
-	return pl[i].ID < pl[j].ID
+	return pl[i].topic.Name < pl[j].topic.Name || (pl[i].topic.Name == pl[j].topic.Name && pl[i].ID < pl[j].ID)
 }
 
 func (pl PartitionList) Swap(i, j int) {

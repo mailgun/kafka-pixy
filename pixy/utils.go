@@ -4,7 +4,9 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"time"
 
+	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 )
 
@@ -49,3 +51,32 @@ func getIP() (net.IP, error) {
 	}
 	return nil, errors.New("Unknown IP address")
 }
+
+// retry keeps calling the `f` function until it succeeds. `shouldRetry` is
+// used to check the error code returned by `f` to decide whether it should be
+// retried. If `shouldRetry` is not specified then any non `nil` error will
+// result in retry.
+func retry(f func() error, shouldRetry func(err error) bool, errorMsg string,
+	delay time.Duration, cancelCh <-chan none) (canceled bool) {
+
+	err := f()
+	if shouldRetry == nil {
+		shouldRetry = func(err error) bool { return err != nil }
+	}
+	for shouldRetry(err) {
+		log.Errorf("%s: err=(%s), retryIn=%v", errorMsg, err, delay)
+		select {
+		case <-time.After(delay):
+		case <-cancelCh:
+			return true
+		}
+		err = f()
+	}
+	return false
+}
+
+type Int32Slice []int32
+
+func (p Int32Slice) Len() int           { return len(p) }
+func (p Int32Slice) Less(i, j int) bool { return p[i] < p[j] }
+func (p Int32Slice) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }

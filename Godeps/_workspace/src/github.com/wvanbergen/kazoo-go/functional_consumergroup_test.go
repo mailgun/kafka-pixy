@@ -407,6 +407,80 @@ func TestConsumergroupInstanceClaimPartitionSame(t *testing.T) {
 	}
 }
 
+func TestConsumergroupInstanceWatchPartitionClaim(t *testing.T) {
+	kz, err := NewKazoo(zookeeperPeers, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer assertSuccessfulClose(t, kz)
+
+	cg := kz.Consumergroup("test.kazoo.TestConsumergroupInstanceWatchPartitionClaim")
+	if err := cg.Create(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := cg.Delete(); err != nil {
+			t.Error(err)
+		}
+	}()
+
+	instance1 := cg.NewInstance()
+	if err := instance1.Register([]string{"test.4"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert the partition isn't claimed
+	instance, change, err := cg.WatchPartitionOwner("test.4", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if instance != nil {
+		t.Fatal("An unclaimed partition should not return an instance")
+	}
+	if change != nil {
+		t.Fatal("An unclaimed partition should not return a watch")
+	}
+
+	// Now claim the partition
+	if err := instance1.ClaimPartition("test.4", 0); err != nil {
+		t.Fatal(err)
+	}
+
+	// This time, we should get an insance back
+	instance, change, err = cg.WatchPartitionOwner("test.4", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if instance.ID != instance1.ID {
+		t.Error("Our instance should have claimed the partition")
+	}
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		if err := instance1.ReleasePartition("test.4", 0); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	// Wait for the zookeeper watch to trigger
+	<-change
+
+	// Ensure the partition is no longer claimed
+	instance, err = cg.PartitionOwner("test.4", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if instance != nil {
+		t.Error("The partition should have been release by now")
+	}
+
+	// Cleanup
+	if err := instance1.Deregister(); err != nil {
+		t.Error(err)
+	}
+}
+
 func TestConsumergroupOffsets(t *testing.T) {
 	kz, err := NewKazoo(zookeeperPeers, nil)
 	if err != nil {
@@ -429,8 +503,8 @@ func TestConsumergroupOffsets(t *testing.T) {
 		t.Error(err)
 	}
 
-	if offset != 0 {
-		t.Error("Expected to get offset 0 for a partition that hasn't seen an offset commit yet")
+	if offset >= 0 {
+		t.Error("Expected to get a negative offset for a partition that hasn't seen an offset commit yet")
 	}
 
 	if err := cg.CommitOffset("test", 0, 1234); err != nil {
@@ -444,4 +518,68 @@ func TestConsumergroupOffsets(t *testing.T) {
 	if offset != 1234 {
 		t.Error("Expected to get the offset that was committed.")
 	}
+}
+
+func TestConsumergroupResetOffsets(t *testing.T) {
+	kz, err := NewKazoo(zookeeperPeers, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer assertSuccessfulClose(t, kz)
+
+	cg := kz.Consumergroup("test.kazoo.TestConsumergroupResetOffsets")
+	if err := cg.Create(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := cg.Delete(); err != nil {
+			t.Error(err)
+		}
+	}()
+
+	offsets, err := cg.FetchAllOffsets()
+	if err != nil {
+		t.Error(err)
+	}
+
+	if len(offsets) > 0 {
+		t.Errorf("A new consumergroup shouldn't have any offsets set, but found offsets for %d topics", len(offsets))
+	}
+
+	if err := cg.CommitOffset("test1", 0, 1234); err != nil {
+		t.Error(err)
+	}
+
+	if err := cg.CommitOffset("test1", 1, 2345); err != nil {
+		t.Error(err)
+	}
+
+	if err := cg.CommitOffset("test2", 0, 3456); err != nil {
+		t.Error(err)
+	}
+
+	offsets, err = cg.FetchAllOffsets()
+	if err != nil {
+		t.Error(err)
+	}
+
+	if offsets["test1"][0] == 1234 && offsets["test1"][1] == 2345 && offsets["test2"][0] == 3456 {
+		t.Log("All offsets present in offset map")
+	} else {
+		t.Logf("Offset map not as expected: %v", offsets)
+	}
+
+	if err := cg.ResetOffsets(); err != nil {
+		t.Fatal(err)
+	}
+
+	offsets, err = cg.FetchAllOffsets()
+	if err != nil {
+		t.Error(err)
+	}
+
+	if len(offsets) > 0 {
+		t.Errorf("After a reset, consumergroup shouldn't have any offsets set, but found offsets for %d topics", len(offsets))
+	}
+
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
+	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/wvanbergen/kazoo-go"
 )
 
 type Config struct {
@@ -25,6 +26,13 @@ type Config struct {
 		// service will try to connect to to resolve the cluster topology.
 		SeedPeers []string
 	}
+	ZooKeeper struct {
+		// A list of seed ZooKeeper peers in the form "<host>:<port>" that the
+		// service will try to connect to to resolve the cluster topology.
+		SeedPeers []string
+		// The root directory where Kafka keeps all its znodes.
+		Chroot string
+	}
 	Producer struct {
 		// The period of time that a proxy should allow to `sarama.Producer` to
 		// submit buffered messages to Kafka. It should be large enough to avoid
@@ -34,19 +42,46 @@ type Config struct {
 		// used in testing only.
 		DeadMessageCh chan<- *sarama.ProducerMessage
 	}
+	Consumer struct {
+		// A consume request will wait at most this long until a message from
+		// the specified group/topic becomes available. This timeout is
+		// necessary to account for consumer rebalancing that happens whenever
+		// a new consumer joins a group or subscribes to a topic.
+		LongPollingTimeout time.Duration
+		// The period of time that a proxy should keep registration with a
+		// consumer group or subscription for a topic in the absence of requests
+		// to the aforementioned consumer group or topic.
+		RegistrationTimeout time.Duration
+		// If a request to a KafkaBroker fails for any reason then the proxy
+		// should wait this long before retrying.
+		BackOffTimeout time.Duration
+		// A consumer should wait this long after it gets notification that a
+		// consumer joined/left its consumer group before it should rebalance.
+		RebalanceDelay time.Duration
+	}
 	// All buffered channels created by the service will have this size.
 	ChannelBufferSize int
+	// testing sections contains parameters that are used in tests only.
+	testing struct {
+		// If this channel is not `nil` then exclusive consumers will use it to
+		// notify when they fetch the very first message.
+		firstMessageFetchedCh chan *exclusiveConsumer
+	}
 }
 
 func NewConfig() *Config {
 	config := &Config{}
 	config.ClientID = newClientID()
 	config.Producer.ShutdownTimeout = 30 * time.Second
+	config.Consumer.LongPollingTimeout = 3 * time.Second
+	config.Consumer.RegistrationTimeout = 20 * time.Second
+	config.Consumer.BackOffTimeout = 500 * time.Millisecond
+	config.Consumer.RebalanceDelay = 250 * time.Millisecond
 	config.ChannelBufferSize = 256
 	return config
 }
 
-// saramaConfig generates a `Shopify/sarama` library config from this config.
+// saramaConfig generates a `Shopify/sarama` library config.
 func (c *Config) saramaConfig() *sarama.Config {
 	saramaConfig := sarama.NewConfig()
 	saramaConfig.ClientID = c.ClientID
@@ -57,11 +92,22 @@ func (c *Config) saramaConfig() *sarama.Config {
 	saramaConfig.Producer.Retry.Backoff = time.Second
 	saramaConfig.Producer.Flush.Frequency = 500 * time.Millisecond
 	saramaConfig.Producer.Flush.Bytes = 1024 * 1024
+	saramaConfig.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
+	saramaConfig.ChannelBufferSize = c.ChannelBufferSize
 	return saramaConfig
+}
+
+// saramaConfig generates a `wvanbergen/kazoo-go` library config.
+func (c *Config) kazooConfig() *kazoo.Config {
+	kazooConfig := kazoo.NewConfig()
+	kazooConfig.Chroot = c.ZooKeeper.Chroot
+	kazooConfig.Timeout = 1 * time.Second
+	return kazooConfig
 }
 
 type Service struct {
 	producer   *GracefulProducer
+	consumer   *SmartConsumer
 	unixServer *HTTPAPIServer
 	tcpServer  *HTTPAPIServer
 	quitCh     chan struct{}
@@ -71,22 +117,28 @@ type Service struct {
 func SpawnService(config *Config) (*Service, error) {
 	producer, err := SpawnGracefulProducer(config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to spawn Kafka client, cause=(%v)", err)
+		return nil, fmt.Errorf("failed to spawn producer, cause=(%s)", err)
 	}
-	unixServer, err := NewHTTPAPIServer(NetworkUnix, config.UnixAddr, producer)
+	consumer, err := SpawnSmartConsumer(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to spawn consumer, cause=(%s)", err)
+	}
+	unixServer, err := NewHTTPAPIServer(NetworkUnix, config.UnixAddr, producer, consumer)
 	if err != nil {
 		producer.Stop()
 		return nil, fmt.Errorf("failed to start Unix socket based HTTP API, cause=(%v)", err)
 	}
 	var tcpServer *HTTPAPIServer
 	if config.TCPAddr != "" {
-		if tcpServer, err = NewHTTPAPIServer(NetworkTCP, config.TCPAddr, producer); err != nil {
+		tcpServer, err = NewHTTPAPIServer(NetworkTCP, config.TCPAddr, producer, consumer)
+		if err != nil {
 			producer.Stop()
 			return nil, fmt.Errorf("failed to start TCP socket based HTTP API, cause=(%v)", err)
 		}
 	}
 	s := &Service{
 		producer:   producer,
+		consumer:   consumer,
 		unixServer: unixServer,
 		tcpServer:  tcpServer,
 		quitCh:     make(chan struct{}),
@@ -132,8 +184,12 @@ func (s *Service) supervisor() {
 	if s.tcpServer != nil {
 		<-s.tcpServer.ErrorCh()
 	}
-	// Only when all API servers are stopped it is safe to stop the Kafka client.
-	s.producer.Stop()
+	// There are no more requests in flight at this point so it is safe to stop
+	// all Kafka clients.
+	var wg sync.WaitGroup
+	spawn(&wg, s.producer.Stop)
+	spawn(&wg, s.consumer.Stop)
+	wg.Wait()
 }
 
 // newClientID creates a unique id that identifies this particular Kafka-Pixy
