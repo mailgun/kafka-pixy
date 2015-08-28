@@ -32,10 +32,6 @@
 			"Rev": "8096f47503459bcc74d1f4c487b7e6e42e5746b5"
 		},
 		{
-			"ImportPath": "github.com/mailgun/kazoo-go",
-			"Rev": "02a3868e9b87153285439cd27a39c0a2984a13af"
-		},
-		{
 			"ImportPath": "github.com/mailgun/log",
 			"Rev": "5aaa76573581bbbc327dbf69c11527aef7f085c2"
 		},
@@ -51,7 +47,11 @@
 		},
 		{
 			"ImportPath": "github.com/samuel/go-zookeeper/zk",
-			"Rev": "f575d971918451b5ee43b95e9c5a3d1f8b9fb92c"
+			"Rev": "177002e16a0061912f02377e2dd8951a8b3551bc"
+		},
+		{
+			"ImportPath": "github.com/wvanbergen/kazoo-go",
+			"Rev": "dfbf187816b85d5126ae1e22d0d2a7bbb80c4479"
 		},
 		{
 			"ImportPath": "gopkg.in/check.v1",

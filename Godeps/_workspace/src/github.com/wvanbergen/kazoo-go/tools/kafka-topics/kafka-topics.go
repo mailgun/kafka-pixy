@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wvanbergen/kazoo-go"
+	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/wvanbergen/kazoo-go"
 )
 
 var (
