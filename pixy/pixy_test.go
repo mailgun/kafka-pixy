@@ -2,12 +2,15 @@ package pixy
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -38,6 +41,12 @@ func init() {
 		kafkaPeersStr = VagrantKafkaPeers
 	}
 	testKafkaPeers = strings.Split(kafkaPeersStr, ",")
+
+	zookeeperPeersStr := os.Getenv("ZOOKEEPER_PEERS")
+	if zookeeperPeersStr == "" {
+		zookeeperPeersStr = VagrantZookeeperPeers
+	}
+	testZookeeperPeers = strings.Split(zookeeperPeersStr, ",")
 }
 
 func Test(t *testing.T) {
@@ -200,4 +209,99 @@ func ProdMsgMetadataSize(key []byte) int {
 		size += sarama.ByteEncoder(key).Length()
 	}
 	return size
+}
+
+func ResetOffsets(c *C, group, topic string) {
+	config := NewConfig()
+	config.Kafka.SeedPeers = testKafkaPeers
+	config.ZooKeeper.SeedPeers = testZookeeperPeers
+
+	kafkaClient, err := sarama.NewClient(config.Kafka.SeedPeers, config.saramaConfig())
+	c.Assert(err, IsNil)
+	defer kafkaClient.Close()
+
+	offsetManager, err := sarama.NewOffsetManagerFromClient(kafkaClient)
+	c.Assert(err, IsNil)
+	partitions, err := kafkaClient.Partitions(topic)
+	c.Assert(err, IsNil)
+	for _, p := range partitions {
+		offset, err := kafkaClient.GetOffset(topic, p, sarama.OffsetNewest)
+		c.Assert(err, IsNil)
+		pom, err := offsetManager.ManagePartition(group, topic, p)
+		c.Assert(err, IsNil)
+		pom.CommitOffset(offset, "dummy")
+		log.Infof("Set initial offset %s/%s/%d=%d", group, topic, p, offset)
+		pom.Close()
+	}
+	offsetManager.Close()
+}
+
+func GenMessages(c *C, prefix, topic string, keys map[string]int) map[string][]*sarama.ProducerMessage {
+	config := NewConfig()
+	config.ClientID = "producer"
+	config.Kafka.SeedPeers = testKafkaPeers
+	producer, err := SpawnGracefulProducer(config)
+	c.Assert(err, IsNil)
+
+	messages := make(map[string][]*sarama.ProducerMessage)
+	var wg sync.WaitGroup
+	var lock sync.Mutex
+	for key, count := range keys {
+		for i := 0; i < count; i++ {
+			key := key
+			message := fmt.Sprintf("%s:%s:%d", prefix, key, i)
+			spawn(&wg, func() {
+				keyEncoder := sarama.StringEncoder(key)
+				msgEncoder := sarama.StringEncoder(message)
+				prodMsg, err := producer.Produce(topic, keyEncoder, msgEncoder)
+				c.Assert(err, IsNil)
+				log.Infof("*** produced: topic=%s, partition=%d, offset=%d, message=%s",
+					topic, prodMsg.Partition, prodMsg.Offset, message)
+				lock.Lock()
+				messages[key] = append(messages[key], prodMsg)
+				lock.Unlock()
+			})
+		}
+	}
+	wg.Wait()
+	// Sort the produced messages in ascending order of their offsets.
+	for _, keyMessages := range messages {
+		sort.Sort(MessageSlice(keyMessages))
+	}
+	return messages
+}
+
+type MessageSlice []*sarama.ProducerMessage
+
+func (p MessageSlice) Len() int           { return len(p) }
+func (p MessageSlice) Less(i, j int) bool { return p[i].Offset < p[j].Offset }
+func (p MessageSlice) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
+
+func ParseJSONBody(c *C, res *http.Response) map[string]interface{} {
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		c.Error(err)
+		return nil
+	}
+	res.Body.Close()
+	var parsedBody map[string]interface{}
+	if err := json.Unmarshal(body, &parsedBody); err != nil {
+		c.Error(err)
+		return nil
+	}
+	return parsedBody
+}
+
+func ParseBase64(c *C, encoded string) string {
+	decoder := base64.NewDecoder(base64.StdEncoding, strings.NewReader(encoded))
+	decoded, err := ioutil.ReadAll(decoder)
+	if err != nil {
+		c.Error(err)
+		return ""
+	}
+	return string(decoded)
+}
+
+func ProdMsgVal(prodMsg *sarama.ProducerMessage) string {
+	return string(prodMsg.Value.(sarama.StringEncoder))
 }
