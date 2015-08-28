@@ -199,7 +199,7 @@ func (s *ServiceSuite) TestStoppedServerCall(c *C) {
 	// Then
 	r, err := s.unixClient.Post("http://_/topics/test.4/messages?key=foo",
 		"text/plain", strings.NewReader("Kitty"))
-	c.Assert(err.Error(), Equals, "Post http://_/topics/test.4/messages?key=foo: EOF")
+	c.Assert(err.Error(), Matches, "Post http://_/topics/test\\.4/messages\\?key=foo: dial unix .* no such file or directory")
 	c.Assert(r, IsNil)
 }
 
@@ -225,7 +225,8 @@ func (s *ServiceSuite) TestLargestMessage(c *C) {
 	r := PostChunked(s.tcpClient, "http://127.0.0.1:55503/topics/test.4/messages?key=foo", msg)
 	svc.Stop()
 	// Then
-	AssertHTTPResp(c, r, http.StatusOK, "")
+	c.Assert(r.StatusCode, Equals, http.StatusOK)
+	c.Assert(ParseJSONBody(c, r), DeepEquals, map[string]interface{}{})
 	offsetsAfter := s.tkc.getOffsets("test.4")
 	messages := s.tkc.getMessages("test.4", offsetsBefore, offsetsAfter)
 	readMsg := messages[1][0]
@@ -245,7 +246,8 @@ func (s *ServiceSuite) TestMessageTooLarge(c *C) {
 	r := PostChunked(s.tcpClient, "http://127.0.0.1:55504/topics/test.4/messages?key=foo", msg)
 	svc.Stop()
 	// Then
-	AssertHTTPResp(c, r, http.StatusOK, "")
+	c.Assert(r.StatusCode, Equals, http.StatusOK)
+	c.Assert(ParseJSONBody(c, r), DeepEquals, map[string]interface{}{})
 	offsetsAfter := s.tkc.getOffsets("test.4")
 	c.Assert(offsetsAfter, DeepEquals, offsetsBefore)
 }
@@ -261,7 +263,10 @@ func (s *ServiceSuite) TestSyncProduce(c *C) {
 	offsetsAfter := s.tkc.getOffsets("test.4")
 	// Then
 	c.Assert(err, IsNil)
-	AssertHTTPResp(c, r, http.StatusOK, "")
+	c.Assert(r.StatusCode, Equals, http.StatusOK)
+	body := ParseJSONBody(c, r)
+	c.Assert(int(body["partition"].(float64)), Equals, 0)
+	c.Assert(int64(body["offset"].(float64)), Equals, offsetsBefore[0])
 	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0]+1)
 }
 
@@ -274,8 +279,9 @@ func (s *ServiceSuite) TestSyncProduceInvalidTopic(c *C) {
 	svc.Stop()
 	// Then
 	c.Assert(err, IsNil)
-	AssertHTTPResp(c, r, http.StatusNotFound,
-		fmt.Sprintf("%s\n", sarama.ErrUnknownTopicOrPartition.Error()))
+	c.Assert(r.StatusCode, Equals, http.StatusNotFound)
+	c.Assert(ParseJSONBody(c, r)["error"], Equals,
+		sarama.ErrUnknownTopicOrPartition.Error())
 }
 
 // If the Unix API Server crashes then the service terminates gracefully.
@@ -295,7 +301,9 @@ func (s *ServiceSuite) TestConsumeNoGroup(c *C) {
 	svc.Stop()
 	// Then
 	c.Assert(err, IsNil)
-	AssertHTTPResp(c, r, http.StatusBadRequest, "One consumer group is expected, but 0 provided\n")
+	c.Assert(r.StatusCode, Equals, http.StatusBadRequest)
+	c.Assert(ParseJSONBody(c, r)["error"], Equals,
+		"One consumer group is expected, but 0 provided")
 }
 
 func (s *ServiceSuite) TestConsumeManyGroups(c *C) {
@@ -306,7 +314,9 @@ func (s *ServiceSuite) TestConsumeManyGroups(c *C) {
 	svc.Stop()
 	// Then
 	c.Assert(err, IsNil)
-	AssertHTTPResp(c, r, http.StatusBadRequest, "One consumer group is expected, but 2 provided\n")
+	c.Assert(r.StatusCode, Equals, http.StatusBadRequest)
+	c.Assert(ParseJSONBody(c, r)["error"], Equals,
+		"One consumer group is expected, but 2 provided")
 }
 
 func (s *ServiceSuite) TestConsumeInvalidTopic(c *C) {
@@ -317,8 +327,8 @@ func (s *ServiceSuite) TestConsumeInvalidTopic(c *C) {
 	svc.Stop()
 	// Then
 	c.Assert(err, IsNil)
-	AssertHTTPResp(c, r, http.StatusRequestTimeout,
-		"</smartConsumer.*/foo.*/no-such-topic.*> timeout\n")
+	c.Assert(r.StatusCode, Equals, http.StatusRequestTimeout)
+	c.Assert(ParseJSONBody(c, r)["error"], Equals, "long polling timeout")
 }
 
 func (s *ServiceSuite) TestConsumeSingleMessage(c *C) {

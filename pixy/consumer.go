@@ -445,7 +445,7 @@ func (tc *topicConsumer) run() {
 		tc.gc.deleteTopicConsumer() <- tc
 	}()
 
-	timeoutErr := ErrConsumerRequestTimeout(fmt.Errorf("<%s> timeout", tc.contextID))
+	timeoutErr := ErrConsumerRequestTimeout(fmt.Errorf("long polling timeout"))
 	timeoutResult := consumeResult{Err: timeoutErr}
 	for consumeReq := range tc.requestsCh {
 		requestAge := time.Now().UTC().Sub(consumeReq.timestamp)

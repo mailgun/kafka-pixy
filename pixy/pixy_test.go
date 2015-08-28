@@ -193,16 +193,6 @@ func PostChunked(clt *http.Client, url, msg string) *http.Response {
 	return resp
 }
 
-func AssertHTTPResp(c *C, res *http.Response, expectedStatusCode int, expectedBody string) {
-	body, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		c.Error(err)
-	}
-	res.Body.Close()
-	c.Assert(res.StatusCode, Equals, expectedStatusCode)
-	c.Assert(string(body), Matches, expectedBody)
-}
-
 func ProdMsgMetadataSize(key []byte) int {
 	size := 26 // the metadata overhead of CRC, flags, etc.
 	if key != nil {
