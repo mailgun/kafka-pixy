@@ -101,7 +101,7 @@ func (s *SmartConsumerSuite) TestSinglePartitionTopic(c *C) {
 	ResetOffsets(c, "group-1", "test.1")
 	produced := GenMessages(c, "single", "test.1", map[string]int{"": 3})
 
-	sc, err := SpawnSmartConsumer(s.newConfig("consumer-1"))
+	sc, err := SpawnSmartConsumer(NewTestConfig("consumer-1"))
 	c.Assert(err, IsNil)
 
 	// When/Then
@@ -118,7 +118,7 @@ func (s *SmartConsumerSuite) TestSequentialConsume(c *C) {
 	ResetOffsets(c, "group-1", "test.1")
 	produced := GenMessages(c, "sequencial", "test.1", map[string]int{"": 3})
 
-	config := s.newConfig("consumer-1")
+	config := NewTestConfig("consumer-1")
 	sc1, err := SpawnSmartConsumer(config)
 	c.Assert(err, IsNil)
 	log.Infof("*** GIVEN 1")
@@ -147,7 +147,7 @@ func (s *SmartConsumerSuite) TestMultiPartitionTopic(c *C) {
 	GenMessages(c, "multi", "test.4", map[string]int{"A": 100, "B": 100})
 
 	log.Infof("*** GIVEN 1")
-	sc, err := SpawnSmartConsumer(s.newConfig("consumer-1"))
+	sc, err := SpawnSmartConsumer(NewTestConfig("consumer-1"))
 	c.Assert(err, IsNil)
 
 	// When: exactly one half of all produced events is consumed.
@@ -174,7 +174,7 @@ func (s *SmartConsumerSuite) TestTooFewPartitions(c *C) {
 	ResetOffsets(c, "group-1", "test.1")
 	produced := GenMessages(c, "few", "test.1", map[string]int{"": 3})
 
-	sc1, err := SpawnSmartConsumer(s.newConfig("consumer-1"))
+	sc1, err := SpawnSmartConsumer(NewTestConfig("consumer-1"))
 	c.Assert(err, IsNil)
 	log.Infof("*** GIVEN 1")
 	// Consume first message to make `consumer-1` subscribe for `test.1`
@@ -183,7 +183,7 @@ func (s *SmartConsumerSuite) TestTooFewPartitions(c *C) {
 
 	// When:
 	log.Infof("*** WHEN")
-	sc2, err := SpawnSmartConsumer(s.newConfig("consumer-2"))
+	sc2, err := SpawnSmartConsumer(NewTestConfig("consumer-2"))
 	c.Assert(err, IsNil)
 	_, err = sc2.Consume("group-1", "test.1")
 
@@ -207,7 +207,7 @@ func (s *SmartConsumerSuite) TestRebalanceOnJoin(c *C) {
 	ResetOffsets(c, "group-1", "test.4")
 	GenMessages(c, "join", "test.4", map[string]int{"A": 10, "B": 10})
 
-	sc1, err := SpawnSmartConsumer(s.newConfig("consumer-1"))
+	sc1, err := SpawnSmartConsumer(NewTestConfig("consumer-1"))
 	c.Assert(err, IsNil)
 
 	// Consume the first message to make the consumer join the group and
@@ -227,7 +227,7 @@ func (s *SmartConsumerSuite) TestRebalanceOnJoin(c *C) {
 
 	// When: another consumer joins the group rebalancing occurs.
 	log.Infof("*** WHEN")
-	sc2, err := SpawnSmartConsumer(s.newConfig("consumer-2"))
+	sc2, err := SpawnSmartConsumer(NewTestConfig("consumer-2"))
 	c.Assert(err, IsNil)
 
 	// Then:
@@ -259,7 +259,7 @@ func (s *SmartConsumerSuite) TestRebalanceOnLeave(c *C) {
 	var err error
 	consumers := make([]*SmartConsumer, 3)
 	for i := 0; i < 3; i++ {
-		consumers[i], err = SpawnSmartConsumer(s.newConfig(fmt.Sprintf("consumer-%d", i)))
+		consumers[i], err = SpawnSmartConsumer(NewTestConfig(fmt.Sprintf("consumer-%d", i)))
 		c.Assert(err, IsNil)
 	}
 	log.Infof("*** GIVEN 1")
@@ -330,10 +330,10 @@ func (s *SmartConsumerSuite) TestRebalanceOnTimeout(c *C) {
 	ResetOffsets(c, "group-1", "test.4")
 	GenMessages(c, "join", "test.4", map[string]int{"A": 10, "B": 10})
 
-	sc1, err := SpawnSmartConsumer(s.newConfig("consumer-1"))
+	sc1, err := SpawnSmartConsumer(NewTestConfig("consumer-1"))
 	c.Assert(err, IsNil)
 
-	config2 := s.newConfig("consumer-2")
+	config2 := NewTestConfig("consumer-2")
 	config2.Consumer.RegistrationTimeout = 300 * time.Millisecond
 	sc2, err := SpawnSmartConsumer(config2)
 	c.Assert(err, IsNil)
@@ -391,7 +391,7 @@ func (s *SmartConsumerSuite) TestBufferOverflowError(c *C) {
 	ResetOffsets(c, "group-1", "test.1")
 	GenMessages(c, "join", "test.1", map[string]int{"A": 30})
 
-	config := s.newConfig("consumer-1")
+	config := NewTestConfig("consumer-1")
 	config.ChannelBufferSize = 1
 	sc, err := SpawnSmartConsumer(config)
 	c.Assert(err, IsNil)
@@ -431,7 +431,7 @@ func (s *SmartConsumerSuite) TestRequestDuringTimeout(c *C) {
 	ResetOffsets(c, "group-1", "test.4")
 	GenMessages(c, "join", "test.4", map[string]int{"A": 30})
 
-	config := s.newConfig("consumer-1")
+	config := NewTestConfig("consumer-1")
 	config.Consumer.RegistrationTimeout = 200 * time.Millisecond
 	config.ChannelBufferSize = 1
 	sc, err := SpawnSmartConsumer(config)
@@ -457,7 +457,7 @@ func (s *SmartConsumerSuite) TestRequestDuringTimeout(c *C) {
 // request times out after `Config.Consumer.LongPollingTimeout`.
 func (s *SmartConsumerSuite) TestInvalidTopic(c *C) {
 	// Given
-	config := s.newConfig("consumer-1")
+	config := NewTestConfig("consumer-1")
 	config.Consumer.LongPollingTimeout = 1 * time.Second
 	sc, err := SpawnSmartConsumer(config)
 	c.Assert(err, IsNil)
@@ -472,18 +472,6 @@ func (s *SmartConsumerSuite) TestInvalidTopic(c *C) {
 	c.Assert(consMsg, IsNil)
 
 	sc.Stop()
-}
-
-func (s *SmartConsumerSuite) newConfig(clientID string) *Config {
-	config := NewConfig()
-	config.ClientID = clientID
-	config.Kafka.SeedPeers = testKafkaPeers
-	config.ZooKeeper.SeedPeers = testZookeeperPeers
-	config.Consumer.LongPollingTimeout = 3000 * time.Millisecond
-	config.Consumer.BackOffTimeout = 100 * time.Millisecond
-	config.Consumer.RebalanceDelay = 100 * time.Millisecond
-	config.testing.firstMessageFetchedCh = make(chan *exclusiveConsumer, 100)
-	return config
 }
 
 func (s *SmartConsumerSuite) assertMsg(c *C, consMsg *sarama.ConsumerMessage, prodMsg *sarama.ProducerMessage) {

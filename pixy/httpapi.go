@@ -29,25 +29,24 @@ const (
 	ParamGroup = "group"
 )
 
+var (
+	EmptyResponse = map[string]interface{}{}
+)
+
 type HTTPAPIServer struct {
 	addr       string
 	listener   net.Listener
 	httpServer *manners.GracefulServer
 	producer   *GracefulProducer
 	consumer   *SmartConsumer
+	admin      *Admin
 	errorCh    chan error
 }
 
 // NewHTTPAPIServer creates an HTTP server instance that will accept API
 // requests specified network/address and forwards them to the associated
 // Kafka client.
-func NewHTTPAPIServer(network, addr string, producer *GracefulProducer, consumer *SmartConsumer) (*HTTPAPIServer, error) {
-	if producer == nil {
-		return nil, fmt.Errorf("producer must be specified")
-	}
-	if consumer == nil {
-		return nil, fmt.Errorf("consumer must be specified")
-	}
+func NewHTTPAPIServer(network, addr string, producer *GracefulProducer, consumer *SmartConsumer, admin *Admin) (*HTTPAPIServer, error) {
 	// Start listening on the specified unix domain socket address.
 	listener, err := net.Listen(network, addr)
 	if err != nil {
@@ -62,6 +61,7 @@ func NewHTTPAPIServer(network, addr string, producer *GracefulProducer, consumer
 		httpServer: httpServer,
 		producer:   producer,
 		consumer:   consumer,
+		admin:      admin,
 		errorCh:    make(chan error, 1),
 	}
 	// Configure the API request handlers.
@@ -72,6 +72,10 @@ func NewHTTPAPIServer(network, addr string, producer *GracefulProducer, consumer
 	// TODO deprecated endpoint, use `/topics/{topic}/messages` instead.
 	router.HandleFunc(fmt.Sprintf("/topics/{%s}", ParamTopic),
 		as.handleProduce).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/offsets", ParamTopic),
+		as.handleGetOffsets).Methods("GET")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/offsets", ParamTopic),
+		as.handleSetOffsets).Methods("POST")
 	return as, nil
 }
 
@@ -139,7 +143,7 @@ func (as *HTTPAPIServer) handleProduce(w http.ResponseWriter, r *http.Request) {
 	// Asynchronously submit the message to the Kafka cluster.
 	if !isSync {
 		as.producer.AsyncProduce(topic, toEncoderPreservingNil(key), sarama.StringEncoder(message))
-		respondWithJSON(w, http.StatusOK, map[string]string{})
+		respondWithJSON(w, http.StatusOK, EmptyResponse)
 		return
 	}
 
@@ -167,15 +171,13 @@ func (as *HTTPAPIServer) handleConsume(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
 	topic := mux.Vars(r)[ParamTopic]
-	r.ParseForm()
-	groups := r.Form[ParamGroup]
-	if len(groups) != 1 {
-		errorText := fmt.Sprintf("One consumer group is expected, but %d provided", len(groups))
-		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{errorText})
+	group, err := getGroupParam(r)
+	if err != nil {
+		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
 		return
 	}
 
-	consMsg, err := as.consumer.Consume(groups[0], topic)
+	consMsg, err := as.consumer.Consume(group, topic)
 	if err != nil {
 		var status int
 		switch err.(type) {
@@ -198,6 +200,83 @@ func (as *HTTPAPIServer) handleConsume(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleGetOffsets is an HTTP request handler for `GET /topic/{topic}/offsets`
+func (as *HTTPAPIServer) handleGetOffsets(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+
+	topic := mux.Vars(r)[ParamTopic]
+	group, err := getGroupParam(r)
+	if err != nil {
+		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		return
+	}
+
+	partitionOffsets, err := as.admin.GetGroupOffsets(group, topic)
+	if err != nil {
+		if err, ok := err.(ErrAdminKafkaReq); ok && err.Cause() == sarama.ErrUnknownTopicOrPartition {
+			respondWithJSON(w, http.StatusNotFound, errorHTTPResponse{"Unknown topic"})
+			return
+		}
+		respondWithJSON(w, http.StatusInternalServerError, errorHTTPResponse{err.Error()})
+		return
+	}
+
+	partitionOffsetView := make([]partitionOffsetView, len(partitionOffsets))
+	for i, po := range partitionOffsets {
+		partitionOffsetView[i].Partition = po.Partition
+		partitionOffsetView[i].Range.Begin = po.Range.Begin
+		partitionOffsetView[i].Range.End = po.Range.End
+		partitionOffsetView[i].Offset = po.Offset
+		partitionOffsetView[i].Metadata = po.Metadata
+	}
+	respondWithJSON(w, http.StatusOK, partitionOffsetView)
+}
+
+// handleGetOffsets is an HTTP request handler for `POST /topic/{topic}/offsets`
+func (as *HTTPAPIServer) handleSetOffsets(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+
+	topic := mux.Vars(r)[ParamTopic]
+	group, err := getGroupParam(r)
+	if err != nil {
+		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		return
+	}
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		errorText := fmt.Sprintf("Failed to read the request: cause=(%v)", err)
+		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{errorText})
+		return
+	}
+
+	var partitionOffsetViews []partitionOffsetView
+	if err := json.Unmarshal(body, &partitionOffsetViews); err != nil {
+		errorText := fmt.Sprintf("Failed to parse the request: cause=(%v)", err)
+		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{errorText})
+		return
+	}
+
+	partitionOffsets := make([]PartitionOffset, len(partitionOffsetViews))
+	for i, pov := range partitionOffsetViews {
+		partitionOffsets[i].Partition = pov.Partition
+		partitionOffsets[i].Offset = pov.Offset
+		partitionOffsets[i].Metadata = pov.Metadata
+	}
+
+	err = as.admin.SetGroupOffsets(group, topic, partitionOffsets)
+	if err != nil {
+		if err, ok := err.(ErrAdminKafkaReq); ok && err.Cause() == sarama.ErrUnknownTopicOrPartition {
+			respondWithJSON(w, http.StatusNotFound, errorHTTPResponse{"Unknown topic"})
+			return
+		}
+		respondWithJSON(w, http.StatusInternalServerError, errorHTTPResponse{err.Error()})
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, EmptyResponse)
+}
+
 type produceHTTPResponse struct {
 	Partition int32 `json:"partition"`
 	Offset    int64 `json:"offset"`
@@ -208,6 +287,16 @@ type consumeHTTPResponse struct {
 	Value     []byte `json:"value"`
 	Partition int32  `json:"partition"`
 	Offset    int64  `json:"offset"`
+}
+
+type partitionOffsetView struct {
+	Partition int32 `json:"partition"`
+	Range     struct {
+		Begin int64 `json:"begin"`
+		End   int64 `json:"end"`
+	} `json:"range"`
+	Offset   int64  `json:"offset"`
+	Metadata string `json:"metadata"`
 }
 
 type errorHTTPResponse struct {
@@ -241,4 +330,13 @@ func respondWithJSON(w http.ResponseWriter, status int, body interface{}) {
 	if _, err := w.Write(encodedRes); err != nil {
 		log.Errorf("Failed to send HTTP reponse: status=%d, body=%v, reason=%v", status, body, err)
 	}
+}
+
+func getGroupParam(r *http.Request) (string, error) {
+	r.ParseForm()
+	groups := r.Form[ParamGroup]
+	if len(groups) != 1 {
+		return "", fmt.Errorf("One consumer group is expected, but %d provided", len(groups))
+	}
+	return groups[0], nil
 }

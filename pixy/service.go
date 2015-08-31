@@ -108,6 +108,7 @@ func (c *Config) kazooConfig() *kazoo.Config {
 type Service struct {
 	producer   *GracefulProducer
 	consumer   *SmartConsumer
+	admin      *Admin
 	unixServer *HTTPAPIServer
 	tcpServer  *HTTPAPIServer
 	quitCh     chan struct{}
@@ -123,14 +124,18 @@ func SpawnService(config *Config) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to spawn consumer, cause=(%s)", err)
 	}
-	unixServer, err := NewHTTPAPIServer(NetworkUnix, config.UnixAddr, producer, consumer)
+	admin, err := SpawnAdmin(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to spawn admin, cause=(%s)", err)
+	}
+	unixServer, err := NewHTTPAPIServer(NetworkUnix, config.UnixAddr, producer, consumer, admin)
 	if err != nil {
 		producer.Stop()
 		return nil, fmt.Errorf("failed to start Unix socket based HTTP API, cause=(%v)", err)
 	}
 	var tcpServer *HTTPAPIServer
 	if config.TCPAddr != "" {
-		tcpServer, err = NewHTTPAPIServer(NetworkTCP, config.TCPAddr, producer, consumer)
+		tcpServer, err = NewHTTPAPIServer(NetworkTCP, config.TCPAddr, producer, consumer, admin)
 		if err != nil {
 			producer.Stop()
 			return nil, fmt.Errorf("failed to start TCP socket based HTTP API, cause=(%v)", err)
@@ -139,6 +144,7 @@ func SpawnService(config *Config) (*Service, error) {
 	s := &Service{
 		producer:   producer,
 		consumer:   consumer,
+		admin:      admin,
 		unixServer: unixServer,
 		tcpServer:  tcpServer,
 		quitCh:     make(chan struct{}),
@@ -189,6 +195,7 @@ func (s *Service) supervisor() {
 	var wg sync.WaitGroup
 	spawn(&wg, s.producer.Stop)
 	spawn(&wg, s.consumer.Stop)
+	spawn(&wg, s.admin.Stop)
 	wg.Wait()
 }
 

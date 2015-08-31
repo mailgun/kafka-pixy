@@ -5,16 +5,11 @@ import (
 	"math"
 	"net/http"
 	"os"
-	"path"
 	"strconv"
 	"strings"
 
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
-)
-
-const (
-	testSocket = "kafka-pixy.sock"
 )
 
 type ServiceSuite struct {
@@ -31,12 +26,8 @@ func (s *ServiceSuite) SetUpSuite(c *C) {
 }
 
 func (s *ServiceSuite) SetUpTest(c *C) {
-	s.config = NewConfig()
-	s.config.UnixAddr = path.Join(os.TempDir(), testSocket)
-	s.config.Kafka.SeedPeers = testKafkaPeers
-	s.config.ZooKeeper.SeedPeers = testZookeeperPeers
+	s.config = NewTestConfig("service-default")
 	os.Remove(s.config.UnixAddr)
-
 	s.tkc = NewTestKafkaClient(s.config.Kafka.SeedPeers)
 	s.unixClient = NewUDSHTTPClient(s.config.UnixAddr)
 	s.tcpClient = &http.Client{}
@@ -264,7 +255,7 @@ func (s *ServiceSuite) TestSyncProduce(c *C) {
 	// Then
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
-	body := ParseJSONBody(c, r)
+	body := ParseJSONBody(c, r).(map[string]interface{})
 	c.Assert(int(body["partition"].(float64)), Equals, 0)
 	c.Assert(int64(body["offset"].(float64)), Equals, offsetsBefore[0])
 	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0]+1)
@@ -280,8 +271,8 @@ func (s *ServiceSuite) TestSyncProduceInvalidTopic(c *C) {
 	// Then
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusNotFound)
-	c.Assert(ParseJSONBody(c, r)["error"], Equals,
-		sarama.ErrUnknownTopicOrPartition.Error())
+	body := ParseJSONBody(c, r).(map[string]interface{})
+	c.Assert(body["error"], Equals, sarama.ErrUnknownTopicOrPartition.Error())
 }
 
 // If the Unix API Server crashes then the service terminates gracefully.
@@ -302,8 +293,8 @@ func (s *ServiceSuite) TestConsumeNoGroup(c *C) {
 	// Then
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusBadRequest)
-	c.Assert(ParseJSONBody(c, r)["error"], Equals,
-		"One consumer group is expected, but 0 provided")
+	body := ParseJSONBody(c, r).(map[string]interface{})
+	c.Assert(body["error"], Equals, "One consumer group is expected, but 0 provided")
 }
 
 func (s *ServiceSuite) TestConsumeManyGroups(c *C) {
@@ -315,8 +306,8 @@ func (s *ServiceSuite) TestConsumeManyGroups(c *C) {
 	// Then
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusBadRequest)
-	c.Assert(ParseJSONBody(c, r)["error"], Equals,
-		"One consumer group is expected, but 2 provided")
+	body := ParseJSONBody(c, r).(map[string]interface{})
+	c.Assert(body["error"], Equals, "One consumer group is expected, but 2 provided")
 }
 
 func (s *ServiceSuite) TestConsumeInvalidTopic(c *C) {
@@ -328,7 +319,8 @@ func (s *ServiceSuite) TestConsumeInvalidTopic(c *C) {
 	// Then
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusRequestTimeout)
-	c.Assert(ParseJSONBody(c, r)["error"], Equals, "long polling timeout")
+	body := ParseJSONBody(c, r).(map[string]interface{})
+	c.Assert(body["error"], Equals, "long polling timeout")
 }
 
 func (s *ServiceSuite) TestConsumeSingleMessage(c *C) {
@@ -342,9 +334,129 @@ func (s *ServiceSuite) TestConsumeSingleMessage(c *C) {
 	// Then
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
-	body := ParseJSONBody(c, r)
+	body := ParseJSONBody(c, r).(map[string]interface{})
 	c.Assert(ParseBase64(c, body["key"].(string)), Equals, "B")
 	c.Assert(ParseBase64(c, body["value"].(string)), Equals, ProdMsgVal(produced["B"][0]))
 	c.Assert(int(body["partition"].(float64)), Equals, 3)
 	c.Assert(int64(body["offset"].(float64)), Equals, produced["B"][0].Offset)
+}
+
+// If offsets for a group that does not exist are requested then -1 is returned
+// as the next offset to be consumed for all topic partitions.
+func (s *ServiceSuite) TestGetOffsetsNoSuchGroup(c *C) {
+	// Given
+	svc, _ := SpawnService(s.config)
+
+	// When
+	r, err := s.unixClient.Get("http://_/topics/test.4/offsets?group=no_such_group")
+	svc.Stop()
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(r.StatusCode, Equals, http.StatusOK)
+	body := ParseJSONBody(c, r).([]interface{})
+	for i := 0; i < 4; i++ {
+		partitionView := body[i].(map[string]interface{})
+		c.Assert(partitionView["partition"].(float64), Equals, float64(i))
+		c.Assert(partitionView["offset"].(float64), Equals, float64(-1))
+	}
+}
+
+// An attempt to retrieve offsets for a topic that does not exist fails with 404.
+func (s *ServiceSuite) TestGetOffsetsNoSuchTopic(c *C) {
+	// Given
+	svc, _ := SpawnService(s.config)
+
+	// When
+	r, err := s.unixClient.Get("http://_/topics/no_such_topic/offsets?group=foo")
+	svc.Stop()
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(r.StatusCode, Equals, http.StatusNotFound)
+	body := ParseJSONBody(c, r).(map[string]interface{})
+	c.Assert(body["error"], Equals, "Unknown topic")
+}
+
+// Committed offsets are returned in a following GET request.
+func (s *ServiceSuite) TestSetOffsets(c *C) {
+	// Given
+	svc, _ := SpawnService(s.config)
+
+	// When
+	r, err := s.unixClient.Post("http://_/topics/test.4/offsets?group=foo",
+		"application/json", strings.NewReader(
+			`[{"partition": 0, "offset": 1100, "metadata": "A100"},
+			  {"partition": 1, "offset": 1101, "metadata": "A101"},
+			  {"partition": 2, "offset": 1102, "metadata": "A102"},
+			  {"partition": 3, "offset": 1103, "metadata": "A103"}]`))
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(ParseJSONBody(c, r), DeepEquals, EmptyResponse)
+	c.Assert(r.StatusCode, Equals, http.StatusOK)
+
+	r, err = s.unixClient.Get("http://_/topics/test.4/offsets?group=foo")
+	c.Assert(err, IsNil)
+	body := ParseJSONBody(c, r).([]interface{})
+	for i := 0; i < 4; i++ {
+		partitionView := body[i].(map[string]interface{})
+		c.Assert(partitionView["partition"].(float64), Equals, float64(i))
+		c.Assert(partitionView["offset"].(float64), Equals, float64(1100+i))
+		c.Assert(partitionView["metadata"].(string), Equals, fmt.Sprintf("A10%d", i))
+	}
+
+	svc.Stop()
+}
+
+// It is not an error to set offsets for a topic that does not exist.
+func (s *ServiceSuite) TestSetOffsetsNoSuchTopic(c *C) {
+	// Given
+	svc, _ := SpawnService(s.config)
+
+	// When
+	r, err := s.unixClient.Post("http://_/topics/no_such_topic/offsets?group=foo",
+		"application/json", strings.NewReader(`[{"partition": 0, "offset": 1100, "metadata": "A100"}]`))
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(r.StatusCode, Equals, http.StatusOK)
+	c.Assert(ParseJSONBody(c, r), DeepEquals, EmptyResponse)
+
+	svc.Stop()
+}
+
+// Invalid body is detected and properly reported.
+func (s *ServiceSuite) TestSetOffsetsInvalidBody(c *C) {
+	// Given
+	svc, _ := SpawnService(s.config)
+
+	// When
+	r, err := s.unixClient.Post("http://_/topics/test.4/offsets?group=foo",
+		"application/json", strings.NewReader(`garbage`))
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(r.StatusCode, Equals, http.StatusBadRequest)
+	body := ParseJSONBody(c, r).(map[string]interface{})
+	c.Assert(body["error"], Equals, "Failed to parse the request: cause=(invalid character 'g' looking for beginning of value)")
+
+	svc.Stop()
+}
+
+// It is not an error to set an offset for a missing partition.
+func (s *ServiceSuite) TestSetOffsetsInvalidPartition(c *C) {
+	// Given
+	svc, _ := SpawnService(s.config)
+
+	// When
+	r, err := s.unixClient.Post("http://_/topics/test.4/offsets?group=foo",
+		"application/json", strings.NewReader(`[{"partition": 5}]`))
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(r.StatusCode, Equals, http.StatusOK)
+	c.Assert(ParseJSONBody(c, r), DeepEquals, EmptyResponse)
+
+	svc.Stop()
 }

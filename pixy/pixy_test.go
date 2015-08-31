@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -201,6 +202,19 @@ func ProdMsgMetadataSize(key []byte) int {
 	return size
 }
 
+func NewTestConfig(clientID string) *Config {
+	config := NewConfig()
+	config.UnixAddr = path.Join(os.TempDir(), "kafka-pixy.sock")
+	config.ClientID = clientID
+	config.Kafka.SeedPeers = testKafkaPeers
+	config.ZooKeeper.SeedPeers = testZookeeperPeers
+	config.Consumer.LongPollingTimeout = 3000 * time.Millisecond
+	config.Consumer.BackOffTimeout = 100 * time.Millisecond
+	config.Consumer.RebalanceDelay = 100 * time.Millisecond
+	config.testing.firstMessageFetchedCh = make(chan *exclusiveConsumer, 100)
+	return config
+}
+
 func ResetOffsets(c *C, group, topic string) {
 	config := NewConfig()
 	config.Kafka.SeedPeers = testKafkaPeers
@@ -267,14 +281,14 @@ func (p MessageSlice) Len() int           { return len(p) }
 func (p MessageSlice) Less(i, j int) bool { return p[i].Offset < p[j].Offset }
 func (p MessageSlice) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
-func ParseJSONBody(c *C, res *http.Response) map[string]interface{} {
+func ParseJSONBody(c *C, res *http.Response) interface{} {
 	body, err := ioutil.ReadAll(res.Body)
 	if err != nil {
 		c.Error(err)
 		return nil
 	}
 	res.Body.Close()
-	var parsedBody map[string]interface{}
+	var parsedBody interface{}
 	if err := json.Unmarshal(body, &parsedBody); err != nil {
 		c.Error(err)
 		return nil
