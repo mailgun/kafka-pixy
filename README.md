@@ -1,5 +1,9 @@
 # Kafka-Pixy
 
+| **WARNING**                                                                          |
+| :----------------------------------------------------------------------------------- |
+| The project is under heavy development now, it makes no sense to even try it until milestone [v0.7.0](https://github.com/mailgun/kafka-pixy/milestones/v0.7.0) is reached. |
+
 [![Build Status](https://travis-ci.org/mailgun/kafka-pixy.svg?branch=master)](https://travis-ci.org/mailgun/kafka-pixy)
 
 Kafka-Pixy is a local aggregating HTTP proxy to Kafka messaging cluster. It is
