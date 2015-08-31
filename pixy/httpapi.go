@@ -113,44 +113,53 @@ func (as *HTTPAPIServer) handleProduce(w http.ResponseWriter, r *http.Request) {
 	// Get the message body from the HTTP request.
 	if _, ok := r.Header[HeaderContentLength]; !ok {
 		errorText := fmt.Sprintf("Missing %s header", HeaderContentLength)
-		http.Error(w, errorText, http.StatusBadRequest)
+		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{errorText})
 		return
 	}
 	messageSizeStr := r.Header.Get(HeaderContentLength)
 	messageSize, err := strconv.Atoi(messageSizeStr)
 	if err != nil {
 		errorText := fmt.Sprintf("Invalid %s header: %s", HeaderContentLength, messageSizeStr)
-		http.Error(w, errorText, http.StatusBadRequest)
+		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{errorText})
 		return
 	}
 	message, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		errorText := fmt.Sprintf("Failed to read a message: cause=(%v)", err)
-		http.Error(w, errorText, http.StatusBadRequest)
+		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{errorText})
 		return
 	}
 	if len(message) != messageSize {
 		errorText := fmt.Sprintf("Message size does not match %s: expected=%v, actual=%v",
 			HeaderContentLength, messageSize, len(message))
-		http.Error(w, errorText, http.StatusBadRequest)
+		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{errorText})
 		return
 	}
 
-	if isSync {
-		_, err := as.producer.Produce(topic, toEncoderPreservingNil(key), sarama.StringEncoder(message))
-		switch err {
-		case nil:
-			w.WriteHeader(http.StatusOK)
-		case sarama.ErrUnknownTopicOrPartition:
-			http.Error(w, err.Error(), http.StatusNotFound)
-		default:
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
+	// Asynchronously submit the message to the Kafka cluster.
+	if !isSync {
+		as.producer.AsyncProduce(topic, toEncoderPreservingNil(key), sarama.StringEncoder(message))
+		respondWithJSON(w, http.StatusOK, map[string]string{})
 		return
 	}
-	// Asynchronously submit the message to the Kafka cluster.
-	as.producer.AsyncProduce(topic, toEncoderPreservingNil(key), sarama.StringEncoder(message))
-	w.WriteHeader(http.StatusOK)
+
+	prodMsg, err := as.producer.Produce(topic, toEncoderPreservingNil(key), sarama.StringEncoder(message))
+	if err != nil {
+		var status int
+		switch err {
+		case sarama.ErrUnknownTopicOrPartition:
+			status = http.StatusNotFound
+		default:
+			status = http.StatusInternalServerError
+		}
+		respondWithJSON(w, status, errorHTTPResponse{err.Error()})
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, produceHTTPResponse{
+		Partition: prodMsg.Partition,
+		Offset:    prodMsg.Offset,
+	})
 }
 
 // handleConsume is an HTTP request handler for `GET /topic/{topic}/messages`
@@ -162,49 +171,47 @@ func (as *HTTPAPIServer) handleConsume(w http.ResponseWriter, r *http.Request) {
 	groups := r.Form[ParamGroup]
 	if len(groups) != 1 {
 		errorText := fmt.Sprintf("One consumer group is expected, but %d provided", len(groups))
-		http.Error(w, errorText, http.StatusBadRequest)
+		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{errorText})
 		return
 	}
 
 	consMsg, err := as.consumer.Consume(groups[0], topic)
-	switch err := err.(type) {
-	case nil:
-		break
-	case ErrConsumerRequestTimeout:
-		http.Error(w, err.Error(), http.StatusRequestTimeout)
-		return
-	case ErrConsumerBufferOverflow:
-		http.Error(w, err.Error(), 429) // StatusTooManyRequests
-	default:
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-
-	encodedMsg, err := json.Marshal(newMessageView(consMsg))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		var status int
+		switch err.(type) {
+		case ErrConsumerRequestTimeout:
+			status = http.StatusRequestTimeout
+		case ErrConsumerBufferOverflow:
+			status = 429 // StatusTooManyRequests
+		default:
+			status = http.StatusInternalServerError
+		}
+		respondWithJSON(w, status, errorHTTPResponse{err.Error()})
+		return
 	}
 
-	w.Header().Add(HeaderContentType, "application/json")
-	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write(encodedMsg); err != nil {
-		log.Errorf("Failed to send message")
-	}
+	respondWithJSON(w, http.StatusOK, consumeHTTPResponse{
+		Key:       consMsg.Key,
+		Value:     consMsg.Value,
+		Partition: consMsg.Partition,
+		Offset:    consMsg.Offset,
+	})
 }
 
-type messageView struct {
+type produceHTTPResponse struct {
+	Partition int32 `json:"partition"`
+	Offset    int64 `json:"offset"`
+}
+
+type consumeHTTPResponse struct {
 	Key       []byte `json:"key"`
 	Value     []byte `json:"value"`
 	Partition int32  `json:"partition"`
 	Offset    int64  `json:"offset"`
 }
 
-func newMessageView(consMsg *sarama.ConsumerMessage) messageView {
-	return messageView{
-		Key:       consMsg.Key,
-		Value:     consMsg.Value,
-		Partition: consMsg.Partition,
-		Offset:    consMsg.Offset,
-	}
+type errorHTTPResponse struct {
+	Error string `json:"error"`
 }
 
 // getParamBytes returns the request parameter as a slice of bytes. It works
@@ -217,4 +224,21 @@ func getParamBytes(r *http.Request, name string) []byte {
 		return nil
 	}
 	return []byte(values[0])
+}
+
+// respondWithJSON marshals `body` to a JSON string and sends it as an HTTP
+// response body along with the specified `status` code.
+func respondWithJSON(w http.ResponseWriter, status int, body interface{}) {
+	encodedRes, err := json.MarshalIndent(body, "", "  ")
+	if err != nil {
+		log.Errorf("Failed to send HTTP reponse: status=%d, body=%v, reason=%v", status, body, err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Add(HeaderContentType, "application/json")
+	w.WriteHeader(status)
+	if _, err := w.Write(encodedRes); err != nil {
+		log.Errorf("Failed to send HTTP reponse: status=%d, body=%v, reason=%v", status, body, err)
+	}
 }
