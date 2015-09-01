@@ -431,7 +431,7 @@ func (bom *brokerOffsetMgr) executeBatches() {
 					ConsumerGroup: group,
 				}
 				for _, oc := range groupCommits {
-					req.AddBlock(oc.gtp.topic, oc.gtp.partition, oc.offset, 0, oc.metadata)
+					req.AddBlock(oc.gtp.topic, oc.gtp.partition, oc.offset, ReceiveTime, oc.metadata)
 				}
 
 				res, err := bom.conn.CommitOffset(req)
