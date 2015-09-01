@@ -1,6 +1,6 @@
 {
 	"ImportPath": "github.com/mailgun/kafka-pixy",
-	"GoVersion": "go1.4",
+	"GoVersion": "go1.5",
 	"Packages": [
 		"./..."
 	],
@@ -42,8 +42,8 @@
 		},
 		{
 			"ImportPath": "github.com/mailgun/sarama",
-			"Comment": "v1.4.3-47-gf4b75bf",
-			"Rev": "f4b75bf29b03d793fa225dc1a665211a311e2242"
+			"Comment": "v1.5.0-3-gf3c9d55",
+			"Rev": "f3c9d550d4066a413899ecb7484baaf8835f7f43"
 		},
 		{
 			"ImportPath": "github.com/samuel/go-zookeeper/zk",
