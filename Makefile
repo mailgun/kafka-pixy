@@ -12,6 +12,8 @@ rebuild:
 
 all:
 	go install github.com/mailgun/kafka-pixy
+	go install github.com/mailgun/kafka-pixy/tools/testproducer
+	go install github.com/mailgun/kafka-pixy/tools/testconsumer
 
 vet: install_go_vet
 	go vet ./...

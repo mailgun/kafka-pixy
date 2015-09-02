@@ -2,6 +2,7 @@ package pixy
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"time"
@@ -73,6 +74,22 @@ func retry(f func() error, shouldRetry func(err error) bool, errorMsg string,
 		err = f()
 	}
 	return false
+}
+
+func BytesToStr(bytes int64) string {
+	kilo := bytes / 1024
+	if kilo == 0 {
+		return fmt.Sprintf("%db", bytes)
+	}
+	mega := kilo / 1024
+	if mega == 0 {
+		return fmt.Sprintf("%dKb", kilo)
+	}
+	giga := mega / 1024
+	if giga == 0 {
+		return fmt.Sprintf("%dMb", mega)
+	}
+	return fmt.Sprintf("%dGb", giga)
 }
 
 type Int32Slice []int32
