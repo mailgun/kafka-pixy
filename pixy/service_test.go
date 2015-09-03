@@ -460,3 +460,25 @@ func (s *ServiceSuite) TestSetOffsetsInvalidPartition(c *C) {
 
 	svc.Stop()
 }
+
+func (s *ServiceSuite) TestGetOffsetsLag(c *C) {
+	// Given
+	svc, _ := SpawnService(s.config)
+	r, err := s.unixClient.Post("http://_/topics/test.4/offsets?group=foo",
+		"application/json", strings.NewReader(`[{"partition": 0, "offset": -1},{"partition": 1, "offset": 1}]`))
+	c.Assert(err, IsNil)
+
+	// When
+	r, err = s.unixClient.Get("http://_/topics/test.4/offsets?group=foo")
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(r.StatusCode, Equals, http.StatusOK)
+	body := ParseJSONBody(c, r).([]interface{})
+	partition0View := body[0].(map[string]interface{})
+	c.Assert(partition0View["lag"], IsNil)
+	partition1View := body[1].(map[string]interface{})
+	c.Assert(partition1View["lag"], Equals, partition1View["end"].(float64)-partition1View["offset"].(float64))
+
+	svc.Stop()
+}

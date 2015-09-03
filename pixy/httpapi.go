@@ -228,6 +228,9 @@ func (as *HTTPAPIServer) handleGetOffsets(w http.ResponseWriter, r *http.Request
 		partitionOffsetView[i].End = po.End
 		partitionOffsetView[i].Offset = po.Offset
 		partitionOffsetView[i].Metadata = po.Metadata
+		if po.Offset >= 0 {
+			partitionOffsetView[i].Lag = po.End - po.Offset
+		}
 	}
 	respondWithJSON(w, http.StatusOK, partitionOffsetView)
 }
@@ -294,6 +297,7 @@ type partitionOffsetView struct {
 	Begin     int64  `json:"begin"`
 	End       int64  `json:"end"`
 	Offset    int64  `json:"offset"`
+	Lag       int64  `json:"lag,omitempty"`
 	Metadata  string `json:"metadata"`
 }
 
