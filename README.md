@@ -94,9 +94,10 @@ e.g.:
 
 Kafa-pixy accepts the following command line parameters:
 
- Parameter | Default                  | Description
------------|--------------------------|----------------------------------------
- brokers   | localhost:9092           | Comma separated list of Kafka brokers. Note that these are just seed brokers. The rest brokers are discovered automatically.
- unixAddr  | /var/run/kafka-pixy.sock | Unix Domain Socket that the primary HTTP API should listen on.
- tcpAddr   |                          | TCP interface where the secondary HTTP API should listen. If not specified then Kafka-Pixy won't listen on a TCP socket.
- pidFile   | /var/run/kafka-pixy.pid  | Name of the pid file to create.
+ Parameter      | Description
+----------------|-------------------------------------------------------------------
+ kafkaPeers     | Comma separated list of Kafka brokers. Note that these are just seed brokers. The rest brokers are discovered automatically. (Default **localhost:9092**)
+ zookeeperPeers | Comma separated list of ZooKeeper nodes followed by optional chroot. (Default **localhost:2181**)
+ unixAddr       | Unix Domain Socket that the primary HTTP API should listen on. (Default **/var/run/kafka-pixy.sock**)
+ tcpAddr        | TCP interface where the secondary HTTP API should listen. If not specified then Kafka-Pixy won't listen on a TCP socket.
+ pidFile        | Name of the pid file to create. (Default **/var/run/kafka-pixy.pid**)

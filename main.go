@@ -31,25 +31,26 @@ var (
 
 func init() {
 	config = pixy.NewConfig()
+	var kafkaPeers, zookeeperPeers string
 
 	flag.StringVar(&config.UnixAddr, "unixAddr", defaultUnixAddr,
 		"Unix domain socket address that the HTTP API should listen on")
 	flag.StringVar(&config.TCPAddr, "tcpAddr", "",
 		"TCP address that the HTTP API should listen on")
-	brokers := *flag.String("brokers", defaultKafkaPeers, "Comma separated list of brokers")
-	zookeeper := *flag.String("zookeeper", defaultZookeeperPeers, "Comma separated list of ZooKeeper nodes followed by optional chroot")
+	flag.StringVar(&kafkaPeers, "kafkaPeers", defaultKafkaPeers, "Comma separated list of brokers")
+	flag.StringVar(&zookeeperPeers, "zookeeperPeers", defaultZookeeperPeers, "Comma separated list of ZooKeeper nodes followed by optional chroot")
 	flag.StringVar(&pidFile, "pidFile", defaultPIDFile, "Path to the PID file")
 	flag.StringVar(&loggingJSONCfg, "logging", defaultLoggingCfg, "Logging configuration")
 	flag.Parse()
 
-	config.Kafka.SeedPeers = strings.Split(brokers, ",")
+	config.Kafka.SeedPeers = strings.Split(kafkaPeers, ",")
 
-	chrootStartIdx := strings.Index(zookeeper, "/")
+	chrootStartIdx := strings.Index(zookeeperPeers, "/")
 	if chrootStartIdx >= 0 {
-		config.ZooKeeper.SeedPeers = strings.Split(zookeeper[:chrootStartIdx], ",")
-		config.ZooKeeper.Chroot = zookeeper[chrootStartIdx:]
+		config.ZooKeeper.SeedPeers = strings.Split(zookeeperPeers[:chrootStartIdx], ",")
+		config.ZooKeeper.Chroot = zookeeperPeers[chrootStartIdx:]
 	} else {
-		config.ZooKeeper.SeedPeers = strings.Split(zookeeper, ",")
+		config.ZooKeeper.SeedPeers = strings.Split(zookeeperPeers, ",")
 	}
 }
 
