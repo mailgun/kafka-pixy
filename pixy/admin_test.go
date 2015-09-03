@@ -47,7 +47,7 @@ func (s *AdminSuite) TestGetOffsetsAfterProduce(c *C) {
 		29, 55, 34, 67,
 	}
 	for i := 0; i < 64; i++ {
-		actualDiff := int(offsetsAfter[i].Range.End - offsetsBefore[i].Range.End)
+		actualDiff := int(offsetsAfter[i].End - offsetsBefore[i].End)
 		c.Assert(actualDiff, Equals, rangeEndDiffs[i])
 	}
 	a.Stop()

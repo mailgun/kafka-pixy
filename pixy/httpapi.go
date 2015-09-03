@@ -224,8 +224,8 @@ func (as *HTTPAPIServer) handleGetOffsets(w http.ResponseWriter, r *http.Request
 	partitionOffsetView := make([]partitionOffsetView, len(partitionOffsets))
 	for i, po := range partitionOffsets {
 		partitionOffsetView[i].Partition = po.Partition
-		partitionOffsetView[i].Range.Begin = po.Range.Begin
-		partitionOffsetView[i].Range.End = po.Range.End
+		partitionOffsetView[i].Begin = po.Begin
+		partitionOffsetView[i].End = po.End
 		partitionOffsetView[i].Offset = po.Offset
 		partitionOffsetView[i].Metadata = po.Metadata
 	}
@@ -290,13 +290,11 @@ type consumeHTTPResponse struct {
 }
 
 type partitionOffsetView struct {
-	Partition int32 `json:"partition"`
-	Range     struct {
-		Begin int64 `json:"begin"`
-		End   int64 `json:"end"`
-	} `json:"range"`
-	Offset   int64  `json:"offset"`
-	Metadata string `json:"metadata"`
+	Partition int32  `json:"partition"`
+	Begin     int64  `json:"begin"`
+	End       int64  `json:"end"`
+	Offset    int64  `json:"offset"`
+	Metadata  string `json:"metadata"`
 }
 
 type errorHTTPResponse struct {
