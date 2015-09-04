@@ -183,13 +183,13 @@ func (cr *ChunkReader) Read(b []byte) (n int, err error) {
 func PostChunked(clt *http.Client, url, msg string) *http.Response {
 	req, err := http.NewRequest("POST", url, NewChunkReader(msg, 1, 10*time.Millisecond))
 	if err != nil {
-		panic(fmt.Sprintf("Failed to make a request object: cause=(%v)", err))
+		panic(fmt.Sprintf("Failed to make a request object: err=(%s)", err))
 	}
 	req.Header.Add("Content-Type", "text/plain")
 	req.ContentLength = int64(len(msg))
 	resp, err := clt.Do(req)
 	if err != nil {
-		panic(fmt.Sprintf("Failed to do a request: cause=(%v)", err))
+		panic(fmt.Sprintf("Failed to do a request: err=(%s)", err))
 	}
 	return resp
 }

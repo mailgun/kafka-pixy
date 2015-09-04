@@ -51,12 +51,12 @@ func NewHTTPAPIServer(network, addr string, producer *GracefulProducer, consumer
 	// Start listening on the specified network/address.
 	listener, err := net.Listen(network, addr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create listener, cause=(%v)", err)
+		return nil, fmt.Errorf("failed to create listener, err=(%s)", err)
 	}
 	// If the address is Unix Domain Socket then make it accessible for everyone.
 	if network == NetworkUnix {
 		if err := os.Chmod(addr, 0777); err != nil {
-			return nil, fmt.Errorf("failed to change socket permissions, cause=(%v)", err)
+			return nil, fmt.Errorf("failed to change socket permissions, err=(%s)", err)
 		}
 	}
 	// Create a graceful HTTP server instance.
@@ -94,7 +94,7 @@ func (as *HTTPAPIServer) Start() {
 		defer hid.LogScope()()
 		defer close(as.errorCh)
 		if err := as.httpServer.Serve(as.listener); err != nil {
-			as.errorCh <- fmt.Errorf("HTTP API listener failed, cause=(%v)", err)
+			as.errorCh <- fmt.Errorf("HTTP API listener failed, err=(%s)", err)
 		}
 	}()
 }
@@ -136,7 +136,7 @@ func (as *HTTPAPIServer) handleProduce(w http.ResponseWriter, r *http.Request) {
 	}
 	message, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		errorText := fmt.Sprintf("Failed to read a message: cause=(%v)", err)
+		errorText := fmt.Sprintf("Failed to read a message: err=(%s)", err)
 		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{errorText})
 		return
 	}
@@ -255,14 +255,14 @@ func (as *HTTPAPIServer) handleSetOffsets(w http.ResponseWriter, r *http.Request
 
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		errorText := fmt.Sprintf("Failed to read the request: cause=(%v)", err)
+		errorText := fmt.Sprintf("Failed to read the request: err=(%s)", err)
 		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{errorText})
 		return
 	}
 
 	var partitionOffsetViews []partitionOffsetView
 	if err := json.Unmarshal(body, &partitionOffsetViews); err != nil {
-		errorText := fmt.Sprintf("Failed to parse the request: cause=(%v)", err)
+		errorText := fmt.Sprintf("Failed to parse the request: err=(%s)", err)
 		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{errorText})
 		return
 	}
