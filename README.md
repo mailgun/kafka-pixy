@@ -1,14 +1,16 @@
 # Kafka-Pixy
 
-| **WARNING**                                                                          |
-| :----------------------------------------------------------------------------------- |
-| The project is under heavy development now, it makes no sense to even try it until milestone [v0.7.0](https://github.com/mailgun/kafka-pixy/milestones/v0.7.0) is reached. |
-
 [![Build Status](https://travis-ci.org/mailgun/kafka-pixy.svg?branch=master)](https://travis-ci.org/mailgun/kafka-pixy)
 
 Kafka-Pixy is a local aggregating HTTP proxy to Kafka messaging cluster. It is
 designed to hide the complexity of the Kafka client protocol and provide a
 stupid simple HTTP API that is trivial to implement in any language.
+
+Kafka-Pixy works with Kafka **8.2.x** or later, because it uses the
+[Offset Commit/Fetch API](https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol#AGuideToTheKafkaProtocol-OffsetCommit/FetchAPI)
+released in that version. Although this API has been introduced in Kafka **0.8.1.1**,
+the on-the-wire packet format was different back then, and Kafka-Pixy does not
+support the older format.
 
 ## Aggregation
 Kafka works best when messages are read/written in batches, but from application
@@ -90,9 +92,71 @@ e.g.:
 }
 ```
 
+### Get Offsets
+ 
+`GET /topics/<topic>/offsets?group=<group>` - returns offset information for
+all partitions of the specified topic including the next offset to be consumed
+by the specified consumer group. The structure of the returned JSON document is
+as follows:
+
+```
+[
+  {
+    "partition": <partition id>,
+    "begin": <oldest offset>,
+    "end": <newest offset>,
+    "offset": <next offset to be consumed by this consumer group>,
+    "lag": <omitted if `offset` == `end`, otherwise equals to `end` - `offset`>,
+    "metadata": <arbitrary string committed with the offset, not used by Kafka-Pixy. It is omitted if empty>
+  },
+  ...
+]
+```
+
+### Set Offsets
+
+`POST /topics/<topic>/offsets?group=<group>` - sets offsets to be consumed from
+the specified topic by a particular consumer group. The request content should
+be a list of JSON objects, where each objects defines an offset to be set for
+a particular partition:
+
+```
+[
+  {
+    "partition": <partition id>,
+    "offset": <next offset to be consumed by this consumer group>,
+    "metadata": <arbitrary string>
+  },
+  ...
+]
+```
+
+Note that consumption by all consumer group members should cease before this
+call can be executed. That is necessary because while consuming Kafka-Pixy
+constantly updates partition offsets, and it does not expect them to be update
+by somebody else. So it only reads them on group initialization, that happens
+when a consumer group request comes after 20 seconds or more of the consumer
+group inactivity on all Kafka-Pixy working with the Kafka cluster.
+
+## Delivery Guarantees
+
+If a Kafka-Pixy instance dies (crashes or gets brutally killed with SIGKILL, or
+entire host running a Kafka-Pixy instance goes down, you name it), then
+some **asynchronously** produced messages can be lost, but **synchronously**
+produced messages are never lost. Some messages consumed just before the death
+can be consumed for the second time later either from the restarted Kafka-Pixy
+instance on the same host or a Kafka-Pixy instance running on another host.
+
+A message is considered to be consumed by Kafka-Pixy if it is successfully sent
+over network in an HTTP response body. So if a client application dies before
+the message is processed, then it will be lost. 
+
 ## Command Line
 
-Kafa-pixy accepts the following command line parameters:
+Kafa-Pixy is designed to be very simple to run. It consists of a single
+executable that can be started just by passing a bunch of command line
+parameters to it - no configuration file needed. All configuration parameters
+that Kafka-Pixy accepts are listed below.
 
  Parameter      | Description
 ----------------|-------------------------------------------------------------------
@@ -101,3 +165,6 @@ Kafa-pixy accepts the following command line parameters:
  unixAddr       | Unix Domain Socket that the primary HTTP API should listen on. (Default **/var/run/kafka-pixy.sock**)
  tcpAddr        | TCP interface where the secondary HTTP API should listen. If not specified then Kafka-Pixy won't listen on a TCP socket.
  pidFile        | Name of the pid file to create. (Default **/var/run/kafka-pixy.pid**)
+
+You can run `kafka-pixy -help` to make it list all available command line
+parameters.
