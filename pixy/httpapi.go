@@ -305,7 +305,7 @@ type partitionOffsetView struct {
 	End       int64  `json:"end"`
 	Offset    int64  `json:"offset"`
 	Lag       int64  `json:"lag,omitempty"`
-	Metadata  string `json:"metadata"`
+	Metadata  string `json:"metadata,omitempty"`
 }
 
 type errorHTTPResponse struct {
