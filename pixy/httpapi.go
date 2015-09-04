@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/gorilla/mux"
@@ -44,13 +45,19 @@ type HTTPAPIServer struct {
 }
 
 // NewHTTPAPIServer creates an HTTP server instance that will accept API
-// requests specified network/address and forwards them to the associated
-// Kafka client.
+// requests at the specified `network`/`address` and execute them with the
+// specified `producer`, `consumer`, or `admin`, depending on the request type.
 func NewHTTPAPIServer(network, addr string, producer *GracefulProducer, consumer *SmartConsumer, admin *Admin) (*HTTPAPIServer, error) {
-	// Start listening on the specified unix domain socket address.
+	// Start listening on the specified network/address.
 	listener, err := net.Listen(network, addr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create listener, cause=(%v)", err)
+	}
+	// If the address is Unix Domain Socket then make it accessible for everyone.
+	if network == NetworkUnix {
+		if err := os.Chmod(addr, 0777); err != nil {
+			return nil, fmt.Errorf("failed to change socket permissions, cause=(%v)", err)
+		}
 	}
 	// Create a graceful HTTP server instance.
 	router := mux.NewRouter()
