@@ -37,8 +37,8 @@
 		},
 		{
 			"ImportPath": "github.com/mailgun/manners",
-			"Comment": "0.3.1-24-g8518c51",
-			"Rev": "8518c51825e4aec9d3de17203b2b409dd0c5e5c5"
+			"Comment": "0.4.0-7-g37136f7",
+			"Rev": "37136f736785d7c6aa3b9a27b4b2dd1028ca6d79"
 		},
 		{
 			"ImportPath": "github.com/mailgun/sarama",

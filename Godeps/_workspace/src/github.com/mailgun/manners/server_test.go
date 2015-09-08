@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/manners/test_helpers"
 )
 
 type httpInterface interface {
@@ -30,7 +32,7 @@ func TestInterface(t *testing.T) {
 func TestGracefulness(t *testing.T) {
 	server := newServer()
 	stateChangedCh := make(chan http.ConnState)
-	wg := newTestWg()
+	wg := test_helpers.NewWaitGroup()
 	server.wg = wg
 	listener, exitchan := startServer(t, server, stateChangedCh)
 
@@ -47,7 +49,7 @@ func TestGracefulness(t *testing.T) {
 
 	server.Close()
 
-	waiting := <-wg.waitCalled
+	waiting := <-wg.WaitCalled
 	if waiting < 1 {
 		t.Errorf("Expected the waitgroup to equal 1 at shutdown; actually %d", waiting)
 	}
@@ -78,7 +80,7 @@ func waitForState(t *testing.T, waiter chan http.ConnState, state http.ConnState
 // network connection still results in a corect shutdown
 func TestStateTransitionActiveIdleActive(t *testing.T) {
 	server := newServer()
-	wg := newTestWg()
+	wg := test_helpers.NewWaitGroup()
 	statechanged := make(chan http.ConnState)
 	server.wg = wg
 	listener, exitchan := startServer(t, server, statechanged)
@@ -101,7 +103,7 @@ func TestStateTransitionActiveIdleActive(t *testing.T) {
 	// client is now in an idle state
 
 	server.Close()
-	waiting := <-wg.waitCalled
+	waiting := <-wg.WaitCalled
 	if waiting != 0 {
 		t.Errorf("Waitcount should be zero, got %d", waiting)
 	}
@@ -148,8 +150,8 @@ func TestStateTransitionActiveIdleClosed(t *testing.T) {
 		exitchan chan error
 	)
 
-	keyFile, err1 := newTempFile(localhostKey)
-	certFile, err2 := newTempFile(localhostCert)
+	keyFile, err1 := test_helpers.NewTempFile(test_helpers.Key)
+	certFile, err2 := test_helpers.NewTempFile(test_helpers.Cert)
 	defer keyFile.Unlink()
 	defer certFile.Unlink()
 
@@ -159,7 +161,7 @@ func TestStateTransitionActiveIdleClosed(t *testing.T) {
 
 	for _, withTLS := range []bool{false, true} {
 		server := newServer()
-		wg := newTestWg()
+		wg := test_helpers.NewWaitGroup()
 		statechanged := make(chan http.ConnState)
 		server.wg = wg
 		if withTLS {
@@ -192,7 +194,7 @@ func TestStateTransitionActiveIdleClosed(t *testing.T) {
 		waitForState(t, statechanged, http.StateClosed, "Client failed to reach closed state")
 
 		server.Close()
-		waiting := <-wg.waitCalled
+		waiting := <-wg.WaitCalled
 		if waiting != 0 {
 			t.Errorf("Waitcount should be zero, got %d", waiting)
 		}
@@ -252,7 +254,7 @@ func TestWrapConnection(t *testing.T) {
 func TestShutdown(t *testing.T) {
 	server := NewServer()
 	stateChangedCh := make(chan http.ConnState)
-	wg := newTestWg()
+	wg := test_helpers.NewWaitGroup()
 	server.wg = wg
 	listener, exitchan := startServer(t, server, stateChangedCh)
 
@@ -271,7 +273,7 @@ func TestShutdown(t *testing.T) {
 	// the listener should of been closed, though client1 is still connected
 	server.Close()
 
-	waiting := <-wg.waitCalled
+	waiting := <-wg.WaitCalled
 	if waiting != 1 {
 		t.Errorf("Waitcount should be one, got %d", waiting)
 	}
@@ -302,15 +304,15 @@ func TestGlobalShutdown(t *testing.T) {
 	}()
 
 	go func() {
-		keyFile, _ := newTempFile(localhostKey)
-		certFile, _ := newTempFile(localhostCert)
+		keyFile, _ := test_helpers.NewTempFile(test_helpers.Key)
+		certFile, _ := test_helpers.NewTempFile(test_helpers.Cert)
 		defer keyFile.Unlink()
 		defer certFile.Unlink()
 		lastlserr <- ListenAndServeTLS("127.0.0.1:0", certFile.Name(), keyFile.Name(), nullHandler)
 	}()
 
 	go func() {
-		l := newFakeListener()
+		l := test_helpers.NewListener()
 		serveerr <- Serve(l, nullHandler)
 	}()
 
@@ -355,7 +357,7 @@ func TestGlobalShutdown(t *testing.T) {
 // Hijack listener
 func TestHijackListener(t *testing.T) {
 	server := NewServer()
-	wg := newTestWg()
+	wg := test_helpers.NewWaitGroup()
 	server.wg = wg
 	listener, exitchan := startServer(t, server, nil)
 
@@ -368,9 +370,9 @@ func TestHijackListener(t *testing.T) {
 	}
 
 	// Make sure server1 got the request and added it to the waiting group
-	<-wg.countChanged
+	<-wg.CountChanged
 
-	wg2 := newTestWg()
+	wg2 := test_helpers.NewWaitGroup()
 	server2, err := server.HijackListener(new(http.Server), nil)
 	server2.wg = wg2
 	if err != nil {
@@ -383,7 +385,7 @@ func TestHijackListener(t *testing.T) {
 	server.Close()
 
 	// First server waits for the first request to finish
-	waiting := <-wg.waitCalled
+	waiting := <-wg.WaitCalled
 	if waiting < 1 {
 		t.Errorf("Expected the waitgroup to equal 1 at shutdown; actually %d", waiting)
 	}
@@ -412,7 +414,7 @@ func TestHijackListener(t *testing.T) {
 	// Close the second server
 	server2.Close()
 
-	waiting = <-wg2.waitCalled
+	waiting = <-wg2.WaitCalled
 	if waiting < 1 {
 		t.Errorf("Expected the waitgroup to equal 1 at shutdown; actually %d", waiting)
 	}

@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/manners/test_helpers"
 )
 
 func TestStateTransitions(t *testing.T) {
@@ -31,17 +33,17 @@ type transitionTest struct {
 
 func testStateTransition(t *testing.T, test transitionTest) {
 	server := newServer()
-	wg := newTestWg()
+	wg := test_helpers.NewWaitGroup()
 	server.wg = wg
 	startServer(t, server, nil)
 
-	conn := &gracefulConn{Conn: &fakeConn{}}
+	conn := &gracefulConn{Conn: &test_helpers.Conn{}}
 	for _, newState := range test.states {
 		server.ConnState(conn, newState)
 	}
 
 	server.Close()
-	waiting := <-wg.waitCalled
+	waiting := <-wg.WaitCalled
 	if waiting != test.expectedWgCount {
 		names := make([]string, len(test.states))
 		for i, s := range test.states {
