@@ -40,11 +40,11 @@ type produceResult struct {
 func SpawnGracefulProducer(config *Config) (*GracefulProducer, error) {
 	saramaClient, err := sarama.NewClient(config.Kafka.SeedPeers, config.saramaConfig())
 	if err != nil {
-		return nil, fmt.Errorf("failed to create sarama.Client, cause=(%v)", err)
+		return nil, fmt.Errorf("failed to create sarama.Client, err=(%s)", err)
 	}
 	saramaProducer, err := sarama.NewAsyncProducerFromClient(saramaClient)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create sarama.Producer, cause=(%v)", err)
+		return nil, fmt.Errorf("failed to create sarama.Producer, err=(%s)", err)
 	}
 	gp := &GracefulProducer{
 		baseCID:         sarama.RootCID.NewChild("producer"),
@@ -205,7 +205,7 @@ func (gp *GracefulProducer) handleProduceResult(cid *sarama.ContextID, result pr
 	}
 	prodMsgRepr := fmt.Sprintf(`{Topic: "%s", Key: "%s", Value: "%s"}`,
 		result.Msg.Topic, encoderRepr(result.Msg.Key), encoderRepr(result.Msg.Value))
-	log.Errorf("<%v> Failed to submit message: msg=%v, cause=(%v)",
+	log.Errorf("<%v> Failed to submit message: msg=%v, err=(%s)",
 		cid, prodMsgRepr, result.Err)
 	if gp.deadMessageCh != nil {
 		gp.deadMessageCh <- result.Msg

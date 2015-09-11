@@ -46,7 +46,7 @@ func (s *ServiceSuite) TestInvalidUnixAddr(c *C) {
 	svc, err := SpawnService(s.config)
 	// Then
 	c.Assert(err.Error(), Equals,
-		"failed to start Unix socket based HTTP API, cause=(failed to create listener, cause=(listen unix /tmp: bind: address already in use))")
+		"failed to start Unix socket based HTTP API, err=(failed to create listener, err=(listen unix /tmp: bind: address already in use))")
 	c.Assert(svc, IsNil)
 }
 
@@ -57,7 +57,7 @@ func (s *ServiceSuite) TestInvalidKafkaPeers(c *C) {
 	svc, err := SpawnService(s.config)
 	// Then
 	c.Assert(err.Error(), Equals,
-		"failed to spawn producer, cause=(failed to create sarama.Client, cause=(kafka: client has run out of available brokers to talk to (Is your cluster reachable?)))")
+		"failed to spawn producer, err=(failed to create sarama.Client, err=(kafka: client has run out of available brokers to talk to (Is your cluster reachable?)))")
 	c.Assert(svc, IsNil)
 }
 
@@ -439,7 +439,7 @@ func (s *ServiceSuite) TestSetOffsetsInvalidBody(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusBadRequest)
 	body := ParseJSONBody(c, r).(map[string]interface{})
-	c.Assert(body["error"], Equals, "Failed to parse the request: cause=(invalid character 'g' looking for beginning of value)")
+	c.Assert(body["error"], Equals, "Failed to parse the request: err=(invalid character 'g' looking for beginning of value)")
 
 	svc.Stop()
 }
@@ -457,6 +457,28 @@ func (s *ServiceSuite) TestSetOffsetsInvalidPartition(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
 	c.Assert(ParseJSONBody(c, r), DeepEquals, EmptyResponse)
+
+	svc.Stop()
+}
+
+func (s *ServiceSuite) TestGetOffsetsLag(c *C) {
+	// Given
+	svc, _ := SpawnService(s.config)
+	r, err := s.unixClient.Post("http://_/topics/test.4/offsets?group=foo",
+		"application/json", strings.NewReader(`[{"partition": 0, "offset": -1},{"partition": 1, "offset": 1}]`))
+	c.Assert(err, IsNil)
+
+	// When
+	r, err = s.unixClient.Get("http://_/topics/test.4/offsets?group=foo")
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(r.StatusCode, Equals, http.StatusOK)
+	body := ParseJSONBody(c, r).([]interface{})
+	partition0View := body[0].(map[string]interface{})
+	c.Assert(partition0View["lag"], IsNil)
+	partition1View := body[1].(map[string]interface{})
+	c.Assert(partition1View["lag"], Equals, partition1View["end"].(float64)-partition1View["offset"].(float64))
 
 	svc.Stop()
 }

@@ -118,27 +118,27 @@ type Service struct {
 func SpawnService(config *Config) (*Service, error) {
 	producer, err := SpawnGracefulProducer(config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to spawn producer, cause=(%s)", err)
+		return nil, fmt.Errorf("failed to spawn producer, err=(%s)", err)
 	}
 	consumer, err := SpawnSmartConsumer(config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to spawn consumer, cause=(%s)", err)
+		return nil, fmt.Errorf("failed to spawn consumer, err=(%s)", err)
 	}
 	admin, err := SpawnAdmin(config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to spawn admin, cause=(%s)", err)
+		return nil, fmt.Errorf("failed to spawn admin, err=(%s)", err)
 	}
 	unixServer, err := NewHTTPAPIServer(NetworkUnix, config.UnixAddr, producer, consumer, admin)
 	if err != nil {
 		producer.Stop()
-		return nil, fmt.Errorf("failed to start Unix socket based HTTP API, cause=(%v)", err)
+		return nil, fmt.Errorf("failed to start Unix socket based HTTP API, err=(%s)", err)
 	}
 	var tcpServer *HTTPAPIServer
 	if config.TCPAddr != "" {
 		tcpServer, err = NewHTTPAPIServer(NetworkTCP, config.TCPAddr, producer, consumer, admin)
 		if err != nil {
 			producer.Stop()
-			return nil, fmt.Errorf("failed to start TCP socket based HTTP API, cause=(%v)", err)
+			return nil, fmt.Errorf("failed to start TCP socket based HTTP API, err=(%s)", err)
 		}
 	}
 	s := &Service{
@@ -173,11 +173,11 @@ func (s *Service) supervisor() {
 	case <-s.quitCh:
 	case err, ok := <-s.unixServer.ErrorCh():
 		if ok {
-			log.Errorf("Unix socket based HTTP API crashed, cause=(%v)", err)
+			log.Errorf("Unix socket based HTTP API crashed, err=(%s)", err)
 		}
 	case err, ok := <-tcpServerErrorCh:
 		if ok {
-			log.Errorf("TCP socket based HTTP API crashed, cause=(%v)", err)
+			log.Errorf("TCP socket based HTTP API crashed, err=(%s)", err)
 		}
 	}
 	// Initiate stop of all API servers.

@@ -127,7 +127,10 @@ type Config struct {
 			Errors bool
 		}
 
+		// Offsets specifies configuration for how and when to commit consumed offsets. This currently requires the
+		// manual use of an OffsetManager but will eventually be automated.
 		Offsets struct {
+			// How frequently to commit updated offsets. Defaults to 1s.
 			CommitInterval time.Duration
 		}
 	}

@@ -32,18 +32,22 @@
 			"Rev": "8096f47503459bcc74d1f4c487b7e6e42e5746b5"
 		},
 		{
+			"ImportPath": "github.com/klauspost/crc32",
+			"Rev": "a5d1ea1c7bb4ad05a27df06491071dd6d45d1a08"
+		},
+		{
 			"ImportPath": "github.com/mailgun/log",
 			"Rev": "5aaa76573581bbbc327dbf69c11527aef7f085c2"
 		},
 		{
 			"ImportPath": "github.com/mailgun/manners",
-			"Comment": "0.3.1-24-g8518c51",
-			"Rev": "8518c51825e4aec9d3de17203b2b409dd0c5e5c5"
+			"Comment": "0.4.0-7-g37136f7",
+			"Rev": "37136f736785d7c6aa3b9a27b4b2dd1028ca6d79"
 		},
 		{
 			"ImportPath": "github.com/mailgun/sarama",
-			"Comment": "v1.5.0-3-gf3c9d55",
-			"Rev": "f3c9d550d4066a413899ecb7484baaf8835f7f43"
+			"Comment": "v1.6.0-3-gdf851f4",
+			"Rev": "df851f43c9b1fdb3e1b15dff303dfbd7b9c6b1bd"
 		},
 		{
 			"ImportPath": "github.com/samuel/go-zookeeper/zk",

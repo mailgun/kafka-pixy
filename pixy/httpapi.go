@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/gorilla/mux"
@@ -44,13 +45,19 @@ type HTTPAPIServer struct {
 }
 
 // NewHTTPAPIServer creates an HTTP server instance that will accept API
-// requests specified network/address and forwards them to the associated
-// Kafka client.
+// requests at the specified `network`/`address` and execute them with the
+// specified `producer`, `consumer`, or `admin`, depending on the request type.
 func NewHTTPAPIServer(network, addr string, producer *GracefulProducer, consumer *SmartConsumer, admin *Admin) (*HTTPAPIServer, error) {
-	// Start listening on the specified unix domain socket address.
+	// Start listening on the specified network/address.
 	listener, err := net.Listen(network, addr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create listener, cause=(%v)", err)
+		return nil, fmt.Errorf("failed to create listener, err=(%s)", err)
+	}
+	// If the address is Unix Domain Socket then make it accessible for everyone.
+	if network == NetworkUnix {
+		if err := os.Chmod(addr, 0777); err != nil {
+			return nil, fmt.Errorf("failed to change socket permissions, err=(%s)", err)
+		}
 	}
 	// Create a graceful HTTP server instance.
 	router := mux.NewRouter()
@@ -87,7 +94,7 @@ func (as *HTTPAPIServer) Start() {
 		defer hid.LogScope()()
 		defer close(as.errorCh)
 		if err := as.httpServer.Serve(as.listener); err != nil {
-			as.errorCh <- fmt.Errorf("HTTP API listener failed, cause=(%v)", err)
+			as.errorCh <- fmt.Errorf("HTTP API listener failed, err=(%s)", err)
 		}
 	}()
 }
@@ -129,7 +136,7 @@ func (as *HTTPAPIServer) handleProduce(w http.ResponseWriter, r *http.Request) {
 	}
 	message, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		errorText := fmt.Sprintf("Failed to read a message: cause=(%v)", err)
+		errorText := fmt.Sprintf("Failed to read a message: err=(%s)", err)
 		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{errorText})
 		return
 	}
@@ -224,10 +231,13 @@ func (as *HTTPAPIServer) handleGetOffsets(w http.ResponseWriter, r *http.Request
 	partitionOffsetView := make([]partitionOffsetView, len(partitionOffsets))
 	for i, po := range partitionOffsets {
 		partitionOffsetView[i].Partition = po.Partition
-		partitionOffsetView[i].Range.Begin = po.Range.Begin
-		partitionOffsetView[i].Range.End = po.Range.End
+		partitionOffsetView[i].Begin = po.Begin
+		partitionOffsetView[i].End = po.End
 		partitionOffsetView[i].Offset = po.Offset
 		partitionOffsetView[i].Metadata = po.Metadata
+		if po.Offset >= 0 {
+			partitionOffsetView[i].Lag = po.End - po.Offset
+		}
 	}
 	respondWithJSON(w, http.StatusOK, partitionOffsetView)
 }
@@ -245,14 +255,14 @@ func (as *HTTPAPIServer) handleSetOffsets(w http.ResponseWriter, r *http.Request
 
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		errorText := fmt.Sprintf("Failed to read the request: cause=(%v)", err)
+		errorText := fmt.Sprintf("Failed to read the request: err=(%s)", err)
 		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{errorText})
 		return
 	}
 
 	var partitionOffsetViews []partitionOffsetView
 	if err := json.Unmarshal(body, &partitionOffsetViews); err != nil {
-		errorText := fmt.Sprintf("Failed to parse the request: cause=(%v)", err)
+		errorText := fmt.Sprintf("Failed to parse the request: err=(%s)", err)
 		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{errorText})
 		return
 	}
@@ -290,13 +300,12 @@ type consumeHTTPResponse struct {
 }
 
 type partitionOffsetView struct {
-	Partition int32 `json:"partition"`
-	Range     struct {
-		Begin int64 `json:"begin"`
-		End   int64 `json:"end"`
-	} `json:"range"`
-	Offset   int64  `json:"offset"`
-	Metadata string `json:"metadata"`
+	Partition int32  `json:"partition"`
+	Begin     int64  `json:"begin"`
+	End       int64  `json:"end"`
+	Offset    int64  `json:"offset"`
+	Lag       int64  `json:"lag,omitempty"`
+	Metadata  string `json:"metadata,omitempty"`
 }
 
 type errorHTTPResponse struct {

@@ -55,12 +55,10 @@ func (a *Admin) Stop() {
 
 type PartitionOffset struct {
 	Partition int32
-	Range     struct {
-		Begin int64
-		End   int64
-	}
-	Offset   int64
-	Metadata string
+	Begin     int64
+	End       int64
+	Offset    int64
+	Metadata  string
 }
 
 type indexedPartition struct {
@@ -124,8 +122,8 @@ func (a *Admin) GetGroupOffsets(group, topic string) ([]PartitionOffset, error) 
 					return
 				}
 				offsets[xp.index].Partition = xp.partition
-				offsets[xp.index].Range.Begin = begin
-				offsets[xp.index].Range.End = end
+				offsets[xp.index].Begin = begin
+				offsets[xp.index].End = end
 			}
 		})
 	}

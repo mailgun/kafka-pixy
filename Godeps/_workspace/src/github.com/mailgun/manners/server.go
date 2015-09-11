@@ -7,17 +7,16 @@ It can be used a drop-in replacement for the standard http package,
 or can wrap a pre-configured Server.
 
 eg.
-	myHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+	http.Handle("/hello", func(w http.ResponseWriter, r *http.Request) {
 	  w.Write([]byte("Hello\n"))
 	})
-
-	http.Handle("/hello", myHandler)
 
 	log.Fatal(manners.ListenAndServe(":8080", nil))
 
 or for a customized server:
 
-  s := manners.NewWithServer(&http.Server{
+	s := manners.NewWithServer(&http.Server{
 		Addr:           ":8080",
 		Handler:        myHandler,
 		ReadTimeout:    10 * time.Second,
@@ -25,7 +24,6 @@ or for a customized server:
 		MaxHeaderBytes: 1 << 20,
 	})
 	log.Fatal(s.ListenAndServe())
-
 
 The server will shut down cleanly when the Close() method is called:
 
@@ -110,7 +108,7 @@ func NewWithOptions(o Options) *GracefulServer {
 type GracefulServer struct {
 	*http.Server
 	shutdown     chan struct{}
-	wg           waitgroup
+	wg           waitGroup
 	listener     *GracefulListener
 	stateHandler StateHandler
 

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/davecgh/go-spew/spew"
+	"github.com/davecgh/go-spew/spew"
 )
 
 // When a partition consumer is created, then an initial offset is sent down
