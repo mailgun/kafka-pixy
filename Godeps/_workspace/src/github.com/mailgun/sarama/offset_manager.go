@@ -194,18 +194,21 @@ func (pom *partitionOffsetMgr) processCommits() {
 	cid := pom.baseCID.NewChild("processCommits")
 	defer cid.LogScope()()
 	defer close(pom.errorsCh)
-
-	initialOffsetFetched := false
-	commitResultCh := make(chan commitResult, 1)
-	var recentCommit offsetCommit
-	isDirty := false
-	isPending := false
-
-	nilOrCommitsCh := pom.commitsCh
-	var assignedBrokerCommitsCh chan offsetCommit
-	var nilOrBrokerCommitsCh chan offsetCommit
-	var nilOrReassignRetryTimerCh <-chan time.Time
-
+	var (
+		commitResultCh            = make(chan commitResult, 1)
+		initialOffsetFetched      = false
+		isDirty                   = false
+		isPending                 = false
+		closed                    = false
+		nilOrCommitsCh            = pom.commitsCh
+		commitTicker              = time.NewTicker(pom.om.config.Consumer.Offsets.CommitInterval)
+		recentCommit              offsetCommit
+		assignedBrokerCommitsCh   chan<- offsetCommit
+		nilOrBrokerCommitsCh      chan<- offsetCommit
+		nilOrReassignRetryTimerCh <-chan time.Time
+		commitTimestamp           time.Time
+	)
+	defer commitTicker.Stop()
 	triggerReassign := func(err error, reason string) {
 		Logger.Printf("<%s> %s: err=(%s)", cid, reason, err)
 		pom.reportError(err)
@@ -214,12 +217,6 @@ func (pom *partitionOffsetMgr) processCommits() {
 		pom.om.mapper.workerReassign() <- pom
 		nilOrReassignRetryTimerCh = time.After(pom.om.config.Consumer.Retry.Backoff)
 	}
-	closed := false
-
-	commitTicker := time.NewTicker(pom.om.config.Consumer.Offsets.CommitInterval)
-	defer commitTicker.Stop()
-
-	pendingTicks := 0
 	for {
 		select {
 		case bw := <-pom.assignmentCh:
@@ -243,7 +240,7 @@ func (pom *partitionOffsetMgr) processCommits() {
 				initialOffsetFetched = true
 			}
 			if isDirty {
-				nilOrBrokerCommitsCh = bom.commitsCh
+				nilOrBrokerCommitsCh = assignedBrokerCommitsCh
 			}
 		case oc, ok := <-nilOrCommitsCh:
 			if !ok {
@@ -262,7 +259,7 @@ func (pom *partitionOffsetMgr) processCommits() {
 			nilOrBrokerCommitsCh = nil
 			isDirty = false
 			if !isPending {
-				isPending, pendingTicks = true, 0
+				isPending, commitTimestamp = true, time.Now().UTC()
 			}
 		case cr := <-commitResultCh:
 			isPending = false
@@ -275,13 +272,10 @@ func (pom *partitionOffsetMgr) processCommits() {
 				return
 			}
 		case <-commitTicker.C:
-			if !isPending || pendingTicks < 2 {
-				pendingTicks++
-				continue
+			if isPending && time.Now().UTC().Sub(commitTimestamp) > pom.om.config.Consumer.Offsets.Timeout {
+				isDirty, isPending = true, false
+				triggerReassign(ErrOffsetMgrRequestTimeout, "offset commit failed")
 			}
-			isDirty, isPending = true, false
-			triggerReassign(ErrOffsetMgrRequestTimeout, "offset commit failed")
-
 		case <-nilOrReassignRetryTimerCh:
 			triggerReassign(ErrOffsetMgrNoCoordinator, "retry reassignment")
 		}

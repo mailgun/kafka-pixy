@@ -378,6 +378,7 @@ func TestOffsetManagerCommitNetworkError(t *testing.T) {
 
 	config := NewConfig()
 	config.Net.ReadTimeout = 50 * time.Millisecond
+	config.Consumer.Offsets.Timeout = 200 * time.Millisecond
 	config.Consumer.Return.Errors = true
 	client, err := NewClient([]string{broker1.Addr()}, config)
 	if err != nil {
@@ -407,7 +408,8 @@ func TestOffsetManagerCommitNetworkError(t *testing.T) {
 	<-pom2.Errors()
 	<-pom3.Errors()
 
-	// When: network recovers
+	// When
+	Logger.Printf("*** Network recovering...")
 	broker1.SetHandlerByMap(map[string]MockResponse{
 		"ConsumerMetadataRequest": newMockConsumerMetadataResponse(t).
 			SetCoordinator("group-1", broker1).

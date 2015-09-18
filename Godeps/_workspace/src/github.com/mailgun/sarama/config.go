@@ -132,6 +132,9 @@ type Config struct {
 		Offsets struct {
 			// How frequently to commit updated offsets. Defaults to 1s.
 			CommitInterval time.Duration
+			// How long to wait for an offset commit request to complete. If this timeout expires the respective coordinator will be
+			// refreshed in case it has changed and the offset commit request will be retried.
+			Timeout time.Duration
 		}
 	}
 
@@ -172,6 +175,7 @@ func NewConfig() *Config {
 	c.Consumer.MaxProcessingTime = 100 * time.Millisecond
 	c.Consumer.Return.Errors = false
 	c.Consumer.Offsets.CommitInterval = 250 * time.Millisecond
+	c.Consumer.Offsets.Timeout = 3 * time.Second
 
 	c.ChannelBufferSize = 256
 
@@ -273,6 +277,8 @@ func (c *Config) Validate() error {
 		return ConfigurationError("Consumer.Retry.Backoff must be >= 0")
 	case c.Consumer.Offsets.CommitInterval <= 0:
 		return ConfigurationError("Consumer.Offsets.CommitInterval must be > 0")
+	case c.Consumer.Offsets.Timeout <= 0:
+		return ConfigurationError("Consumer.Offsets.Timeout must be > 0")
 	}
 
 	// validate misc shared values
