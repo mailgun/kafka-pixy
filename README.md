@@ -105,8 +105,9 @@ as follows:
     "partition": <partition id>,
     "begin": <oldest offset>,
     "end": <newest offset>,
+    "count": <the number of messages in the topic, equals to `end` - `begin`>,
     "offset": <next offset to be consumed by this consumer group>,
-    "lag": <omitted if `offset` == `end`, otherwise equals to `end` - `offset`>,
+    "lag": <equals to `end` - `offset`>,
     "metadata": <arbitrary string committed with the offset, not used by Kafka-Pixy. It is omitted if empty>
   },
   ...

@@ -404,6 +404,7 @@ func (s *ServiceSuite) TestSetOffsets(c *C) {
 		c.Assert(partitionView["partition"].(float64), Equals, float64(i))
 		c.Assert(partitionView["offset"].(float64), Equals, float64(1100+i))
 		c.Assert(partitionView["metadata"].(string), Equals, fmt.Sprintf("A10%d", i))
+		c.Assert(partitionView["count"], Equals, partitionView["end"].(float64)-partitionView["begin"].(float64))
 	}
 
 	svc.Stop()
@@ -461,11 +462,16 @@ func (s *ServiceSuite) TestSetOffsetsInvalidPartition(c *C) {
 	svc.Stop()
 }
 
+// Reported partition lags are correct, including those corresponding to -1 and
+// -2 special case offset values.
 func (s *ServiceSuite) TestGetOffsetsLag(c *C) {
 	// Given
 	svc, _ := SpawnService(s.config)
 	r, err := s.unixClient.Post("http://_/topics/test.4/offsets?group=foo",
-		"application/json", strings.NewReader(`[{"partition": 0, "offset": -1},{"partition": 1, "offset": 1}]`))
+		"application/json", strings.NewReader(
+			`[{"partition": 0, "offset": -1},
+			  {"partition": 1, "offset": -2},
+			  {"partition": 2, "offset": 1}]`))
 	c.Assert(err, IsNil)
 
 	// When
@@ -476,9 +482,11 @@ func (s *ServiceSuite) TestGetOffsetsLag(c *C) {
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
 	body := ParseJSONBody(c, r).([]interface{})
 	partition0View := body[0].(map[string]interface{})
-	c.Assert(partition0View["lag"], IsNil)
+	c.Assert(partition0View["lag"], Equals, float64(0))
 	partition1View := body[1].(map[string]interface{})
-	c.Assert(partition1View["lag"], Equals, partition1View["end"].(float64)-partition1View["offset"].(float64))
+	c.Assert(partition1View["lag"], Equals, partition1View["end"].(float64)-partition1View["begin"].(float64))
+	partition2View := body[2].(map[string]interface{})
+	c.Assert(partition2View["lag"], Equals, partition2View["end"].(float64)-partition2View["offset"].(float64))
 
 	svc.Stop()
 }
