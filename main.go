@@ -59,26 +59,26 @@ func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	if err := initLogging(); err != nil {
-		fmt.Printf("Failed to initialize logger, cause=(%v)\n", err)
+		fmt.Printf("Failed to initialize logger: err=(%s)\n", err)
 		os.Exit(1)
 	}
 
 	if err := writePID(pidFile); err != nil {
-		log.Errorf("Failed to write PID file, cause=(%v)", err)
+		log.Errorf("Failed to write PID file: err=(%s)", err)
 		os.Exit(1)
 	}
 
 	// Clean up the unix domain socket file in case we failed to clean up on
 	// shutdown the last time. Otherwise the service won't be able to listen
 	// on this address and the service will terminated immediately.
-	if err := os.Remove(config.UnixAddr); err != nil && err.(*os.PathError).Err != os.ErrNotExist {
-		log.Errorf("Cannot remove %s", config.UnixAddr)
+	if err := os.Remove(config.UnixAddr); err != nil && !os.IsNotExist(err) {
+		log.Errorf("Cannot remove %s: err=(%s)", config.UnixAddr, err)
 	}
 
 	log.Infof("Starting with config: %+v", config)
 	svc, err := pixy.SpawnService(config)
 	if err != nil {
-		log.Errorf("Failed to start service, cause=(%v)", err)
+		log.Errorf("Failed to start service: err=(%s)", err)
 		os.Exit(1)
 	}
 
@@ -94,7 +94,7 @@ func main() {
 func initLogging() error {
 	var loggingCfg []log.Config
 	if err := json.Unmarshal([]byte(loggingJSONCfg), &loggingCfg); err != nil {
-		return fmt.Errorf("failed to parse logger config, cause=(%v)", err)
+		return fmt.Errorf("failed to parse logger config: err=(%s)", err)
 	}
 	if err := log.InitWithConfig(loggingCfg...); err != nil {
 		return err
