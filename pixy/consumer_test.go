@@ -578,7 +578,10 @@ func drainFirstFetched(sc *SmartConsumer) {
 }
 
 func waitFirstFetched(sc *SmartConsumer, count int) {
+	var partitions []int32
 	for i := 0; i < count; i++ {
-		<-sc.config.testing.firstMessageFetchedCh
+		ec := <-sc.config.testing.firstMessageFetchedCh
+		partitions = append(partitions, ec.partition)
 	}
+	log.Infof("*** first messages fetched: partitions=%v", partitions)
 }
