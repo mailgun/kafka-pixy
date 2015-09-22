@@ -186,9 +186,13 @@ func (s *Service) supervisor() {
 		s.tcpServer.AsyncStop()
 	}
 	// Wait until all API servers are stopped.
-	<-s.unixServer.ErrorCh()
+	for range s.unixServer.ErrorCh() {
+		// Drain the errors channel until it is closed.
+	}
 	if s.tcpServer != nil {
-		<-s.tcpServer.ErrorCh()
+		for range s.tcpServer.ErrorCh() {
+			// Drain the errors channel until it is closed.
+		}
 	}
 	// There are no more requests in flight at this point so it is safe to stop
 	// all Kafka clients.
