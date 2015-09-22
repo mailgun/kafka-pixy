@@ -139,12 +139,12 @@ func (s *SmartConsumerSuite) TestSequentialConsume(c *C) {
 	sc2.Stop()
 }
 
-// If a topic has several partitions then they all are being consumed in random
-// order.
-func (s *SmartConsumerSuite) TestMultiPartitionTopic(c *C) {
+// If we consume from a topic that has several partitions then partitions are
+// selected for consumption in random order.
+func (s *SmartConsumerSuite) TestMultiplePartitions(c *C) {
 	// Given
 	ResetOffsets(c, "group-1", "test.4")
-	GenMessages(c, "multi", "test.4", map[string]int{"A": 100, "B": 100})
+	GenMessages(c, "multiple.partitions", "test.4", map[string]int{"A": 100, "B": 100})
 
 	log.Infof("*** GIVEN 1")
 	sc, err := SpawnSmartConsumer(NewTestConfig("consumer-1"))
@@ -163,6 +163,59 @@ func (s *SmartConsumerSuite) TestMultiPartitionTopic(c *C) {
 	if len(consumed["A"]) < 25 || len(consumed["A"]) > 75 {
 		c.Errorf("Consumption disbalance: consumed[A]=%d, consumed[B]=%d", len(consumed["A"]), len(consumed["B"]))
 	}
+
+	sc.Stop()
+}
+
+// Different topics can be consumed at the same time.
+func (s *SmartConsumerSuite) TestMultipleTopics(c *C) {
+	// Given
+	ResetOffsets(c, "group-1", "test.1")
+	ResetOffsets(c, "group-1", "test.4")
+	produced1 := GenMessages(c, "multiple.topics", "test.1", map[string]int{"A": 1})
+	produced4 := GenMessages(c, "multiple.topics", "test.4", map[string]int{"B": 1, "C": 1})
+
+	log.Infof("*** GIVEN 1")
+	sc, err := SpawnSmartConsumer(NewTestConfig("consumer-1"))
+	c.Assert(err, IsNil)
+
+	// When
+	log.Infof("*** WHEN")
+	consumed := s.consume(c, sc, "group-1", "test.4", 1)
+	consumed = s.consume(c, sc, "group-1", "test.1", 1, consumed)
+	consumed = s.consume(c, sc, "group-1", "test.4", 1, consumed)
+
+	// Then
+	log.Infof("*** THEN")
+	s.assertMsg(c, consumed["A"][0], produced1["A"][0])
+	s.assertMsg(c, consumed["B"][0], produced4["B"][0])
+	s.assertMsg(c, consumed["C"][0], produced4["C"][0])
+
+	sc.Stop()
+}
+
+// If the same topic is consumed by different consumer groups, then consumption
+// by one group does not affect the consumption by another.
+func (s *SmartConsumerSuite) TestMultipleGroups(c *C) {
+	// Given
+	ResetOffsets(c, "group-1", "test.4")
+	ResetOffsets(c, "group-2", "test.4")
+	GenMessages(c, "multi", "test.4", map[string]int{"A": 10, "B": 10, "C": 10})
+
+	log.Infof("*** GIVEN 1")
+	sc, err := SpawnSmartConsumer(NewTestConfig("consumer-1"))
+	c.Assert(err, IsNil)
+
+	// When
+	log.Infof("*** WHEN")
+	consumed1 := s.consume(c, sc, "group-1", "test.4", 10)
+	consumed2 := s.consume(c, sc, "group-2", "test.4", 20)
+	consumed1 = s.consume(c, sc, "group-1", "test.4", 20, consumed1)
+	consumed2 = s.consume(c, sc, "group-2", "test.4", 10, consumed2)
+
+	// Then: both groups consumed the same events
+	log.Infof("*** THEN")
+	c.Assert(consumed1, DeepEquals, consumed2)
 
 	sc.Stop()
 }
