@@ -46,8 +46,8 @@
 		},
 		{
 			"ImportPath": "github.com/mailgun/sarama",
-			"Comment": "v1.6.0-4-gadea84c",
-			"Rev": "adea84c9b3583adca62d58a5ff0d2abd6068d352"
+			"Comment": "v1.6.0-6-gc3f5ce7",
+			"Rev": "c3f5ce7588e3b6743a3d7c56693f79c09a4eb110"
 		},
 		{
 			"ImportPath": "github.com/samuel/go-zookeeper/zk",

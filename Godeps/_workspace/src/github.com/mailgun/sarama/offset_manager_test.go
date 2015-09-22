@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
+	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/davecgh/go-spew/spew"
 )
 
 // When a partition consumer is created, then an initial offset is sent down
@@ -43,7 +43,7 @@ func TestOffsetManagerInitialOffset(t *testing.T) {
 
 	// Then
 	fo := <-pom.InitialOffset()
-	if !reflect.DeepEqual(fo, FetchedOffset{2000, "bar"}) {
+	if !reflect.DeepEqual(fo, DecoratedOffset{2000, "bar"}) {
 		t.Errorf("Unexpected initial offset: %#v", fo)
 	}
 
@@ -168,7 +168,7 @@ func TestOffsetManagerCommitError(t *testing.T) {
 	}
 
 	// When
-	pom.CommitOffset(1000, "foo")
+	pom.SubmitOffset(1000, "foo")
 	var wg sync.WaitGroup
 	spawn(&wg, pom.Close)
 
@@ -187,7 +187,7 @@ func TestOffsetManagerCommitError(t *testing.T) {
 
 	wg.Wait()
 	committedOffset := lastCommittedOffset(broker1, "group-1", "topic-1", 7)
-	if committedOffset != (FetchedOffset{1000, "foo"}) {
+	if committedOffset != (DecoratedOffset{1000, "foo"}) {
 		t.Errorf("Unexpected commit request: %v", spew.Sdump(committedOffset))
 	}
 	om.Close()
@@ -223,7 +223,7 @@ func TestOffsetManagerCommitBeforeClose(t *testing.T) {
 	}
 
 	// When: a partition offset manager is closed while there is a pending commit.
-	pom.CommitOffset(1001, "foo")
+	pom.SubmitOffset(1001, "foo")
 	go pom.Close()
 
 	// Then: the partition offset manager terminates only after it has
@@ -289,7 +289,7 @@ func TestOffsetManagerCommitBeforeClose(t *testing.T) {
 	}
 
 	committedOffset := lastCommittedOffset(broker1, "group-1", "topic-1", 7)
-	if committedOffset != (FetchedOffset{1001, "foo"}) {
+	if committedOffset != (DecoratedOffset{1001, "foo"}) {
 		t.Errorf("Unexpected commit request: %v", spew.Sdump(committedOffset))
 	}
 	om.Close()
@@ -335,12 +335,12 @@ func TestOffsetManagerCommitDifferentGroups(t *testing.T) {
 	}
 
 	// When
-	pom1.CommitOffset(1009, "foo1")
-	pom1.CommitOffset(1010, "foo2")
-	pom2.CommitOffset(2010, "bar1")
-	pom2.CommitOffset(2011, "bar2")
-	pom1.CommitOffset(1017, "foo3")
-	pom2.CommitOffset(2019, "bar3")
+	pom1.SubmitOffset(1009, "foo1")
+	pom1.SubmitOffset(1010, "foo2")
+	pom2.SubmitOffset(2010, "bar1")
+	pom2.SubmitOffset(2011, "bar2")
+	pom1.SubmitOffset(1017, "foo3")
+	pom2.SubmitOffset(2019, "bar3")
 	var wg sync.WaitGroup
 	spawn(&wg, pom1.Close)
 	spawn(&wg, pom2.Close)
@@ -349,11 +349,11 @@ func TestOffsetManagerCommitDifferentGroups(t *testing.T) {
 	wg.Wait()
 
 	committedOffset1 := lastCommittedOffset(broker1, "group-1", "topic-1", 7)
-	if committedOffset1 != (FetchedOffset{1017, "foo3"}) {
+	if committedOffset1 != (DecoratedOffset{1017, "foo3"}) {
 		t.Errorf("Unexpected commit request: %v", spew.Sdump(committedOffset1))
 	}
 	committedOffset2 := lastCommittedOffset(broker1, "group-2", "topic-1", 7)
-	if committedOffset2 != (FetchedOffset{2019, "bar3"}) {
+	if committedOffset2 != (DecoratedOffset{2019, "bar3"}) {
 		t.Errorf("Unexpected commit request: %v", spew.Sdump(committedOffset2))
 	}
 	om.Close()
@@ -400,9 +400,9 @@ func TestOffsetManagerCommitNetworkError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pom1.CommitOffset(1001, "bar1")
-	pom2.CommitOffset(2001, "bar2")
-	pom3.CommitOffset(3001, "bar3")
+	pom1.SubmitOffset(1001, "bar1")
+	pom2.SubmitOffset(2001, "bar2")
+	pom3.SubmitOffset(3001, "bar3")
 
 	<-pom1.Errors()
 	<-pom2.Errors()
@@ -425,24 +425,74 @@ func TestOffsetManagerCommitNetworkError(t *testing.T) {
 
 	// Then: offset managers are able to commit offsets and terminate.
 	committedOffset1 := lastCommittedOffset(broker1, "group-1", "topic-1", 7)
-	if committedOffset1 != (FetchedOffset{1001, "bar1"}) {
+	if committedOffset1 != (DecoratedOffset{1001, "bar1"}) {
 		t.Errorf("Unexpected commit request: %v", spew.Sdump(committedOffset1))
 	}
 	committedOffset2 := lastCommittedOffset(broker1, "group-1", "topic-1", 8)
-	if committedOffset2 != (FetchedOffset{2001, "bar2"}) {
+	if committedOffset2 != (DecoratedOffset{2001, "bar2"}) {
 		t.Errorf("Unexpected commit request: %v", spew.Sdump(committedOffset2))
 	}
 	committedOffset3 := lastCommittedOffset(broker1, "group-2", "topic-1", 7)
-	if committedOffset3 != (FetchedOffset{3001, "bar3"}) {
+	if committedOffset3 != (DecoratedOffset{3001, "bar3"}) {
 		t.Errorf("Unexpected commit request: %v", spew.Sdump(committedOffset3))
 	}
+	om.Close()
+}
+
+func TestOffsetManagerCommittedChannel(t *testing.T) {
+	// Given
+	broker1 := newMockBroker(t, 101)
+	defer broker1.Close()
+
+	broker1.SetHandlerByMap(map[string]MockResponse{
+		"MetadataRequest": newMockMetadataResponse(t).
+			SetBroker(broker1.Addr(), broker1.BrokerID()),
+		"ConsumerMetadataRequest": newMockConsumerMetadataResponse(t).
+			SetCoordinator("group-1", broker1),
+		"OffsetFetchRequest": newMockOffsetFetchResponse(t).
+			SetOffset("group-1", "topic-1", 7, 1000, "foo1", ErrNoError),
+		"OffsetCommitRequest": newMockOffsetCommitResponse(t).
+			SetError("group-1", "topic-1", 7, ErrNoError),
+	})
+
+	config := NewConfig()
+	client, err := NewClient([]string{broker1.Addr()}, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	om, err := NewOffsetManagerFromClient(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pom, err := om.ManagePartition("group-1", "topic-1", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// When
+	pom.SubmitOffset(1001, "bar1")
+	pom.SubmitOffset(1002, "bar2")
+	pom.SubmitOffset(1003, "bar3")
+	pom.SubmitOffset(1004, "bar4")
+	pom.SubmitOffset(1005, "bar5")
+	pom.Close()
+
+	// Then
+	var committedOffsets []DecoratedOffset
+	for committedOffset := range pom.CommittedOffsets() {
+		committedOffsets = append(committedOffsets, committedOffset)
+	}
+	if !reflect.DeepEqual(committedOffsets, []DecoratedOffset{{1005, "bar5"}}) {
+		t.Errorf("Committed more then expected: %v", committedOffsets)
+	}
+
 	om.Close()
 }
 
 // lastCommittedOffset traverses the mock broker history backwards searching
 // for the OffsetCommitRequest coming from the specified consumer group that
 // commits an offset of the specified topic/partition.
-func lastCommittedOffset(mb *mockBroker, group, topic string, partition int32) FetchedOffset {
+func lastCommittedOffset(mb *mockBroker, group, topic string, partition int32) DecoratedOffset {
 	for i := len(mb.History()) - 1; i >= 0; i-- {
 		res, ok := mb.History()[i].Request.(*OffsetCommitRequest)
 		if !ok || res.ConsumerGroup != group {
@@ -456,7 +506,7 @@ func lastCommittedOffset(mb *mockBroker, group, topic string, partition int32) F
 		if block == nil {
 			continue
 		}
-		return FetchedOffset{block.offset, block.metadata}
+		return DecoratedOffset{block.offset, block.metadata}
 	}
-	return FetchedOffset{}
+	return DecoratedOffset{}
 }
