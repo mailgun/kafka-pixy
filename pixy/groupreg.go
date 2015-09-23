@@ -105,13 +105,19 @@ func (cgr *consumerGroupRegistry) watcher() {
 	}
 watchLoop:
 	for {
-		log.Infof("<%s> retrieving group membership state...", cid)
 		var members []*kazoo.ConsumergroupInstance
 		var membershipChangedCh <-chan zk.Event
 		if cgr.retry(
 			func() error {
 				var err error
 				members, membershipChangedCh, err = cgr.groupZNode.WatchInstances()
+				// FIXME: Sometimes for unknown reason an empty member list is
+				// FIXME: retrieved along with `nil` error. It is probably a bug
+				// FIXME: in `github.com/wvanbergen/kazoo-go`. A workaround is
+				// FIXME: applied here, but the issue should be properly fixed.
+				if len(members) == 0 {
+					return fmt.Errorf("empty members retrieved")
+				}
 				return err
 			},
 			nil, fmt.Sprintf("<%s> failed to watch members", cid),
