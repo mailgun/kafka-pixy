@@ -17,6 +17,7 @@ func (s *AdminSuite) SetUpSuite(c *C) {
 	s.config = NewConfig()
 	s.config.ClientID = "producer"
 	s.config.Kafka.SeedPeers = testKafkaPeers
+	s.config.ZooKeeper.SeedPeers = testZookeeperPeers
 }
 
 // The end offset of partition ranges is properly reflects the number of

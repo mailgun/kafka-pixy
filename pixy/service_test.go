@@ -530,3 +530,172 @@ func (s *ServiceSuite) TestGetOffsetsLag(c *C) {
 	partition2View := body[2].(map[string]interface{})
 	c.Assert(partition2View["lag"], Equals, partition2View["end"].(float64)-partition2View["offset"].(float64))
 }
+
+// If a topic is not consumed by any member of a group at the moment then
+// empty consumer map is returned.
+func (s *ServiceSuite) TestGetTopicConsumersNone(c *C) {
+	// Given
+	svc, _ := SpawnService(s.config)
+	defer svc.Stop()
+
+	// When
+	r, err := s.unixClient.Get("http://_/topics/test.4/consumers?group=foo")
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(r.StatusCode, Equals, http.StatusOK)
+	consumers := ParseJSONBody(c, r).(map[string]interface{})
+	c.Assert(len(consumers), Equals, 0)
+}
+
+func (s *ServiceSuite) TestGetTopicConsumersInvalid(c *C) {
+	// Given
+	svc, _ := SpawnService(s.config)
+	defer svc.Stop()
+
+	// When
+	r, err := s.unixClient.Get("http://_/topics/test.5/consumers?group=foo")
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(r.StatusCode, Equals, http.StatusBadRequest)
+	body := ParseJSONBody(c, r).(map[string]interface{})
+	c.Assert(body["error"], Equals, "either group or topic is incorrect")
+}
+
+func (s *ServiceSuite) TestGetTopicConsumersOne(c *C) {
+	// Given
+	ResetOffsets(c, "foo", "test.4")
+	GenMessages(c, "get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1, "D": 1})
+	svc, _ := SpawnService(NewTestConfig("C1"))
+	defer svc.Stop()
+	for i := 0; i < 4; i++ {
+		s.unixClient.Get("http://_/topics/test.4/messages?group=foo")
+	}
+
+	// When
+	r, err := s.unixClient.Get("http://_/topics/test.4/consumers?group=foo")
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(r.StatusCode, Equals, http.StatusOK)
+	consumers := ParseJSONBody(c, r).(map[string]interface{})
+	assertConsumedPartitions(c, consumers, map[string]map[string][]int32{
+		"foo": {
+			"C1": {0, 1, 2, 3}},
+	})
+}
+
+// If `group` parameter is not passed to `GET /topics/{}/consumers` then
+// a topic consumer report includes members of all consumer groups consuming
+// the topic.
+func (s *ServiceSuite) TestGetAllTopicConsumers(c *C) {
+	// Given
+	ResetOffsets(c, "foo", "test.4")
+	ResetOffsets(c, "bar", "test.1")
+	ResetOffsets(c, "bazz", "test.4")
+	GenMessages(c, "get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1})
+	GenMessages(c, "get.consumers", "test.1", map[string]int{"D": 1})
+
+	svc1 := spawnTestService(c, 55501)
+	defer svc1.Stop()
+	svc2 := spawnTestService(c, 55502)
+	defer svc2.Stop()
+	svc3 := spawnTestService(c, 55503)
+	defer svc3.Stop()
+
+	_, err := s.tcpClient.Get("http://127.0.0.1:55501/topics/test.4/messages?group=foo")
+	c.Assert(err, IsNil)
+	_, err = s.tcpClient.Get("http://127.0.0.1:55502/topics/test.4/messages?group=foo")
+	c.Assert(err, IsNil)
+	_, err = s.tcpClient.Get("http://127.0.0.1:55503/topics/test.4/messages?group=foo")
+	c.Assert(err, IsNil)
+
+	_, err = s.tcpClient.Get("http://127.0.0.1:55501/topics/test.1/messages?group=bar")
+	c.Assert(err, IsNil)
+
+	_, err = s.tcpClient.Get("http://127.0.0.1:55502/topics/test.1/messages?group=bar")
+	c.Assert(err, IsNil)
+	for i := 0; i < 3; i++ {
+		_, err = s.tcpClient.Get("http://127.0.0.1:55502/topics/test.4/messages?group=bazz")
+		c.Assert(err, IsNil)
+	}
+
+	// When
+	r, err := s.tcpClient.Get("http://127.0.0.1:55501/topics/test.4/consumers")
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(r.StatusCode, Equals, http.StatusOK)
+
+	consumers := ParseJSONBody(c, r).(map[string]interface{})
+	assertConsumedPartitions(c, consumers, map[string]map[string][]int32{
+		"foo": {
+			"C55501": {0, 1},
+			"C55502": {2},
+			"C55503": {3}},
+		"bazz": {
+			"C55502": {0, 1, 2, 3}},
+	})
+}
+
+// If consumers are requested for a particular group then only members of that
+// group are returned.
+func (s *ServiceSuite) TestGetTopicConsumers(c *C) {
+	// Given
+	ResetOffsets(c, "foo", "test.4")
+	ResetOffsets(c, "bar", "test.4")
+	GenMessages(c, "get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1})
+
+	svc1 := spawnTestService(c, 55501)
+	defer svc1.Stop()
+	svc2 := spawnTestService(c, 55502)
+	defer svc2.Stop()
+
+	_, err := s.tcpClient.Get("http://127.0.0.1:55501/topics/test.4/messages?group=foo")
+	c.Assert(err, IsNil)
+	_, err = s.tcpClient.Get("http://127.0.0.1:55502/topics/test.4/messages?group=foo")
+	c.Assert(err, IsNil)
+
+	_, err = s.tcpClient.Get("http://127.0.0.1:55501/topics/test.1/messages?group=bar")
+	c.Assert(err, IsNil)
+
+	// When
+	r, err := s.tcpClient.Get("http://127.0.0.1:55502/topics/test.4/consumers?group=foo")
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(r.StatusCode, Equals, http.StatusOK)
+	consumers := ParseJSONBody(c, r).(map[string]interface{})
+	assertConsumedPartitions(c, consumers, map[string]map[string][]int32{
+		"foo": {
+			"C55501": {0, 1},
+			"C55502": {2, 3}},
+	})
+}
+
+func spawnTestService(c *C, port int) *Service {
+	config := NewTestConfig(fmt.Sprintf("C%d", port))
+	config.UnixAddr = fmt.Sprintf("%s.%d", config.UnixAddr, port)
+	os.Remove(config.UnixAddr)
+	config.TCPAddr = fmt.Sprintf("127.0.0.1:%d", port)
+	svc, err := SpawnService(config)
+	c.Assert(err, IsNil)
+	return svc
+}
+
+func assertConsumedPartitions(c *C, consumers map[string]interface{}, expected map[string]map[string][]int32) {
+	c.Assert(len(consumers), Equals, len(expected))
+	for group, expectedClients := range expected {
+		groupConsumers := consumers[group].(map[string]interface{})
+		c.Assert(len(groupConsumers), Equals, len(expectedClients))
+		for clientID, expectedPartitions := range expectedClients {
+			clientPartitions := groupConsumers[clientID].([]interface{})
+			partitions := make([]int32, len(clientPartitions))
+			for i, p := range clientPartitions {
+				partitions[i] = int32(p.(float64))
+			}
+			c.Assert(partitions, DeepEquals, expectedPartitions)
+		}
+	}
+}
