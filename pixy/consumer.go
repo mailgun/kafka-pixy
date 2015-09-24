@@ -27,13 +27,12 @@ type (
 // unsubscribes from the topic, likewise if a consumer group has not seen any
 // requests for that period then the consumer deregisters from the group.
 type SmartConsumer struct {
-	baseCID      *sarama.ContextID
-	config       *Config
-	dispatcher   *dispatcher
-	kafkaClient  sarama.Client
-	dumbConsumer sarama.Consumer
-	offsetMgr    sarama.OffsetManager
-	kazooConn    *kazoo.Kazoo
+	baseCID     *sarama.ContextID
+	config      *Config
+	dispatcher  *dispatcher
+	kafkaClient sarama.Client
+	offsetMgr   sarama.OffsetManager
+	kazooConn   *kazoo.Kazoo
 }
 
 // SpawnSmartConsumer creates a SmartConsumer instance with the specified
@@ -42,10 +41,6 @@ func SpawnSmartConsumer(config *Config) (*SmartConsumer, error) {
 	kafkaClient, err := sarama.NewClient(config.Kafka.SeedPeers, config.saramaConfig())
 	if err != nil {
 		return nil, ErrConsumerSetup(fmt.Errorf("failed to create sarama.Client: err=(%v)", err))
-	}
-	dumbConsumer, err := sarama.NewConsumer(config.Kafka.SeedPeers, config.saramaConfig())
-	if err != nil {
-		return nil, ErrConsumerSetup(fmt.Errorf("failed to create sarama.Consumer: err=(%v)", err))
 	}
 	offsetMgr, err := sarama.NewOffsetManagerFromClient(kafkaClient)
 	if err != nil {
@@ -56,12 +51,11 @@ func SpawnSmartConsumer(config *Config) (*SmartConsumer, error) {
 		return nil, ErrConsumerSetup(fmt.Errorf("failed to create kazoo.Kazoo: err=(%v)", err))
 	}
 	sc := &SmartConsumer{
-		baseCID:      sarama.RootCID.NewChild("smartConsumer"),
-		config:       config,
-		kafkaClient:  kafkaClient,
-		dumbConsumer: dumbConsumer,
-		offsetMgr:    offsetMgr,
-		kazooConn:    kazooConn,
+		baseCID:     sarama.RootCID.NewChild("smartConsumer"),
+		config:      config,
+		kafkaClient: kafkaClient,
+		offsetMgr:   offsetMgr,
+		kazooConn:   kazooConn,
 	}
 	sc.dispatcher = newDispatcher(sc.baseCID, sc, sc.config)
 	sc.dispatcher.start()
@@ -144,7 +138,6 @@ func (sc *SmartConsumer) newConsumerGroup(group string) *groupConsumer {
 		group:                 group,
 		sc:                    sc,
 		kafkaClient:           sc.kafkaClient,
-		dumbConsumer:          sc.dumbConsumer,
 		offsetMgr:             sc.offsetMgr,
 		kazooConn:             sc.kazooConn,
 		exclusiveConsumers:    make(map[string]map[int32]*exclusiveConsumer),
@@ -175,14 +168,22 @@ func (gc *groupConsumer) key() string {
 func (gc *groupConsumer) start(stoppedCh chan<- dispatchTier) {
 	spawn(&gc.wg, func() {
 		defer func() { stoppedCh <- gc }()
+		var err error
+		gc.dumbConsumer, err = sarama.NewConsumerFromClient(gc.kafkaClient)
+		if err != nil {
+			// Must never happen.
+			panic(ErrConsumerSetup(fmt.Errorf("failed to create sarama.Consumer: err=(%v)", err)))
+		}
 		gc.registry = spawnConsumerGroupRegister(gc.group, gc.config.ClientID, gc.config, gc.kazooConn)
 		var manageWg sync.WaitGroup
 		spawn(&manageWg, gc.managePartitions)
 		gc.dispatcher.start()
+		// Wait for a stop signal and shutdown gracefully when one is received.
 		<-gc.stoppingCh
 		gc.dispatcher.stop()
 		gc.registry.stop()
 		manageWg.Wait()
+		gc.dumbConsumer.Close()
 	})
 }
 
@@ -519,7 +520,7 @@ func (ec *exclusiveConsumer) run() {
 	defer pom.Close()
 
 	// Wait for the initial offset to be retrieved.
-	var initialOffset sarama.FetchedOffset
+	var initialOffset sarama.DecoratedOffset
 	select {
 	case initialOffset = <-pom.InitialOffset():
 	case <-ec.stoppingCh:
@@ -535,6 +536,7 @@ func (ec *exclusiveConsumer) run() {
 
 	log.Infof("<%s> initialized: offset=%d", ec.contextID, initialOffset.Offset)
 	firstMessageFetched := false
+	var lastSubmittedOffset, lastCommittedOffset int64
 	for {
 		select {
 		case consumerMessage := <-pc.Messages():
@@ -545,13 +547,32 @@ func (ec *exclusiveConsumer) run() {
 			}
 			select {
 			case ec.tc.messages() <- consumerMessage:
-				pom.CommitOffset(consumerMessage.Offset+1, "")
+				lastSubmittedOffset = consumerMessage.Offset + 1
+				pom.SubmitOffset(lastSubmittedOffset, "")
 			case <-ec.stoppingCh:
-				return
+				goto done
 			}
+		case committedOffset := <-pom.CommittedOffsets():
+			lastCommittedOffset = committedOffset.Offset
 		case <-ec.stoppingCh:
+			goto done
+		}
+	}
+done:
+	if lastCommittedOffset == lastSubmittedOffset {
+		return
+	}
+	// It is necessary to wait for the offset of the last consumed message to
+	// be committed to Kafka before releasing ownership over the partition,
+	// otherwise the message can be consumed by the new partition owner again.
+	log.Infof("<%s> waiting for the last offset to be committed: submitted=%d, committed=%d",
+		ec.contextID, lastSubmittedOffset, lastCommittedOffset)
+	for committedOffset := range pom.CommittedOffsets() {
+		if committedOffset.Offset == lastSubmittedOffset {
 			return
 		}
+		log.Infof("<%s> waiting for the last offset to be committed: submitted=%d, committed=%d",
+			ec.contextID, lastSubmittedOffset, committedOffset.Offset)
 	}
 }
 

@@ -60,7 +60,7 @@ func NewOffsetManagerFromClient(client Client) (OffsetManager, error) {
 func (om *offsetManager) Close() {
 	om.childrenLock.Lock()
 	for _, pom := range om.children {
-		close(pom.commitsCh)
+		close(pom.submittedOffsetsCh)
 		pom.wg.Wait()
 		pom.om.mapper.workerClosed() <- pom
 	}
@@ -101,12 +101,19 @@ func (om *offsetManager) resolveBroker(pw partitionWorker) (*Broker, error) {
 type PartitionOffsetManager interface {
 	// InitialOffset returns a channel that an initial offset will be sent down
 	// to, when retrieved.
-	InitialOffset() <-chan FetchedOffset
+	InitialOffset() <-chan DecoratedOffset
 
-	// CommitOffset triggers saving of the specified commit in Kafka. Actual
+	// SubmitOffset triggers saving of the specified offset in Kafka. Actual
 	// commits are performed periodically in a background goroutine. The commit
-	// interval is configured by `Config.Consumer.Offsets.CommitInterval`.
-	CommitOffset(offset int64, metadata string)
+	// interval is configured by `Config.Consumer.Offsets.CommitInterval`. Note
+	// that not every submitted offset gets committed. But it is guaranteed
+	// that the most recent offset is committed before `Close` returns.
+	SubmitOffset(offset int64, metadata string)
+
+	// CommittedOffsets returns a channel offsets committed to Kafka are sent
+	// down to. The user must read from this channel otherwise a `SubmitOffset`
+	// will eventually block.
+	CommittedOffsets() <-chan DecoratedOffset
 
 	// Errors returns a read channel of errors that occur during offset
 	// management, if enabled. By default errors are not returned. If you want
@@ -120,7 +127,7 @@ type PartitionOffsetManager interface {
 	Close()
 }
 
-type FetchedOffset struct {
+type DecoratedOffset struct {
 	Offset   int64
 	Metadata string
 }
@@ -133,40 +140,46 @@ type OffsetCommitError struct {
 }
 
 type partitionOffsetMgr struct {
-	baseCID         *ContextID
-	om              *offsetManager
-	gtp             groupTopicPartition
-	initialOffsetCh chan FetchedOffset
-	commitsCh       chan offsetCommit
-	assignmentCh    chan brokerExecutor
-	errorsCh        chan *OffsetCommitError
-	wg              sync.WaitGroup
+	baseCID            *ContextID
+	om                 *offsetManager
+	gtp                groupTopicPartition
+	initialOffsetCh    chan DecoratedOffset
+	submittedOffsetsCh chan submittedOffset
+	assignmentCh       chan brokerExecutor
+	committedOffsetsCh chan DecoratedOffset
+	errorsCh           chan *OffsetCommitError
+	wg                 sync.WaitGroup
 }
 
 func (om *offsetManager) spawnPartitionOffsetManager(gtp groupTopicPartition) *partitionOffsetMgr {
 	pom := &partitionOffsetMgr{
-		baseCID:         om.baseCID.NewChild(fmt.Sprintf("%s:%s:%d", gtp.group, gtp.topic, gtp.partition)),
-		om:              om,
-		gtp:             gtp,
-		initialOffsetCh: make(chan FetchedOffset, 1),
-		commitsCh:       make(chan offsetCommit),
-		assignmentCh:    make(chan brokerExecutor, 1),
-		errorsCh:        make(chan *OffsetCommitError, om.config.ChannelBufferSize),
+		baseCID:            om.baseCID.NewChild(fmt.Sprintf("%s:%s:%d", gtp.group, gtp.topic, gtp.partition)),
+		om:                 om,
+		gtp:                gtp,
+		initialOffsetCh:    make(chan DecoratedOffset, 1),
+		submittedOffsetsCh: make(chan submittedOffset),
+		assignmentCh:       make(chan brokerExecutor, 1),
+		committedOffsetsCh: make(chan DecoratedOffset, om.config.ChannelBufferSize),
+		errorsCh:           make(chan *OffsetCommitError, om.config.ChannelBufferSize),
 	}
 	spawn(&pom.wg, pom.processCommits)
 	return pom
 }
 
-func (pom *partitionOffsetMgr) InitialOffset() <-chan FetchedOffset {
+func (pom *partitionOffsetMgr) InitialOffset() <-chan DecoratedOffset {
 	return pom.initialOffsetCh
 }
 
-func (pom *partitionOffsetMgr) CommitOffset(offset int64, metadata string) {
-	pom.commitsCh <- offsetCommit{
+func (pom *partitionOffsetMgr) SubmitOffset(offset int64, metadata string) {
+	pom.submittedOffsetsCh <- submittedOffset{
 		gtp:      pom.gtp,
 		offset:   offset,
 		metadata: metadata,
 	}
+}
+
+func (pom *partitionOffsetMgr) CommittedOffsets() <-chan DecoratedOffset {
+	return pom.committedOffsetsCh
 }
 
 func (pom *partitionOffsetMgr) Errors() <-chan *OffsetCommitError {
@@ -175,7 +188,7 @@ func (pom *partitionOffsetMgr) Errors() <-chan *OffsetCommitError {
 
 func (pom *partitionOffsetMgr) Close() {
 	pom.om.childrenLock.Lock()
-	close(pom.commitsCh)
+	close(pom.submittedOffsetsCh)
 	delete(pom.om.children, pom.gtp)
 	pom.om.childrenLock.Unlock()
 	pom.wg.Wait()
@@ -193,19 +206,23 @@ func (pom *partitionOffsetMgr) assignment() chan<- brokerExecutor {
 func (pom *partitionOffsetMgr) processCommits() {
 	cid := pom.baseCID.NewChild("processCommits")
 	defer cid.LogScope()()
+	defer close(pom.committedOffsetsCh)
 	defer close(pom.errorsCh)
-
-	initialOffsetFetched := false
-	commitResultCh := make(chan commitResult, 1)
-	var recentCommit offsetCommit
-	isDirty := false
-	isPending := false
-
-	nilOrCommitsCh := pom.commitsCh
-	var assignedBrokerCommitsCh chan offsetCommit
-	var nilOrBrokerCommitsCh chan offsetCommit
-	var nilOrReassignRetryTimerCh <-chan time.Time
-
+	var (
+		commitResultCh            = make(chan commitResult, 1)
+		initialOffsetFetched      = false
+		isDirty                   = false
+		isPending                 = false
+		closed                    = false
+		nilOrSubmittedOffsetsCh   = pom.submittedOffsetsCh
+		commitTicker              = time.NewTicker(pom.om.config.Consumer.Offsets.CommitInterval)
+		recentSubmittedOffset     submittedOffset
+		assignedBrokerCommitsCh   chan<- submittedOffset
+		nilOrBrokerCommitsCh      chan<- submittedOffset
+		nilOrReassignRetryTimerCh <-chan time.Time
+		commitTimestamp           time.Time
+	)
+	defer commitTicker.Stop()
 	triggerReassign := func(err error, reason string) {
 		Logger.Printf("<%s> %s: err=(%s)", cid, reason, err)
 		pom.reportError(err)
@@ -214,12 +231,6 @@ func (pom *partitionOffsetMgr) processCommits() {
 		pom.om.mapper.workerReassign() <- pom
 		nilOrReassignRetryTimerCh = time.After(pom.om.config.Consumer.Retry.Backoff)
 	}
-	closed := false
-
-	commitTicker := time.NewTicker(pom.om.config.Consumer.Offsets.CommitInterval)
-	defer commitTicker.Stop()
-
-	pendingTicks := 0
 	for {
 		select {
 		case bw := <-pom.assignmentCh:
@@ -230,7 +241,7 @@ func (pom *partitionOffsetMgr) processCommits() {
 			}
 			bom := bw.(*brokerOffsetMgr)
 			nilOrReassignRetryTimerCh = nil
-			assignedBrokerCommitsCh = bom.commitsCh
+			assignedBrokerCommitsCh = bom.submittedOffsetsCh
 
 			if !initialOffsetFetched {
 				fo, err := pom.fetchInitialOffset(bom.conn)
@@ -243,26 +254,26 @@ func (pom *partitionOffsetMgr) processCommits() {
 				initialOffsetFetched = true
 			}
 			if isDirty {
-				nilOrBrokerCommitsCh = bom.commitsCh
+				nilOrBrokerCommitsCh = assignedBrokerCommitsCh
 			}
-		case oc, ok := <-nilOrCommitsCh:
+		case so, ok := <-nilOrSubmittedOffsetsCh:
 			if !ok {
 				if isDirty || isPending {
-					closed, nilOrCommitsCh = true, nil
+					closed, nilOrSubmittedOffsetsCh = true, nil
 					continue
 				}
 				return
 			}
-			recentCommit = oc
-			recentCommit.resultCh = commitResultCh
+			recentSubmittedOffset = so
+			recentSubmittedOffset.resultCh = commitResultCh
 			isDirty = true
 			nilOrBrokerCommitsCh = assignedBrokerCommitsCh
 
-		case nilOrBrokerCommitsCh <- recentCommit:
+		case nilOrBrokerCommitsCh <- recentSubmittedOffset:
 			nilOrBrokerCommitsCh = nil
 			isDirty = false
 			if !isPending {
-				isPending, pendingTicks = true, 0
+				isPending, commitTimestamp = true, time.Now().UTC()
 			}
 		case cr := <-commitResultCh:
 			isPending = false
@@ -271,24 +282,22 @@ func (pom *partitionOffsetMgr) processCommits() {
 				triggerReassign(err, "offset commit failed")
 				continue
 			}
+			pom.committedOffsetsCh <- DecoratedOffset{cr.offsetCommit.offset, cr.offsetCommit.metadata}
 			if closed && !isDirty {
 				return
 			}
 		case <-commitTicker.C:
-			if !isPending || pendingTicks < 2 {
-				pendingTicks++
-				continue
+			if isPending && time.Now().UTC().Sub(commitTimestamp) > pom.om.config.Consumer.Offsets.Timeout {
+				isDirty, isPending = true, false
+				triggerReassign(ErrOffsetMgrRequestTimeout, "offset commit failed")
 			}
-			isDirty, isPending = true, false
-			triggerReassign(ErrOffsetMgrRequestTimeout, "offset commit failed")
-
 		case <-nilOrReassignRetryTimerCh:
 			triggerReassign(ErrOffsetMgrNoCoordinator, "retry reassignment")
 		}
 	}
 }
 
-func (pom *partitionOffsetMgr) fetchInitialOffset(conn *Broker) (FetchedOffset, error) {
+func (pom *partitionOffsetMgr) fetchInitialOffset(conn *Broker) (DecoratedOffset, error) {
 	request := new(OffsetFetchRequest)
 	request.Version = 1
 	request.ConsumerGroup = pom.gtp.group
@@ -296,16 +305,16 @@ func (pom *partitionOffsetMgr) fetchInitialOffset(conn *Broker) (FetchedOffset, 
 
 	response, err := conn.FetchOffset(request)
 	if err != nil {
-		return FetchedOffset{}, err
+		return DecoratedOffset{}, err
 	}
 	block := response.GetBlock(pom.gtp.topic, pom.gtp.partition)
 	if block == nil {
-		return FetchedOffset{}, ErrIncompleteResponse
+		return DecoratedOffset{}, ErrIncompleteResponse
 	}
 	if block.Err != ErrNoError {
-		return FetchedOffset{}, block.Err
+		return DecoratedOffset{}, block.Err
 	}
-	fetchedOffset := FetchedOffset{block.Offset, block.Metadata}
+	fetchedOffset := DecoratedOffset{block.Offset, block.Metadata}
 	return fetchedOffset, nil
 }
 
@@ -339,7 +348,7 @@ func (pom *partitionOffsetMgr) getCommitError(res *OffsetCommitResponse) error {
 	return nil
 }
 
-type offsetCommit struct {
+type submittedOffset struct {
 	gtp      groupTopicPartition
 	offset   int64
 	metadata string
@@ -347,29 +356,30 @@ type offsetCommit struct {
 }
 
 type commitResult struct {
-	offsetCommit offsetCommit
+	offsetCommit submittedOffset
 	response     *OffsetCommitResponse
 }
 
-// brokerOffsetMgr
+// brokerOffsetMgr aggregates submitted offsets from partition offset managers
+// and periodically commits them to Kafka.
 type brokerOffsetMgr struct {
-	baseCID        *ContextID
-	om             *offsetManager
-	conn           *Broker
-	commitsCh      chan offsetCommit
-	batchCommitsCh chan map[string]map[groupTopicPartition]offsetCommit
-	wg             sync.WaitGroup
+	baseCID            *ContextID
+	om                 *offsetManager
+	conn               *Broker
+	submittedOffsetsCh chan submittedOffset
+	offsetBatches      chan map[string]map[groupTopicPartition]submittedOffset
+	wg                 sync.WaitGroup
 }
 
 func (om *offsetManager) spawnBrokerExecutor(brokerConn *Broker) brokerExecutor {
 	bom := &brokerOffsetMgr{
-		baseCID:        om.baseCID.NewChild(fmt.Sprintf("broker:%d", brokerConn.ID())),
-		om:             om,
-		conn:           brokerConn,
-		commitsCh:      make(chan offsetCommit),
-		batchCommitsCh: make(chan map[string]map[groupTopicPartition]offsetCommit),
+		baseCID:            om.baseCID.NewChild(fmt.Sprintf("broker:%d", brokerConn.ID())),
+		om:                 om,
+		conn:               brokerConn,
+		submittedOffsetsCh: make(chan submittedOffset),
+		offsetBatches:      make(chan map[string]map[groupTopicPartition]submittedOffset),
 	}
-	spawn(&bom.wg, bom.batchCommits)
+	spawn(&bom.wg, bom.batchSubmitted)
 	spawn(&bom.wg, bom.executeBatches)
 	return bom
 }
@@ -379,32 +389,32 @@ func (bom *brokerOffsetMgr) brokerConn() *Broker {
 }
 
 func (bom *brokerOffsetMgr) close() {
-	close(bom.commitsCh)
+	close(bom.submittedOffsetsCh)
 	bom.wg.Wait()
 }
 
-func (bom *brokerOffsetMgr) batchCommits() {
-	defer bom.baseCID.NewChild("batchCommits").LogScope()()
-	defer close(bom.batchCommitsCh)
+func (bom *brokerOffsetMgr) batchSubmitted() {
+	defer bom.baseCID.NewChild("batchSubmitted").LogScope()()
+	defer close(bom.offsetBatches)
 
-	batchCommit := make(map[string]map[groupTopicPartition]offsetCommit)
-	var nilOrBatchCommitsCh chan map[string]map[groupTopicPartition]offsetCommit
+	batchCommit := make(map[string]map[groupTopicPartition]submittedOffset)
+	var nilOrOffsetBatchesCh chan map[string]map[groupTopicPartition]submittedOffset
 	for {
 		select {
-		case oc, ok := <-bom.commitsCh:
+		case so, ok := <-bom.submittedOffsetsCh:
 			if !ok {
 				return
 			}
-			groupCommits := batchCommit[oc.gtp.group]
-			if groupCommits == nil {
-				groupCommits = make(map[groupTopicPartition]offsetCommit)
-				batchCommit[oc.gtp.group] = groupCommits
+			groupOffsets := batchCommit[so.gtp.group]
+			if groupOffsets == nil {
+				groupOffsets = make(map[groupTopicPartition]submittedOffset)
+				batchCommit[so.gtp.group] = groupOffsets
 			}
-			groupCommits[oc.gtp] = oc
-			nilOrBatchCommitsCh = bom.batchCommitsCh
-		case nilOrBatchCommitsCh <- batchCommit:
-			nilOrBatchCommitsCh = nil
-			batchCommit = make(map[string]map[groupTopicPartition]offsetCommit)
+			groupOffsets[so.gtp] = so
+			nilOrOffsetBatchesCh = bom.offsetBatches
+		case nilOrOffsetBatchesCh <- batchCommit:
+			nilOrOffsetBatchesCh = nil
+			batchCommit = make(map[string]map[groupTopicPartition]submittedOffset)
 		}
 	}
 }
@@ -413,25 +423,25 @@ func (bom *brokerOffsetMgr) executeBatches() {
 	cid := bom.baseCID.NewChild("executeBatches")
 	defer cid.LogScope()()
 
-	var nilOrBatchCommitsCh chan map[string]map[groupTopicPartition]offsetCommit
+	var nilOrOffsetBatchesCh chan map[string]map[groupTopicPartition]submittedOffset
 	commitTicker := time.NewTicker(bom.om.config.Consumer.Offsets.CommitInterval)
 	defer commitTicker.Stop()
 	for {
 		select {
 		case <-commitTicker.C:
-			nilOrBatchCommitsCh = bom.batchCommitsCh
-		case batchCommit, ok := <-nilOrBatchCommitsCh:
+			nilOrOffsetBatchesCh = bom.offsetBatches
+		case batchedOffsets, ok := <-nilOrOffsetBatchesCh:
 			if !ok {
 				return
 			}
-			nilOrBatchCommitsCh = nil
-			for group, groupCommits := range batchCommit {
+			nilOrOffsetBatchesCh = nil
+			for group, groupOffsets := range batchedOffsets {
 				req := &OffsetCommitRequest{
 					Version:       1,
 					ConsumerGroup: group,
 				}
-				for _, oc := range groupCommits {
-					req.AddBlock(oc.gtp.topic, oc.gtp.partition, oc.offset, ReceiveTime, oc.metadata)
+				for _, so := range groupOffsets {
+					req.AddBlock(so.gtp.topic, so.gtp.partition, so.offset, ReceiveTime, so.metadata)
 				}
 
 				res, err := bom.conn.CommitOffset(req)
@@ -443,8 +453,8 @@ func (bom *brokerOffsetMgr) executeBatches() {
 					return
 				}
 
-				for _, oc := range groupCommits {
-					oc.resultCh <- commitResult{oc, res}
+				for _, so := range groupOffsets {
+					so.resultCh <- commitResult{so, res}
 				}
 			}
 		}

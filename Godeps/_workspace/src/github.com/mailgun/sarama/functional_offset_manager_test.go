@@ -29,9 +29,9 @@ func TestFuncOffsetManagerSimple(t *testing.T) {
 	}
 
 	// When: several offsets are committed.
-	pom0_1.CommitOffset(newOffset, "foo")
-	pom0_1.CommitOffset(newOffset+1, "bar")
-	pom0_1.CommitOffset(newOffset+2, "bazz")
+	pom0_1.SubmitOffset(newOffset, "foo")
+	pom0_1.SubmitOffset(newOffset+1, "bar")
+	pom0_1.SubmitOffset(newOffset+2, "bazz")
 
 	// Then: last committed request is the one that becomes effective.
 	pom0_1.Close()
@@ -42,7 +42,7 @@ func TestFuncOffsetManagerSimple(t *testing.T) {
 
 	fo := <-pom0_2.InitialOffset()
 
-	if (fo != FetchedOffset{newOffset + 2, "bazz"}) {
+	if (fo != DecoratedOffset{newOffset + 2, "bazz"}) {
 		t.Errorf("Unexpected offset: %v", fo)
 	}
 

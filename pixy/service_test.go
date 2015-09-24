@@ -3,10 +3,12 @@ package pixy
 import (
 	"fmt"
 	"math"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
@@ -30,7 +32,14 @@ func (s *ServiceSuite) SetUpTest(c *C) {
 	os.Remove(s.config.UnixAddr)
 	s.tkc = NewTestKafkaClient(s.config.Kafka.SeedPeers)
 	s.unixClient = NewUDSHTTPClient(s.config.UnixAddr)
-	s.tcpClient = &http.Client{}
+	// The default HTTP client cannot be used, because it caches connections,
+	// but each test must have a brand new connection.
+	s.tcpClient = &http.Client{Transport: &http.Transport{
+		Dial: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).Dial,
+	}}
 }
 
 func (s *ServiceSuite) TestStartAndStop(c *C) {
@@ -42,8 +51,10 @@ func (s *ServiceSuite) TestStartAndStop(c *C) {
 func (s *ServiceSuite) TestInvalidUnixAddr(c *C) {
 	// Given
 	s.config.UnixAddr = "/tmp"
+
 	// When
 	svc, err := SpawnService(s.config)
+
 	// Then
 	c.Assert(err.Error(), Equals,
 		"failed to start Unix socket based HTTP API, err=(failed to create listener, err=(listen unix /tmp: bind: address already in use))")
@@ -53,8 +64,10 @@ func (s *ServiceSuite) TestInvalidUnixAddr(c *C) {
 func (s *ServiceSuite) TestInvalidKafkaPeers(c *C) {
 	// Given
 	s.config.Kafka.SeedPeers = []string{"localhost:12345"}
+
 	// When
 	svc, err := SpawnService(s.config)
+
 	// Then
 	c.Assert(err.Error(), Equals,
 		"failed to spawn producer, err=(failed to create sarama.Client, err=(kafka: client has run out of available brokers to talk to (Is your cluster reachable?)))")
@@ -67,6 +80,7 @@ func (s *ServiceSuite) TestProduce(c *C) {
 	// Given
 	svc, _ := SpawnService(s.config)
 	offsetsBefore := s.tkc.getOffsets("test.4")
+
 	// When
 	for i := 0; i < 10; i++ {
 		s.unixClient.Post("http://_/topics/test.4/messages?key=1",
@@ -80,8 +94,9 @@ func (s *ServiceSuite) TestProduce(c *C) {
 		s.unixClient.Post("http://_/topics/test.4/messages?key=5",
 			"text/plain", strings.NewReader(strconv.Itoa(i)))
 	}
-	svc.Stop()
+	svc.Stop() // Have to stop before getOffsets
 	offsetsAfter := s.tkc.getOffsets("test.4")
+
 	// Then
 	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0]+20)
 	c.Assert(offsetsAfter[1], Equals, offsetsBefore[1]+10)
@@ -96,13 +111,15 @@ func (s *ServiceSuite) TestProduceNilKey(c *C) {
 	// Given
 	svc, _ := SpawnService(s.config)
 	offsetsBefore := s.tkc.getOffsets("test.4")
+
 	// When
 	for i := 0; i < 100; i++ {
 		s.unixClient.Post("http://_/topics/test.4/messages",
 			"text/plain", strings.NewReader(strconv.Itoa(i)))
 	}
-	svc.Stop()
+	svc.Stop() // Have to stop before getOffsets
 	offsetsAfter := s.tkc.getOffsets("test.4")
+
 	// Then
 	delta0 := offsetsAfter[0] - offsetsBefore[0]
 	delta1 := offsetsAfter[1] - offsetsBefore[1]
@@ -117,13 +134,15 @@ func (s *ServiceSuite) TestProduceNilKey(c *C) {
 func (s *ServiceSuite) TestProduceEmptyKey(c *C) {
 	svc, _ := SpawnService(s.config)
 	offsetsBefore := s.tkc.getOffsets("test.4")
+
 	// When
 	for i := 0; i < 10; i++ {
 		s.unixClient.Post("http://_/topics/test.4/messages?key=",
 			"text/plain", strings.NewReader(strconv.Itoa(i)))
 	}
-	svc.Stop()
+	svc.Stop() // Have to stop before getOffsets
 	offsetsAfter := s.tkc.getOffsets("test.4")
+
 	// Then
 	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0])
 	c.Assert(offsetsAfter[1], Equals, offsetsBefore[1])
@@ -135,10 +154,12 @@ func (s *ServiceSuite) TestProduceEmptyKey(c *C) {
 func (s *ServiceSuite) TestUtf8Message(c *C) {
 	svc, _ := SpawnService(s.config)
 	offsetsBefore := s.tkc.getOffsets("test.4")
+
 	// When
 	s.unixClient.Post("http://_/topics/test.4/messages?key=foo",
 		"text/plain", strings.NewReader("Превед Медвед"))
-	svc.Stop()
+	svc.Stop() // Have to stop before getOffsets
+
 	// Then
 	offsetsAfter := s.tkc.getOffsets("test.4")
 	msgs := s.tkc.getMessages("test.4", offsetsBefore, offsetsAfter)
@@ -149,11 +170,13 @@ func (s *ServiceSuite) TestUtf8Message(c *C) {
 // TCP API is not started by default.
 func (s *ServiceSuite) TestTCPDoesNotWork(c *C) {
 	svc, _ := SpawnService(s.config)
+	defer svc.Stop()
+
 	// When
 	r, err := s.tcpClient.Post("http://localhost:55501/topics/test.4/messages?key=foo",
 		"text/plain", strings.NewReader("Hello Kitty"))
+
 	// Then
-	svc.Stop()
 	c.Assert(err.Error(), Matches,
 		"Post http://localhost:55501/topics/test.4/messages\\?key=foo: .* connection refused")
 	c.Assert(r, IsNil)
@@ -162,16 +185,18 @@ func (s *ServiceSuite) TestTCPDoesNotWork(c *C) {
 // API is served on a TCP socket if it is explicitly configured.
 func (s *ServiceSuite) TestBothAPI(c *C) {
 	offsetsBefore := s.tkc.getOffsets("test.4")
-	s.config.TCPAddr = "127.0.0.1:55502"
+	s.config.TCPAddr = "127.0.0.1:55501"
 	svc, err := SpawnService(s.config)
 	c.Assert(err, IsNil)
+
 	// When
-	_, err1 := s.tcpClient.Post("http://localhost:55502/topics/test.4/messages?key=foo",
+	_, err1 := s.tcpClient.Post("http://localhost:55501/topics/test.4/messages?key=foo",
 		"text/plain", strings.NewReader("Превед"))
 	_, err2 := s.unixClient.Post("http://_/topics/test.4/messages?key=foo",
 		"text/plain", strings.NewReader("Kitty"))
+
 	// Then
-	svc.Stop()
+	svc.Stop() // Have to stop before getOffsets
 	c.Assert(err1, IsNil)
 	c.Assert(err2, IsNil)
 	offsetsAfter := s.tkc.getOffsets("test.4")
@@ -185,8 +210,10 @@ func (s *ServiceSuite) TestStoppedServerCall(c *C) {
 	_, err := s.unixClient.Post("http://_/topics/test.4/messages?key=foo",
 		"text/plain", strings.NewReader("Hello"))
 	c.Assert(err, IsNil)
+
 	// When
 	svc.Stop()
+
 	// Then
 	r, err := s.unixClient.Post("http://_/topics/test.4/messages?key=foo",
 		"text/plain", strings.NewReader("Kitty"))
@@ -196,10 +223,12 @@ func (s *ServiceSuite) TestStoppedServerCall(c *C) {
 
 // If the TCP API Server crashes then the service terminates gracefully.
 func (s *ServiceSuite) TestTCPServerCrash(c *C) {
-	s.config.TCPAddr = "127.0.0.1:55502"
+	s.config.TCPAddr = "127.0.0.1:55501"
 	svc, _ := SpawnService(s.config)
+
 	// When
 	svc.tcpServer.errorCh <- fmt.Errorf("Kaboom!")
+
 	// Then
 	svc.Stop()
 }
@@ -210,11 +239,13 @@ func (s *ServiceSuite) TestLargestMessage(c *C) {
 	offsetsBefore := s.tkc.getOffsets("test.4")
 	maxMsgSize := sarama.NewConfig().Producer.MaxMessageBytes - ProdMsgMetadataSize([]byte("foo"))
 	msg := GenMessage(maxMsgSize)
-	s.config.TCPAddr = "127.0.0.1:55503"
+	s.config.TCPAddr = "127.0.0.1:55501"
 	svc, _ := SpawnService(s.config)
+
 	// When
-	r := PostChunked(s.tcpClient, "http://127.0.0.1:55503/topics/test.4/messages?key=foo", msg)
-	svc.Stop()
+	r := PostChunked(s.tcpClient, "http://127.0.0.1:55501/topics/test.4/messages?key=foo", msg)
+	svc.Stop() // Have to stop before getOffsets
+
 	// Then
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
 	c.Assert(ParseJSONBody(c, r), DeepEquals, map[string]interface{}{})
@@ -231,11 +262,13 @@ func (s *ServiceSuite) TestMessageTooLarge(c *C) {
 	offsetsBefore := s.tkc.getOffsets("test.4")
 	maxMsgSize := sarama.NewConfig().Producer.MaxMessageBytes - ProdMsgMetadataSize([]byte("foo")) + 1
 	msg := GenMessage(maxMsgSize)
-	s.config.TCPAddr = "127.0.0.1:55504"
+	s.config.TCPAddr = "127.0.0.1:55501"
 	svc, _ := SpawnService(s.config)
+
 	// When
-	r := PostChunked(s.tcpClient, "http://127.0.0.1:55504/topics/test.4/messages?key=foo", msg)
-	svc.Stop()
+	r := PostChunked(s.tcpClient, "http://127.0.0.1:55501/topics/test.4/messages?key=foo", msg)
+	svc.Stop() // Have to stop before getOffsets
+
 	// Then
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
 	c.Assert(ParseJSONBody(c, r), DeepEquals, map[string]interface{}{})
@@ -247,11 +280,13 @@ func (s *ServiceSuite) TestSyncProduce(c *C) {
 	// Given
 	svc, _ := SpawnService(s.config)
 	offsetsBefore := s.tkc.getOffsets("test.4")
+
 	// When
 	r, err := s.unixClient.Post("http://_/topics/test.4/messages?key=1&sync",
 		"text/plain", strings.NewReader("Foo"))
-	svc.Stop()
+	svc.Stop() // Have to stop before getOffsets
 	offsetsAfter := s.tkc.getOffsets("test.4")
+
 	// Then
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
@@ -264,10 +299,12 @@ func (s *ServiceSuite) TestSyncProduce(c *C) {
 func (s *ServiceSuite) TestSyncProduceInvalidTopic(c *C) {
 	// Given
 	svc, _ := SpawnService(s.config)
+	defer svc.Stop()
+
 	// When
 	r, err := s.unixClient.Post("http://_/topics/no-such-topic?sync=true",
 		"text/plain", strings.NewReader("Foo"))
-	svc.Stop()
+
 	// Then
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusNotFound)
@@ -287,9 +324,11 @@ func (s *ServiceSuite) TestUnixServerCrash(c *C) {
 func (s *ServiceSuite) TestConsumeNoGroup(c *C) {
 	// Given
 	svc, _ := SpawnService(s.config)
+	defer svc.Stop()
+
 	// When
 	r, err := s.unixClient.Get("http://_/topics/test.4/messages")
-	svc.Stop()
+
 	// Then
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusBadRequest)
@@ -300,9 +339,11 @@ func (s *ServiceSuite) TestConsumeNoGroup(c *C) {
 func (s *ServiceSuite) TestConsumeManyGroups(c *C) {
 	// Given
 	svc, _ := SpawnService(s.config)
+	defer svc.Stop()
+
 	// When
 	r, err := s.unixClient.Get("http://_/topics/test.4/messages?group=a&group=b")
-	svc.Stop()
+
 	// Then
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusBadRequest)
@@ -313,9 +354,11 @@ func (s *ServiceSuite) TestConsumeManyGroups(c *C) {
 func (s *ServiceSuite) TestConsumeInvalidTopic(c *C) {
 	// Given
 	svc, _ := SpawnService(s.config)
+	defer svc.Stop()
+
 	// When
 	r, err := s.unixClient.Get("http://_/topics/no-such-topic/messages?group=foo")
-	svc.Stop()
+
 	// Then
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusRequestTimeout)
@@ -328,9 +371,11 @@ func (s *ServiceSuite) TestConsumeSingleMessage(c *C) {
 	ResetOffsets(c, "foo", "test.4")
 	produced := GenMessages(c, "service.consume", "test.4", map[string]int{"B": 1})
 	svc, _ := SpawnService(s.config)
+	defer svc.Stop()
+
 	// When
 	r, err := s.unixClient.Get("http://_/topics/test.4/messages?group=foo")
-	svc.Stop()
+
 	// Then
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
@@ -346,10 +391,10 @@ func (s *ServiceSuite) TestConsumeSingleMessage(c *C) {
 func (s *ServiceSuite) TestGetOffsetsNoSuchGroup(c *C) {
 	// Given
 	svc, _ := SpawnService(s.config)
+	defer svc.Stop()
 
 	// When
 	r, err := s.unixClient.Get("http://_/topics/test.4/offsets?group=no_such_group")
-	svc.Stop()
 
 	// Then
 	c.Assert(err, IsNil)
@@ -366,10 +411,10 @@ func (s *ServiceSuite) TestGetOffsetsNoSuchGroup(c *C) {
 func (s *ServiceSuite) TestGetOffsetsNoSuchTopic(c *C) {
 	// Given
 	svc, _ := SpawnService(s.config)
+	defer svc.Stop()
 
 	// When
 	r, err := s.unixClient.Get("http://_/topics/no_such_topic/offsets?group=foo")
-	svc.Stop()
 
 	// Then
 	c.Assert(err, IsNil)
@@ -382,6 +427,7 @@ func (s *ServiceSuite) TestGetOffsetsNoSuchTopic(c *C) {
 func (s *ServiceSuite) TestSetOffsets(c *C) {
 	// Given
 	svc, _ := SpawnService(s.config)
+	defer svc.Stop()
 
 	// When
 	r, err := s.unixClient.Post("http://_/topics/test.4/offsets?group=foo",
@@ -404,15 +450,15 @@ func (s *ServiceSuite) TestSetOffsets(c *C) {
 		c.Assert(partitionView["partition"].(float64), Equals, float64(i))
 		c.Assert(partitionView["offset"].(float64), Equals, float64(1100+i))
 		c.Assert(partitionView["metadata"].(string), Equals, fmt.Sprintf("A10%d", i))
+		c.Assert(partitionView["count"], Equals, partitionView["end"].(float64)-partitionView["begin"].(float64))
 	}
-
-	svc.Stop()
 }
 
 // It is not an error to set offsets for a topic that does not exist.
 func (s *ServiceSuite) TestSetOffsetsNoSuchTopic(c *C) {
 	// Given
 	svc, _ := SpawnService(s.config)
+	defer svc.Stop()
 
 	// When
 	r, err := s.unixClient.Post("http://_/topics/no_such_topic/offsets?group=foo",
@@ -422,14 +468,13 @@ func (s *ServiceSuite) TestSetOffsetsNoSuchTopic(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
 	c.Assert(ParseJSONBody(c, r), DeepEquals, EmptyResponse)
-
-	svc.Stop()
 }
 
 // Invalid body is detected and properly reported.
 func (s *ServiceSuite) TestSetOffsetsInvalidBody(c *C) {
 	// Given
 	svc, _ := SpawnService(s.config)
+	defer svc.Stop()
 
 	// When
 	r, err := s.unixClient.Post("http://_/topics/test.4/offsets?group=foo",
@@ -440,14 +485,13 @@ func (s *ServiceSuite) TestSetOffsetsInvalidBody(c *C) {
 	c.Assert(r.StatusCode, Equals, http.StatusBadRequest)
 	body := ParseJSONBody(c, r).(map[string]interface{})
 	c.Assert(body["error"], Equals, "Failed to parse the request: err=(invalid character 'g' looking for beginning of value)")
-
-	svc.Stop()
 }
 
 // It is not an error to set an offset for a missing partition.
 func (s *ServiceSuite) TestSetOffsetsInvalidPartition(c *C) {
 	// Given
 	svc, _ := SpawnService(s.config)
+	defer svc.Stop()
 
 	// When
 	r, err := s.unixClient.Post("http://_/topics/test.4/offsets?group=foo",
@@ -457,15 +501,19 @@ func (s *ServiceSuite) TestSetOffsetsInvalidPartition(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
 	c.Assert(ParseJSONBody(c, r), DeepEquals, EmptyResponse)
-
-	svc.Stop()
 }
 
+// Reported partition lags are correct, including those corresponding to -1 and
+// -2 special case offset values.
 func (s *ServiceSuite) TestGetOffsetsLag(c *C) {
 	// Given
 	svc, _ := SpawnService(s.config)
+	defer svc.Stop()
 	r, err := s.unixClient.Post("http://_/topics/test.4/offsets?group=foo",
-		"application/json", strings.NewReader(`[{"partition": 0, "offset": -1},{"partition": 1, "offset": 1}]`))
+		"application/json", strings.NewReader(
+			`[{"partition": 0, "offset": -1},
+			  {"partition": 1, "offset": -2},
+			  {"partition": 2, "offset": 1}]`))
 	c.Assert(err, IsNil)
 
 	// When
@@ -476,9 +524,178 @@ func (s *ServiceSuite) TestGetOffsetsLag(c *C) {
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
 	body := ParseJSONBody(c, r).([]interface{})
 	partition0View := body[0].(map[string]interface{})
-	c.Assert(partition0View["lag"], IsNil)
+	c.Assert(partition0View["lag"], Equals, float64(0))
 	partition1View := body[1].(map[string]interface{})
-	c.Assert(partition1View["lag"], Equals, partition1View["end"].(float64)-partition1View["offset"].(float64))
+	c.Assert(partition1View["lag"], Equals, partition1View["end"].(float64)-partition1View["begin"].(float64))
+	partition2View := body[2].(map[string]interface{})
+	c.Assert(partition2View["lag"], Equals, partition2View["end"].(float64)-partition2View["offset"].(float64))
+}
 
-	svc.Stop()
+// If a topic is not consumed by any member of a group at the moment then
+// empty consumer map is returned.
+func (s *ServiceSuite) TestGetTopicConsumersNone(c *C) {
+	// Given
+	svc, _ := SpawnService(s.config)
+	defer svc.Stop()
+
+	// When
+	r, err := s.unixClient.Get("http://_/topics/test.4/consumers?group=foo")
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(r.StatusCode, Equals, http.StatusOK)
+	consumers := ParseJSONBody(c, r).(map[string]interface{})
+	c.Assert(len(consumers), Equals, 0)
+}
+
+func (s *ServiceSuite) TestGetTopicConsumersInvalid(c *C) {
+	// Given
+	svc, _ := SpawnService(s.config)
+	defer svc.Stop()
+
+	// When
+	r, err := s.unixClient.Get("http://_/topics/test.5/consumers?group=foo")
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(r.StatusCode, Equals, http.StatusBadRequest)
+	body := ParseJSONBody(c, r).(map[string]interface{})
+	c.Assert(body["error"], Equals, "either group or topic is incorrect")
+}
+
+func (s *ServiceSuite) TestGetTopicConsumersOne(c *C) {
+	// Given
+	ResetOffsets(c, "foo", "test.4")
+	GenMessages(c, "get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1, "D": 1})
+	svc, _ := SpawnService(NewTestConfig("C1"))
+	defer svc.Stop()
+	for i := 0; i < 4; i++ {
+		s.unixClient.Get("http://_/topics/test.4/messages?group=foo")
+	}
+
+	// When
+	r, err := s.unixClient.Get("http://_/topics/test.4/consumers?group=foo")
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(r.StatusCode, Equals, http.StatusOK)
+	consumers := ParseJSONBody(c, r).(map[string]interface{})
+	assertConsumedPartitions(c, consumers, map[string]map[string][]int32{
+		"foo": {
+			"C1": {0, 1, 2, 3}},
+	})
+}
+
+// If `group` parameter is not passed to `GET /topics/{}/consumers` then
+// a topic consumer report includes members of all consumer groups consuming
+// the topic.
+func (s *ServiceSuite) TestGetAllTopicConsumers(c *C) {
+	// Given
+	ResetOffsets(c, "foo", "test.4")
+	ResetOffsets(c, "bar", "test.1")
+	ResetOffsets(c, "bazz", "test.4")
+	GenMessages(c, "get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1})
+	GenMessages(c, "get.consumers", "test.1", map[string]int{"D": 1})
+
+	svc1 := spawnTestService(c, 55501)
+	defer svc1.Stop()
+	svc2 := spawnTestService(c, 55502)
+	defer svc2.Stop()
+	svc3 := spawnTestService(c, 55503)
+	defer svc3.Stop()
+
+	_, err := s.tcpClient.Get("http://127.0.0.1:55501/topics/test.4/messages?group=foo")
+	c.Assert(err, IsNil)
+	_, err = s.tcpClient.Get("http://127.0.0.1:55502/topics/test.4/messages?group=foo")
+	c.Assert(err, IsNil)
+	_, err = s.tcpClient.Get("http://127.0.0.1:55503/topics/test.4/messages?group=foo")
+	c.Assert(err, IsNil)
+
+	_, err = s.tcpClient.Get("http://127.0.0.1:55501/topics/test.1/messages?group=bar")
+	c.Assert(err, IsNil)
+
+	_, err = s.tcpClient.Get("http://127.0.0.1:55502/topics/test.1/messages?group=bar")
+	c.Assert(err, IsNil)
+	for i := 0; i < 3; i++ {
+		_, err = s.tcpClient.Get("http://127.0.0.1:55502/topics/test.4/messages?group=bazz")
+		c.Assert(err, IsNil)
+	}
+
+	// When
+	r, err := s.tcpClient.Get("http://127.0.0.1:55501/topics/test.4/consumers")
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(r.StatusCode, Equals, http.StatusOK)
+
+	consumers := ParseJSONBody(c, r).(map[string]interface{})
+	assertConsumedPartitions(c, consumers, map[string]map[string][]int32{
+		"foo": {
+			"C55501": {0, 1},
+			"C55502": {2},
+			"C55503": {3}},
+		"bazz": {
+			"C55502": {0, 1, 2, 3}},
+	})
+}
+
+// If consumers are requested for a particular group then only members of that
+// group are returned.
+func (s *ServiceSuite) TestGetTopicConsumers(c *C) {
+	// Given
+	ResetOffsets(c, "foo", "test.4")
+	ResetOffsets(c, "bar", "test.4")
+	GenMessages(c, "get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1})
+
+	svc1 := spawnTestService(c, 55501)
+	defer svc1.Stop()
+	svc2 := spawnTestService(c, 55502)
+	defer svc2.Stop()
+
+	_, err := s.tcpClient.Get("http://127.0.0.1:55501/topics/test.4/messages?group=foo")
+	c.Assert(err, IsNil)
+	_, err = s.tcpClient.Get("http://127.0.0.1:55502/topics/test.4/messages?group=foo")
+	c.Assert(err, IsNil)
+
+	_, err = s.tcpClient.Get("http://127.0.0.1:55501/topics/test.1/messages?group=bar")
+	c.Assert(err, IsNil)
+
+	// When
+	r, err := s.tcpClient.Get("http://127.0.0.1:55502/topics/test.4/consumers?group=foo")
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(r.StatusCode, Equals, http.StatusOK)
+	consumers := ParseJSONBody(c, r).(map[string]interface{})
+	assertConsumedPartitions(c, consumers, map[string]map[string][]int32{
+		"foo": {
+			"C55501": {0, 1},
+			"C55502": {2, 3}},
+	})
+}
+
+func spawnTestService(c *C, port int) *Service {
+	config := NewTestConfig(fmt.Sprintf("C%d", port))
+	config.UnixAddr = fmt.Sprintf("%s.%d", config.UnixAddr, port)
+	os.Remove(config.UnixAddr)
+	config.TCPAddr = fmt.Sprintf("127.0.0.1:%d", port)
+	svc, err := SpawnService(config)
+	c.Assert(err, IsNil)
+	return svc
+}
+
+func assertConsumedPartitions(c *C, consumers map[string]interface{}, expected map[string]map[string][]int32) {
+	c.Assert(len(consumers), Equals, len(expected))
+	for group, expectedClients := range expected {
+		groupConsumers := consumers[group].(map[string]interface{})
+		c.Assert(len(groupConsumers), Equals, len(expectedClients))
+		for clientID, expectedPartitions := range expectedClients {
+			clientPartitions := groupConsumers[clientID].([]interface{})
+			partitions := make([]int32, len(clientPartitions))
+			for i, p := range clientPartitions {
+				partitions[i] = int32(p.(float64))
+			}
+			c.Assert(partitions, DeepEquals, expectedPartitions)
+		}
+	}
 }

@@ -233,7 +233,7 @@ func ResetOffsets(c *C, group, topic string) {
 		c.Assert(err, IsNil)
 		pom, err := offsetManager.ManagePartition(group, topic, p)
 		c.Assert(err, IsNil)
-		pom.CommitOffset(offset, "dummy")
+		pom.SubmitOffset(offset, "dummy")
 		log.Infof("Set initial offset %s/%s/%d=%d", group, topic, p, offset)
 		pom.Close()
 	}

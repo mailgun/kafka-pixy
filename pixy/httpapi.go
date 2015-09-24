@@ -83,6 +83,8 @@ func NewHTTPAPIServer(network, addr string, producer *GracefulProducer, consumer
 		as.handleGetOffsets).Methods("GET")
 	router.HandleFunc(fmt.Sprintf("/topics/{%s}/offsets", ParamTopic),
 		as.handleSetOffsets).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/consumers", ParamTopic),
+		as.handleGetTopicConsumers).Methods("GET")
 	return as, nil
 }
 
@@ -220,7 +222,7 @@ func (as *HTTPAPIServer) handleGetOffsets(w http.ResponseWriter, r *http.Request
 
 	partitionOffsets, err := as.admin.GetGroupOffsets(group, topic)
 	if err != nil {
-		if err, ok := err.(ErrAdminKafkaReq); ok && err.Cause() == sarama.ErrUnknownTopicOrPartition {
+		if err, ok := err.(ErrAdminQuery); ok && err.Cause() == sarama.ErrUnknownTopicOrPartition {
 			respondWithJSON(w, http.StatusNotFound, errorHTTPResponse{"Unknown topic"})
 			return
 		}
@@ -233,11 +235,16 @@ func (as *HTTPAPIServer) handleGetOffsets(w http.ResponseWriter, r *http.Request
 		partitionOffsetView[i].Partition = po.Partition
 		partitionOffsetView[i].Begin = po.Begin
 		partitionOffsetView[i].End = po.End
+		partitionOffsetView[i].Count = po.End - po.Begin
 		partitionOffsetView[i].Offset = po.Offset
-		partitionOffsetView[i].Metadata = po.Metadata
-		if po.Offset >= 0 {
+		if po.Offset == sarama.OffsetNewest {
+			partitionOffsetView[i].Lag = 0
+		} else if po.Offset == sarama.OffsetOldest {
+			partitionOffsetView[i].Lag = po.End - po.Begin
+		} else {
 			partitionOffsetView[i].Lag = po.End - po.Offset
 		}
+		partitionOffsetView[i].Metadata = po.Metadata
 	}
 	respondWithJSON(w, http.StatusOK, partitionOffsetView)
 }
@@ -276,7 +283,7 @@ func (as *HTTPAPIServer) handleSetOffsets(w http.ResponseWriter, r *http.Request
 
 	err = as.admin.SetGroupOffsets(group, topic, partitionOffsets)
 	if err != nil {
-		if err, ok := err.(ErrAdminKafkaReq); ok && err.Cause() == sarama.ErrUnknownTopicOrPartition {
+		if err, ok := err.(ErrAdminQuery); ok && err.Cause() == sarama.ErrUnknownTopicOrPartition {
 			respondWithJSON(w, http.StatusNotFound, errorHTTPResponse{"Unknown topic"})
 			return
 		}
@@ -285,6 +292,51 @@ func (as *HTTPAPIServer) handleSetOffsets(w http.ResponseWriter, r *http.Request
 	}
 
 	respondWithJSON(w, http.StatusOK, EmptyResponse)
+}
+
+// handleGetTopicConsumers is an HTTP request handler for `GET /topic/{topic}/consumers`
+func (as *HTTPAPIServer) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+	var err error
+
+	topic := mux.Vars(r)[ParamTopic]
+
+	group := ""
+	r.ParseForm()
+	groups := r.Form[ParamGroup]
+	if len(groups) > 1 {
+		err = fmt.Errorf("One consumer group is expected, but %d provided", len(groups))
+		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		return
+	}
+	if len(groups) == 1 {
+		group = groups[0]
+	}
+
+	var consumers map[string]map[string][]int32
+	if group == "" {
+		consumers, err = as.admin.GetAllTopicConsumers(topic)
+		if err != nil {
+			respondWithJSON(w, http.StatusInternalServerError, errorHTTPResponse{err.Error()})
+			return
+		}
+	} else {
+		groupConsumers, err := as.admin.GetTopicConsumers(group, topic)
+		if err != nil {
+			if _, ok := err.(ErrAdminInvalidParam); ok {
+				respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+				return
+			}
+			respondWithJSON(w, http.StatusInternalServerError, errorHTTPResponse{err.Error()})
+			return
+		}
+		consumers = make(map[string]map[string][]int32)
+		if len(groupConsumers) != 0 {
+			consumers[group] = groupConsumers
+		}
+	}
+
+	respondWithJSON(w, http.StatusOK, consumers)
 }
 
 type produceHTTPResponse struct {
@@ -303,8 +355,9 @@ type partitionOffsetView struct {
 	Partition int32  `json:"partition"`
 	Begin     int64  `json:"begin"`
 	End       int64  `json:"end"`
+	Count     int64  `json:"count"`
 	Offset    int64  `json:"offset"`
-	Lag       int64  `json:"lag,omitempty"`
+	Lag       int64  `json:"lag"`
 	Metadata  string `json:"metadata,omitempty"`
 }
 
