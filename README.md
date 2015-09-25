@@ -139,6 +139,53 @@ by somebody else. So it only reads them on group initialization, that happens
 when a consumer group request comes after 20 seconds or more of the consumer
 group inactivity on all Kafka-Pixy working with the Kafka cluster.
 
+### List Consumers
+
+`GET /topics/<topic>/consumers[?group=<group>]` - returns a list of consumers
+that are subscribed to the **topic** along with a list of partitions assigned
+to each consumer. If **group** is not specified then information is provided
+for all consumer groups subscribed to the **topic**.
+
+e.g.:
+
+```
+curl -XGET localhost:19092/topic/some_queue/consumers
+```
+
+yields:
+
+```
+{
+  "integrations": {
+    "pixy_jobs1_62065_2015-09-24T22:21:05Z": [0,1,2,3],
+    "pixy_jobs2_18075_2015-09-24T22:21:28Z": [4,5,6],
+    "pixy_jobs3_336_2015-09-24T22:21:51Z": [7,8,9]
+  },
+  "logstash-customer": {
+    "logstash-customer_logs01-1443116116450-7f54d246-0": [0,1,2],
+    "logstash-customer_logs01-1443116116450-7f54d246-1": [3,4,5],
+    "logstash-customer_logs01-1443116116450-7f54d246-2": [6,7],
+    "logstash-customer_logs01-1443116116450-7f54d246-3": [8,9]
+  },
+  "logstash-reputation4": {
+    "logstash-reputation4_logs16-1443178335419-c08d8ab6-0": [0],
+    "logstash-reputation4_logs16-1443178335419-c08d8ab6-1": [1],
+    "logstash-reputation4_logs16-1443178335419-c08d8ab6-10": [2],
+    "logstash-reputation4_logs16-1443178335419-c08d8ab6-11": [3],
+    "logstash-reputation4_logs16-1443178335419-c08d8ab6-12": [4],
+    "logstash-reputation4_logs16-1443178335419-c08d8ab6-13": [5],
+    "logstash-reputation4_logs16-1443178335419-c08d8ab6-14": [6],
+    "logstash-reputation4_logs16-1443178335419-c08d8ab6-15": [7],
+    "logstash-reputation4_logs16-1443178335419-c08d8ab6-2": [8],
+    "logstash-reputation4_logs16-1443178335419-c08d8ab6-3": [9]
+  },
+  "test": {
+    "pixy_core1_47288_2015-09-24T22:15:36Z": [0,1,2,3,4],
+    "pixy_in7_102745_2015-09-24T22:24:14Z": [5,6,7,8,9]
+  }
+}
+```
+
 ## Delivery Guarantees
 
 If a Kafka-Pixy instance dies (crashes or gets brutally killed with SIGKILL, or
