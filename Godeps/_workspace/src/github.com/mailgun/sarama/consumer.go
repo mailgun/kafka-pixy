@@ -559,8 +559,10 @@ func (bc *brokerConsumer) executeBatches() {
 
 		// If a request failed then notify the master consumer.
 		if fetchErr != nil {
-			// Make sure the broker connection is closed before notification.
 			Logger.Printf("<%s> failed to process FetchRequest: err=(%s)", cid, fetchErr)
+			// In case of network error the connection has to be explicitly
+			// closed, otherwise it won't be re-establish and following requests
+			// to this broker will fail as well.
 			bc.conn.Close()
 			bc.consumer.mapper.brokerFailed() <- bc
 			goto rejectRequestsLoop

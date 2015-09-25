@@ -100,19 +100,25 @@ func (om *offsetManager) resolveBroker(pw partitionWorker) (*Broker, error) {
 // be garbage-collected automatically when it passes out of scope.
 type PartitionOffsetManager interface {
 	// InitialOffset returns a channel that an initial offset will be sent down
-	// to, when retrieved.
+	// to, when retrieved. At most one value will be sent down to this channel,
+	// and it will be closed immediately after that. If error reporting is
+	// enabled with `Config.Consumer.Return.Errors` then errors may be coming
+	// and has to be read from the `Errors()` channel, otherwise the partition
+	// offset manager will get into a dead lock.
 	InitialOffset() <-chan DecoratedOffset
 
-	// SubmitOffset triggers saving of the specified offset in Kafka. Actual
-	// commits are performed periodically in a background goroutine. The commit
+	// SubmitOffset triggers saving of the specified offset in Kafka. Commits
+	// are performed periodically in a background goroutine. The commit
 	// interval is configured by `Config.Consumer.Offsets.CommitInterval`. Note
-	// that not every submitted offset gets committed. But it is guaranteed
-	// that the most recent offset is committed before `Close` returns.
+	// that not every submitted offset gets committed. Committed offsets are
+	// sent down to the `CommittedOffsets()` channel. The `CommittedOffsets()`
+	// channel has to be read alongside with submitting offsets, otherwise the
+	// partition offset manager will block.
 	SubmitOffset(offset int64, metadata string)
 
-	// CommittedOffsets returns a channel offsets committed to Kafka are sent
-	// down to. The user must read from this channel otherwise a `SubmitOffset`
-	// will eventually block.
+	// CommittedOffsets returns a channel that offsets committed to Kafka are
+	// sent down to. The user must read from this channel otherwise a
+	// `SubmitOffset` will eventually block.
 	CommittedOffsets() <-chan DecoratedOffset
 
 	// Errors returns a read channel of errors that occur during offset
@@ -124,6 +130,9 @@ type PartitionOffsetManager interface {
 	// Close stops the PartitionOffsetManager from managing offsets. It is
 	// required to call this function before a PartitionOffsetManager object
 	// passes out of scope, as it will otherwise leak memory.
+	//
+	// It is guaranteed that the most recent offset is committed before `Close`
+	// returns.
 	Close()
 }
 
@@ -220,15 +229,22 @@ func (pom *partitionOffsetMgr) processCommits() {
 		assignedBrokerCommitsCh   chan<- submittedOffset
 		nilOrBrokerCommitsCh      chan<- submittedOffset
 		nilOrReassignRetryTimerCh <-chan time.Time
-		commitTimestamp           time.Time
+		lastCommitTime            time.Time
+		lastErrorTime             time.Time
 	)
 	defer commitTicker.Stop()
-	triggerReassign := func(err error, reason string) {
-		Logger.Printf("<%s> %s: err=(%s)", cid, reason, err)
+	triggerOrScheduleReassign := func(err error, reason string) {
 		pom.reportError(err)
 		assignedBrokerCommitsCh = nil
 		nilOrBrokerCommitsCh = nil
-		pom.om.mapper.workerReassign() <- pom
+		now := time.Now().UTC()
+		if now.Sub(lastErrorTime) > pom.om.config.Consumer.Retry.Backoff {
+			Logger.Printf("<%s> trigger reassign: reason=%s, err=(%s)", cid, reason, err)
+			lastErrorTime = now
+			pom.om.mapper.workerReassign() <- pom
+		} else {
+			Logger.Printf("<%s> schedule reassign: reason=%s, err=(%s)", cid, reason, err)
+		}
 		nilOrReassignRetryTimerCh = time.After(pom.om.config.Consumer.Retry.Backoff)
 	}
 	for {
@@ -236,7 +252,7 @@ func (pom *partitionOffsetMgr) processCommits() {
 		case bw := <-pom.assignmentCh:
 			if bw == nil {
 				assignedBrokerCommitsCh = nil
-				nilOrReassignRetryTimerCh = time.After(pom.om.config.Consumer.Retry.Backoff)
+				triggerOrScheduleReassign(ErrOffsetMgrNoCoordinator, "retry reassignment")
 				continue
 			}
 			bom := bw.(*brokerOffsetMgr)
@@ -244,13 +260,13 @@ func (pom *partitionOffsetMgr) processCommits() {
 			assignedBrokerCommitsCh = bom.submittedOffsetsCh
 
 			if !initialOffsetFetched {
-				fo, err := pom.fetchInitialOffset(bom.conn)
+				initialOffset, err := pom.fetchInitialOffset(bom.conn)
 				if err != nil {
-					triggerReassign(err, "failed to fetch initial offset")
+					triggerOrScheduleReassign(err, "failed to fetch initial offset")
 					continue
 				}
-				pom.initialOffsetCh <- fo
-				Logger.Printf("<%s> initial offset fetched: offset=%d, metadata=%s", cid, fo.Offset, fo.Metadata)
+				pom.initialOffsetCh <- initialOffset
+				close(pom.initialOffsetCh)
 				initialOffsetFetched = true
 			}
 			if isDirty {
@@ -273,13 +289,13 @@ func (pom *partitionOffsetMgr) processCommits() {
 			nilOrBrokerCommitsCh = nil
 			isDirty = false
 			if !isPending {
-				isPending, commitTimestamp = true, time.Now().UTC()
+				isPending, lastCommitTime = true, time.Now().UTC()
 			}
 		case cr := <-commitResultCh:
 			isPending = false
 			if err := pom.getCommitError(cr.response); err != nil {
 				isDirty = true
-				triggerReassign(err, "offset commit failed")
+				triggerOrScheduleReassign(err, "offset commit failed")
 				continue
 			}
 			pom.committedOffsetsCh <- DecoratedOffset{cr.offsetCommit.offset, cr.offsetCommit.metadata}
@@ -287,12 +303,14 @@ func (pom *partitionOffsetMgr) processCommits() {
 				return
 			}
 		case <-commitTicker.C:
-			if isPending && time.Now().UTC().Sub(commitTimestamp) > pom.om.config.Consumer.Offsets.Timeout {
+			if isPending && time.Now().UTC().Sub(lastCommitTime) > pom.om.config.Consumer.Offsets.Timeout {
 				isDirty, isPending = true, false
-				triggerReassign(ErrOffsetMgrRequestTimeout, "offset commit failed")
+				triggerOrScheduleReassign(ErrOffsetMgrRequestTimeout, "offset commit failed")
 			}
 		case <-nilOrReassignRetryTimerCh:
-			triggerReassign(ErrOffsetMgrNoCoordinator, "retry reassignment")
+			pom.om.mapper.workerReassign() <- pom
+			Logger.Printf("<%s> reassign triggered by timeout", cid)
+			nilOrReassignRetryTimerCh = time.After(pom.om.config.Consumer.Retry.Backoff)
 		}
 	}
 }
@@ -305,6 +323,10 @@ func (pom *partitionOffsetMgr) fetchInitialOffset(conn *Broker) (DecoratedOffset
 
 	response, err := conn.FetchOffset(request)
 	if err != nil {
+		// In case of network error the connection has to be explicitly closed,
+		// otherwise it won't be re-establish and following requests to this
+		// broker will fail as well.
+		_ = conn.Close()
 		return DecoratedOffset{}, err
 	}
 	block := response.GetBlock(pom.gtp.topic, pom.gtp.partition)
@@ -446,7 +468,9 @@ func (bom *brokerOffsetMgr) executeBatches() {
 
 				res, err := bom.conn.CommitOffset(req)
 				if err != nil {
-					// Make sure the broker connection is closed before notification.
+					// In case of network error the connection has to be
+					// explicitly closed, otherwise it won't be re-establish
+					// and following requests to this broker will fail as well.
 					_ = bom.conn.Close()
 					bom.om.mapper.brokerFailed() <- bom
 					Logger.Printf("<%s> connection failed: err=(%v)", cid, err)

@@ -1,6 +1,7 @@
 package sarama
 
 import (
+	"net"
 	"reflect"
 	"sync"
 	"testing"
@@ -484,6 +485,93 @@ func TestOffsetManagerCommittedChannel(t *testing.T) {
 	}
 	if !reflect.DeepEqual(committedOffsets, []DecoratedOffset{{1005, "bar5"}}) {
 		t.Errorf("Committed more then expected: %v", committedOffsets)
+	}
+
+	om.Close()
+}
+
+// Test a scenario revealed in production https://github.com/mailgun/kafka-pixy/issues/29
+// the problem was that if a connection to the broker was broker on the Kafka
+// side while a partition manager tried to retrieve an initial commit, the later
+// would never try to reestablish connection and get stuck in an infinite loop
+// of unassign->assign of the same broker over and over again.
+func TestOffsetManagerConnectionRestored(t *testing.T) {
+	broker1 := newMockBroker(t, 101)
+	defer broker1.Close()
+	broker2 := newMockBroker(t, 102)
+
+	broker1.SetHandlerByMap(map[string]MockResponse{
+		"MetadataRequest": newMockMetadataResponse(t).
+			SetBroker(broker1.Addr(), broker1.BrokerID()).
+			SetBroker(broker2.Addr(), broker2.BrokerID()),
+		"ConsumerMetadataRequest": newMockConsumerMetadataResponse(t).
+			SetCoordinator("group-1", broker2),
+	})
+
+	config := NewConfig()
+	config.Net.ReadTimeout = 100 * time.Millisecond
+	config.Consumer.Return.Errors = true
+	config.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
+	client, err := NewClient([]string{broker1.Addr()}, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	om, err := NewOffsetManagerFromClient(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pom, err := om.ManagePartition("group-1", "topic-1", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	Logger.Printf("    GIVEN 1")
+	// Make sure the partition offset manager established connection with broker2.
+	oce := &OffsetCommitError{}
+	select {
+	case oce = <-pom.Errors():
+	case <-time.After(200 * time.Millisecond):
+	}
+	if _, ok := oce.Err.(*net.OpError); !ok {
+		t.Errorf("Unexpected or no error: err=%v", oce.Err)
+	}
+
+	Logger.Printf("    GIVEN 2")
+	// Close both broker2 and the partition offset manager. That will break
+	// client connection with broker2 from the broker end.
+	pom.Close()
+	broker2.Close()
+
+	Logger.Printf("    GIVEN 3")
+	// Simulate broker restart. Make sure that the new instances listens on the
+	// same port as the old one.
+	broker2_2 := newMockBrokerAddr(t, broker2.brokerID, broker2.Addr())
+	broker2_2.SetHandlerByMap(map[string]MockResponse{
+		"OffsetFetchRequest": newMockOffsetFetchResponse(t).
+			SetOffset("group-1", "topic-1", 7, 1000, "foo", ErrNoError),
+		"OffsetCommitRequest": newMockOffsetCommitResponse(t).
+			SetError("group-1", "topic-1", 7, ErrNoError),
+	})
+
+	Logger.Printf("    WHEN")
+	// Create a partition offset manager for the same topic partition as before.
+	// It will be assigned the broken connection to broker2.
+	pom, err = om.ManagePartition("group-1", "topic-1", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	Logger.Printf("    THEN")
+	// Then: the new partition offset manager re-establishes connection with
+	// broker2 and successfully retrieves the initial offset.
+	var do DecoratedOffset
+	select {
+	case do = <-pom.InitialOffset():
+	case oce = <-pom.Errors():
+	case <-time.After(200 * time.Millisecond):
+	}
+	if do.Offset != 1000 {
+		t.Errorf("Failed to retrieve initial offset: %s", oce.Err)
 	}
 
 	om.Close()
