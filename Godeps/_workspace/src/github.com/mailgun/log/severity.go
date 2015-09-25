@@ -9,18 +9,27 @@ type Severity int32
 
 // Supported severities.
 const (
-	SeverityInfo Severity = iota
+	SeverityDebug Severity = iota
+	SeverityInfo
 	SeverityWarning
 	SeverityError
 )
 
-var severityNames = []string{"INFO", "WARN", "ERROR"}
+var severityNames = []string{"DEBUG", "INFO", "WARN", "ERROR"}
 
 func (s Severity) String() string {
+	if int(s) < 0 || int(s) >= len(severityNames) {
+		return "UNKNOWN"
+	}
 	return severityNames[s]
 }
 
-func severityFromString(s string) (Severity, error) {
+func SeverityFromString(s string) (Severity, error) {
+	// Treat empty severity string as INFO to preserve backwards compatibility
+	// with older configs that did not have that parameter.
+	if s == "" {
+		return SeverityInfo, nil
+	}
 	s = strings.ToUpper(s)
 	for idx, name := range severityNames {
 		if name == s {

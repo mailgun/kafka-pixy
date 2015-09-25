@@ -19,16 +19,16 @@ func InitLibraryLoggers() {
 type loggerProxy struct{}
 
 func (sl *loggerProxy) Print(v ...interface{}) {
-	log.Infof(fmt.Sprint(v...))
+	log.Logfmt(1, log.SeverityInfo, fmt.Sprint(v...))
 }
 
 func (sl *loggerProxy) Printf(format string, v ...interface{}) {
 	if len(format) > 0 && format[len(format)-1] == '\n' {
 		format = format[:len(format)-1]
 	}
-	log.Infof(format, v...)
+	log.Logfmt(1, log.SeverityInfo, format, v...)
 }
 
 func (sl *loggerProxy) Println(v ...interface{}) {
-	log.Infof(fmt.Sprint(v...))
+	log.Logfmt(1, log.SeverityInfo, fmt.Sprint(v...))
 }
