@@ -93,6 +93,7 @@ func (c *Config) saramaConfig() *sarama.Config {
 	saramaConfig.Producer.Flush.Frequency = 500 * time.Millisecond
 	saramaConfig.Producer.Flush.Bytes = 1024 * 1024
 	saramaConfig.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
+	saramaConfig.Consumer.Retry.Backoff = c.Consumer.BackOffTimeout
 	saramaConfig.ChannelBufferSize = c.ChannelBufferSize
 	return saramaConfig
 }
@@ -101,7 +102,13 @@ func (c *Config) saramaConfig() *sarama.Config {
 func (c *Config) kazooConfig() *kazoo.Config {
 	kazooConfig := kazoo.NewConfig()
 	kazooConfig.Chroot = c.ZooKeeper.Chroot
-	kazooConfig.Timeout = 1 * time.Second
+	// ZooKeeper documentation says following about the session timeout: "The
+	// current (ZooKeeper) implementation requires that the timeout be a
+	// minimum of 2 times the tickTime (as set in the server configuration) and
+	// a maximum of 20 times the tickTime". The default tickTime is 2 seconds.
+	//
+	// See http://zookeeper.apache.org/doc/trunk/zookeeperProgrammers.html#ch_zkSessions
+	kazooConfig.Timeout = 15 * time.Second
 	return kazooConfig
 }
 
