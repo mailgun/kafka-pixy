@@ -18,11 +18,12 @@ const (
 )
 
 var (
-	pixyAddr string
-	group    string
-	topic    string
-	threads  int
-	count    int
+	pixyAddr    string
+	group       string
+	topic       string
+	threads     int
+	count       int
+	waitForMore bool
 )
 
 func init() {
@@ -31,6 +32,7 @@ func init() {
 	flag.StringVar(&topic, "topic", "test", "the name of the topic")
 	flag.IntVar(&threads, "threads", 1, "number of concurrent producer threads")
 	flag.IntVar(&count, "count", 10000, "number of messages to consume")
+	flag.BoolVar(&waitForMore, "wait", false, "should wait for more messages when the end of the topic is reached")
 	flag.Parse()
 }
 
@@ -88,6 +90,9 @@ func main() {
 					}
 					res.Body.Close()
 					if res.StatusCode == http.StatusRequestTimeout {
+						if waitForMore {
+							continue
+						}
 						break
 					}
 					if res.StatusCode != http.StatusOK {
