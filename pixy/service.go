@@ -72,12 +72,15 @@ type Config struct {
 func NewConfig() *Config {
 	config := &Config{}
 	config.ClientID = newClientID()
+	config.ChannelBufferSize = 256
+
 	config.Producer.ShutdownTimeout = 30 * time.Second
+
 	config.Consumer.LongPollingTimeout = 3 * time.Second
 	config.Consumer.RegistrationTimeout = 20 * time.Second
 	config.Consumer.BackOffTimeout = 500 * time.Millisecond
 	config.Consumer.RebalanceDelay = 250 * time.Millisecond
-	config.ChannelBufferSize = 256
+
 	return config
 }
 
@@ -85,16 +88,20 @@ func NewConfig() *Config {
 func (c *Config) saramaConfig() *sarama.Config {
 	saramaConfig := sarama.NewConfig()
 	saramaConfig.ClientID = c.ClientID
+	saramaConfig.ChannelBufferSize = c.ChannelBufferSize
+
 	saramaConfig.Producer.RequiredAcks = sarama.WaitForAll
 	saramaConfig.Producer.Return.Successes = true
 	saramaConfig.Producer.Return.Errors = true
 	saramaConfig.Producer.Compression = sarama.CompressionSnappy
-	saramaConfig.Producer.Retry.Backoff = time.Second
+	saramaConfig.Producer.Retry.Backoff = 2 * time.Second
+	saramaConfig.Producer.Retry.Max = 5
 	saramaConfig.Producer.Flush.Frequency = 500 * time.Millisecond
 	saramaConfig.Producer.Flush.Bytes = 1024 * 1024
+
 	saramaConfig.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
 	saramaConfig.Consumer.Retry.Backoff = c.Consumer.BackOffTimeout
-	saramaConfig.ChannelBufferSize = c.ChannelBufferSize
+
 	return saramaConfig
 }
 
