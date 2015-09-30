@@ -1,6 +1,6 @@
 {
 	"ImportPath": "github.com/mailgun/kafka-pixy",
-	"GoVersion": "go1.5",
+	"GoVersion": "go1.5.1",
 	"Packages": [
 		"./..."
 	],
@@ -36,6 +36,10 @@
 			"Rev": "a5d1ea1c7bb4ad05a27df06491071dd6d45d1a08"
 		},
 		{
+			"ImportPath": "github.com/mailgun/go-zookeeper/zk",
+			"Rev": "913027ed60abbe2436b35cf960193b06b00105cf"
+		},
+		{
 			"ImportPath": "github.com/mailgun/log",
 			"Rev": "2f35a4607f1abf71f97f77f99b0de8493ef6f4ef"
 		},
@@ -46,12 +50,8 @@
 		},
 		{
 			"ImportPath": "github.com/mailgun/sarama",
-			"Comment": "v1.6.0-8-g3dac015",
-			"Rev": "3dac0154cedb57a3ec77802f483c7a2bfa81e943"
-		},
-		{
-			"ImportPath": "github.com/samuel/go-zookeeper/zk",
-			"Rev": "177002e16a0061912f02377e2dd8951a8b3551bc"
+			"Comment": "v1.6.0-4-g2309ec0",
+			"Rev": "2309ec08959cf8cfb6d2fef630ffae2e9428a6ee"
 		},
 		{
 			"ImportPath": "github.com/wvanbergen/kazoo-go",

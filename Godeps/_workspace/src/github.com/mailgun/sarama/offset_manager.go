@@ -230,7 +230,7 @@ func (pom *partitionOffsetMgr) processCommits() {
 		nilOrBrokerCommitsCh      chan<- submittedOffset
 		nilOrReassignRetryTimerCh <-chan time.Time
 		lastCommitTime            time.Time
-		lastErrorTime             time.Time
+		lastReassignTime          time.Time
 	)
 	defer commitTicker.Stop()
 	triggerOrScheduleReassign := func(err error, reason string) {
@@ -238,9 +238,9 @@ func (pom *partitionOffsetMgr) processCommits() {
 		assignedBrokerCommitsCh = nil
 		nilOrBrokerCommitsCh = nil
 		now := time.Now().UTC()
-		if now.Sub(lastErrorTime) > pom.om.config.Consumer.Retry.Backoff {
+		if now.Sub(lastReassignTime) > pom.om.config.Consumer.Retry.Backoff {
 			Logger.Printf("<%s> trigger reassign: reason=%s, err=(%s)", cid, reason, err)
-			lastErrorTime = now
+			lastReassignTime = now
 			pom.om.mapper.workerReassign() <- pom
 		} else {
 			Logger.Printf("<%s> schedule reassign: reason=%s, err=(%s)", cid, reason, err)

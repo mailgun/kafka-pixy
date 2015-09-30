@@ -285,26 +285,37 @@ func (pc *partitionConsumer) assignment() chan<- brokerExecutor {
 func (pc *partitionConsumer) pullMessages() {
 	cid := pc.baseCID.NewChild("pullMessages")
 	defer cid.LogScope()()
-
-	var assignedFetchRequestCh chan<- *partitionConsumer
-	var nilOrFetchRequestsCh chan<- *partitionConsumer
-	var nilOrFetchResultsCh <-chan *fetchResult
-	var nilOrMessagesCh chan<- *ConsumerMessage
-	var nilOrReassignRetryTimerCh <-chan time.Time
-
-	var fetchedMessages []*ConsumerMessage
-	var err error
-	var currMessage *ConsumerMessage
-	var currMessageIdx int
-
+	var (
+		assignedFetchRequestCh    chan<- *partitionConsumer
+		nilOrFetchRequestsCh      chan<- *partitionConsumer
+		nilOrFetchResultsCh       <-chan *fetchResult
+		nilOrMessagesCh           chan<- *ConsumerMessage
+		nilOrReassignRetryTimerCh <-chan time.Time
+		fetchedMessages           []*ConsumerMessage
+		err                       error
+		currMessage               *ConsumerMessage
+		currMessageIdx            int
+		lastReassignTime          time.Time
+	)
+	triggerOrScheduleReassign := func(reason string) {
+		assignedFetchRequestCh = nil
+		now := time.Now().UTC()
+		if now.Sub(lastReassignTime) > pc.consumer.config.Consumer.Retry.Backoff {
+			Logger.Printf("<%s> trigger reassign: reason=(%s)", cid, reason)
+			lastReassignTime = now
+			pc.consumer.mapper.workerReassign() <- pc
+		} else {
+			Logger.Printf("<%s> schedule reassign: reason=(%s)", cid, reason)
+		}
+		nilOrReassignRetryTimerCh = time.After(pc.consumer.config.Consumer.Retry.Backoff)
+	}
 pullMessagesLoop:
 	for {
 		select {
 		case bw := <-pc.assignmentCh:
 			Logger.Printf("<%s> assigned %s", cid, bw)
 			if bw == nil {
-				assignedFetchRequestCh = nil
-				nilOrReassignRetryTimerCh = time.After(pc.consumer.config.Consumer.Retry.Backoff)
+				triggerOrScheduleReassign("no broker assigned")
 				continue pullMessagesLoop
 			}
 			bc := bw.(*brokerConsumer)
@@ -332,10 +343,7 @@ pullMessagesLoop:
 					// same way, therefore is nothing to do but give up.
 					goto done
 				}
-				// Trigger reassign and set a retry timer.
-				pc.consumer.mapper.workerReassign() <- pc
-				assignedFetchRequestCh = nil
-				nilOrReassignRetryTimerCh = time.After(pc.consumer.config.Consumer.Retry.Backoff)
+				triggerOrScheduleReassign("fetch error")
 				continue pullMessagesLoop
 			}
 			// If no messages has been fetched, then trigger another request.
@@ -360,9 +368,8 @@ pullMessagesLoop:
 			nilOrFetchRequestsCh = assignedFetchRequestCh
 
 		case <-nilOrReassignRetryTimerCh:
-			// Trigger reassign and set a timer for the next retry.
-			Logger.Printf("<%s> reassignment is triggered by timeout", cid)
 			pc.consumer.mapper.workerReassign() <- pc
+			Logger.Printf("<%s> reassign triggered by timeout", cid)
 			nilOrReassignRetryTimerCh = time.After(pc.consumer.config.Consumer.Retry.Backoff)
 
 		case <-pc.closingCh:

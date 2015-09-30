@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/go-zookeeper/zk"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/samuel/go-zookeeper/zk"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/wvanbergen/kazoo-go"
 )
 
@@ -111,10 +111,12 @@ watchLoop:
 			func() error {
 				var err error
 				members, membershipChangedCh, err = cgr.groupZNode.WatchInstances()
-				// FIXME: Sometimes for unknown reason an empty member list is
-				// FIXME: retrieved along with `nil` error. It is probably a bug
-				// FIXME: in `github.com/wvanbergen/kazoo-go`. A workaround is
-				// FIXME: applied here, but the issue should be properly fixed.
+				// FIXME: Empty member list means that our ZooKeeper session
+				// FIXME: has expired. That can be a result of a severe network
+				// FIXME: interruption. When a session expires, it means that
+				// FIXME: other Kafka-Pixy instance will be able to claim same
+				// FIXME: partitions, so we should immediately stop consuming
+				// FIXME: them to avoid duplicate consumption.
 				if len(members) == 0 {
 					return fmt.Errorf("empty members retrieved")
 				}
