@@ -39,34 +39,20 @@ const (
 // Admin provides methods to perform miscellaneous administrative operations
 // on the Kafka cluster.
 type Admin struct {
-	config        *Config
-	kafkaClient   sarama.Client
-	zookeeperConn *zk.Conn
+	config *Config
 }
 
 // SpawnAdmin creates an `Admin` instance with the specified configuration and
 // starts internal goroutines to support its operation.
 func SpawnAdmin(config *Config) (*Admin, error) {
-	kafkaClient, err := sarama.NewClient(config.Kafka.SeedPeers, config.saramaConfig())
-	if err != nil {
-		return nil, ErrAdminSetup(fmt.Errorf("failed to create sarama.Client: err=(%v)", err))
-	}
-	zookeeperConn, _, err := zk.Connect(config.ZooKeeper.SeedPeers, 1*time.Second)
-	if err != nil {
-		return nil, ErrAdminSetup(fmt.Errorf("failed to create zk.Conn: err=(%v)", err))
-	}
 	a := Admin{
-		config:        config,
-		kafkaClient:   kafkaClient,
-		zookeeperConn: zookeeperConn,
+		config: config,
 	}
 	return &a, nil
 }
 
 // Stop gracefully terminates internal goroutines.
 func (a *Admin) Stop() {
-	a.kafkaClient.Close()
-	a.zookeeperConn.Close()
 }
 
 type PartitionOffset struct {
@@ -86,8 +72,13 @@ type indexedPartition struct {
 // current offset range along with the latest offset and metadata committed by
 // the specified consumer group.
 func (a *Admin) GetGroupOffsets(group, topic string) ([]PartitionOffset, error) {
-	var err error
-	partitions, err := a.kafkaClient.Partitions(topic)
+	kafkaClt, err := sarama.NewClient(a.config.Kafka.SeedPeers, a.config.saramaConfig())
+	if err != nil {
+		return nil, ErrAdminSetup(fmt.Errorf("failed to create sarama.Client: err=(%v)", err))
+	}
+	defer kafkaClt.Close()
+
+	partitions, err := kafkaClt.Partitions(topic)
 	if err != nil {
 		return nil, NewErrAdminQuery(err, "failed to get topic partitions")
 	}
@@ -95,7 +86,7 @@ func (a *Admin) GetGroupOffsets(group, topic string) ([]PartitionOffset, error) 
 	// Figure out distribution of partitions among brokers.
 	brokerToPartitions := make(map[*sarama.Broker][]indexedPartition)
 	for i, p := range partitions {
-		broker, err := a.kafkaClient.Leader(topic, p)
+		broker, err := kafkaClt.Leader(topic, p)
 		if err != nil {
 			return nil, NewErrAdminQuery(err, "failed to get partition leader: partition=%d", p)
 		}
@@ -152,7 +143,7 @@ func (a *Admin) GetGroupOffsets(group, topic string) ([]PartitionOffset, error) 
 	}
 
 	// Fetch the last committed offsets for all partitions of the group/topic.
-	coordinator, err := a.kafkaClient.Coordinator(group)
+	coordinator, err := kafkaClt.Coordinator(group)
 	if err != nil {
 		return nil, NewErrAdminQuery(err, "failed to get coordinator")
 	}
@@ -179,7 +170,13 @@ func (a *Admin) GetGroupOffsets(group, topic string) ([]PartitionOffset, error) 
 // SetGroupOffsets commits specific offset values along with metadata for a list
 // of partitions of a particular topic on behalf of the specified group.
 func (a *Admin) SetGroupOffsets(group, topic string, offsets []PartitionOffset) error {
-	coordinator, err := a.kafkaClient.Coordinator(group)
+	kafkaClt, err := sarama.NewClient(a.config.Kafka.SeedPeers, a.config.saramaConfig())
+	if err != nil {
+		return ErrAdminSetup(fmt.Errorf("failed to create sarama.Client: err=(%v)", err))
+	}
+	defer kafkaClt.Close()
+
+	coordinator, err := kafkaClt.Coordinator(group)
 	if err != nil {
 		return NewErrAdminQuery(err, "failed to get coordinator")
 	}
@@ -203,9 +200,15 @@ func (a *Admin) SetGroupOffsets(group, topic string, offsets []PartitionOffset) 
 // GetTopicConsumers returns client-id -> consumed-partitions-list mapping
 // for a clients from a particular consumer group and a particular topic.
 func (a *Admin) GetTopicConsumers(group, topic string) (map[string][]int32, error) {
+	zookeeperClt, _, err := zk.Connect(a.config.ZooKeeper.SeedPeers, 1*time.Second)
+	if err != nil {
+		return nil, ErrAdminSetup(fmt.Errorf("failed to create zk.Conn: err=(%v)", err))
+	}
+	defer zookeeperClt.Close()
+
 	consumedPartitionsPath := fmt.Sprintf("%s/consumers/%s/owners/%s",
 		a.config.ZooKeeper.Chroot, group, topic)
-	partitionNodes, _, err := a.zookeeperConn.Children(consumedPartitionsPath)
+	partitionNodes, _, err := zookeeperClt.Children(consumedPartitionsPath)
 	if err != nil {
 		if err == zk.ErrNoNode {
 			return nil, ErrAdminInvalidParam(fmt.Errorf("either group or topic is incorrect"))
@@ -220,7 +223,7 @@ func (a *Admin) GetTopicConsumers(group, topic string) (map[string][]int32, erro
 			return nil, NewErrAdminQuery(err, "invalid partition id: %s", partitionNode)
 		}
 		partitionPath := fmt.Sprintf("%s/%s", consumedPartitionsPath, partitionNode)
-		partitionNodeData, _, err := a.zookeeperConn.Get(partitionPath)
+		partitionNodeData, _, err := zookeeperClt.Get(partitionPath)
 		if err != nil {
 			return nil, NewErrAdminQuery(err, "failed to fetch partition owner")
 		}
@@ -239,8 +242,14 @@ func (a *Admin) GetTopicConsumers(group, topic string) (map[string][]int32, erro
 // mapping for a particular topic. Warning, the function performs scan of all
 // consumer groups registered in ZooKeeper and therefore can take a lot of time.
 func (a *Admin) GetAllTopicConsumers(topic string) (map[string]map[string][]int32, error) {
+	zookeeperClt, _, err := zk.Connect(a.config.ZooKeeper.SeedPeers, 1*time.Second)
+	if err != nil {
+		return nil, ErrAdminSetup(fmt.Errorf("failed to create zk.Conn: err=(%v)", err))
+	}
+	defer zookeeperClt.Close()
+
 	groupsPath := fmt.Sprintf("%s/consumers", a.config.ZooKeeper.Chroot)
-	groups, _, err := a.zookeeperConn.Children(groupsPath)
+	groups, _, err := zookeeperClt.Children(groupsPath)
 	if err != nil {
 		return nil, NewErrAdminQuery(err, "failed to fetch consumer groups")
 	}
