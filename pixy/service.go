@@ -72,12 +72,15 @@ type Config struct {
 func NewConfig() *Config {
 	config := &Config{}
 	config.ClientID = newClientID()
+	config.ChannelBufferSize = 256
+
 	config.Producer.ShutdownTimeout = 30 * time.Second
+
 	config.Consumer.LongPollingTimeout = 3 * time.Second
 	config.Consumer.RegistrationTimeout = 20 * time.Second
 	config.Consumer.BackOffTimeout = 500 * time.Millisecond
 	config.Consumer.RebalanceDelay = 250 * time.Millisecond
-	config.ChannelBufferSize = 256
+
 	return config
 }
 
@@ -85,15 +88,20 @@ func NewConfig() *Config {
 func (c *Config) saramaConfig() *sarama.Config {
 	saramaConfig := sarama.NewConfig()
 	saramaConfig.ClientID = c.ClientID
+	saramaConfig.ChannelBufferSize = c.ChannelBufferSize
+
 	saramaConfig.Producer.RequiredAcks = sarama.WaitForAll
 	saramaConfig.Producer.Return.Successes = true
 	saramaConfig.Producer.Return.Errors = true
 	saramaConfig.Producer.Compression = sarama.CompressionSnappy
-	saramaConfig.Producer.Retry.Backoff = time.Second
+	saramaConfig.Producer.Retry.Backoff = 2 * time.Second
+	saramaConfig.Producer.Retry.Max = 5
 	saramaConfig.Producer.Flush.Frequency = 500 * time.Millisecond
 	saramaConfig.Producer.Flush.Bytes = 1024 * 1024
+
 	saramaConfig.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
-	saramaConfig.ChannelBufferSize = c.ChannelBufferSize
+	saramaConfig.Consumer.Retry.Backoff = c.Consumer.BackOffTimeout
+
 	return saramaConfig
 }
 
@@ -101,7 +109,13 @@ func (c *Config) saramaConfig() *sarama.Config {
 func (c *Config) kazooConfig() *kazoo.Config {
 	kazooConfig := kazoo.NewConfig()
 	kazooConfig.Chroot = c.ZooKeeper.Chroot
-	kazooConfig.Timeout = 1 * time.Second
+	// ZooKeeper documentation says following about the session timeout: "The
+	// current (ZooKeeper) implementation requires that the timeout be a
+	// minimum of 2 times the tickTime (as set in the server configuration) and
+	// a maximum of 20 times the tickTime". The default tickTime is 2 seconds.
+	//
+	// See http://zookeeper.apache.org/doc/trunk/zookeeperProgrammers.html#ch_zkSessions
+	kazooConfig.Timeout = 15 * time.Second
 	return kazooConfig
 }
 

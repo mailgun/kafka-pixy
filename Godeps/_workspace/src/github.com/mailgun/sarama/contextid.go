@@ -2,23 +2,30 @@ package sarama
 
 import (
 	"fmt"
-	"sync/atomic"
+	"sync"
 )
 
 type ContextID struct {
-	name      string
-	prevIndex int32
+	path     string
+	counters map[string]int32
+	lock     sync.Mutex
 }
 
-var RootCID = &ContextID{prevIndex: -1}
+var RootCID = &ContextID{}
 
-func (cid *ContextID) NewChild(prefix string) *ContextID {
-	idx := atomic.AddInt32(&cid.prevIndex, 1)
-	return &ContextID{fmt.Sprintf("%s/%s[%d]", cid.name, prefix, idx), -1}
+func (cid *ContextID) NewChild(name string) *ContextID {
+	cid.lock.Lock()
+	if cid.counters == nil {
+		cid.counters = make(map[string]int32)
+	}
+	idx := cid.counters[name]
+	cid.counters[name] = idx + 1
+	cid.lock.Unlock()
+	return &ContextID{path: fmt.Sprintf("%s/%s[%d]", cid.path, name, idx)}
 }
 
 func (cid *ContextID) String() string {
-	return cid.name
+	return cid.path
 }
 
 func (cid *ContextID) LogScope(args ...interface{}) func() {
