@@ -481,7 +481,7 @@ func (pc *partitionConsumer) String() string {
 // a broker consumer alive it is assigned to at least one partition consumer.
 type brokerConsumer struct {
 	baseCID         *ContextID
-	consumer        *consumer
+	config          *Config
 	conn            *Broker
 	requestsCh      chan *partitionConsumer
 	batchRequestsCh chan []*partitionConsumer
@@ -496,7 +496,7 @@ type fetchResult struct {
 func (c *consumer) spawnBrokerExecutor(brokerConn *Broker) brokerExecutor {
 	bc := &brokerConsumer{
 		baseCID:         c.baseCID.NewChild(fmt.Sprintf("broker:%d", brokerConn.ID())),
-		consumer:        c,
+		config:          c.config,
 		conn:            brokerConn,
 		requestsCh:      make(chan *partitionConsumer),
 		batchRequestsCh: make(chan []*partitionConsumer),
@@ -546,42 +546,35 @@ func (bc *brokerConsumer) executeBatches() {
 	cid := bc.baseCID.NewChild("executeBatches")
 	defer cid.LogScope()()
 
-	var fetchErr error
+	var lastErr error
+	var lastErrTime time.Time
 	for fetchRequests := range bc.batchRequestsCh {
+		// Reject consume requests for awhile after a connection failure to
+		// allow the Kafka cluster some time to recuperate.
+		if time.Now().UTC().Sub(lastErrTime) < bc.config.Consumer.Retry.Backoff {
+			for _, pc := range fetchRequests {
+				pc.fetchResultCh <- &fetchResult{nil, lastErr}
+			}
+			continue
+		}
 		// Make a batch fetch request for all hungry partition consumers.
-		request := &FetchRequest{
-			MinBytes:    bc.consumer.config.Consumer.Fetch.Min,
-			MaxWaitTime: int32(bc.consumer.config.Consumer.MaxWaitTime / time.Millisecond),
+		req := &FetchRequest{
+			MinBytes:    bc.config.Consumer.Fetch.Min,
+			MaxWaitTime: int32(bc.config.Consumer.MaxWaitTime / time.Millisecond),
 		}
 		for _, pc := range fetchRequests {
-			request.AddBlock(pc.tp.topic, pc.tp.partition, pc.offset, pc.fetchSize)
+			req.AddBlock(pc.tp.topic, pc.tp.partition, pc.offset, pc.fetchSize)
 		}
-		var response *FetchResponse
-		response, fetchErr = bc.conn.Fetch(request)
-
+		var res *FetchResponse
+		res, lastErr = bc.conn.Fetch(req)
+		if lastErr != nil {
+			lastErrTime = time.Now().UTC()
+			bc.conn.Close()
+			Logger.Printf("<%s> connection reset: err=(%s)", cid, lastErr)
+		}
 		// Fan the response out to the partition consumers.
 		for _, pc := range fetchRequests {
-			pc.fetchResultCh <- &fetchResult{response, fetchErr}
-		}
-
-		// If a request failed then notify the master consumer.
-		if fetchErr != nil {
-			Logger.Printf("<%s> failed to process FetchRequest: err=(%s)", cid, fetchErr)
-			// In case of network error the connection has to be explicitly
-			// closed, otherwise it won't be re-establish and following requests
-			// to this broker will fail as well.
-			bc.conn.Close()
-			bc.consumer.mapper.brokerFailed() <- bc
-			goto rejectRequestsLoop
-		}
-	}
-rejectRequestsLoop:
-	// Wait for the master consumer to redirect all associated partition
-	// consumers to other broker instances. In the mean time keep rejecting
-	// fetch requests with the original fetch error until.
-	for fetchRequests := range bc.batchRequestsCh {
-		for _, pc := range fetchRequests {
-			pc.fetchResultCh <- &fetchResult{nil, fetchErr}
+			pc.fetchResultCh <- &fetchResult{res, lastErr}
 		}
 	}
 }

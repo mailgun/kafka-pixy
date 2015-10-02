@@ -27,7 +27,6 @@ type partition2BrokerMapper struct {
 	workerCreatedCh  chan partitionWorker
 	workerClosedCh   chan partitionWorker
 	workerReassignCh chan partitionWorker
-	brokerFailedCh   chan brokerExecutor
 	assignments      map[partitionWorker]brokerExecutor
 	references       map[brokerExecutor]int
 	connections      map[*Broker]brokerExecutor
@@ -70,7 +69,6 @@ func spawnPartition2BrokerMapper(cid *ContextID, resolver brokerResolver) *parti
 		workerCreatedCh:  make(chan partitionWorker),
 		workerClosedCh:   make(chan partitionWorker),
 		workerReassignCh: make(chan partitionWorker),
-		brokerFailedCh:   make(chan brokerExecutor),
 		assignments:      make(map[partitionWorker]brokerExecutor),
 		references:       make(map[brokerExecutor]int),
 		connections:      make(map[*Broker]brokerExecutor),
@@ -92,10 +90,6 @@ func (m *partition2BrokerMapper) workerReassign() chan<- partitionWorker {
 	return m.workerReassignCh
 }
 
-func (m *partition2BrokerMapper) brokerFailed() chan<- brokerExecutor {
-	return m.brokerFailedCh
-}
-
 func (m *partition2BrokerMapper) close() {
 	close(m.closingCh)
 	m.wg.Wait()
@@ -105,7 +99,6 @@ type mappingChange struct {
 	created  map[partitionWorker]none
 	outdated map[partitionWorker]none
 	closed   map[partitionWorker]none
-	failed   map[brokerExecutor]none
 }
 
 func (m *partition2BrokerMapper) newMappingChange() *mappingChange {
@@ -113,17 +106,16 @@ func (m *partition2BrokerMapper) newMappingChange() *mappingChange {
 		created:  make(map[partitionWorker]none),
 		outdated: make(map[partitionWorker]none),
 		closed:   make(map[partitionWorker]none),
-		failed:   make(map[brokerExecutor]none),
 	}
 }
 
 func (mc *mappingChange) isEmtpy() bool {
-	return len(mc.created) == 0 && len(mc.outdated) == 0 && len(mc.closed) == 0 && len(mc.failed) == 0
+	return len(mc.created) == 0 && len(mc.outdated) == 0 && len(mc.closed) == 0
 }
 
 func (mc *mappingChange) String() string {
-	return fmt.Sprintf("{created=%d, outdated=%d, closed=%d, failed=%d}",
-		len(mc.created), len(mc.outdated), len(mc.closed), len(mc.failed))
+	return fmt.Sprintf("{created=%d, outdated=%d, closed=%d}",
+		len(mc.created), len(mc.outdated), len(mc.closed))
 }
 
 // watch4Changes listens for mapping affecting signals, batches them into
@@ -148,9 +140,6 @@ func (m *partition2BrokerMapper) watch4Changes() {
 
 		case pw := <-m.workerReassignCh:
 			change.outdated[pw] = nothing
-
-		case be := <-m.brokerFailedCh:
-			change.failed[be] = nothing
 
 		case <-nilOrRedispatchDoneCh:
 			nilOrRedispatchDoneCh = nil
@@ -194,17 +183,6 @@ func (m *partition2BrokerMapper) reassign(parentGid *ContextID, change *mappingC
 		if _, ok := m.assignments[pw]; !ok {
 			delete(change.outdated, pw)
 		}
-	}
-	// Mark a partition worker as outdated if it has a failed broker assigned.
-	for pw, be := range m.assignments {
-		if _, ok := change.failed[be]; ok {
-			change.outdated[pw] = nothing
-		}
-	}
-	// For each failed broker break its association with a broker connection,
-	// so that during resolution a new broker executor is spawned for the connection.
-	for be := range change.failed {
-		delete(m.connections, be.brokerConn())
 	}
 	// Run resolution for the created and outdated partition workers.
 	for pw := range change.created {
