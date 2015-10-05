@@ -410,6 +410,7 @@ func TestOffsetManagerCommitNetworkError(t *testing.T) {
 	<-pom3.Errors()
 
 	// When
+	time.Sleep(config.Consumer.Retry.Backoff * 2)
 	Logger.Printf("*** Network recovering...")
 	broker1.SetHandlerByMap(map[string]MockResponse{
 		"ConsumerMetadataRequest": newMockConsumerMetadataResponse(t).
@@ -541,6 +542,7 @@ func TestOffsetManagerConnectionRestored(t *testing.T) {
 	// client connection with broker2 from the broker end.
 	pom.Close()
 	broker2.Close()
+	time.Sleep(config.Consumer.Retry.Backoff * 2)
 
 	Logger.Printf("    GIVEN 3")
 	// Simulate broker restart. Make sure that the new instances listens on the

@@ -386,7 +386,7 @@ type commitResult struct {
 // and periodically commits them to Kafka.
 type brokerOffsetMgr struct {
 	baseCID            *ContextID
-	om                 *offsetManager
+	config             *Config
 	conn               *Broker
 	submittedOffsetsCh chan submittedOffset
 	offsetBatches      chan map[string]map[groupTopicPartition]submittedOffset
@@ -396,7 +396,7 @@ type brokerOffsetMgr struct {
 func (om *offsetManager) spawnBrokerExecutor(brokerConn *Broker) brokerExecutor {
 	bom := &brokerOffsetMgr{
 		baseCID:            om.baseCID.NewChild(fmt.Sprintf("broker:%d", brokerConn.ID())),
-		om:                 om,
+		config:             om.config,
 		conn:               brokerConn,
 		submittedOffsetsCh: make(chan submittedOffset),
 		offsetBatches:      make(chan map[string]map[groupTopicPartition]submittedOffset),
@@ -446,8 +446,11 @@ func (bom *brokerOffsetMgr) executeBatches() {
 	defer cid.LogScope()()
 
 	var nilOrOffsetBatchesCh chan map[string]map[groupTopicPartition]submittedOffset
-	commitTicker := time.NewTicker(bom.om.config.Consumer.Offsets.CommitInterval)
+	var lastErr error
+	var lastErrTime time.Time
+	commitTicker := time.NewTicker(bom.config.Consumer.Offsets.CommitInterval)
 	defer commitTicker.Stop()
+offsetCommitLoop:
 	for {
 		select {
 		case <-commitTicker.C:
@@ -456,6 +459,13 @@ func (bom *brokerOffsetMgr) executeBatches() {
 			if !ok {
 				return
 			}
+			// Ignore submit requests for awhile after a connection failure to
+			// allow the Kafka cluster some time to recuperate. Ignored requests
+			// will be retried by originating partition offset managers.
+			if time.Now().UTC().Sub(lastErrTime) < bom.config.Consumer.Retry.Backoff {
+				continue offsetCommitLoop
+			}
+
 			nilOrOffsetBatchesCh = nil
 			for group, groupOffsets := range batchedOffsets {
 				req := &OffsetCommitRequest{
@@ -465,18 +475,15 @@ func (bom *brokerOffsetMgr) executeBatches() {
 				for _, so := range groupOffsets {
 					req.AddBlock(so.gtp.topic, so.gtp.partition, so.offset, ReceiveTime, so.metadata)
 				}
-
-				res, err := bom.conn.CommitOffset(req)
-				if err != nil {
-					// In case of network error the connection has to be
-					// explicitly closed, otherwise it won't be re-establish
-					// and following requests to this broker will fail as well.
-					_ = bom.conn.Close()
-					bom.om.mapper.brokerFailed() <- bom
-					Logger.Printf("<%s> connection failed: err=(%v)", cid, err)
-					return
+				var res *OffsetCommitResponse
+				res, lastErr = bom.conn.CommitOffset(req)
+				if lastErr != nil {
+					lastErrTime = time.Now().UTC()
+					bom.conn.Close()
+					Logger.Printf("<%s> connection reset: err=(%v)", cid, lastErr)
+					continue offsetCommitLoop
 				}
-
+				// Fan the response out to the partition offset managers.
 				for _, so := range groupOffsets {
 					so.resultCh <- commitResult{so, res}
 				}
