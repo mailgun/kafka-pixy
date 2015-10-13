@@ -277,38 +277,17 @@ func (gc *groupConsumer) rebalance(topicConsumers map[string]*topicConsumer,
 	cid := gc.baseCID.NewChild("rebalance")
 	defer cid.LogScope(topicConsumers, memberSubscriptions)()
 
-	// Convert subscriber->topics to topic->subscribers map.
-	topicSubscribers := make(map[string][]string)
-	for memberID, topics := range memberSubscriptions {
-		for _, topic := range topics {
-			topicSubscribers[topic] = append(topicSubscribers[topic], memberID)
-		}
-	}
-	// Create a set of topics this consumer group member subscribed to.
-	subscribedTopics := make(map[string]bool)
-	for _, topic := range memberSubscriptions[gc.config.ClientID] {
-		subscribedTopics[topic] = true
-	}
-	// Resolve new partition assignments for the subscribed topics.
-	assignments := make(map[string]map[int32]bool)
-	for topic := range subscribedTopics {
-		topicPartitions, err := gc.kafkaClient.Partitions(topic)
-		if err != nil {
-			log.Errorf("<%s> failed to get partition list: topic=%s, err=(%s)", cid, topic, err)
-			rebalanceResultCh <- err
-			return
-		}
-		groupAssignments := resolveAssignments(topicPartitions, topicSubscribers[topic])
-		topicAssignments := groupAssignments[gc.config.ClientID]
-		log.Infof("<%s> partitions assigned: topic=%s, my=%v, all=%v", cid, topic, topicAssignments, groupAssignments)
-		assignments[topic] = topicAssignments
+	assignedPartitions, err := gc.resolvePartitions(memberSubscriptions)
+	if err != nil {
+		rebalanceResultCh <- err
+		return
 	}
 	// Stop partition consumers that are no longer assigned to this group member.
 	var wg sync.WaitGroup
 	for topic, topicExclusiveConsumers := range gc.exclusiveConsumers {
-		topicAssignments := assignments[topic]
+		assignedTopicPartitions := assignedPartitions[topic]
 		for partition, ec := range topicExclusiveConsumers {
-			if !topicAssignments[partition] {
+			if !assignedTopicPartitions[partition] {
 				delete(topicExclusiveConsumers, partition)
 				spawn(&wg, ec.stop)
 			}
@@ -316,17 +295,18 @@ func (gc *groupConsumer) rebalance(topicConsumers map[string]*topicConsumer,
 	}
 	wg.Wait()
 	// Spawn consumers for just assigned partitions.
-	for topic, topicAssignments := range assignments {
+	for topic, assignedTopicPartitions := range assignedPartitions {
+		log.Infof("<%s> assigned: topic=%s, partitions=%v", cid, topic, assignedTopicPartitions)
 		tc := topicConsumers[topic]
 		if tc == nil {
 			continue
 		}
 		topicExclusiveConsumers := gc.exclusiveConsumers[topic]
 		if topicExclusiveConsumers == nil {
-			topicExclusiveConsumers = make(map[int32]*exclusiveConsumer, len(topicAssignments))
+			topicExclusiveConsumers = make(map[int32]*exclusiveConsumer, len(assignedTopicPartitions))
 			gc.exclusiveConsumers[topic] = topicExclusiveConsumers
 		}
-		for partition := range topicAssignments {
+		for partition := range assignedTopicPartitions {
 			if _, ok := topicExclusiveConsumers[partition]; !ok {
 				ec := gc.spawnExclusiveConsumer(tc, partition)
 				topicExclusiveConsumers[partition] = ec
@@ -338,50 +318,82 @@ func (gc *groupConsumer) rebalance(topicConsumers map[string]*topicConsumer,
 	return
 }
 
+// resolvePartitions takes a `subscriber->topics` map and returns a
+// `topic->partitions` map that for every consumed topic tells what partitions
+// this consumer group instance is responsible for.
+func (gc *groupConsumer) resolvePartitions(subscribersToTopics map[string][]string) (
+	assignedPartitions map[string]map[int32]bool, err error) {
+
+	// Convert subscribers->topics to topic->subscribers map.
+	topicsToSubscribers := make(map[string][]string)
+	for subscriberID, topics := range subscribersToTopics {
+		for _, topic := range topics {
+			topicsToSubscribers[topic] = append(topicsToSubscribers[topic], subscriberID)
+		}
+	}
+	// Create a set of topics this consumer group member subscribed to.
+	subscribedTopics := make(map[string]bool)
+	for _, topic := range subscribersToTopics[gc.config.ClientID] {
+		subscribedTopics[topic] = true
+	}
+	// Resolve new partition assignments for the subscribed topics.
+	assignedPartitions = make(map[string]map[int32]bool)
+	for topic := range subscribedTopics {
+		topicPartitions, err := gc.kafkaClient.Partitions(topic)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get partition list: topic=%s, err=(%s)", topic, err)
+		}
+		partitionsToSubscribers := assignPartitionsToSubscribers(topicPartitions, topicsToSubscribers[topic])
+		assignedTopicPartitions := partitionsToSubscribers[gc.config.ClientID]
+		assignedPartitions[topic] = assignedTopicPartitions
+	}
+	return assignedPartitions, nil
+}
+
+// assignPartitionsToSubscribers does what the name says. The algorithm used
+// closely resembles the algorithm implemented by the standard Java High-Level
+// consumer (see http://kafka.apache.org/documentation.html#distributionimpl
+// and scroll down to *Consumer registration algorithm*) except it does not take
+// in account how partitions are distributed among brokers.
+func assignPartitionsToSubscribers(partitions []int32, subscribers []string) map[string]map[int32]bool {
+	partitionCount := len(partitions)
+	subscriberCount := len(subscribers)
+	if partitionCount == 0 || subscriberCount == 0 {
+		return nil
+	}
+	sort.Sort(Int32Slice(partitions))
+	sort.Sort(sort.StringSlice(subscribers))
+
+	partitionsToSubscribers := make(map[string]map[int32]bool, subscriberCount)
+	partitionsPerSubscriber := partitionCount / subscriberCount
+	extra := partitionCount - subscriberCount*partitionsPerSubscriber
+
+	begin := 0
+	for _, subscriberID := range subscribers {
+		end := begin + partitionsPerSubscriber
+		if extra != 0 {
+			end++
+			extra--
+		}
+		for _, partition := range partitions[begin:end] {
+			topicAssignments := partitionsToSubscribers[subscriberID]
+			if topicAssignments == nil {
+				topicAssignments = make(map[int32]bool, partitionCount)
+				partitionsToSubscribers[subscriberID] = topicAssignments
+			}
+			partitionsToSubscribers[subscriberID][partition] = true
+		}
+		begin = end
+	}
+	return partitionsToSubscribers
+}
+
 func listTopics(topicConsumers map[string]*topicConsumer) []string {
 	topics := make([]string, 0, len(topicConsumers))
 	for topic := range topicConsumers {
 		topics = append(topics, topic)
 	}
 	return topics
-}
-
-// resolveAssignments assigns partitions to the group members. The algorithm
-// used closely resembles the algorithm implemented by the standard Java
-// High-Level consumer (see http://kafka.apache.org/documentation.html#distributionimpl
-// and scroll down to *Consumer registration algorithm*) except it does not take
-// in account how partitions are distributed among brokers.
-func resolveAssignments(partitions []int32, members []string) map[string]map[int32]bool {
-	partitionCount := len(partitions)
-	memberCount := len(members)
-	if partitionCount == 0 || memberCount == 0 {
-		return nil
-	}
-	sort.Sort(Int32Slice(partitions))
-	sort.Sort(sort.StringSlice(members))
-
-	assignments := make(map[string]map[int32]bool, memberCount)
-	partitionsPerMember := partitionCount / memberCount
-	extra := partitionCount - memberCount*partitionsPerMember
-
-	begin := 0
-	for _, memberID := range members {
-		end := begin + partitionsPerMember
-		if extra != 0 {
-			end++
-			extra--
-		}
-		for _, partition := range partitions[begin:end] {
-			topicAssignments := assignments[memberID]
-			if topicAssignments == nil {
-				topicAssignments = make(map[int32]bool, partitionCount)
-				assignments[memberID] = topicAssignments
-			}
-			assignments[memberID][partition] = true
-		}
-		begin = end
-	}
-	return assignments
 }
 
 // topicConsumer implements a consumer request dispatch tier responsible for
