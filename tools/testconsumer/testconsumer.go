@@ -14,7 +14,9 @@ import (
 )
 
 const (
-	reportingPeriod = 1 * time.Second
+	reportingPeriod    = 5 * time.Second
+	backOffTimeout     = 3 * time.Second
+	longPollingTimeout = 4 * time.Second
 )
 
 var (
@@ -42,93 +44,176 @@ type progress struct {
 }
 
 func main() {
+	mf := SpawnMessageFetcher(pixyAddr, topic, group)
 	progressCh := make(chan progress)
-
-	useUnixDomainSocket := false
-	var baseURL string
-	if strings.HasPrefix(pixyAddr, "/") {
-		fmt.Printf("Using UDS client for %s\n", pixyAddr)
-		baseURL = "http://_"
-		useUnixDomainSocket = true
-	} else {
-		fmt.Printf("Using net client for %s\n", pixyAddr)
-		baseURL = fmt.Sprintf("http://%s", pixyAddr)
-	}
-	URL := fmt.Sprintf("%s/topics/%s/messages?group=%s", baseURL, topic, group)
-
 	go func() {
 		var wg sync.WaitGroup
 		chunkSize := count / threads
 		for i := 0; i < threads; i++ {
-			messageIndexBegin := chunkSize * i
-			messageIndexEnd := messageIndexBegin + chunkSize
-			if count-messageIndexEnd < chunkSize {
-				messageIndexEnd = count
-			}
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 
-				var clt http.Client
-				if useUnixDomainSocket {
-					dial := func(proto, addr string) (net.Conn, error) {
-						return net.Dial("unix", pixyAddr)
-					}
-					clt.Transport = &http.Transport{Dial: dial}
-				}
-
 				var recentProgress progress
 				checkpoint := time.Now()
-				for i := messageIndexBegin; i < messageIndexEnd; i++ {
-					res, err := clt.Get(URL)
-					if err != nil {
-						panic(err)
-					}
-					body, err := ioutil.ReadAll(res.Body)
-					if err != nil {
-						panic(err)
-					}
-					res.Body.Close()
-					if res.StatusCode == http.StatusRequestTimeout {
+				for j := 1; j < chunkSize; j++ {
+					select {
+					case msg, ok := <-mf.Messages():
+						if !ok {
+							goto done
+						}
+
+						recentProgress.count += 1
+						recentProgress.bytes += int64(len(msg))
+						now := time.Now()
+						if now.Sub(checkpoint) > reportingPeriod {
+							checkpoint = now
+							progressCh <- recentProgress
+							recentProgress.count, recentProgress.bytes = 0, 0
+						}
+					case <-time.After(longPollingTimeout):
 						if waitForMore {
 							continue
 						}
-						break
-					}
-					if res.StatusCode != http.StatusOK {
-						panic(fmt.Sprintf("%d %s", res.StatusCode, body))
-					}
-					recentProgress.count += 1
-					recentProgress.bytes += int64(len(body))
-					if time.Now().Sub(checkpoint) > reportingPeriod {
-						progressCh <- recentProgress
-						recentProgress.count, recentProgress.bytes = 0, 0
+						goto done
 					}
 				}
+			done:
 				progressCh <- recentProgress
 			}()
 		}
 		wg.Wait()
+
+		go func() {
+			mf.Stop()
+		}()
+		// Read the remaining fetched but not processed messages.
+		var lastProgress progress
+		for msg := range mf.Messages() {
+			lastProgress.bytes = int64(len(msg))
+			lastProgress.count += 1
+		}
+		progressCh <- lastProgress
 		close(progressCh)
 	}()
 
-	fmt.Printf("Consuming...")
 	begin := time.Now()
+	checkpoint := begin
 	var totalProgress progress
 	for progress := range progressCh {
 		totalProgress.count += progress.count
 		totalProgress.bytes += progress.bytes
-		took := time.Now().Sub(begin)
+		now := time.Now()
+		totalTook := now.Sub(begin)
+		took := now.Sub(checkpoint)
+		checkpoint = now
 		tookSec := float64(took) / float64(time.Second)
-		fmt.Printf("\rConsuming... %d(%s)/%d for %s at %dmsg(%s)/sec    ",
-			totalProgress.count, pixy.BytesToStr(totalProgress.bytes), count, took,
-			int64(float64(totalProgress.count)/tookSec),
-			pixy.BytesToStr(int64(float64(totalProgress.bytes)/tookSec)))
+		fmt.Printf("Consuming... %d(%s) for %s at %dmsg(%s)/sec\n",
+			totalProgress.count, pixy.BytesToStr(totalProgress.bytes), totalTook,
+			int64(float64(progress.count)/tookSec),
+			pixy.BytesToStr(int64(float64(progress.bytes)/tookSec)))
 	}
 	took := time.Now().Sub(begin)
 	tookSec := float64(took) / float64(time.Second)
-	fmt.Printf("\rConsumed %d(%s)/%d for %s at %dmsg(%s)/sec        \n",
-		totalProgress.count, pixy.BytesToStr(totalProgress.bytes), count, took,
+	fmt.Printf("Consumed %d(%s) for %s at %dmsg(%s)/sec\n",
+		totalProgress.count, pixy.BytesToStr(totalProgress.bytes), took,
 		int64(float64(totalProgress.count)/tookSec),
 		pixy.BytesToStr(int64(float64(totalProgress.bytes)/tookSec)))
+}
+
+type MessageFetcher struct {
+	url       string
+	httpClt   http.Client
+	messages  chan []byte
+	closingCh chan struct{}
+	wg        sync.WaitGroup
+}
+
+func SpawnMessageFetcher(addr, topic, group string) *MessageFetcher {
+	useUnixDomainSocket := false
+	var baseURL string
+	if strings.HasPrefix(addr, "/") {
+		fmt.Printf("Using UDS client for %s\n", addr)
+		baseURL = "http://_"
+		useUnixDomainSocket = true
+	} else {
+		fmt.Printf("Using net client for %s\n", addr)
+		baseURL = fmt.Sprintf("http://%s", addr)
+	}
+	url := fmt.Sprintf("%s/topics/%s/messages?group=%s", baseURL, topic, group)
+
+	var httpClt http.Client
+	if useUnixDomainSocket {
+		dial := func(proto, ignoredAddr string) (net.Conn, error) {
+			return net.Dial("unix", addr)
+		}
+		httpClt.Transport = &http.Transport{Dial: dial}
+	}
+
+	mf := &MessageFetcher{
+		url:       url,
+		httpClt:   httpClt,
+		messages:  make(chan []byte),
+		closingCh: make(chan struct{}),
+	}
+
+	mf.wg.Add(1)
+	go func() {
+		defer mf.wg.Done()
+		for {
+			message, err := mf.fetchMessage()
+			if err != nil {
+				fmt.Printf("Failed to fetch a message: err=(%s)\n", err)
+				select {
+				case <-mf.closingCh:
+					return
+				case <-time.After(backOffTimeout):
+				}
+				continue
+			}
+			if message != nil {
+				mf.messages <- message
+			}
+			select {
+			case <-mf.closingCh:
+				return
+			default:
+			}
+		}
+	}()
+
+	return mf
+}
+
+func (mf *MessageFetcher) Messages() <-chan []byte {
+	return mf.messages
+}
+
+func (mf *MessageFetcher) Stop() {
+	close(mf.closingCh)
+	mf.wg.Wait()
+	close(mf.messages)
+}
+
+func (mf *MessageFetcher) fetchMessage() ([]byte, error) {
+	res, err := mf.httpClt.Get(mf.url)
+	if err != nil {
+		if res != nil && res.Body != nil {
+			res.Body.Close()
+		}
+		return nil, fmt.Errorf("Request failed: err=(%s)", err)
+	}
+	defer res.Body.Close()
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to read response body: err=(%s)", err)
+	}
+	res.Body.Close()
+	if res.StatusCode == http.StatusRequestTimeout {
+		return nil, nil
+	}
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Error returned: code=%d, content=%s", res.StatusCode, body)
+	}
+	return body, nil
 }
