@@ -94,7 +94,7 @@ func (c *Config) saramaConfig() *sarama.Config {
 	saramaConfig.Producer.Return.Successes = true
 	saramaConfig.Producer.Return.Errors = true
 	saramaConfig.Producer.Compression = sarama.CompressionSnappy
-	saramaConfig.Producer.Retry.Backoff = 2 * time.Second
+	saramaConfig.Producer.Retry.Backoff = 4 * time.Second
 	saramaConfig.Producer.Retry.Max = 5
 	saramaConfig.Producer.Flush.Frequency = 500 * time.Millisecond
 	saramaConfig.Producer.Flush.Bytes = 1024 * 1024
