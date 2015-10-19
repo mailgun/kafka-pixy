@@ -527,6 +527,34 @@ func (s *SmartConsumerSuite) TestInvalidTopic(c *C) {
 	sc.Stop()
 }
 
+// A topic that has a lot of partitions can be consumed.
+func (s *SmartConsumerSuite) TestLotsOfPartitions(c *C) {
+	// Given
+	ResetOffsets(c, "group-1", "test.64")
+
+	config := NewTestConfig("consumer-1")
+	sc, err := SpawnSmartConsumer(config)
+	c.Assert(err, IsNil)
+
+	// Consume should stop by timeout and nothing should be consumed.
+	msg, err := sc.Consume("group-1", "test.64")
+	if _, ok := err.(ErrConsumerRequestTimeout); !ok {
+		c.Fatalf("Unexpected message consumed: %v", msg)
+	}
+	GenMessages(c, "lots", "test.64", map[string]int{"A": 7, "B": 13, "C": 169})
+
+	// When
+	log.Infof("*** WHEN")
+	consumed := s.consume(c, sc, "group-1", "test.64", 189)
+
+	// Then
+	log.Infof("*** THEN")
+	c.Assert(7, Equals, len(consumed["A"]))
+	c.Assert(13, Equals, len(consumed["B"]))
+	c.Assert(169, Equals, len(consumed["C"]))
+	sc.Stop()
+}
+
 func (s *SmartConsumerSuite) assertMsg(c *C, consMsg *sarama.ConsumerMessage, prodMsg *sarama.ProducerMessage) {
 	c.Assert(sarama.StringEncoder(consMsg.Value), Equals, prodMsg.Value)
 	c.Assert(consMsg.Offset, Equals, prodMsg.Offset)
