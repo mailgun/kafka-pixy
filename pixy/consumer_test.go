@@ -270,7 +270,7 @@ func (s *SmartConsumerSuite) TestRebalanceOnJoin(c *C) {
 	// Wait until first messages from partitions `A` and `B` are fetched.
 	waitFirstFetched(sc1, 2)
 
-	// Consume 4 messages and make sure that there messages from both
+	// Consume 4 messages and make sure that there are messages from both
 	// partitions among them.
 	log.Infof("*** GIVEN 2")
 	consumed1 = s.consume(c, sc1, "group-1", "test.4", 4, consumed1)
