@@ -545,7 +545,7 @@ func (s *SmartConsumerSuite) TestLotsOfPartitions(c *C) {
 
 	// When
 	log.Infof("*** WHEN")
-	consumed := s.consume(c, sc, "group-1", "test.64", 189)
+	consumed := s.consume(c, sc, "group-1", "test.64", consumeAll)
 
 	// Then
 	log.Infof("*** THEN")

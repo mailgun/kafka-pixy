@@ -301,6 +301,7 @@ func (gc *groupConsumer) rebalance(topicConsumers map[string]*topicConsumer,
 			topicConsumer:      tc,
 			exclusiveConsumers: make(map[int32]*exclusiveConsumer, len(assignedTopicPartitions)),
 		}
+		assignedTopicPartitions := assignedTopicPartitions
 		spawn(&wg, func() { gc.rewireMultiplexer(tg, assignedTopicPartitions) })
 		gc.topicGears[topic] = tg
 	}
@@ -531,7 +532,7 @@ type multiplexer struct {
 	config             *Config
 	exclusiveConsumers []*exclusiveConsumer
 	topicConsumer      *topicConsumer
-	selectedIdx        int
+	lastPartitionIdx   int
 	stoppingCh         chan none
 	wg                 sync.WaitGroup
 }
@@ -555,48 +556,52 @@ func (gc *groupConsumer) spawnMultiplexer(tc *topicConsumer, ecs map[int32]*excl
 func (m *multiplexer) run() {
 	defer m.contextID.LogScope()()
 	partitionCount := len(m.exclusiveConsumers)
+	// Prepare a list of reflective select cases that is used when there are no
+	// messages available from any of the partitions and we need to wait on all
+	// of them for a first message to be fetched. Yes, reflection is slow but
+	// it is only used in a corner case.
 	selectCases := make([]reflect.SelectCase, partitionCount+1)
 	for i, ec := range m.exclusiveConsumers {
 		selectCases[i] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(ec.messages())}
 	}
 	selectCases[partitionCount] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(m.stoppingCh)}
-	candidateMessages := make([]*sarama.ConsumerMessage, partitionCount)
+
+	partitionMessages := make([]*sarama.ConsumerMessage, partitionCount)
 	for {
-		// Collect candidate messages from all partition consumers that have
-		// fetched messages.
-		hasAtLeastOneCandidate := false
-		for i, msg := range candidateMessages {
+		// Collect messages from partition consumers that have fetched messages.
+		isAtLeastMessageAvailable := false
+		for i, msg := range partitionMessages {
 			if msg != nil {
-				hasAtLeastOneCandidate = true
+				isAtLeastMessageAvailable = true
 				continue
 			}
 			select {
 			case msg := <-m.exclusiveConsumers[i].messages():
-				candidateMessages[i] = msg
-				hasAtLeastOneCandidate = true
+				partitionMessages[i] = msg
+				isAtLeastMessageAvailable = true
 			default:
 			}
 		}
 		// If none of the partition consumers has fetched a message yet, then
 		// wait until some of them does or a stop signal is received.
-		if !hasAtLeastOneCandidate {
+		if !isAtLeastMessageAvailable {
 			chosen, value, ok := reflect.Select(selectCases)
 			// There is no need to check what particular channel is closed, for
 			// only `stoppingCh` channel is ever gets closed.
 			if !ok {
 				return
 			}
-			candidateMessages[chosen] = value.Interface().(*sarama.ConsumerMessage)
+			partitionMessages[chosen] = value.Interface().(*sarama.ConsumerMessage)
 		}
 		// At this point there is at least one candidate message available.
-		selectedIdx := m.selectMessage(candidateMessages)
+		partitionIdx := m.selectPartition(partitionMessages)
 		// wait for read or stop
 		select {
 		case <-m.stoppingCh:
 			return
-		case m.topicConsumer.messages() <- candidateMessages[selectedIdx]:
-			m.exclusiveConsumers[selectedIdx].acks() <- candidateMessages[selectedIdx]
-			candidateMessages[selectedIdx] = nil
+		case m.topicConsumer.messages() <- partitionMessages[partitionIdx]:
+			m.exclusiveConsumers[partitionIdx].acks() <- partitionMessages[partitionIdx]
+			partitionMessages[partitionIdx] = nil
 		}
 	}
 }
@@ -606,15 +611,49 @@ func (m *multiplexer) stop() {
 	m.wg.Wait()
 }
 
-func (m *multiplexer) selectMessage(candidateMessages []*sarama.ConsumerMessage) int {
-	for i := 1; i <= len(candidateMessages); i++ {
-		nextIdx := (m.selectedIdx + i) % len(candidateMessages)
-		if candidateMessages[nextIdx] != nil {
-			m.selectedIdx = nextIdx
-			break
+// selectPartition picks a partition that message should be served by the
+// multiplexer next. It prefers partitions with the largest lag. If there is
+// more then one partition with the largest lag then it makes sure to pick
+// different partition very time when it is called, looping though them.
+func (m *multiplexer) selectPartition(partitionMessages []*sarama.ConsumerMessage) int {
+	var (
+		partitionCount       = len(partitionMessages)
+		partitionIdx         = -1
+		maxLag         int64 = -1
+		candidateCount       = 0
+	)
+	// Find partitions with the largest lag and count them.
+	for i := 0; i < partitionCount; i++ {
+		msg := partitionMessages[i]
+		if msg == nil {
+			continue
+		}
+		partitionLag := msg.HighWaterMark - msg.Offset
+		if partitionLag > maxLag {
+			partitionIdx = i
+			maxLag = partitionLag
+			candidateCount = 1
+		} else if partitionLag == maxLag {
+			candidateCount += 1
 		}
 	}
-	return m.selectedIdx
+	// If there are more then one partition with the largest lag, then make
+	// sure we pick a different partition then the last time.
+	if candidateCount > 1 && partitionIdx == m.lastPartitionIdx {
+		for i := 1; i < partitionCount; i++ {
+			partitionIdx = (m.lastPartitionIdx + i) % partitionCount
+			msg := partitionMessages[partitionIdx]
+			if msg == nil {
+				continue
+			}
+			partitionLag := msg.HighWaterMark - msg.Offset
+			if partitionLag == maxLag {
+				break
+			}
+		}
+	}
+	m.lastPartitionIdx = partitionIdx
+	return partitionIdx
 }
 
 // exclusiveConsumer ensures exclusive consumption of messages from a topic
