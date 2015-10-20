@@ -4,7 +4,7 @@ godep:
 	godep save -r ./...
 
 test:
-	go test -v -timeout 2m ./... -check.vv
+	go test -v -timeout 3m ./... -check.vv
 
 rebuild:
 	go clean -i
