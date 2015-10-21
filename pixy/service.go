@@ -101,6 +101,7 @@ func (c *Config) saramaConfig() *sarama.Config {
 
 	saramaConfig.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
 	saramaConfig.Consumer.Retry.Backoff = c.Consumer.BackOffTimeout
+	saramaConfig.Consumer.Fetch.Default = 512000
 
 	return saramaConfig
 }
