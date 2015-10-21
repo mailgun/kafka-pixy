@@ -33,59 +33,59 @@ func (s *SmartConsumerSuite) TearDownSuite(c *C) {
 }
 
 func (s *SmartConsumerSuite) TestResolveAssignments(c *C) {
-	c.Assert(resolveAssignments(nil, nil), IsNil)
-	c.Assert(resolveAssignments(nil, []string{}), IsNil)
-	c.Assert(resolveAssignments(nil, []string{"a"}), IsNil)
-	c.Assert(resolveAssignments(nil, []string{"a", "b"}), IsNil)
-	c.Assert(resolveAssignments([]int32{}, nil), IsNil)
-	c.Assert(resolveAssignments([]int32{}, []string{}), IsNil)
-	c.Assert(resolveAssignments([]int32{}, []string{"a"}), IsNil)
-	c.Assert(resolveAssignments([]int32{}, []string{"a", "b"}), IsNil)
-	c.Assert(resolveAssignments([]int32{1}, nil), IsNil)
-	c.Assert(resolveAssignments([]int32{1}, []string{}), IsNil)
+	c.Assert(assignPartitionsToSubscribers(nil, nil), IsNil)
+	c.Assert(assignPartitionsToSubscribers(nil, []string{}), IsNil)
+	c.Assert(assignPartitionsToSubscribers(nil, []string{"a"}), IsNil)
+	c.Assert(assignPartitionsToSubscribers(nil, []string{"a", "b"}), IsNil)
+	c.Assert(assignPartitionsToSubscribers([]int32{}, nil), IsNil)
+	c.Assert(assignPartitionsToSubscribers([]int32{}, []string{}), IsNil)
+	c.Assert(assignPartitionsToSubscribers([]int32{}, []string{"a"}), IsNil)
+	c.Assert(assignPartitionsToSubscribers([]int32{}, []string{"a", "b"}), IsNil)
+	c.Assert(assignPartitionsToSubscribers([]int32{1}, nil), IsNil)
+	c.Assert(assignPartitionsToSubscribers([]int32{1}, []string{}), IsNil)
 
-	c.Assert(resolveAssignments([]int32{0}, []string{"a"}),
+	c.Assert(assignPartitionsToSubscribers([]int32{0}, []string{"a"}),
 		DeepEquals, map[string]map[int32]bool{
 			"a": {0: true},
 		})
-	c.Assert(resolveAssignments([]int32{1, 2, 0}, []string{"a"}),
+	c.Assert(assignPartitionsToSubscribers([]int32{1, 2, 0}, []string{"a"}),
 		DeepEquals, map[string]map[int32]bool{
 			"a": {0: true, 1: true, 2: true},
 		})
-	c.Assert(resolveAssignments([]int32{0}, []string{"b", "a"}),
+	c.Assert(assignPartitionsToSubscribers([]int32{0}, []string{"b", "a"}),
 		DeepEquals, map[string]map[int32]bool{
 			"a": {0: true},
 		})
-	c.Assert(resolveAssignments([]int32{0, 3, 1, 2}, []string{"b", "a"}),
+	c.Assert(assignPartitionsToSubscribers([]int32{0, 3, 1, 2}, []string{"b", "a"}),
 		DeepEquals, map[string]map[int32]bool{
 			"a": {0: true, 1: true},
 			"b": {2: true, 3: true},
 		})
-	c.Assert(resolveAssignments([]int32{0, 3, 1, 2}, []string{"b", "c", "a"}),
+	c.Assert(assignPartitionsToSubscribers([]int32{0, 3, 1, 2}, []string{"b", "c", "a"}),
 		DeepEquals, map[string]map[int32]bool{
 			"a": {0: true, 1: true},
 			"b": {2: true},
 			"c": {3: true},
 		})
-	c.Assert(resolveAssignments([]int32{0, 3, 1, 2, 4}, []string{"b", "c", "a"}),
+	c.Assert(assignPartitionsToSubscribers([]int32{0, 3, 1, 2, 4}, []string{"b", "c", "a"}),
 		DeepEquals, map[string]map[int32]bool{
 			"a": {0: true, 1: true},
 			"b": {2: true, 3: true},
 			"c": {4: true},
 		})
-	c.Assert(resolveAssignments([]int32{0, 3, 1, 2, 5, 4}, []string{"b", "c", "a"}),
+	c.Assert(assignPartitionsToSubscribers([]int32{0, 3, 1, 2, 5, 4}, []string{"b", "c", "a"}),
 		DeepEquals, map[string]map[int32]bool{
 			"a": {0: true, 1: true},
 			"b": {2: true, 3: true},
 			"c": {4: true, 5: true},
 		})
-	c.Assert(resolveAssignments([]int32{6, 0, 3, 1, 2, 5, 4}, []string{"b", "c", "a"}),
+	c.Assert(assignPartitionsToSubscribers([]int32{6, 0, 3, 1, 2, 5, 4}, []string{"b", "c", "a"}),
 		DeepEquals, map[string]map[int32]bool{
 			"a": {0: true, 1: true, 2: true},
 			"b": {3: true, 4: true},
 			"c": {5: true, 6: true},
 		})
-	c.Assert(resolveAssignments([]int32{6, 0, 3, 1, 2, 5, 4}, []string{"d", "b", "c", "a"}),
+	c.Assert(assignPartitionsToSubscribers([]int32{6, 0, 3, 1, 2, 5, 4}, []string{"d", "b", "c", "a"}),
 		DeepEquals, map[string]map[int32]bool{
 			"a": {0: true, 1: true},
 			"b": {2: true, 3: true},
@@ -270,7 +270,7 @@ func (s *SmartConsumerSuite) TestRebalanceOnJoin(c *C) {
 	// Wait until first messages from partitions `A` and `B` are fetched.
 	waitFirstFetched(sc1, 2)
 
-	// Consume 4 messages and make sure that there messages from both
+	// Consume 4 messages and make sure that there are messages from both
 	// partitions among them.
 	log.Infof("*** GIVEN 2")
 	consumed1 = s.consume(c, sc1, "group-1", "test.4", 4, consumed1)
@@ -524,6 +524,34 @@ func (s *SmartConsumerSuite) TestInvalidTopic(c *C) {
 	}
 	c.Assert(consMsg, IsNil)
 
+	sc.Stop()
+}
+
+// A topic that has a lot of partitions can be consumed.
+func (s *SmartConsumerSuite) TestLotsOfPartitions(c *C) {
+	// Given
+	ResetOffsets(c, "group-1", "test.64")
+
+	config := NewTestConfig("consumer-1")
+	sc, err := SpawnSmartConsumer(config)
+	c.Assert(err, IsNil)
+
+	// Consume should stop by timeout and nothing should be consumed.
+	msg, err := sc.Consume("group-1", "test.64")
+	if _, ok := err.(ErrConsumerRequestTimeout); !ok {
+		c.Fatalf("Unexpected message consumed: %v", msg)
+	}
+	GenMessages(c, "lots", "test.64", map[string]int{"A": 7, "B": 13, "C": 169})
+
+	// When
+	log.Infof("*** WHEN")
+	consumed := s.consume(c, sc, "group-1", "test.64", consumeAll)
+
+	// Then
+	log.Infof("*** THEN")
+	c.Assert(7, Equals, len(consumed["A"]))
+	c.Assert(13, Equals, len(consumed["B"]))
+	c.Assert(169, Equals, len(consumed["C"]))
 	sc.Stop()
 }
 

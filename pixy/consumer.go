@@ -2,6 +2,7 @@ package pixy
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 	"sync"
 	"time"
@@ -117,14 +118,13 @@ type groupConsumer struct {
 	baseCID               *sarama.ContextID
 	config                *Config
 	group                 string
-	sc                    *SmartConsumer
 	dispatcher            *dispatcher
 	kafkaClient           sarama.Client
 	dumbConsumer          sarama.Consumer
 	offsetMgr             sarama.OffsetManager
 	kazooConn             *kazoo.Kazoo
 	registry              *consumerGroupRegistry
-	exclusiveConsumers    map[string]map[int32]*exclusiveConsumer
+	topicGears            map[string]*topicGear
 	addTopicConsumerCh    chan *topicConsumer
 	deleteTopicConsumerCh chan *topicConsumer
 	stoppingCh            chan none
@@ -136,11 +136,10 @@ func (sc *SmartConsumer) newConsumerGroup(group string) *groupConsumer {
 		baseCID:               sc.baseCID.NewChild(group),
 		config:                sc.config,
 		group:                 group,
-		sc:                    sc,
 		kafkaClient:           sc.kafkaClient,
 		offsetMgr:             sc.offsetMgr,
 		kazooConn:             sc.kazooConn,
-		exclusiveConsumers:    make(map[string]map[int32]*exclusiveConsumer),
+		topicGears:            make(map[string]*topicGear),
 		addTopicConsumerCh:    make(chan *topicConsumer),
 		deleteTopicConsumerCh: make(chan *topicConsumer),
 		stoppingCh:            make(chan none),
@@ -263,79 +262,161 @@ func (gc *groupConsumer) managePartitions() {
 	}
 done:
 	var wg sync.WaitGroup
-	for _, topicExclusiveConsumers := range gc.exclusiveConsumers {
-		for _, ec := range topicExclusiveConsumers {
-			spawn(&wg, ec.stop)
-		}
+	for _, tg := range gc.topicGears {
+		tg := tg
+		spawn(&wg, func() { gc.rewireMultiplexer(tg, nil) })
 	}
 	wg.Wait()
 }
 
 func (gc *groupConsumer) rebalance(topicConsumers map[string]*topicConsumer,
-	memberSubscriptions map[string][]string, rebalanceResultCh chan<- error) {
-
+	memberSubscriptions map[string][]string, rebalanceResultCh chan<- error,
+) {
 	cid := gc.baseCID.NewChild("rebalance")
 	defer cid.LogScope(topicConsumers, memberSubscriptions)()
 
-	// Convert subscriber->topics to topic->subscribers map.
-	topicSubscribers := make(map[string][]string)
-	for memberID, topics := range memberSubscriptions {
-		for _, topic := range topics {
-			topicSubscribers[topic] = append(topicSubscribers[topic], memberID)
-		}
+	assignedPartitions, err := gc.resolvePartitions(memberSubscriptions)
+	if err != nil {
+		rebalanceResultCh <- err
+		return
 	}
-	// Create a set of topics this consumer group member subscribed to.
-	subscribedTopics := make(map[string]bool)
-	for _, topic := range memberSubscriptions[gc.config.ClientID] {
-		subscribedTopics[topic] = true
-	}
-	// Resolve new partition assignments for the subscribed topics.
-	assignments := make(map[string]map[int32]bool)
-	for topic := range subscribedTopics {
-		topicPartitions, err := gc.kafkaClient.Partitions(topic)
-		if err != nil {
-			log.Errorf("<%s> failed to get partition list: topic=%s, err=(%s)", cid, topic, err)
-			rebalanceResultCh <- err
-			return
-		}
-		groupAssignments := resolveAssignments(topicPartitions, topicSubscribers[topic])
-		topicAssignments := groupAssignments[gc.config.ClientID]
-		log.Infof("<%s> partitions assigned: topic=%s, my=%v, all=%v", cid, topic, topicAssignments, groupAssignments)
-		assignments[topic] = topicAssignments
-	}
-	// Stop partition consumers that are no longer assigned to this group member.
+	log.Infof("<%s> assigned: %v", cid, assignedPartitions)
 	var wg sync.WaitGroup
-	for topic, topicExclusiveConsumers := range gc.exclusiveConsumers {
-		topicAssignments := assignments[topic]
-		for partition, ec := range topicExclusiveConsumers {
-			if !topicAssignments[partition] {
-				delete(topicExclusiveConsumers, partition)
-				spawn(&wg, ec.stop)
-			}
-		}
+	// Stop consuming partitions that are no longer assigned to this group
+	// and start consuming newly assigned partitions for topics that has been
+	// consumed already.
+	for topic, tg := range gc.topicGears {
+		tg := tg
+		assignedTopicPartition := assignedPartitions[topic]
+		spawn(&wg, func() { gc.rewireMultiplexer(tg, assignedTopicPartition) })
 	}
-	wg.Wait()
-	// Spawn consumers for just assigned partitions.
-	for topic, topicAssignments := range assignments {
+	// Start consuming partitions for topics that we has not been consumed before.
+	for topic, assignedTopicPartitions := range assignedPartitions {
 		tc := topicConsumers[topic]
-		if tc == nil {
+		tg := gc.topicGears[topic]
+		if tc == nil || tg != nil {
 			continue
 		}
-		topicExclusiveConsumers := gc.exclusiveConsumers[topic]
-		if topicExclusiveConsumers == nil {
-			topicExclusiveConsumers = make(map[int32]*exclusiveConsumer, len(topicAssignments))
-			gc.exclusiveConsumers[topic] = topicExclusiveConsumers
+		tg = &topicGear{
+			topicConsumer:      tc,
+			exclusiveConsumers: make(map[int32]*exclusiveConsumer, len(assignedTopicPartitions)),
 		}
-		for partition := range topicAssignments {
-			if _, ok := topicExclusiveConsumers[partition]; !ok {
-				ec := gc.spawnExclusiveConsumer(tc, partition)
-				topicExclusiveConsumers[partition] = ec
-			}
+		assignedTopicPartitions := assignedTopicPartitions
+		spawn(&wg, func() { gc.rewireMultiplexer(tg, assignedTopicPartitions) })
+		gc.topicGears[topic] = tg
+	}
+	wg.Wait()
+	// Clean up gears for topics that are not consumed anymore.
+	for topic, tg := range gc.topicGears {
+		if tg.multiplexer == nil {
+			delete(gc.topicGears, topic)
 		}
 	}
 	// Notify the caller that rebalancing has completed successfully.
 	rebalanceResultCh <- nil
 	return
+}
+
+// rewireMultiplexer ensures that only assigned partitions are multiplexed to
+// the topic consumer. It stops exclusive consumers for partitions that are not
+// assigned anymore, spins up exclusive consumers for newly assigned partitions,
+// and restarts the multiplexer to account for the changes if there is any.
+func (gc *groupConsumer) rewireMultiplexer(tg *topicGear, assigned map[int32]bool) {
+	var wg sync.WaitGroup
+	for partition, ec := range tg.exclusiveConsumers {
+		if !assigned[partition] {
+			if tg.multiplexer != nil {
+				tg.multiplexer.stop()
+				tg.multiplexer = nil
+			}
+			spawn(&wg, ec.stop)
+			delete(tg.exclusiveConsumers, partition)
+		}
+	}
+	wg.Wait()
+	for partition := range assigned {
+		if _, ok := tg.exclusiveConsumers[partition]; !ok {
+			if tg.multiplexer != nil {
+				tg.multiplexer.stop()
+				tg.multiplexer = nil
+			}
+			ec := gc.spawnExclusiveConsumer(tg.topicConsumer.topic, partition)
+			tg.exclusiveConsumers[partition] = ec
+		}
+	}
+	if tg.multiplexer == nil && len(tg.exclusiveConsumers) > 0 {
+		tg.multiplexer = gc.spawnMultiplexer(tg.topicConsumer, tg.exclusiveConsumers)
+	}
+}
+
+// resolvePartitions takes a `subscriber->topics` map and returns a
+// `topic->partitions` map that for every consumed topic tells what partitions
+// this consumer group instance is responsible for.
+func (gc *groupConsumer) resolvePartitions(subscribersToTopics map[string][]string) (
+	assignedPartitions map[string]map[int32]bool, err error,
+) {
+	// Convert subscribers->topics to topic->subscribers map.
+	topicsToSubscribers := make(map[string][]string)
+	for subscriberID, topics := range subscribersToTopics {
+		for _, topic := range topics {
+			topicsToSubscribers[topic] = append(topicsToSubscribers[topic], subscriberID)
+		}
+	}
+	// Create a set of topics this consumer group member subscribed to.
+	subscribedTopics := make(map[string]bool)
+	for _, topic := range subscribersToTopics[gc.config.ClientID] {
+		subscribedTopics[topic] = true
+	}
+	// Resolve new partition assignments for the subscribed topics.
+	assignedPartitions = make(map[string]map[int32]bool)
+	for topic := range subscribedTopics {
+		topicPartitions, err := gc.kafkaClient.Partitions(topic)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get partition list: topic=%s, err=(%s)", topic, err)
+		}
+		partitionsToSubscribers := assignPartitionsToSubscribers(topicPartitions, topicsToSubscribers[topic])
+		assignedTopicPartitions := partitionsToSubscribers[gc.config.ClientID]
+		assignedPartitions[topic] = assignedTopicPartitions
+	}
+	return assignedPartitions, nil
+}
+
+// assignPartitionsToSubscribers does what the name says. The algorithm used
+// closely resembles the algorithm implemented by the standard Java High-Level
+// consumer (see http://kafka.apache.org/documentation.html#distributionimpl
+// and scroll down to *Consumer registration algorithm*) except it does not take
+// in account how partitions are distributed among brokers.
+func assignPartitionsToSubscribers(partitions []int32, subscribers []string) map[string]map[int32]bool {
+	partitionCount := len(partitions)
+	subscriberCount := len(subscribers)
+	if partitionCount == 0 || subscriberCount == 0 {
+		return nil
+	}
+	sort.Sort(Int32Slice(partitions))
+	sort.Sort(sort.StringSlice(subscribers))
+
+	partitionsToSubscribers := make(map[string]map[int32]bool, subscriberCount)
+	partitionsPerSubscriber := partitionCount / subscriberCount
+	extra := partitionCount - subscriberCount*partitionsPerSubscriber
+
+	begin := 0
+	for _, subscriberID := range subscribers {
+		end := begin + partitionsPerSubscriber
+		if extra != 0 {
+			end++
+			extra--
+		}
+		for _, partition := range partitions[begin:end] {
+			topicAssignments := partitionsToSubscribers[subscriberID]
+			if topicAssignments == nil {
+				topicAssignments = make(map[int32]bool, partitionCount)
+				partitionsToSubscribers[subscriberID] = topicAssignments
+			}
+			partitionsToSubscribers[subscriberID][partition] = true
+		}
+		begin = end
+	}
+	return partitionsToSubscribers
 }
 
 func listTopics(topicConsumers map[string]*topicConsumer) []string {
@@ -346,50 +427,20 @@ func listTopics(topicConsumers map[string]*topicConsumer) []string {
 	return topics
 }
 
-// resolveAssignments assigns partitions to the group members. The algorithm
-// used closely resembles the algorithm implemented by the standard Java
-// High-Level consumer (see http://kafka.apache.org/documentation.html#distributionimpl
-// and scroll down to *Consumer registration algorithm*) except it does not take
-// in account how partitions are distributed among brokers.
-func resolveAssignments(partitions []int32, members []string) map[string]map[int32]bool {
-	partitionCount := len(partitions)
-	memberCount := len(members)
-	if partitionCount == 0 || memberCount == 0 {
-		return nil
-	}
-	sort.Sort(Int32Slice(partitions))
-	sort.Sort(sort.StringSlice(members))
-
-	assignments := make(map[string]map[int32]bool, memberCount)
-	partitionsPerMember := partitionCount / memberCount
-	extra := partitionCount - memberCount*partitionsPerMember
-
-	begin := 0
-	for _, memberID := range members {
-		end := begin + partitionsPerMember
-		if extra != 0 {
-			end++
-			extra--
-		}
-		for _, partition := range partitions[begin:end] {
-			topicAssignments := assignments[memberID]
-			if topicAssignments == nil {
-				topicAssignments = make(map[int32]bool, partitionCount)
-				assignments[memberID] = topicAssignments
-			}
-			assignments[memberID][partition] = true
-		}
-		begin = end
-	}
-	return assignments
+// topicGear represents a set of actors that a consumer group maintains for
+// each consumed topic.
+type topicGear struct {
+	topicConsumer      *topicConsumer
+	multiplexer        *multiplexer
+	exclusiveConsumers map[int32]*exclusiveConsumer
 }
 
 // topicConsumer implements a consumer request dispatch tier responsible for
 // consumption of a particular topic by a consumer group. It receives requests
-// on the `requests()` channel and replies with messages supplied by exclusive
-// partition consumers via `messages()` channel. If there has been no message
-// received for `Config.Consumer.LongPollingTimeout` then a timeout error is
-// sent to the requests' reply channel.
+// on the `requests()` channel and replies with messages selected by the
+// respective multiplexer. If there has been no message received for
+// `Config.Consumer.LongPollingTimeout` then a timeout error is sent to the
+// requests' reply channel.
 type topicConsumer struct {
 	contextID     *sarama.ContextID
 	config        *Config
@@ -473,39 +524,182 @@ func (tc *topicConsumer) String() string {
 	return tc.contextID.String()
 }
 
-// exclusiveConsumer ensures exclusive consumption of message from a particular
-// `consumer group+topic+partition`. It achieves that by claiming the partition
-// via the consumer group registry and only after the claim is succeeded starts
-// consuming messages.
+// multiplexer pulls messages fetched by exclusive consumers and offers them
+// one by one to the topic consumer choosing wisely between different exclusive
+// consumers to ensure that none of them is neglected.
+type multiplexer struct {
+	contextID          *sarama.ContextID
+	config             *Config
+	exclusiveConsumers []*exclusiveConsumer
+	topicConsumer      *topicConsumer
+	lastPartitionIdx   int
+	stoppingCh         chan none
+	wg                 sync.WaitGroup
+}
+
+func (gc *groupConsumer) spawnMultiplexer(tc *topicConsumer, ecs map[int32]*exclusiveConsumer) *multiplexer {
+	exclusiveConsumers := make([]*exclusiveConsumer, 0, len(ecs))
+	for _, ec := range ecs {
+		exclusiveConsumers = append(exclusiveConsumers, ec)
+	}
+	m := &multiplexer{
+		contextID:          gc.baseCID.NewChild(fmt.Sprintf("%s:mux", tc.topic)),
+		config:             tc.config,
+		exclusiveConsumers: exclusiveConsumers,
+		topicConsumer:      tc,
+		stoppingCh:         make(chan none),
+	}
+	spawn(&m.wg, m.run)
+	return m
+}
+
+func (m *multiplexer) run() {
+	defer m.contextID.LogScope()()
+	partitionCount := len(m.exclusiveConsumers)
+	// Prepare a list of reflective select cases that is used when there are no
+	// messages available from any of the partitions and we need to wait on all
+	// of them for a first message to be fetched. Yes, reflection is slow but
+	// it is only used in a corner case.
+	selectCases := make([]reflect.SelectCase, partitionCount+1)
+	for i, ec := range m.exclusiveConsumers {
+		selectCases[i] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(ec.messages())}
+	}
+	selectCases[partitionCount] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(m.stoppingCh)}
+
+	partitionMessages := make([]*sarama.ConsumerMessage, partitionCount)
+	for {
+		// Collect messages from partition consumers that have fetched messages.
+		isAtLeastMessageAvailable := false
+		for i, msg := range partitionMessages {
+			if msg != nil {
+				isAtLeastMessageAvailable = true
+				continue
+			}
+			select {
+			case msg := <-m.exclusiveConsumers[i].messages():
+				partitionMessages[i] = msg
+				isAtLeastMessageAvailable = true
+			default:
+			}
+		}
+		// If none of the partition consumers has fetched a message yet, then
+		// wait until some of them does or a stop signal is received.
+		if !isAtLeastMessageAvailable {
+			chosen, value, ok := reflect.Select(selectCases)
+			// There is no need to check what particular channel is closed, for
+			// only `stoppingCh` channel is ever gets closed.
+			if !ok {
+				return
+			}
+			partitionMessages[chosen] = value.Interface().(*sarama.ConsumerMessage)
+		}
+		// At this point there is at least one candidate message available.
+		partitionIdx := m.selectPartition(partitionMessages)
+		// wait for read or stop
+		select {
+		case <-m.stoppingCh:
+			return
+		case m.topicConsumer.messages() <- partitionMessages[partitionIdx]:
+			m.exclusiveConsumers[partitionIdx].acks() <- partitionMessages[partitionIdx]
+			partitionMessages[partitionIdx] = nil
+		}
+	}
+}
+
+func (m *multiplexer) stop() {
+	close(m.stoppingCh)
+	m.wg.Wait()
+}
+
+// selectPartition picks a partition that message should be served by the
+// multiplexer next. It prefers partitions with the largest lag. If there is
+// more then one partition with the largest lag then it makes sure to pick
+// different partition very time when it is called, looping though them.
+func (m *multiplexer) selectPartition(partitionMessages []*sarama.ConsumerMessage) int {
+	var (
+		partitionCount       = len(partitionMessages)
+		partitionIdx         = -1
+		maxLag         int64 = -1
+		candidateCount       = 0
+	)
+	// Find partitions with the largest lag and count them.
+	for i := 0; i < partitionCount; i++ {
+		msg := partitionMessages[i]
+		if msg == nil {
+			continue
+		}
+		partitionLag := msg.HighWaterMark - msg.Offset
+		if partitionLag > maxLag {
+			partitionIdx = i
+			maxLag = partitionLag
+			candidateCount = 1
+		} else if partitionLag == maxLag {
+			candidateCount += 1
+		}
+	}
+	// If there are more then one partition with the largest lag, then make
+	// sure we pick a different partition then the last time.
+	if candidateCount > 1 && partitionIdx == m.lastPartitionIdx {
+		for i := 1; i < partitionCount; i++ {
+			partitionIdx = (m.lastPartitionIdx + i) % partitionCount
+			msg := partitionMessages[partitionIdx]
+			if msg == nil {
+				continue
+			}
+			partitionLag := msg.HighWaterMark - msg.Offset
+			if partitionLag == maxLag {
+				break
+			}
+		}
+	}
+	m.lastPartitionIdx = partitionIdx
+	return partitionIdx
+}
+
+// exclusiveConsumer ensures exclusive consumption of messages from a topic
+// partition within a particular group. It ensures that a partition is consumed
+// exclusively by first claiming the partition in ZooKeeper. When a fetched
+// message is pulled from the `messages()` channel, it is considered to be
+// consumed and its offset is committed.
 type exclusiveConsumer struct {
 	contextID    *sarama.ContextID
 	config       *Config
-	tc           *topicConsumer
 	group        string
 	topic        string
 	partition    int32
 	dumbConsumer sarama.Consumer
 	registry     *consumerGroupRegistry
 	offsetMgr    sarama.OffsetManager
+	messagesCh   chan *sarama.ConsumerMessage
+	acksCh       chan *sarama.ConsumerMessage
 	stoppingCh   chan none
 	wg           sync.WaitGroup
 }
 
-func (gc *groupConsumer) spawnExclusiveConsumer(tc *topicConsumer, partition int32) *exclusiveConsumer {
+func (gc *groupConsumer) spawnExclusiveConsumer(topic string, partition int32) *exclusiveConsumer {
 	ec := &exclusiveConsumer{
-		contextID:    gc.baseCID.NewChild(fmt.Sprintf("%s:%d", tc.topic, partition)),
+		contextID:    gc.baseCID.NewChild(fmt.Sprintf("%s:%d", topic, partition)),
 		config:       gc.config,
-		tc:           tc,
 		group:        gc.group,
-		topic:        tc.topic,
+		topic:        topic,
 		partition:    partition,
 		dumbConsumer: gc.dumbConsumer,
 		registry:     gc.registry,
 		offsetMgr:    gc.offsetMgr,
+		messagesCh:   make(chan *sarama.ConsumerMessage),
+		acksCh:       make(chan *sarama.ConsumerMessage),
 		stoppingCh:   make(chan none),
 	}
 	spawn(&ec.wg, ec.run)
 	return ec
+}
+
+func (ec *exclusiveConsumer) messages() <-chan *sarama.ConsumerMessage {
+	return ec.messagesCh
+}
+
+func (ec *exclusiveConsumer) acks() chan<- *sarama.ConsumerMessage {
+	return ec.acksCh
 }
 
 func (ec *exclusiveConsumer) run() {
@@ -514,8 +708,7 @@ func (ec *exclusiveConsumer) run() {
 
 	pom, err := ec.offsetMgr.ManagePartition(ec.group, ec.topic, ec.partition)
 	if err != nil {
-		log.Errorf("<%s> failed to spawn partition manager: err=(%s)", ec.contextID, err)
-		return
+		panic(fmt.Errorf("<%s> failed to spawn partition manager: err=(%s)", ec.contextID, err))
 	}
 	defer pom.Close()
 
@@ -529,8 +722,7 @@ func (ec *exclusiveConsumer) run() {
 
 	pc, err := ec.dumbConsumer.ConsumePartition(ec.topic, ec.partition, initialOffset.Offset)
 	if err != nil {
-		log.Errorf("<%s> failed to start partition consumer: err=(%s)", ec.contextID, err)
-		return
+		panic(fmt.Errorf("<%s> failed to start partition consumer: err=(%s)", ec.contextID, err))
 	}
 	defer pc.Close()
 
@@ -538,24 +730,42 @@ func (ec *exclusiveConsumer) run() {
 	firstMessageFetched := false
 	var lastSubmittedOffset, lastCommittedOffset int64
 	for {
-		select {
-		case consumerMessage := <-pc.Messages():
-			// Notify tests when the very first message is fetched.
-			if !firstMessageFetched && ec.config.testing.firstMessageFetchedCh != nil {
-				firstMessageFetched = true
-				ec.config.testing.firstMessageFetchedCh <- ec
-			}
+		var msg *sarama.ConsumerMessage
+		// Wait for a fetched message to to provided by the controlled
+		// partition consumer.
+		for {
 			select {
-			case ec.tc.messages() <- consumerMessage:
-				lastSubmittedOffset = consumerMessage.Offset + 1
-				pom.SubmitOffset(lastSubmittedOffset, "")
+			case msg = <-pc.Messages():
+				// Notify tests when the very first message is fetched.
+				if !firstMessageFetched && ec.config.testing.firstMessageFetchedCh != nil {
+					firstMessageFetched = true
+					ec.config.testing.firstMessageFetchedCh <- ec
+				}
+				goto offerAndAck
+			case committedOffset := <-pom.CommittedOffsets():
+				lastCommittedOffset = committedOffset.Offset
+				continue
 			case <-ec.stoppingCh:
 				goto done
 			}
-		case committedOffset := <-pom.CommittedOffsets():
-			lastCommittedOffset = committedOffset.Offset
-		case <-ec.stoppingCh:
-			goto done
+		}
+	offerAndAck:
+		// Offer the fetched message to the upstream consumer and wait for it
+		// to be acknowledged.
+		for {
+			select {
+			case ec.messagesCh <- msg:
+				// Keep offering the same message until it is acknowledged.
+			case <-ec.acksCh:
+				lastSubmittedOffset = msg.Offset + 1
+				pom.SubmitOffset(lastSubmittedOffset, "")
+				break offerAndAck
+			case committedOffset := <-pom.CommittedOffsets():
+				lastCommittedOffset = committedOffset.Offset
+				continue
+			case <-ec.stoppingCh:
+				goto done
+			}
 		}
 	}
 done:

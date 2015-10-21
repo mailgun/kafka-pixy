@@ -9,10 +9,11 @@ import (
 
 // ConsumerMessage encapsulates a Kafka message returned by the consumer.
 type ConsumerMessage struct {
-	Key, Value []byte
-	Topic      string
-	Partition  int32
-	Offset     int64
+	Key, Value    []byte
+	Topic         string
+	Partition     int32
+	Offset        int64
+	HighWaterMark int64
 }
 
 // ConsumerError is what is provided to the user when an error occurs.
@@ -209,33 +210,32 @@ type partitionConsumer struct {
 	tp       topicPartition
 	baseCID  *ContextID
 
-	assignmentCh  chan brokerExecutor
-	initErrorCh   chan error
-	messagesCh    chan *ConsumerMessage
-	errorsCh      chan *ConsumerError
-	fetchResultCh chan *fetchResult
-	closingCh     chan none
-	closedCh      chan none
+	assignmentCh chan brokerExecutor
+	initErrorCh  chan error
+	messagesCh   chan *ConsumerMessage
+	errorsCh     chan *ConsumerError
+	closingCh    chan none
+	closedCh     chan none
 
 	fetchSize           int32
 	offset              int64
 	highWaterMarkOffset int64
+	lag                 int64
 }
 
 func (c *consumer) spawnPartitionConsumer(tp topicPartition, offset int64) *partitionConsumer {
 	cp := &partitionConsumer{
-		consumer:      c,
-		tp:            tp,
-		baseCID:       c.baseCID.NewChild(fmt.Sprintf("%s:%d", tp.topic, tp.partition)),
-		assignmentCh:  make(chan brokerExecutor, 1),
-		initErrorCh:   make(chan error),
-		messagesCh:    make(chan *ConsumerMessage, c.config.ChannelBufferSize),
-		errorsCh:      make(chan *ConsumerError, c.config.ChannelBufferSize),
-		fetchResultCh: make(chan *fetchResult, 1),
-		closingCh:     make(chan none, 1),
-		closedCh:      make(chan none),
-		offset:        offset,
-		fetchSize:     c.config.Consumer.Fetch.Default,
+		consumer:     c,
+		tp:           tp,
+		baseCID:      c.baseCID.NewChild(fmt.Sprintf("%s:%d", tp.topic, tp.partition)),
+		assignmentCh: make(chan brokerExecutor, 1),
+		initErrorCh:  make(chan error),
+		messagesCh:   make(chan *ConsumerMessage, c.config.ChannelBufferSize),
+		errorsCh:     make(chan *ConsumerError, c.config.ChannelBufferSize),
+		closingCh:    make(chan none, 1),
+		closedCh:     make(chan none),
+		offset:       offset,
+		fetchSize:    c.config.Consumer.Fetch.Default,
 	}
 	go withRecover(cp.pullMessages)
 	return cp
@@ -286,9 +286,10 @@ func (pc *partitionConsumer) pullMessages() {
 	cid := pc.baseCID.NewChild("pullMessages")
 	defer cid.LogScope()()
 	var (
-		assignedFetchRequestCh    chan<- *partitionConsumer
-		nilOrFetchRequestsCh      chan<- *partitionConsumer
-		nilOrFetchResultsCh       <-chan *fetchResult
+		assignedFetchRequestCh    chan<- fetchRequest
+		nilOrFetchRequestsCh      chan<- fetchRequest
+		fetchResultCh             = make(chan fetchResult, 1)
+		nilOrFetchResultsCh       <-chan fetchResult
 		nilOrMessagesCh           chan<- *ConsumerMessage
 		nilOrReassignRetryTimerCh <-chan time.Time
 		fetchedMessages           []*ConsumerMessage
@@ -329,9 +330,9 @@ pullMessagesLoop:
 				nilOrFetchRequestsCh = assignedFetchRequestCh
 			}
 
-		case nilOrFetchRequestsCh <- pc:
+		case nilOrFetchRequestsCh <- fetchRequest{pc.tp.topic, pc.tp.partition, pc.offset, pc.fetchSize, pc.lag, fetchResultCh}:
 			nilOrFetchRequestsCh = nil
-			nilOrFetchResultsCh = pc.fetchResultCh
+			nilOrFetchResultsCh = fetchResultCh
 
 		case result := <-nilOrFetchResultsCh:
 			nilOrFetchResultsCh = nil
@@ -383,7 +384,7 @@ done:
 }
 
 // parseFetchResult parses a fetch response received a broker.
-func (pc *partitionConsumer) parseFetchResult(cid *ContextID, fetchResult *fetchResult) ([]*ConsumerMessage, error) {
+func (pc *partitionConsumer) parseFetchResult(cid *ContextID, fetchResult fetchResult) ([]*ConsumerMessage, error) {
 	if fetchResult.Err != nil {
 		return nil, fetchResult.Err
 	}
@@ -427,24 +428,21 @@ func (pc *partitionConsumer) parseFetchResult(cid *ContextID, fetchResult *fetch
 	atomic.StoreInt64(&pc.highWaterMarkOffset, block.HighWaterMarkOffset)
 
 	var fetchedMessages []*ConsumerMessage
-	prelude := true
 	for _, msgBlock := range block.MsgSet.Messages {
 		for _, msg := range msgBlock.Messages() {
-			if prelude && msg.Offset < pc.offset {
+			if msg.Offset < pc.offset {
 				continue
 			}
-			prelude = false
-
-			if msg.Offset >= pc.offset {
-				consumerMessage := &ConsumerMessage{
-					Topic:     pc.tp.topic,
-					Partition: pc.tp.partition,
-					Key:       msg.Msg.Key,
-					Value:     msg.Msg.Value,
-					Offset:    msg.Offset,
-				}
-				fetchedMessages = append(fetchedMessages, consumerMessage)
+			consumerMessage := &ConsumerMessage{
+				Topic:         pc.tp.topic,
+				Partition:     pc.tp.partition,
+				Key:           msg.Msg.Key,
+				Value:         msg.Msg.Value,
+				Offset:        msg.Offset,
+				HighWaterMark: block.HighWaterMarkOffset,
 			}
+			fetchedMessages = append(fetchedMessages, consumerMessage)
+			pc.lag = block.HighWaterMarkOffset - msg.Offset
 		}
 	}
 
@@ -483,9 +481,18 @@ type brokerConsumer struct {
 	baseCID         *ContextID
 	config          *Config
 	conn            *Broker
-	requestsCh      chan *partitionConsumer
-	batchRequestsCh chan []*partitionConsumer
+	requestsCh      chan fetchRequest
+	batchRequestsCh chan []fetchRequest
 	wg              sync.WaitGroup
+}
+
+type fetchRequest struct {
+	Topic     string
+	Partition int32
+	Offset    int64
+	MaxBytes  int32
+	Lag       int64
+	ReplyToCh chan<- fetchResult
 }
 
 type fetchResult struct {
@@ -498,8 +505,8 @@ func (c *consumer) spawnBrokerExecutor(brokerConn *Broker) brokerExecutor {
 		baseCID:         c.baseCID.NewChild(fmt.Sprintf("broker:%d", brokerConn.ID())),
 		config:          c.config,
 		conn:            brokerConn,
-		requestsCh:      make(chan *partitionConsumer),
-		batchRequestsCh: make(chan []*partitionConsumer),
+		requestsCh:      make(chan fetchRequest),
+		batchRequestsCh: make(chan []fetchRequest),
 	}
 	spawn(&bc.wg, bc.batchRequests)
 	spawn(&bc.wg, bc.executeBatches)
@@ -523,15 +530,15 @@ func (bc *brokerConsumer) batchRequests() {
 	defer cid.LogScope()()
 	defer close(bc.batchRequestsCh)
 
-	var nilOrBatchRequestCh chan<- []*partitionConsumer
-	var batchRequest []*partitionConsumer
+	var nilOrBatchRequestCh chan<- []fetchRequest
+	var batchRequest []fetchRequest
 	for {
 		select {
-		case pc, ok := <-bc.requestsCh:
+		case fr, ok := <-bc.requestsCh:
 			if !ok {
 				return
 			}
-			batchRequest = append(batchRequest, pc)
+			batchRequest = append(batchRequest, fr)
 			nilOrBatchRequestCh = bc.batchRequestsCh
 		case nilOrBatchRequestCh <- batchRequest:
 			batchRequest = nil
@@ -552,8 +559,8 @@ func (bc *brokerConsumer) executeBatches() {
 		// Reject consume requests for awhile after a connection failure to
 		// allow the Kafka cluster some time to recuperate.
 		if time.Now().UTC().Sub(lastErrTime) < bc.config.Consumer.Retry.Backoff {
-			for _, pc := range fetchRequests {
-				pc.fetchResultCh <- &fetchResult{nil, lastErr}
+			for _, fr := range fetchRequests {
+				fr.ReplyToCh <- fetchResult{nil, lastErr}
 			}
 			continue
 		}
@@ -562,8 +569,8 @@ func (bc *brokerConsumer) executeBatches() {
 			MinBytes:    bc.config.Consumer.Fetch.Min,
 			MaxWaitTime: int32(bc.config.Consumer.MaxWaitTime / time.Millisecond),
 		}
-		for _, pc := range fetchRequests {
-			req.AddBlock(pc.tp.topic, pc.tp.partition, pc.offset, pc.fetchSize)
+		for _, fr := range fetchRequests {
+			req.AddBlock(fr.Topic, fr.Partition, fr.Offset, fr.MaxBytes)
 		}
 		var res *FetchResponse
 		res, lastErr = bc.conn.Fetch(req)
@@ -573,8 +580,8 @@ func (bc *brokerConsumer) executeBatches() {
 			Logger.Printf("<%s> connection reset: err=(%s)", cid, lastErr)
 		}
 		// Fan the response out to the partition consumers.
-		for _, pc := range fetchRequests {
-			pc.fetchResultCh <- &fetchResult{res, lastErr}
+		for _, fr := range fetchRequests {
+			fr.ReplyToCh <- fetchResult{res, lastErr}
 		}
 	}
 }
