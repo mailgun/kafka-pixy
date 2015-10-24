@@ -216,3 +216,7 @@ that Kafka-Pixy accepts are listed below.
 
 You can run `kafka-pixy -help` to make it list all available command line
 parameters.
+
+## License
+
+Kafka-Pixy is under the Apache 2.0 license. See the [LICENSE](LICENSE) file for details.
