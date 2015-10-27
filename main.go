@@ -18,7 +18,7 @@ import (
 const (
 	defaultKafkaPeers     = "localhost:9092"
 	defaultZookeeperPeers = "localhost:2181"
-	defaultUnixAddr       = "/var/run/kafka-pixy.sock"
+	defaultTCPAddr        = "0.0.0.0:19092"
 	defaultLoggingCfg     = `[{"name": "console", "severity": "info"}]`
 )
 
@@ -32,10 +32,8 @@ func init() {
 	config = pixy.NewConfig()
 	var kafkaPeers, zookeeperPeers string
 
-	flag.StringVar(&config.UnixAddr, "unixAddr", defaultUnixAddr,
-		"Unix domain socket address that the HTTP API should listen on")
-	flag.StringVar(&config.TCPAddr, "tcpAddr", "",
-		"TCP address that the HTTP API should listen on")
+	flag.StringVar(&config.TCPAddr, "tcpAddr", defaultTCPAddr, "TCP address that the HTTP API should listen on")
+	flag.StringVar(&config.UnixAddr, "unixAddr", "", "Unix domain socket address that the HTTP API should listen on")
 	flag.StringVar(&kafkaPeers, "kafkaPeers", defaultKafkaPeers, "Comma separated list of brokers")
 	flag.StringVar(&zookeeperPeers, "zookeeperPeers", defaultZookeeperPeers, "Comma separated list of ZooKeeper nodes followed by optional chroot")
 	flag.StringVar(&pidFile, "pidFile", "", "Path to the PID file")
@@ -71,9 +69,11 @@ func main() {
 
 	// Clean up the unix domain socket file in case we failed to clean up on
 	// shutdown the last time. Otherwise the service won't be able to listen
-	// on this address and the service will terminated immediately.
-	if err := os.Remove(config.UnixAddr); err != nil && !os.IsNotExist(err) {
-		log.Errorf("Cannot remove %s: err=(%s)", config.UnixAddr, err)
+	// on this address and as a result will fail to start up.
+	if config.UnixAddr != "" {
+		if err := os.Remove(config.UnixAddr); err != nil && !os.IsNotExist(err) {
+			log.Errorf("Cannot remove %s: err=(%s)", config.UnixAddr, err)
+		}
 	}
 
 	log.Infof("Starting with config: %+v", config)

@@ -29,7 +29,7 @@ var (
 )
 
 func init() {
-	flag.StringVar(&pixyAddr, "addr", "/var/run/kafka-pixy.sock", "either unix domain socker or TCP address")
+	flag.StringVar(&pixyAddr, "addr", "localhost:19092", "either unix domain socker or TCP address")
 	flag.StringVar(&group, "group", "test", "the name of the consumer group")
 	flag.StringVar(&topic, "topic", "test", "the name of the topic")
 	flag.IntVar(&threads, "threads", 1, "number of concurrent producer threads")

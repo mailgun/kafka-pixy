@@ -25,9 +25,9 @@ herby effectively using the network bandwidth.
 ## Locality
 Kafka-Pixy is intended to run on the same host as the applications using it.
 Remember that it provides only message based API - no batching, therefore using
-it over network is suboptimal. To encourage local usage Kafka-Pixy binds to
-the Unix Domain Socket only by default. User has an option to enable a TCP
-listener but that is mostly for debugging purposes.
+it over network is suboptimal. To make local usage even more efficient
+Kafka-Pixy provides an option to serve its API via a Unix Domain Socket
+alongside a TCP socket (**0.0.0.0:19092** by default).
 
 ## HTTP API
 
@@ -210,8 +210,8 @@ that Kafka-Pixy accepts are listed below.
 ----------------|-------------------------------------------------------------------
  kafkaPeers     | Comma separated list of Kafka brokers. Note that these are just seed brokers. The rest brokers are discovered automatically. (Default **localhost:9092**)
  zookeeperPeers | Comma separated list of ZooKeeper nodes followed by optional chroot. (Default **localhost:2181**)
- unixAddr       | Unix Domain Socket that the primary HTTP API should listen on. (Default **/var/run/kafka-pixy.sock**)
- tcpAddr        | TCP interface where the secondary HTTP API should listen. If not specified then Kafka-Pixy won't listen on a TCP socket.
+ tcpAddr        | TCP interface where the HTTP API should listen. (Default **0.0.0.0:19092**)
+ unixAddr       | Unix Domain Socket that the HTTP API should listen on. If not specified then the service will not listen on a Unix Domain Socket. 
  pidFile        | Name of a pid file to create. If not specified then a pid file is not created.
 
 You can run `kafka-pixy -help` to make it list all available command line
