@@ -76,9 +76,6 @@ func NewHTTPAPIServer(network, addr string, producer *GracefulProducer, consumer
 		as.handleProduce).Methods("POST")
 	router.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", ParamTopic),
 		as.handleConsume).Methods("GET")
-	// TODO deprecated endpoint, use `/topics/{topic}/messages` instead.
-	router.HandleFunc(fmt.Sprintf("/topics/{%s}", ParamTopic),
-		as.handleProduce).Methods("POST")
 	router.HandleFunc(fmt.Sprintf("/topics/{%s}/offsets", ParamTopic),
 		as.handleGetOffsets).Methods("GET")
 	router.HandleFunc(fmt.Sprintf("/topics/{%s}/offsets", ParamTopic),

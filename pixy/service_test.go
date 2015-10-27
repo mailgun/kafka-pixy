@@ -302,7 +302,7 @@ func (s *ServiceSuite) TestSyncProduceInvalidTopic(c *C) {
 	defer svc.Stop()
 
 	// When
-	r, err := s.unixClient.Post("http://_/topics/no-such-topic?sync=true",
+	r, err := s.unixClient.Post("http://_/topics/no-such-topic/messages?sync=true",
 		"text/plain", strings.NewReader("Foo"))
 
 	// Then
