@@ -19,7 +19,6 @@ const (
 	defaultKafkaPeers     = "localhost:9092"
 	defaultZookeeperPeers = "localhost:2181"
 	defaultUnixAddr       = "/var/run/kafka-pixy.sock"
-	defaultPIDFile        = "/var/run/kafka-pixy.pid"
 	defaultLoggingCfg     = `[{"name": "console", "severity": "info"}]`
 )
 
@@ -39,7 +38,7 @@ func init() {
 		"TCP address that the HTTP API should listen on")
 	flag.StringVar(&kafkaPeers, "kafkaPeers", defaultKafkaPeers, "Comma separated list of brokers")
 	flag.StringVar(&zookeeperPeers, "zookeeperPeers", defaultZookeeperPeers, "Comma separated list of ZooKeeper nodes followed by optional chroot")
-	flag.StringVar(&pidFile, "pidFile", defaultPIDFile, "Path to the PID file")
+	flag.StringVar(&pidFile, "pidFile", "", "Path to the PID file")
 	flag.StringVar(&loggingJSONCfg, "logging", defaultLoggingCfg, "Logging configuration")
 	flag.Parse()
 
@@ -63,9 +62,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := writePID(pidFile); err != nil {
-		log.Errorf("Failed to write PID file: err=(%s)", err)
-		os.Exit(1)
+	if pidFile != "" {
+		if err := writePID(pidFile); err != nil {
+			log.Errorf("Failed to write PID file: err=(%s)", err)
+			os.Exit(1)
+		}
 	}
 
 	// Clean up the unix domain socket file in case we failed to clean up on

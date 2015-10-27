@@ -212,7 +212,7 @@ that Kafka-Pixy accepts are listed below.
  zookeeperPeers | Comma separated list of ZooKeeper nodes followed by optional chroot. (Default **localhost:2181**)
  unixAddr       | Unix Domain Socket that the primary HTTP API should listen on. (Default **/var/run/kafka-pixy.sock**)
  tcpAddr        | TCP interface where the secondary HTTP API should listen. If not specified then Kafka-Pixy won't listen on a TCP socket.
- pidFile        | Name of the pid file to create. (Default **/var/run/kafka-pixy.pid**)
+ pidFile        | Name of a pid file to create. If not specified then a pid file is not created.
 
 You can run `kafka-pixy -help` to make it list all available command line
 parameters.
