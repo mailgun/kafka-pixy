@@ -124,8 +124,8 @@ type Service struct {
 	producer   *GracefulProducer
 	consumer   *SmartConsumer
 	admin      *Admin
-	unixServer *HTTPAPIServer
 	tcpServer  *HTTPAPIServer
+	unixServer *HTTPAPIServer
 	quitCh     chan struct{}
 	wg         sync.WaitGroup
 }
@@ -143,25 +143,25 @@ func SpawnService(config *Config) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to spawn admin, err=(%s)", err)
 	}
-	unixServer, err := NewHTTPAPIServer(NetworkUnix, config.UnixAddr, producer, consumer, admin)
+	tcpServer, err := NewHTTPAPIServer(NetworkTCP, config.TCPAddr, producer, consumer, admin)
 	if err != nil {
 		producer.Stop()
-		return nil, fmt.Errorf("failed to start Unix socket based HTTP API, err=(%s)", err)
+		return nil, fmt.Errorf("failed to start TCP socket based HTTP API, err=(%s)", err)
 	}
-	var tcpServer *HTTPAPIServer
-	if config.TCPAddr != "" {
-		tcpServer, err = NewHTTPAPIServer(NetworkTCP, config.TCPAddr, producer, consumer, admin)
+	var unixServer *HTTPAPIServer
+	if config.UnixAddr != "" {
+		unixServer, err = NewHTTPAPIServer(NetworkUnix, config.UnixAddr, producer, consumer, admin)
 		if err != nil {
 			producer.Stop()
-			return nil, fmt.Errorf("failed to start TCP socket based HTTP API, err=(%s)", err)
+			return nil, fmt.Errorf("failed to start Unix socket based HTTP API, err=(%s)", err)
 		}
 	}
 	s := &Service{
 		producer:   producer,
 		consumer:   consumer,
 		admin:      admin,
-		unixServer: unixServer,
 		tcpServer:  tcpServer,
+		unixServer: unixServer,
 		quitCh:     make(chan struct{}),
 	}
 	spawn(&s.wg, s.supervisor)
@@ -176,36 +176,36 @@ func (s *Service) Stop() {
 // supervisor takes care of the service graceful shutdown.
 func (s *Service) supervisor() {
 	defer sarama.RootCID.NewChild("supervisor").LogScope()()
-	var tcpServerErrorCh <-chan error
+	var unixServerErrorCh <-chan error
 
-	s.unixServer.Start()
-	if s.tcpServer != nil {
-		s.tcpServer.Start()
-		tcpServerErrorCh = s.tcpServer.ErrorCh()
+	s.tcpServer.Start()
+	if s.unixServer != nil {
+		s.unixServer.Start()
+		unixServerErrorCh = s.unixServer.ErrorCh()
 	}
 	// Block to wait for quit signal or an API server crash.
 	select {
 	case <-s.quitCh:
-	case err, ok := <-s.unixServer.ErrorCh():
+	case err, ok := <-s.tcpServer.ErrorCh():
 		if ok {
 			log.Errorf("Unix socket based HTTP API crashed, err=(%s)", err)
 		}
-	case err, ok := <-tcpServerErrorCh:
+	case err, ok := <-unixServerErrorCh:
 		if ok {
 			log.Errorf("TCP socket based HTTP API crashed, err=(%s)", err)
 		}
 	}
 	// Initiate stop of all API servers.
-	s.unixServer.AsyncStop()
-	if s.tcpServer != nil {
-		s.tcpServer.AsyncStop()
+	s.tcpServer.AsyncStop()
+	if s.unixServer != nil {
+		s.unixServer.AsyncStop()
 	}
 	// Wait until all API servers are stopped.
-	for range s.unixServer.ErrorCh() {
+	for range s.tcpServer.ErrorCh() {
 		// Drain the errors channel until it is closed.
 	}
-	if s.tcpServer != nil {
-		for range s.tcpServer.ErrorCh() {
+	if s.unixServer != nil {
+		for range s.unixServer.ErrorCh() {
 			// Drain the errors channel until it is closed.
 		}
 	}
