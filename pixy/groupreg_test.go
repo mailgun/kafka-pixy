@@ -37,7 +37,7 @@ func (s *ConsumerGroupRegistrySuite) TestSimpleSubscribe(c *C) {
 
 	// Then
 	c.Assert(<-cgr.membershipChanges(), DeepEquals,
-		map[string][]string{"m1": []string{"bar", "foo"}})
+		map[string][]string{"m1": {"bar", "foo"}})
 }
 
 func (s *ConsumerGroupRegistrySuite) TestResubscribe(c *C) {
@@ -53,7 +53,7 @@ func (s *ConsumerGroupRegistrySuite) TestResubscribe(c *C) {
 
 	// Then
 	c.Assert(<-cgr.membershipChanges(), DeepEquals,
-		map[string][]string{"m1": []string{"bazz", "blah"}})
+		map[string][]string{"m1": {"bazz", "blah"}})
 }
 
 func (s *ConsumerGroupRegistrySuite) TestSubscribeToNothing(c *C) {
@@ -64,14 +64,14 @@ func (s *ConsumerGroupRegistrySuite) TestSubscribeToNothing(c *C) {
 	defer cgr.stop()
 	cgr.topics() <- []string{"foo", "bar"}
 	c.Assert(<-cgr.membershipChanges(), DeepEquals,
-		map[string][]string{"m1": []string{"bar", "foo"}})
+		map[string][]string{"m1": {"bar", "foo"}})
 
 	// When
 	cgr.topics() <- []string{}
 
 	// Then
 	c.Assert(<-cgr.membershipChanges(), DeepEquals,
-		map[string][]string{"m1": []string{}})
+		map[string][]string{"m1": {}})
 }
 
 func (s *ConsumerGroupRegistrySuite) TestMembershipChanges(c *C) {
@@ -94,9 +94,9 @@ func (s *ConsumerGroupRegistrySuite) TestMembershipChanges(c *C) {
 	// Then
 	c.Assert(<-cgr.membershipChanges(), DeepEquals,
 		map[string][]string{
-			"m1": []string{"bar", "foo"},
-			"m2": []string{"foo"},
-			"m3": []string{"bazz", "blah", "foo"}})
+			"m1": {"bar", "foo"},
+			"m2": {"foo"},
+			"m3": {"bazz", "blah", "foo"}})
 }
 
 func (s *ConsumerGroupRegistrySuite) TestClaimPartition(c *C) {

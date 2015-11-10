@@ -164,7 +164,7 @@ func (s *ServiceSuite) TestUtf8Message(c *C) {
 	offsetsAfter := s.tkc.getOffsets("test.4")
 	msgs := s.tkc.getMessages("test.4", offsetsBefore, offsetsAfter)
 	c.Assert(msgs, DeepEquals,
-		[][]string{[]string(nil), []string{"Превед Медвед"}, []string(nil), []string(nil)})
+		[][]string{[]string(nil), {"Превед Медвед"}, []string(nil), []string(nil)})
 }
 
 // TCP API is not started by default.
@@ -202,7 +202,7 @@ func (s *ServiceSuite) TestBothAPI(c *C) {
 	offsetsAfter := s.tkc.getOffsets("test.4")
 	msgs := s.tkc.getMessages("test.4", offsetsBefore, offsetsAfter)
 	c.Assert(msgs, DeepEquals,
-		[][]string{[]string(nil), []string{"Превед", "Kitty"}, []string(nil), []string(nil)})
+		[][]string{[]string(nil), {"Превед", "Kitty"}, []string(nil), []string(nil)})
 }
 
 func (s *ServiceSuite) TestStoppedServerCall(c *C) {
