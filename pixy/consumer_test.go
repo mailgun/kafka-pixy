@@ -28,6 +28,10 @@ func (s *SmartConsumerSuite) SetUpSuite(c *C) {
 	c.Assert(err, IsNil)
 }
 
+func (s *SmartConsumerSuite) SetUpTest(c *C) {
+	firstMessageFetchedCh = make(chan *exclusiveConsumer, 100)
+}
+
 func (s *SmartConsumerSuite) TearDownSuite(c *C) {
 	s.producer.Stop()
 }
@@ -598,7 +602,7 @@ func logConsumed(sc *SmartConsumer, consMsg *sarama.ConsumerMessage) {
 func drainFirstFetched(sc *SmartConsumer) {
 	for {
 		select {
-		case <-sc.config.testing.firstMessageFetchedCh:
+		case <-firstMessageFetchedCh:
 		default:
 			return
 		}
@@ -608,7 +612,7 @@ func drainFirstFetched(sc *SmartConsumer) {
 func waitFirstFetched(sc *SmartConsumer, count int) {
 	var partitions []int32
 	for i := 0; i < count; i++ {
-		ec := <-sc.config.testing.firstMessageFetchedCh
+		ec := <-firstMessageFetchedCh
 		partitions = append(partitions, ec.partition)
 	}
 	log.Infof("*** first messages fetched: partitions=%v", partitions)

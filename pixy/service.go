@@ -63,12 +63,6 @@ type Config struct {
 	}
 	// All buffered channels created by the service will have this size.
 	ChannelBufferSize int
-	// testing sections contains parameters that are used in tests only.
-	testing struct {
-		// If this channel is not `nil` then exclusive consumers will use it to
-		// notify when they fetch the very first message.
-		firstMessageFetchedCh chan *exclusiveConsumer
-	}
 }
 
 func NewConfig() *Config {

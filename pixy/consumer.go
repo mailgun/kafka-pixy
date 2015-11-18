@@ -18,6 +18,12 @@ type (
 	ErrConsumerRequestTimeout error
 )
 
+var (
+	// If this channel is not `nil` then exclusive consumers will use it to
+	// notify when they fetch the very first message.
+	firstMessageFetchedCh chan *exclusiveConsumer
+)
+
 // SmartConsumer is a Kafka consumer implementation that automatically
 // maintains consumer groups registrations and topic subscriptions. Whenever a
 // a message from a particular topic is consumed by a particular consumer group
@@ -737,9 +743,9 @@ func (ec *exclusiveConsumer) run() {
 			select {
 			case msg = <-pc.Messages():
 				// Notify tests when the very first message is fetched.
-				if !firstMessageFetched && ec.config.testing.firstMessageFetchedCh != nil {
+				if !firstMessageFetched && firstMessageFetchedCh != nil {
 					firstMessageFetched = true
-					ec.config.testing.firstMessageFetchedCh <- ec
+					firstMessageFetchedCh <- ec
 				}
 				goto offerAndAck
 			case committedOffset := <-pom.CommittedOffsets():

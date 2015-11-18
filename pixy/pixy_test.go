@@ -211,7 +211,6 @@ func NewTestConfig(clientID string) *Config {
 	config.Consumer.LongPollingTimeout = 3000 * time.Millisecond
 	config.Consumer.BackOffTimeout = 100 * time.Millisecond
 	config.Consumer.RebalanceDelay = 100 * time.Millisecond
-	config.testing.firstMessageFetchedCh = make(chan *exclusiveConsumer, 100)
 	return config
 }
 
