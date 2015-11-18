@@ -42,6 +42,13 @@ func (s *ServiceSuite) SetUpTest(c *C) {
 	}}
 }
 
+func (s *ServiceSuite) TestGetIP(c *C) {
+	ip, err := getIP()
+	c.Assert(err, IsNil)
+	c.Assert(ip.String(), Matches, "\\d+.\\d+.\\d+.\\d+")
+	c.Assert(ip.String(), Not(Equals), "127.0.0.1")
+}
+
 func (s *ServiceSuite) TestStartAndStop(c *C) {
 	svc, err := SpawnService(s.config)
 	c.Assert(err, IsNil)

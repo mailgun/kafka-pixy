@@ -399,3 +399,12 @@ func getGroupParam(r *http.Request) (string, error) {
 	}
 	return groups[0], nil
 }
+
+// toEncoderPreservingNil converts a slice of bytes to `sarama.Encoder` but
+// returns `nil` if the passed slice is `nil`.
+func toEncoderPreservingNil(b []byte) sarama.Encoder {
+	if b != nil {
+		return sarama.StringEncoder(b)
+	}
+	return nil
+}

@@ -2,7 +2,9 @@ package pixy
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
+	"net"
 	"os"
 	"sync"
 	"time"
@@ -235,4 +237,25 @@ func newClientID() string {
 	}
 	timestamp := time.Now().UTC().Format(time.RFC3339)
 	return fmt.Sprintf("pixy_%s_%d_%s", hostname, os.Getpid(), timestamp)
+}
+
+func getIP() (net.IP, error) {
+	interfaceAddrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil, err
+	}
+	var ipv6 net.IP
+	for _, interfaceAddr := range interfaceAddrs {
+		if ipAddr, ok := interfaceAddr.(*net.IPNet); ok && !ipAddr.IP.IsLoopback() {
+			ipv4 := ipAddr.IP.To4()
+			if ipv4 != nil {
+				return ipv4, nil
+			}
+			ipv6 = ipAddr.IP
+		}
+	}
+	if ipv6 != nil {
+		return ipv6, nil
+	}
+	return nil, errors.New("Unknown IP address")
 }

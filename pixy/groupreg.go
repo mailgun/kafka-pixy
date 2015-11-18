@@ -225,3 +225,26 @@ func (cgr *consumerGroupRegistry) register() {
 func (cgr *consumerGroupRegistry) retry(f func() error, shouldRetry func(err error) bool, errorMsg string) (canceled bool) {
 	return retry(f, shouldRetry, errorMsg, cgr.config.Consumer.BackOffTimeout, cgr.stoppingCh)
 }
+
+// retry keeps calling the `f` function until it succeeds. `shouldRetry` is
+// used to check the error code returned by `f` to decide whether it should be
+// retried. If `shouldRetry` is not specified then any non `nil` error will
+// result in retry.
+func retry(f func() error, shouldRetry func(err error) bool, errorMsg string,
+	delay time.Duration, cancelCh <-chan none,
+) (canceled bool) {
+	err := f()
+	if shouldRetry == nil {
+		shouldRetry = func(err error) bool { return err != nil }
+	}
+	for shouldRetry(err) {
+		log.Errorf("%s: err=(%s), retryIn=%v", errorMsg, err, delay)
+		select {
+		case <-time.After(delay):
+		case <-cancelCh:
+			return true
+		}
+		err = f()
+	}
+	return false
+}
