@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
+	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/pixy"
 )
 
@@ -23,31 +24,31 @@ const (
 )
 
 var (
-	config         *pixy.Config
+	cfg            *config.T
 	pidFile        string
 	loggingJSONCfg string
 )
 
 func init() {
-	config = pixy.NewConfig()
+	cfg = config.Default()
 	var kafkaPeers, zookeeperPeers string
 
-	flag.StringVar(&config.TCPAddr, "tcpAddr", defaultTCPAddr, "TCP address that the HTTP API should listen on")
-	flag.StringVar(&config.UnixAddr, "unixAddr", "", "Unix domain socket address that the HTTP API should listen on")
+	flag.StringVar(&cfg.TCPAddr, "tcpAddr", defaultTCPAddr, "TCP address that the HTTP API should listen on")
+	flag.StringVar(&cfg.UnixAddr, "unixAddr", "", "Unix domain socket address that the HTTP API should listen on")
 	flag.StringVar(&kafkaPeers, "kafkaPeers", defaultKafkaPeers, "Comma separated list of brokers")
 	flag.StringVar(&zookeeperPeers, "zookeeperPeers", defaultZookeeperPeers, "Comma separated list of ZooKeeper nodes followed by optional chroot")
 	flag.StringVar(&pidFile, "pidFile", "", "Path to the PID file")
 	flag.StringVar(&loggingJSONCfg, "logging", defaultLoggingCfg, "Logging configuration")
 	flag.Parse()
 
-	config.Kafka.SeedPeers = strings.Split(kafkaPeers, ",")
+	cfg.Kafka.SeedPeers = strings.Split(kafkaPeers, ",")
 
 	chrootStartIdx := strings.Index(zookeeperPeers, "/")
 	if chrootStartIdx >= 0 {
-		config.ZooKeeper.SeedPeers = strings.Split(zookeeperPeers[:chrootStartIdx], ",")
-		config.ZooKeeper.Chroot = zookeeperPeers[chrootStartIdx:]
+		cfg.ZooKeeper.SeedPeers = strings.Split(zookeeperPeers[:chrootStartIdx], ",")
+		cfg.ZooKeeper.Chroot = zookeeperPeers[chrootStartIdx:]
 	} else {
-		config.ZooKeeper.SeedPeers = strings.Split(zookeeperPeers, ",")
+		cfg.ZooKeeper.SeedPeers = strings.Split(zookeeperPeers, ",")
 	}
 }
 
@@ -70,14 +71,14 @@ func main() {
 	// Clean up the unix domain socket file in case we failed to clean up on
 	// shutdown the last time. Otherwise the service won't be able to listen
 	// on this address and as a result will fail to start up.
-	if config.UnixAddr != "" {
-		if err := os.Remove(config.UnixAddr); err != nil && !os.IsNotExist(err) {
-			log.Errorf("Cannot remove %s: err=(%s)", config.UnixAddr, err)
+	if cfg.UnixAddr != "" {
+		if err := os.Remove(cfg.UnixAddr); err != nil && !os.IsNotExist(err) {
+			log.Errorf("Cannot remove %s: err=(%s)", cfg.UnixAddr, err)
 		}
 	}
 
-	log.Infof("Starting with config: %+v", config)
-	svc, err := pixy.SpawnService(config)
+	log.Infof("Starting with config: %+v", cfg)
+	svc, err := pixy.SpawnService(cfg)
 	if err != nil {
 		log.Errorf("Failed to start service: err=(%s)", err)
 		os.Exit(1)

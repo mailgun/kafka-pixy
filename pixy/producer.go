@@ -7,6 +7,7 @@ import (
 
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
+	"github.com/mailgun/kafka-pixy/config"
 )
 
 const (
@@ -37,8 +38,8 @@ type produceResult struct {
 
 // SpawnGracefulProducer creates a `KafkaProducer` instance and starts its internal
 // goroutines.
-func SpawnGracefulProducer(config *Config) (*GracefulProducer, error) {
-	saramaClient, err := sarama.NewClient(config.Kafka.SeedPeers, config.saramaConfig())
+func SpawnGracefulProducer(config *config.T) (*GracefulProducer, error) {
+	saramaClient, err := sarama.NewClient(config.Kafka.SeedPeers, config.SaramaConfig())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sarama.Client, err=(%s)", err)
 	}

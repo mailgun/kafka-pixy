@@ -7,6 +7,7 @@ import (
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/wvanbergen/kazoo-go"
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
+	"github.com/mailgun/kafka-pixy/config"
 )
 
 type ConsumerGroupRegistrySuite struct {
@@ -27,7 +28,7 @@ func (s *ConsumerGroupRegistrySuite) SetUpSuite(c *C) {
 
 func (s *ConsumerGroupRegistrySuite) TestSimpleSubscribe(c *C) {
 	// Given
-	config := NewConfig()
+	config := config.Default()
 	config.Consumer.RebalanceDelay = 200 * time.Millisecond
 	cgr := spawnConsumerGroupRegister("cgr_test", "m1", config, s.kazooConn)
 	defer cgr.stop()
@@ -42,7 +43,7 @@ func (s *ConsumerGroupRegistrySuite) TestSimpleSubscribe(c *C) {
 
 func (s *ConsumerGroupRegistrySuite) TestResubscribe(c *C) {
 	// Given
-	config := NewConfig()
+	config := config.Default()
 	config.Consumer.RebalanceDelay = 200 * time.Millisecond
 	cgr := spawnConsumerGroupRegister("cgr_test", "m1", config, s.kazooConn)
 	defer cgr.stop()
@@ -58,7 +59,7 @@ func (s *ConsumerGroupRegistrySuite) TestResubscribe(c *C) {
 
 func (s *ConsumerGroupRegistrySuite) TestSubscribeToNothing(c *C) {
 	// Given
-	config := NewConfig()
+	config := config.Default()
 	config.Consumer.RebalanceDelay = 200 * time.Millisecond
 	cgr := spawnConsumerGroupRegister("cgr_test", "m1", config, s.kazooConn)
 	defer cgr.stop()
@@ -76,7 +77,7 @@ func (s *ConsumerGroupRegistrySuite) TestSubscribeToNothing(c *C) {
 
 func (s *ConsumerGroupRegistrySuite) TestMembershipChanges(c *C) {
 	// Given
-	config := NewConfig()
+	config := config.Default()
 	config.Consumer.RebalanceDelay = 200 * time.Millisecond
 	cgr := spawnConsumerGroupRegister("cgr_test", "m1", config, s.kazooConn)
 	defer cgr.stop()
@@ -101,7 +102,7 @@ func (s *ConsumerGroupRegistrySuite) TestMembershipChanges(c *C) {
 
 func (s *ConsumerGroupRegistrySuite) TestClaimPartition(c *C) {
 	// Given
-	config := NewConfig()
+	config := config.Default()
 	cgr := spawnConsumerGroupRegister("cgr_test", "m1", config, s.kazooConn)
 	defer cgr.stop()
 	cancelCh := make(chan none)
@@ -124,7 +125,7 @@ func (s *ConsumerGroupRegistrySuite) TestClaimPartition(c *C) {
 // already been acquired by another member then it fails.
 func (s *ConsumerGroupRegistrySuite) TestClaimPartitionClaimed(c *C) {
 	// Given
-	config := NewConfig()
+	config := config.Default()
 	cgr1 := spawnConsumerGroupRegister("cgr_test", "m1", config, s.kazooConn)
 	defer cgr1.stop()
 	cgr2 := spawnConsumerGroupRegister("cgr_test", "m2", config, s.kazooConn)
@@ -148,7 +149,7 @@ func (s *ConsumerGroupRegistrySuite) TestClaimPartitionClaimed(c *C) {
 // It is ok to claim the same partition twice by the same group member.
 func (s *ConsumerGroupRegistrySuite) TestClaimPartitionTwice(c *C) {
 	// Given
-	config := NewConfig()
+	config := config.Default()
 	cgr := spawnConsumerGroupRegister("cgr_test", "m1", config, s.kazooConn)
 	defer cgr.stop()
 	cancelCh := make(chan none)
@@ -169,7 +170,7 @@ func (s *ConsumerGroupRegistrySuite) TestClaimPartitionTwice(c *C) {
 // any of the claims is revoked.
 func (s *ConsumerGroupRegistrySuite) TestReleasePartition(c *C) {
 	// Given
-	config := NewConfig()
+	config := config.Default()
 	cgr := spawnConsumerGroupRegister("cgr_test", "m1", config, s.kazooConn)
 	defer cgr.stop()
 	cancelCh := make(chan none)
@@ -191,7 +192,7 @@ func (s *ConsumerGroupRegistrySuite) TestReleasePartition(c *C) {
 // blocks until it is released.
 func (s *ConsumerGroupRegistrySuite) TestClaimPartitionParallel(c *C) {
 	// Given
-	config := NewConfig()
+	config := config.Default()
 	cgr1 := spawnConsumerGroupRegister("cgr_test", "m1", config, s.kazooConn)
 	defer cgr1.stop()
 	cgr2 := spawnConsumerGroupRegister("cgr_test", "m2", config, s.kazooConn)
@@ -218,7 +219,7 @@ func (s *ConsumerGroupRegistrySuite) TestClaimPartitionParallel(c *C) {
 // blocks until it is released.
 func (s *ConsumerGroupRegistrySuite) TestClaimPartitionCanceled(c *C) {
 	// Given
-	config := NewConfig()
+	config := config.Default()
 	cgr1 := spawnConsumerGroupRegister("cgr_test", "m1", config, s.kazooConn)
 	defer cgr1.stop()
 	cgr2 := spawnConsumerGroupRegister("cgr_test", "m2", config, s.kazooConn)

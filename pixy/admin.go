@@ -9,6 +9,7 @@ import (
 
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/go-zookeeper/zk"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
+	"github.com/mailgun/kafka-pixy/config"
 )
 
 type (
@@ -39,12 +40,12 @@ const (
 // Admin provides methods to perform miscellaneous administrative operations
 // on the Kafka cluster.
 type Admin struct {
-	config *Config
+	config *config.T
 }
 
 // SpawnAdmin creates an `Admin` instance with the specified configuration and
 // starts internal goroutines to support its operation.
-func SpawnAdmin(config *Config) (*Admin, error) {
+func SpawnAdmin(config *config.T) (*Admin, error) {
 	a := Admin{
 		config: config,
 	}
@@ -72,7 +73,7 @@ type indexedPartition struct {
 // current offset range along with the latest offset and metadata committed by
 // the specified consumer group.
 func (a *Admin) GetGroupOffsets(group, topic string) ([]PartitionOffset, error) {
-	kafkaClt, err := sarama.NewClient(a.config.Kafka.SeedPeers, a.config.saramaConfig())
+	kafkaClt, err := sarama.NewClient(a.config.Kafka.SeedPeers, a.config.SaramaConfig())
 	if err != nil {
 		return nil, ErrAdminSetup(fmt.Errorf("failed to create sarama.Client: err=(%v)", err))
 	}
@@ -170,7 +171,7 @@ func (a *Admin) GetGroupOffsets(group, topic string) ([]PartitionOffset, error) 
 // SetGroupOffsets commits specific offset values along with metadata for a list
 // of partitions of a particular topic on behalf of the specified group.
 func (a *Admin) SetGroupOffsets(group, topic string, offsets []PartitionOffset) error {
-	kafkaClt, err := sarama.NewClient(a.config.Kafka.SeedPeers, a.config.saramaConfig())
+	kafkaClt, err := sarama.NewClient(a.config.Kafka.SeedPeers, a.config.SaramaConfig())
 	if err != nil {
 		return ErrAdminSetup(fmt.Errorf("failed to create sarama.Client: err=(%v)", err))
 	}

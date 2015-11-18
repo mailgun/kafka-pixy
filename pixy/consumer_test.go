@@ -9,6 +9,7 @@ import (
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
+	"github.com/mailgun/kafka-pixy/config"
 )
 
 type SmartConsumerSuite struct {
@@ -20,7 +21,7 @@ var _ = Suite(&SmartConsumerSuite{})
 func (s *SmartConsumerSuite) SetUpSuite(c *C) {
 	InitTestLog()
 	var err error
-	config := NewConfig()
+	config := config.Default()
 	config.ClientID = "producer"
 	config.Kafka.SeedPeers = testKafkaPeers
 	config.ChannelBufferSize = 1

@@ -4,17 +4,18 @@ import (
 	"strconv"
 
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
+	"github.com/mailgun/kafka-pixy/config"
 )
 
 type AdminSuite struct {
-	config *Config
+	config *config.T
 }
 
 var _ = Suite(&AdminSuite{})
 
 func (s *AdminSuite) SetUpSuite(c *C) {
 	InitTestLog()
-	s.config = NewConfig()
+	s.config = config.Default()
 	s.config.ClientID = "producer"
 	s.config.Kafka.SeedPeers = testKafkaPeers
 	s.config.ZooKeeper.SeedPeers = testZookeeperPeers

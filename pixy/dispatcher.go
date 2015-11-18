@@ -7,6 +7,7 @@ import (
 
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
+	"github.com/mailgun/kafka-pixy/config"
 )
 
 // dispatcher reads consume requests submitted to the `requests()` channel
@@ -17,7 +18,7 @@ import (
 // requests resolving to it will come in the nearest future.
 type dispatcher struct {
 	contextID         *sarama.ContextID
-	config            *Config
+	config            *config.T
 	factory           dispatchTierFactory
 	requestsCh        chan consumeRequest
 	children          map[string]*expiringDispatchTier
@@ -62,7 +63,7 @@ type expiringDispatchTier struct {
 	expired   bool
 }
 
-func newDispatcher(baseCID *sarama.ContextID, factory dispatchTierFactory, config *Config) *dispatcher {
+func newDispatcher(baseCID *sarama.ContextID, factory dispatchTierFactory, config *config.T) *dispatcher {
 	d := &dispatcher{
 		contextID:         baseCID.NewChild("dispatcher"),
 		config:            config,

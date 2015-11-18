@@ -10,6 +10,7 @@ import (
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/wvanbergen/kazoo-go"
+	"github.com/mailgun/kafka-pixy/config"
 )
 
 type (
@@ -35,7 +36,7 @@ var (
 // requests for that period then the consumer deregisters from the group.
 type SmartConsumer struct {
 	baseCID     *sarama.ContextID
-	config      *Config
+	config      *config.T
 	dispatcher  *dispatcher
 	kafkaClient sarama.Client
 	offsetMgr   sarama.OffsetManager
@@ -44,8 +45,8 @@ type SmartConsumer struct {
 
 // SpawnSmartConsumer creates a SmartConsumer instance with the specified
 // configuration and starts all its goroutines.
-func SpawnSmartConsumer(config *Config) (*SmartConsumer, error) {
-	kafkaClient, err := sarama.NewClient(config.Kafka.SeedPeers, config.saramaConfig())
+func SpawnSmartConsumer(config *config.T) (*SmartConsumer, error) {
+	kafkaClient, err := sarama.NewClient(config.Kafka.SeedPeers, config.SaramaConfig())
 	if err != nil {
 		return nil, ErrConsumerSetup(fmt.Errorf("failed to create sarama.Client: err=(%v)", err))
 	}
@@ -53,7 +54,7 @@ func SpawnSmartConsumer(config *Config) (*SmartConsumer, error) {
 	if err != nil {
 		return nil, ErrConsumerSetup(fmt.Errorf("failed to create sarama.OffsetManager: err=(%v)", err))
 	}
-	kazooConn, err := kazoo.NewKazoo(config.ZooKeeper.SeedPeers, config.kazooConfig())
+	kazooConn, err := kazoo.NewKazoo(config.ZooKeeper.SeedPeers, config.KazooConfig())
 	if err != nil {
 		return nil, ErrConsumerSetup(fmt.Errorf("failed to create kazoo.Kazoo: err=(%v)", err))
 	}
@@ -122,7 +123,7 @@ func (sc *SmartConsumer) newDispatchTier(key string) dispatchTier {
 // have been inactive for the `Config.Consumer.DisposeAfter` period of time.
 type groupConsumer struct {
 	baseCID               *sarama.ContextID
-	config                *Config
+	config                *config.T
 	group                 string
 	dispatcher            *dispatcher
 	kafkaClient           sarama.Client
@@ -449,7 +450,7 @@ type topicGear struct {
 // requests' reply channel.
 type topicConsumer struct {
 	contextID     *sarama.ContextID
-	config        *Config
+	config        *config.T
 	gc            *groupConsumer
 	group         string
 	topic         string
@@ -535,7 +536,7 @@ func (tc *topicConsumer) String() string {
 // consumers to ensure that none of them is neglected.
 type multiplexer struct {
 	contextID          *sarama.ContextID
-	config             *Config
+	config             *config.T
 	exclusiveConsumers []*exclusiveConsumer
 	topicConsumer      *topicConsumer
 	lastPartitionIdx   int
@@ -669,7 +670,7 @@ func (m *multiplexer) selectPartition(partitionMessages []*sarama.ConsumerMessag
 // consumed and its offset is committed.
 type exclusiveConsumer struct {
 	contextID    *sarama.ContextID
-	config       *Config
+	config       *config.T
 	group        string
 	topic        string
 	partition    int32

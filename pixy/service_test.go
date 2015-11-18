@@ -12,10 +12,11 @@ import (
 
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
+	"github.com/mailgun/kafka-pixy/config"
 )
 
 type ServiceSuite struct {
-	config     *Config
+	config     *config.T
 	tkc        *TestKafkaClient
 	unixClient *http.Client
 	tcpClient  *http.Client
@@ -40,13 +41,6 @@ func (s *ServiceSuite) SetUpTest(c *C) {
 			KeepAlive: 30 * time.Second,
 		}).Dial,
 	}}
-}
-
-func (s *ServiceSuite) TestGetIP(c *C) {
-	ip, err := getIP()
-	c.Assert(err, IsNil)
-	c.Assert(ip.String(), Matches, "\\d+.\\d+.\\d+.\\d+")
-	c.Assert(ip.String(), Not(Equals), "127.0.0.1")
 }
 
 func (s *ServiceSuite) TestStartAndStop(c *C) {

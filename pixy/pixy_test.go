@@ -21,6 +21,7 @@ import (
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
+	"github.com/mailgun/kafka-pixy/config"
 )
 
 const (
@@ -202,8 +203,8 @@ func ProdMsgMetadataSize(key []byte) int {
 	return size
 }
 
-func NewTestConfig(clientID string) *Config {
-	config := NewConfig()
+func NewTestConfig(clientID string) *config.T {
+	config := config.Default()
 	config.UnixAddr = path.Join(os.TempDir(), "kafka-pixy.sock")
 	config.ClientID = clientID
 	config.Kafka.SeedPeers = testKafkaPeers
@@ -215,11 +216,11 @@ func NewTestConfig(clientID string) *Config {
 }
 
 func ResetOffsets(c *C, group, topic string) {
-	config := NewConfig()
+	config := config.Default()
 	config.Kafka.SeedPeers = testKafkaPeers
 	config.ZooKeeper.SeedPeers = testZookeeperPeers
 
-	kafkaClient, err := sarama.NewClient(config.Kafka.SeedPeers, config.saramaConfig())
+	kafkaClient, err := sarama.NewClient(config.Kafka.SeedPeers, config.SaramaConfig())
 	c.Assert(err, IsNil)
 	defer kafkaClient.Close()
 
@@ -240,7 +241,7 @@ func ResetOffsets(c *C, group, topic string) {
 }
 
 func GenMessages(c *C, prefix, topic string, keys map[string]int) map[string][]*sarama.ProducerMessage {
-	config := NewConfig()
+	config := config.Default()
 	config.ClientID = "producer"
 	config.Kafka.SeedPeers = testKafkaPeers
 	producer, err := SpawnGracefulProducer(config)

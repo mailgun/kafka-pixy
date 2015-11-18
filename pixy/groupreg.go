@@ -10,6 +10,7 @@ import (
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/wvanbergen/kazoo-go"
+	"github.com/mailgun/kafka-pixy/config"
 )
 
 // consumerGroupRegistry maintains proper consumer group member registration
@@ -21,7 +22,7 @@ import (
 type consumerGroupRegistry struct {
 	baseCID             *sarama.ContextID
 	group               string
-	config              *Config
+	config              *config.T
 	groupZNode          *kazoo.Consumergroup
 	groupMemberZNode    *kazoo.ConsumergroupInstance
 	topicsCh            chan []string
@@ -30,7 +31,7 @@ type consumerGroupRegistry struct {
 	wg                  sync.WaitGroup
 }
 
-func spawnConsumerGroupRegister(group, memberID string, config *Config, kazooConn *kazoo.Kazoo) *consumerGroupRegistry {
+func spawnConsumerGroupRegister(group, memberID string, config *config.T, kazooConn *kazoo.Kazoo) *consumerGroupRegistry {
 	groupZNode := kazooConn.Consumergroup(group)
 	groupMemberZNode := groupZNode.Instance(memberID)
 	cgr := &consumerGroupRegistry{

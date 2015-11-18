@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mailgun/kafka-pixy/pixy/prettyfmt"
+	"github.com/mailgun/kafka-pixy/prettyfmt"
 )
 
 const (

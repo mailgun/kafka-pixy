@@ -6,10 +6,11 @@ import (
 
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
+	"github.com/mailgun/kafka-pixy/config"
 )
 
 type GracefulProducerSuite struct {
-	config        *Config
+	config        *config.T
 	tkc           *TestKafkaClient
 	deadMessageCh chan *sarama.ProducerMessage
 }
@@ -22,7 +23,7 @@ func (s *GracefulProducerSuite) SetUpSuite(c *C) {
 
 func (s *GracefulProducerSuite) SetUpTest(c *C) {
 	s.deadMessageCh = make(chan *sarama.ProducerMessage, 100)
-	s.config = NewConfig()
+	s.config = config.Default()
 	s.config.Kafka.SeedPeers = testKafkaPeers
 	s.config.Producer.DeadMessageCh = s.deadMessageCh
 	s.tkc = NewTestKafkaClient(s.config.Kafka.SeedPeers)
