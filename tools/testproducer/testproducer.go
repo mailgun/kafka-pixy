@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mailgun/kafka-pixy/pixy"
+	"github.com/mailgun/kafka-pixy/pixy/prettyfmt"
 )
 
 const (
@@ -118,13 +118,13 @@ func main() {
 		tookSec := float64(took) / float64(time.Second)
 		fmt.Printf("\rProducing... %d/%d for %s at %dmsg(%s)/sec",
 			totalProgress, count, took, int64(float64(totalProgress)/tookSec),
-			pixy.BytesToStr(int64(float64(size*totalProgress)/tookSec)))
+			prettyfmt.Bytes(int64(float64(size*totalProgress)/tookSec)))
 	}
 	took := time.Now().Sub(begin)
 	tookSec := float64(took) / float64(time.Second)
 	fmt.Printf("\rProduced %d messages of size %d for %s at %dmsg(%s)/sec\n",
 		totalProgress, size, took, int64(float64(totalProgress)/tookSec),
-		pixy.BytesToStr(int64(float64(size*totalProgress)/tookSec)))
+		prettyfmt.Bytes(int64(float64(size*totalProgress)/tookSec)))
 }
 
 func genmessage(size int) []byte {

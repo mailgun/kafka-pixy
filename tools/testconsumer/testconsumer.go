@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mailgun/kafka-pixy/pixy"
+	"github.com/mailgun/kafka-pixy/pixy/prettyfmt"
 )
 
 const (
@@ -109,16 +109,16 @@ func main() {
 		checkpoint = now
 		tookSec := float64(took) / float64(time.Second)
 		fmt.Printf("Consuming... %d(%s) for %s at %dmsg(%s)/sec\n",
-			totalProgress.count, pixy.BytesToStr(totalProgress.bytes), totalTook,
+			totalProgress.count, prettyfmt.Bytes(totalProgress.bytes), totalTook,
 			int64(float64(progress.count)/tookSec),
-			pixy.BytesToStr(int64(float64(progress.bytes)/tookSec)))
+			prettyfmt.Bytes(int64(float64(progress.bytes)/tookSec)))
 	}
 	took := time.Now().Sub(begin)
 	tookSec := float64(took) / float64(time.Second)
 	fmt.Printf("Consumed %d(%s) for %s at %dmsg(%s)/sec\n",
-		totalProgress.count, pixy.BytesToStr(totalProgress.bytes), took,
+		totalProgress.count, prettyfmt.Bytes(totalProgress.bytes), took,
 		int64(float64(totalProgress.count)/tookSec),
-		pixy.BytesToStr(int64(float64(totalProgress.bytes)/tookSec)))
+		prettyfmt.Bytes(int64(float64(totalProgress.bytes)/tookSec)))
 }
 
 type MessageFetcher struct {
