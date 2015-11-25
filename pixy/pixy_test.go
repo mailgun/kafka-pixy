@@ -116,7 +116,7 @@ func (tkc *TestKafkaClient) getOffsets(topic string) []int64 {
 func (tkc *TestKafkaClient) getMessages(topic string, begin, end []int64) [][]string {
 	writtenMsgs := make([][]string, len(begin))
 	for i := range begin {
-		p, err := tkc.consumer.ConsumePartition(topic, int32(i), begin[i])
+		p, _, err := tkc.consumer.ConsumePartition(topic, int32(i), begin[i])
 		if err != nil {
 			panic(err)
 		}

@@ -108,7 +108,7 @@ func testProducingMessages(t *testing.T, config *Config) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	consumer, err := master.ConsumePartition("test.1", 0, OffsetNewest)
+	consumer, _, err := master.ConsumePartition("test.1", 0, OffsetNewest)
 	if err != nil {
 		t.Fatal(err)
 	}

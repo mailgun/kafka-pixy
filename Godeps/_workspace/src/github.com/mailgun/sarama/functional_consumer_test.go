@@ -16,11 +16,11 @@ func TestFuncConsumerOffsetOutOfRange(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := consumer.ConsumePartition("test.1", 0, -10); err != ErrOffsetOutOfRange {
+	if _, _, err := consumer.ConsumePartition("test.1", 0, -10); err != ErrOffsetOutOfRange {
 		t.Error("Expected ErrOffsetOutOfRange, got:", err)
 	}
 
-	if _, err := consumer.ConsumePartition("test.1", 0, math.MaxInt64); err != ErrOffsetOutOfRange {
+	if _, _, err := consumer.ConsumePartition("test.1", 0, math.MaxInt64); err != ErrOffsetOutOfRange {
 		t.Error("Expected ErrOffsetOutOfRange, got:", err)
 	}
 
@@ -48,7 +48,7 @@ func TestConsumerHighWaterMarkOffset(t *testing.T) {
 	}
 	defer safeClose(t, c)
 
-	pc, err := c.ConsumePartition("test.1", 0, OffsetOldest)
+	pc, _, err := c.ConsumePartition("test.1", 0, OffsetOldest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,12 +92,12 @@ func TestConsumerPartitionConsumerSlacker(t *testing.T) {
 	}
 	defer safeClose(t, c)
 
-	pcA, err := c.ConsumePartition("test.1", 0, startOffsetA)
+	pcA, _, err := c.ConsumePartition("test.1", 0, startOffsetA)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	pcB, err := c.ConsumePartition("test.4", 2, startOffsetB)
+	pcB, _, err := c.ConsumePartition("test.4", 2, startOffsetB)
 	if err != nil {
 		t.Fatal(err)
 	}

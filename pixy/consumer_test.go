@@ -111,7 +111,7 @@ func (s *SmartConsumerSuite) TestSinglePartitionTopic(c *C) {
 
 	// When/Then
 	consumed := s.consume(c, sc, "group-1", "test.1", 1)
-	s.assertMsg(c, consumed[""][0], produced[""][0])
+	assertMsg(c, consumed[""][0], produced[""][0])
 
 	sc.Stop()
 }
@@ -128,8 +128,8 @@ func (s *SmartConsumerSuite) TestSequentialConsume(c *C) {
 	c.Assert(err, IsNil)
 	log.Infof("*** GIVEN 1")
 	consumed := s.consume(c, sc1, "group-1", "test.1", 2)
-	s.assertMsg(c, consumed[""][0], produced[""][0])
-	s.assertMsg(c, consumed[""][1], produced[""][1])
+	assertMsg(c, consumed[""][0], produced[""][0])
+	assertMsg(c, consumed[""][1], produced[""][1])
 
 	// When: one consumer stopped and another one takes its place.
 	log.Infof("*** WHEN")
@@ -140,7 +140,7 @@ func (s *SmartConsumerSuite) TestSequentialConsume(c *C) {
 	// Then: the second message is consumed.
 	log.Infof("*** THEN")
 	consumed = s.consume(c, sc2, "group-1", "test.1", 1, consumed)
-	s.assertMsg(c, consumed[""][2], produced[""][2])
+	assertMsg(c, consumed[""][2], produced[""][2])
 	sc2.Stop()
 }
 
@@ -192,9 +192,9 @@ func (s *SmartConsumerSuite) TestMultipleTopics(c *C) {
 
 	// Then
 	log.Infof("*** THEN")
-	s.assertMsg(c, consumed["A"][0], produced1["A"][0])
-	s.assertMsg(c, consumed["B"][0], produced4["B"][0])
-	s.assertMsg(c, consumed["C"][0], produced4["C"][0])
+	assertMsg(c, consumed["A"][0], produced1["A"][0])
+	assertMsg(c, consumed["B"][0], produced4["B"][0])
+	assertMsg(c, consumed["C"][0], produced4["C"][0])
 
 	sc.Stop()
 }
@@ -237,7 +237,7 @@ func (s *SmartConsumerSuite) TestTooFewPartitions(c *C) {
 	log.Infof("*** GIVEN 1")
 	// Consume first message to make `consumer-1` subscribe for `test.1`
 	consumed := s.consume(c, sc1, "group-1", "test.1", 2)
-	s.assertMsg(c, consumed[""][0], produced[""][0])
+	assertMsg(c, consumed[""][0], produced[""][0])
 
 	// When:
 	log.Infof("*** WHEN")
@@ -252,7 +252,7 @@ func (s *SmartConsumerSuite) TestTooFewPartitions(c *C) {
 		c.Errorf("Expected ErrConsumerRequestTimeout, got %s", err)
 	}
 	s.consume(c, sc1, "group-1", "test.1", 1, consumed)
-	s.assertMsg(c, consumed[""][1], produced[""][1])
+	assertMsg(c, consumed[""][1], produced[""][1])
 
 	sc1.Stop()
 	sc2.Stop()
@@ -332,21 +332,21 @@ func (s *SmartConsumerSuite) TestRebalanceOnLeave(c *C) {
 	log.Infof("*** GIVEN 2")
 	if len(consumed[0]["A"]) == 1 {
 		if len(consumed[1]["B"]) == 1 {
-			s.assertMsg(c, consumed[2]["B"][0], produced["B"][1])
+			assertMsg(c, consumed[2]["B"][0], produced["B"][1])
 		} else { // if len(consumed[1]["C"]) == 1 {
-			s.assertMsg(c, consumed[2]["B"][0], produced["B"][0])
+			assertMsg(c, consumed[2]["B"][0], produced["B"][0])
 		}
 	} else if len(consumed[0]["B"]) == 1 {
 		if len(consumed[1]["B"]) == 1 {
-			s.assertMsg(c, consumed[2]["B"][0], produced["B"][2])
+			assertMsg(c, consumed[2]["B"][0], produced["B"][2])
 		} else { // if len(consumed[1]["C"]) == 1 {
-			s.assertMsg(c, consumed[2]["B"][0], produced["B"][1])
+			assertMsg(c, consumed[2]["B"][0], produced["B"][1])
 		}
 	} else { // if len(consumed[0]["C"]) == 1 {
 		if len(consumed[1]["B"]) == 1 {
-			s.assertMsg(c, consumed[2]["B"][0], produced["B"][1])
+			assertMsg(c, consumed[2]["B"][0], produced["B"][1])
 		} else { // if len(consumed[1]["C"]) == 1 {
-			s.assertMsg(c, consumed[2]["B"][0], produced["B"][0])
+			assertMsg(c, consumed[2]["B"][0], produced["B"][0])
 		}
 	}
 	s.consume(c, consumers[2], "group-1", "test.4", 4, consumed[2])
@@ -560,7 +560,41 @@ func (s *SmartConsumerSuite) TestLotsOfPartitions(c *C) {
 	sc.Stop()
 }
 
-func (s *SmartConsumerSuite) assertMsg(c *C, consMsg *sarama.ConsumerMessage, prodMsg *sarama.ProducerMessage) {
+// When a topic is consumed by a consumer group for the first time, its head
+// offset is committed, to make sure that subsequently submitted messages are
+// consumed.
+func (s *SmartConsumerSuite) TestNewGroup(c *C) {
+	// Given
+	group := fmt.Sprintf("group-%d", time.Now().Unix())
+	cfg := NewTestConfig(group)
+	cfg.Consumer.LongPollingTimeout = 500 * time.Millisecond
+	sc, err := SpawnSmartConsumer(cfg)
+	c.Assert(err, IsNil)
+
+	GenMessages(c, "rand", "test.1", map[string]int{"A1": 1})
+
+	// The very first consumption of a group is terminated by timeout because
+	// the default offset is the topic head.
+	msg, err := sc.Consume(group, "test.1")
+	if _, ok := err.(ErrConsumerRequestTimeout); !ok {
+		c.Fatalf("Unexpected message consumed: %v", msg)
+	}
+
+	// When: consumer is stopped, the concrete head offset is committed.
+	sc.Stop()
+
+	// Then: message produced after that will be consumed by the new consumer
+	// instance from the same group.
+	produced := GenMessages(c, "rand", "test.1", map[string]int{"A2": 1})
+	sc, err = SpawnSmartConsumer(cfg)
+	c.Assert(err, IsNil)
+	msg, err = sc.Consume(group, "test.1")
+	c.Assert(err, IsNil)
+	assertMsg(c, msg, produced["A2"][0])
+	sc.Stop()
+}
+
+func assertMsg(c *C, consMsg *sarama.ConsumerMessage, prodMsg *sarama.ProducerMessage) {
 	c.Assert(sarama.StringEncoder(consMsg.Value), Equals, prodMsg.Value)
 	c.Assert(consMsg.Offset, Equals, prodMsg.Offset)
 }
