@@ -35,9 +35,12 @@ func TestConsumerOffsetManual(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	consumer, err := master.ConsumePartition("my_topic", 0, 1234)
+	consumer, concreteOffset, err := master.ConsumePartition("my_topic", 0, 1234)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if concreteOffset != 1234 {
+		t.Fatalf("Invalid cocrete offset: want=10, got=%d", concreteOffset)
 	}
 
 	// Then: messages starting from offset 1234 are consumed.
@@ -81,9 +84,12 @@ func TestConsumerOffsetNewest(t *testing.T) {
 	}
 
 	// When
-	consumer, err := master.ConsumePartition("my_topic", 0, OffsetNewest)
+	consumer, concreteOffset, err := master.ConsumePartition("my_topic", 0, OffsetNewest)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if concreteOffset != 10 {
+		t.Fatalf("Invalid cocrete offset: want=10, got=%d", concreteOffset)
 	}
 
 	// Then
@@ -121,7 +127,7 @@ func TestConsumerRecreate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pc, err := c.ConsumePartition("my_topic", 0, 10)
+	pc, _, err := c.ConsumePartition("my_topic", 0, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +135,7 @@ func TestConsumerRecreate(t *testing.T) {
 
 	// When
 	safeClose(t, pc)
-	pc, err = c.ConsumePartition("my_topic", 0, 10)
+	pc, _, err = c.ConsumePartition("my_topic", 0, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,13 +169,13 @@ func TestConsumerDuplicate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pc1, err := c.ConsumePartition("my_topic", 0, 0)
+	pc1, _, err := c.ConsumePartition("my_topic", 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// When
-	pc2, err := c.ConsumePartition("my_topic", 0, 0)
+	pc2, _, err := c.ConsumePartition("my_topic", 0, 0)
 
 	// Then
 	if pc2 != nil || err != ConfigurationError("That topic/partition is already being consumed") {
@@ -211,7 +217,7 @@ func TestConsumerLeaderRefreshError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pc, err := c.ConsumePartition("my_topic", 0, OffsetOldest)
+	pc, _, err := c.ConsumePartition("my_topic", 0, OffsetOldest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +279,7 @@ func TestConsumerInvalidTopic(t *testing.T) {
 	}
 
 	// When
-	pc, err := c.ConsumePartition("my_topic", 0, OffsetOldest)
+	pc, _, err := c.ConsumePartition("my_topic", 0, OffsetOldest)
 
 	// Then
 	if pc != nil || err != ErrUnknownTopicOrPartition {
@@ -310,7 +316,7 @@ func TestConsumerClosePartitionWithoutLeader(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pc, err := c.ConsumePartition("my_topic", 0, OffsetOldest)
+	pc, _, err := c.ConsumePartition("my_topic", 0, OffsetOldest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +375,7 @@ func TestConsumerShutsDownOutOfRange(t *testing.T) {
 	}
 
 	// When
-	consumer, err := master.ConsumePartition("my_topic", 0, 101)
+	consumer, _, err := master.ConsumePartition("my_topic", 0, 101)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,7 +428,7 @@ func TestConsumerExtraOffsets(t *testing.T) {
 	}
 
 	// When
-	consumer, err := master.ConsumePartition("my_topic", 0, 3)
+	consumer, _, err := master.ConsumePartition("my_topic", 0, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -474,7 +480,7 @@ func TestConsumerNonSequentialOffsets(t *testing.T) {
 	}
 
 	// When
-	consumer, err := master.ConsumePartition("my_topic", 0, 3)
+	consumer, _, err := master.ConsumePartition("my_topic", 0, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -531,7 +537,7 @@ func TestConsumerRebalancingMultiplePartitions(t *testing.T) {
 	// we expect to end up (eventually) consuming exactly ten messages on each partition
 	var wg sync.WaitGroup
 	for i := int32(0); i < 2; i++ {
-		consumer, err := master.ConsumePartition("my_topic", i, 0)
+		consumer, _, err := master.ConsumePartition("my_topic", i, 0)
 		if err != nil {
 			t.Error(err)
 		}
@@ -690,12 +696,12 @@ func TestConsumerInterleavedClose(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	c0, err := master.ConsumePartition("my_topic", 0, 1000)
+	c0, _, err := master.ConsumePartition("my_topic", 0, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	c1, err := master.ConsumePartition("my_topic", 1, 2000)
+	c1, _, err := master.ConsumePartition("my_topic", 1, 2000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -753,12 +759,12 @@ func TestConsumerBounceWithReferenceOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	c0, err := master.ConsumePartition("my_topic", 0, 1000)
+	c0, _, err := master.ConsumePartition("my_topic", 0, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	c1, err := master.ConsumePartition("my_topic", 1, 2000)
+	c1, _, err := master.ConsumePartition("my_topic", 1, 2000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -827,13 +833,13 @@ func TestConsumerOffsetOutOfRange(t *testing.T) {
 	}
 
 	// When/Then
-	if _, err := master.ConsumePartition("my_topic", 0, 0); err != ErrOffsetOutOfRange {
+	if _, _, err := master.ConsumePartition("my_topic", 0, 0); err != ErrOffsetOutOfRange {
 		t.Fatal("Should return ErrOffsetOutOfRange, got:", err)
 	}
-	if _, err := master.ConsumePartition("my_topic", 0, 3456); err != ErrOffsetOutOfRange {
+	if _, _, err := master.ConsumePartition("my_topic", 0, 3456); err != ErrOffsetOutOfRange {
 		t.Fatal("Should return ErrOffsetOutOfRange, got:", err)
 	}
-	if _, err := master.ConsumePartition("my_topic", 0, -3); err != ErrOffsetOutOfRange {
+	if _, _, err := master.ConsumePartition("my_topic", 0, -3); err != ErrOffsetOutOfRange {
 		t.Fatal("Should return ErrOffsetOutOfRange, got:", err)
 	}
 
@@ -865,7 +871,7 @@ func TestConsumerClose(t *testing.T) {
 
 	// The mock broker is configured not to reply to FetchRequest's. That will
 	// make some internal goroutine block for `Config.Net.ReadTimeout`.
-	_, _ = master.ConsumePartition("my_topic", 0, OffsetNewest)
+	_, _, _ = master.ConsumePartition("my_topic", 0, OffsetNewest)
 
 	// When/Then: close the consumer while an internal broker consumer is
 	// waiting for a response.

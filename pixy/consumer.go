@@ -727,15 +727,23 @@ func (ec *exclusiveConsumer) run() {
 		return
 	}
 
-	pc, err := ec.dumbConsumer.ConsumePartition(ec.topic, ec.partition, initialOffset.Offset)
+	pc, concreteOffset, err := ec.dumbConsumer.ConsumePartition(ec.topic, ec.partition, initialOffset.Offset)
 	if err != nil {
 		panic(fmt.Errorf("<%s> failed to start partition consumer: err=(%s)", ec.contextID, err))
 	}
 	defer pc.Close()
+	log.Infof("<%s> initialized: initialOffset=%d, concreteOffset=%d",
+		ec.contextID, initialOffset.Offset, concreteOffset)
 
-	log.Infof("<%s> initialized: offset=%d", ec.contextID, initialOffset.Offset)
-	firstMessageFetched := false
 	var lastSubmittedOffset, lastCommittedOffset int64
+
+	// Initialize the Kafka offset storage for a group on first consumption.
+	if initialOffset.Offset == sarama.OffsetNewest {
+		pom.SubmitOffset(concreteOffset, "")
+		lastSubmittedOffset = concreteOffset
+	}
+
+	firstMessageFetched := false
 	for {
 		var msg *sarama.ConsumerMessage
 		// Wait for a fetched message to to provided by the controlled

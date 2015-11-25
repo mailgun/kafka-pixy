@@ -50,8 +50,8 @@
 		},
 		{
 			"ImportPath": "github.com/mailgun/sarama",
-			"Comment": "v1.6.0-7-g58f33f8",
-			"Rev": "58f33f805ecc3a20ca94a633bf70db2a63f7a327"
+			"Comment": "v1.6.0-8-gbb6cda7",
+			"Rev": "bb6cda7252df58fde5db7598ea69572fbd7ce900"
 		},
 		{
 			"ImportPath": "github.com/wvanbergen/kazoo-go",

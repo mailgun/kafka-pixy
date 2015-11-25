@@ -48,7 +48,7 @@ type Consumer interface {
 	// ConsumePartition creates a PartitionConsumer on the given topic/partition with the given offset. It will
 	// return an error if this Consumer is already consuming on the given topic/partition. Offset can be a
 	// literal offset, or OffsetNewest or OffsetOldest
-	ConsumePartition(topic string, partition int32, offset int64) (PartitionConsumer, error)
+	ConsumePartition(topic string, partition int32, offset int64) (PartitionConsumer, int64, error)
 
 	// Close shuts down the consumer. It must be called after all child PartitionConsumers have already been closed.
 	Close() error
@@ -116,10 +116,10 @@ func (c *consumer) Close() error {
 	return nil
 }
 
-func (c *consumer) ConsumePartition(topic string, partition int32, offset int64) (PartitionConsumer, error) {
+func (c *consumer) ConsumePartition(topic string, partition int32, offset int64) (PartitionConsumer, int64, error) {
 	concreteOffset, err := c.chooseStartingOffset(topic, partition, offset)
 	if err != nil {
-		return nil, err
+		return nil, OffsetNewest, err
 	}
 
 	c.childrenLock.Lock()
@@ -127,12 +127,12 @@ func (c *consumer) ConsumePartition(topic string, partition int32, offset int64)
 
 	tp := topicPartition{topic, partition}
 	if _, ok := c.children[tp]; ok {
-		return nil, ConfigurationError("That topic/partition is already being consumed")
+		return nil, OffsetNewest, ConfigurationError("That topic/partition is already being consumed")
 	}
 	pc := c.spawnPartitionConsumer(tp, concreteOffset)
 	c.mapper.workerCreated() <- pc
 	c.children[tp] = pc
-	return pc, nil
+	return pc, concreteOffset, nil
 }
 
 // resolveBroker queries the Kafka cluster for a new partition leader and
