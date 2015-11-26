@@ -13,6 +13,7 @@ import (
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/manners"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
+	"github.com/mailgun/kafka-pixy/prettyfmt"
 )
 
 const (
@@ -333,7 +334,19 @@ func (as *HTTPAPIServer) handleGetTopicConsumers(w http.ResponseWriter, r *http.
 		}
 	}
 
-	respondWithJSON(w, http.StatusOK, consumers)
+	encodedRes, err := json.MarshalIndent(consumers, "", "  ")
+	if err != nil {
+		log.Errorf("Failed to send HTTP reponse: status=%d, body=%v, reason=%v", http.StatusOK, encodedRes, err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	encodedRes = prettyfmt.CollapseJSON(encodedRes)
+
+	w.Header().Add(HeaderContentType, "application/json")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(encodedRes); err != nil {
+		log.Errorf("Failed to send HTTP reponse: status=%d, body=%v, reason=%v", http.StatusOK, encodedRes, err)
+	}
 }
 
 type produceHTTPResponse struct {
