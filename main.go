@@ -13,6 +13,7 @@ import (
 
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/logging"
 	"github.com/mailgun/kafka-pixy/pixy"
 )
 
@@ -101,7 +102,7 @@ func initLogging() error {
 	if err := log.InitWithConfig(loggingCfg...); err != nil {
 		return err
 	}
-	pixy.InitLibraryLoggers()
+	logging.Init3rdParty()
 	return nil
 }
 
