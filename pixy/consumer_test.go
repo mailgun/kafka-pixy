@@ -10,6 +10,7 @@ import (
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/logging"
 )
 
 type SmartConsumerSuite struct {
@@ -19,7 +20,7 @@ type SmartConsumerSuite struct {
 var _ = Suite(&SmartConsumerSuite{})
 
 func (s *SmartConsumerSuite) SetUpSuite(c *C) {
-	InitTestLog()
+	logging.InitTest()
 	var err error
 	config := config.Default()
 	config.ClientID = "producer"

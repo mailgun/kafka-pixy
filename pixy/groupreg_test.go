@@ -8,6 +8,7 @@ import (
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/wvanbergen/kazoo-go"
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/logging"
 )
 
 type ConsumerGroupRegistrySuite struct {
@@ -18,7 +19,7 @@ type ConsumerGroupRegistrySuite struct {
 var _ = Suite(&ConsumerGroupRegistrySuite{})
 
 func (s *ConsumerGroupRegistrySuite) SetUpSuite(c *C) {
-	InitTestLog()
+	logging.InitTest()
 
 	s.cid = sarama.RootCID.NewChild("cgr-test")
 	var err error

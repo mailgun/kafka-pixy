@@ -7,6 +7,7 @@ import (
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/logging"
 )
 
 type GracefulProducerSuite struct {
@@ -18,7 +19,7 @@ type GracefulProducerSuite struct {
 var _ = Suite(&GracefulProducerSuite{})
 
 func (s *GracefulProducerSuite) SetUpSuite(c *C) {
-	InitTestLog()
+	logging.InitTest()
 }
 
 func (s *GracefulProducerSuite) SetUpTest(c *C) {

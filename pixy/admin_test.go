@@ -5,6 +5,7 @@ import (
 
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/logging"
 )
 
 type AdminSuite struct {
@@ -14,7 +15,7 @@ type AdminSuite struct {
 var _ = Suite(&AdminSuite{})
 
 func (s *AdminSuite) SetUpSuite(c *C) {
-	InitTestLog()
+	logging.InitTest()
 	s.config = config.Default()
 	s.config.ClientID = "producer"
 	s.config.Kafka.SeedPeers = testKafkaPeers

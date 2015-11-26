@@ -13,6 +13,7 @@ import (
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/logging"
 )
 
 type ServiceSuite struct {
@@ -25,7 +26,7 @@ type ServiceSuite struct {
 var _ = Suite(&ServiceSuite{})
 
 func (s *ServiceSuite) SetUpSuite(c *C) {
-	InitTestLog()
+	logging.InitTest()
 }
 
 func (s *ServiceSuite) SetUpTest(c *C) {

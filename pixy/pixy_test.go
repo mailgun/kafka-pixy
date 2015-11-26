@@ -33,8 +33,6 @@ const (
 var (
 	testKafkaPeers     []string
 	testZookeeperPeers []string
-
-	initLogOnce = sync.Once{}
 )
 
 func init() {
@@ -53,14 +51,6 @@ func init() {
 
 func Test(t *testing.T) {
 	TestingT(t)
-}
-
-func InitTestLog() {
-	initLogOnce.Do(func() {
-		consoleLogger, _ := log.NewConsoleLogger(log.Config{Severity: "info"})
-		log.Init(consoleLogger)
-		InitLibraryLoggers()
-	})
 }
 
 // NewUDSHTTPClient creates an HTTP client that always connects to the
