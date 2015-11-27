@@ -14,11 +14,12 @@ import (
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/logging"
+	"github.com/mailgun/kafka-pixy/testhelpers"
 )
 
 type ServiceSuite struct {
 	config     *config.T
-	tkc        *TestKafkaClient
+	kh         *testhelpers.KafkaHelper
 	unixClient *http.Client
 	tcpClient  *http.Client
 }
@@ -32,8 +33,8 @@ func (s *ServiceSuite) SetUpSuite(c *C) {
 func (s *ServiceSuite) SetUpTest(c *C) {
 	s.config = NewTestConfig("service-default")
 	os.Remove(s.config.UnixAddr)
-	s.tkc = NewTestKafkaClient(s.config.Kafka.SeedPeers)
-	s.unixClient = NewUDSHTTPClient(s.config.UnixAddr)
+	s.kh = testhelpers.NewKafkaHelper(s.config.Kafka.SeedPeers)
+	s.unixClient = testhelpers.NewUDSHTTPClient(s.config.UnixAddr)
 	// The default HTTP client cannot be used, because it caches connections,
 	// but each test must have a brand new connection.
 	s.tcpClient = &http.Client{Transport: &http.Transport{
@@ -81,7 +82,7 @@ func (s *ServiceSuite) TestInvalidKafkaPeers(c *C) {
 func (s *ServiceSuite) TestProduce(c *C) {
 	// Given
 	svc, _ := SpawnService(s.config)
-	offsetsBefore := s.tkc.getOffsets("test.4")
+	offsetsBefore := s.kh.GetOffsets("test.4")
 
 	// When
 	for i := 0; i < 10; i++ {
@@ -97,7 +98,7 @@ func (s *ServiceSuite) TestProduce(c *C) {
 			"text/plain", strings.NewReader(strconv.Itoa(i)))
 	}
 	svc.Stop() // Have to stop before getOffsets
-	offsetsAfter := s.tkc.getOffsets("test.4")
+	offsetsAfter := s.kh.GetOffsets("test.4")
 
 	// Then
 	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0]+20)
@@ -112,7 +113,7 @@ func (s *ServiceSuite) TestProduce(c *C) {
 func (s *ServiceSuite) TestProduceNilKey(c *C) {
 	// Given
 	svc, _ := SpawnService(s.config)
-	offsetsBefore := s.tkc.getOffsets("test.4")
+	offsetsBefore := s.kh.GetOffsets("test.4")
 
 	// When
 	for i := 0; i < 100; i++ {
@@ -120,7 +121,7 @@ func (s *ServiceSuite) TestProduceNilKey(c *C) {
 			"text/plain", strings.NewReader(strconv.Itoa(i)))
 	}
 	svc.Stop() // Have to stop before getOffsets
-	offsetsAfter := s.tkc.getOffsets("test.4")
+	offsetsAfter := s.kh.GetOffsets("test.4")
 
 	// Then
 	delta0 := offsetsAfter[0] - offsetsBefore[0]
@@ -135,7 +136,7 @@ func (s *ServiceSuite) TestProduceNilKey(c *C) {
 // submitted to a particular partition determined by the empty key hash.
 func (s *ServiceSuite) TestProduceEmptyKey(c *C) {
 	svc, _ := SpawnService(s.config)
-	offsetsBefore := s.tkc.getOffsets("test.4")
+	offsetsBefore := s.kh.GetOffsets("test.4")
 
 	// When
 	for i := 0; i < 10; i++ {
@@ -143,7 +144,7 @@ func (s *ServiceSuite) TestProduceEmptyKey(c *C) {
 			"text/plain", strings.NewReader(strconv.Itoa(i)))
 	}
 	svc.Stop() // Have to stop before getOffsets
-	offsetsAfter := s.tkc.getOffsets("test.4")
+	offsetsAfter := s.kh.GetOffsets("test.4")
 
 	// Then
 	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0])
@@ -155,7 +156,7 @@ func (s *ServiceSuite) TestProduceEmptyKey(c *C) {
 // Utf8 messages are submitted without a problem.
 func (s *ServiceSuite) TestUtf8Message(c *C) {
 	svc, _ := SpawnService(s.config)
-	offsetsBefore := s.tkc.getOffsets("test.4")
+	offsetsBefore := s.kh.GetOffsets("test.4")
 
 	// When
 	s.unixClient.Post("http://_/topics/test.4/messages?key=foo",
@@ -163,8 +164,8 @@ func (s *ServiceSuite) TestUtf8Message(c *C) {
 	svc.Stop() // Have to stop before getOffsets
 
 	// Then
-	offsetsAfter := s.tkc.getOffsets("test.4")
-	msgs := s.tkc.getMessages("test.4", offsetsBefore, offsetsAfter)
+	offsetsAfter := s.kh.GetOffsets("test.4")
+	msgs := s.kh.GetMessages("test.4", offsetsBefore, offsetsAfter)
 	c.Assert(msgs, DeepEquals,
 		[][]string{[]string(nil), {"Превед Медвед"}, []string(nil), []string(nil)})
 }
@@ -186,7 +187,7 @@ func (s *ServiceSuite) TestTCPDoesNotWork(c *C) {
 
 // API is served on a TCP socket if it is explicitly configured.
 func (s *ServiceSuite) TestBothAPI(c *C) {
-	offsetsBefore := s.tkc.getOffsets("test.4")
+	offsetsBefore := s.kh.GetOffsets("test.4")
 	s.config.TCPAddr = "127.0.0.1:55501"
 	svc, err := SpawnService(s.config)
 	c.Assert(err, IsNil)
@@ -201,8 +202,8 @@ func (s *ServiceSuite) TestBothAPI(c *C) {
 	svc.Stop() // Have to stop before getOffsets
 	c.Assert(err1, IsNil)
 	c.Assert(err2, IsNil)
-	offsetsAfter := s.tkc.getOffsets("test.4")
-	msgs := s.tkc.getMessages("test.4", offsetsBefore, offsetsAfter)
+	offsetsAfter := s.kh.GetOffsets("test.4")
+	msgs := s.kh.GetMessages("test.4", offsetsBefore, offsetsAfter)
 	c.Assert(msgs, DeepEquals,
 		[][]string{[]string(nil), {"Превед", "Kitty"}, []string(nil), []string(nil)})
 }
@@ -238,7 +239,7 @@ func (s *ServiceSuite) TestTCPServerCrash(c *C) {
 // Messages that have maximum possible size indeed go through. Note that we
 // assume that the broker's limit is the same as the producer's one or higher.
 func (s *ServiceSuite) TestLargestMessage(c *C) {
-	offsetsBefore := s.tkc.getOffsets("test.4")
+	offsetsBefore := s.kh.GetOffsets("test.4")
 	maxMsgSize := sarama.NewConfig().Producer.MaxMessageBytes - ProdMsgMetadataSize([]byte("foo"))
 	msg := GenMessage(maxMsgSize)
 	s.config.TCPAddr = "127.0.0.1:55501"
@@ -251,8 +252,8 @@ func (s *ServiceSuite) TestLargestMessage(c *C) {
 	// Then
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
 	c.Assert(ParseJSONBody(c, r), DeepEquals, map[string]interface{}{})
-	offsetsAfter := s.tkc.getOffsets("test.4")
-	messages := s.tkc.getMessages("test.4", offsetsBefore, offsetsAfter)
+	offsetsAfter := s.kh.GetOffsets("test.4")
+	messages := s.kh.GetMessages("test.4", offsetsBefore, offsetsAfter)
 	readMsg := messages[1][0]
 	c.Assert(readMsg, Equals, msg)
 }
@@ -261,7 +262,7 @@ func (s *ServiceSuite) TestLargestMessage(c *C) {
 // dropped. Note that we assume that the broker's limit is the same as the
 // producer's one or higher.
 func (s *ServiceSuite) TestMessageTooLarge(c *C) {
-	offsetsBefore := s.tkc.getOffsets("test.4")
+	offsetsBefore := s.kh.GetOffsets("test.4")
 	maxMsgSize := sarama.NewConfig().Producer.MaxMessageBytes - ProdMsgMetadataSize([]byte("foo")) + 1
 	msg := GenMessage(maxMsgSize)
 	s.config.TCPAddr = "127.0.0.1:55501"
@@ -274,20 +275,20 @@ func (s *ServiceSuite) TestMessageTooLarge(c *C) {
 	// Then
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
 	c.Assert(ParseJSONBody(c, r), DeepEquals, map[string]interface{}{})
-	offsetsAfter := s.tkc.getOffsets("test.4")
+	offsetsAfter := s.kh.GetOffsets("test.4")
 	c.Assert(offsetsAfter, DeepEquals, offsetsBefore)
 }
 
 func (s *ServiceSuite) TestSyncProduce(c *C) {
 	// Given
 	svc, _ := SpawnService(s.config)
-	offsetsBefore := s.tkc.getOffsets("test.4")
+	offsetsBefore := s.kh.GetOffsets("test.4")
 
 	// When
 	r, err := s.unixClient.Post("http://_/topics/test.4/messages?key=1&sync",
 		"text/plain", strings.NewReader("Foo"))
 	svc.Stop() // Have to stop before getOffsets
-	offsetsAfter := s.tkc.getOffsets("test.4")
+	offsetsAfter := s.kh.GetOffsets("test.4")
 
 	// Then
 	c.Assert(err, IsNil)

@@ -7,10 +7,11 @@ import (
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/producer"
 )
 
 type Service struct {
-	producer   *GracefulProducer
+	producer   *producer.T
 	consumer   *SmartConsumer
 	admin      *Admin
 	tcpServer  *HTTPAPIServer
@@ -20,7 +21,7 @@ type Service struct {
 }
 
 func SpawnService(config *config.T) (*Service, error) {
-	producer, err := SpawnGracefulProducer(config)
+	producer, err := producer.Spawn(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to spawn producer, err=(%s)", err)
 	}

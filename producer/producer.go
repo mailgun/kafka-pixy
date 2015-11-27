@@ -1,4 +1,4 @@
-package pixy
+package producer
 
 import (
 	"fmt"
@@ -14,13 +14,15 @@ const (
 	maxEncoderReprLength = 4096
 )
 
-// GracefulProducer builds on top of `sarama.AsyncProducer` to improve the
-// shutdown handling. The problem it solves is that `sarama.AsyncProducer`
-// drops all buffered messages as soon as it is ordered to shutdown. On the
-// contrary, when `GracefulProducer` is ordered to stop it allows some time
-// for the buffered messages to be committed to the Kafka cluster, and only
-// when that time has elapsed it drops uncommitted messages.
-type GracefulProducer struct {
+// T builds on top of `sarama.AsyncProducer` to improve the shutdown handling.
+// The problem it solves is that `sarama.AsyncProducer` drops all buffered
+// messages as soon as it is ordered to shutdown. On the contrary, when `T` is
+// ordered to stop it allows some time for the buffered messages to be
+// committed to the Kafka cluster, and only when that time has elapsed it drops
+// uncommitted messages.
+//
+// TODO Consider implementing some sort of dead message processing.
+type T struct {
 	baseCID         *sarama.ContextID
 	saramaClient    sarama.Client
 	saramaProducer  sarama.AsyncProducer
@@ -36,10 +38,9 @@ type produceResult struct {
 	Err error
 }
 
-// SpawnGracefulProducer creates a `KafkaProducer` instance and starts its internal
-// goroutines.
-func SpawnGracefulProducer(config *config.T) (*GracefulProducer, error) {
-	saramaClient, err := sarama.NewClient(config.Kafka.SeedPeers, config.SaramaConfig())
+// Spawn creates a producer instance and starts its internal goroutines.
+func Spawn(cfg *config.T) (*T, error) {
+	saramaClient, err := sarama.NewClient(cfg.Kafka.SeedPeers, cfg.SaramaConfig())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sarama.Client, err=(%s)", err)
 	}
@@ -47,24 +48,24 @@ func SpawnGracefulProducer(config *config.T) (*GracefulProducer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sarama.Producer, err=(%s)", err)
 	}
-	gp := &GracefulProducer{
+	p := &T{
 		baseCID:         sarama.RootCID.NewChild("producer"),
 		saramaClient:    saramaClient,
 		saramaProducer:  saramaProducer,
-		shutdownTimeout: config.Producer.ShutdownTimeout,
-		deadMessageCh:   config.Producer.DeadMessageCh,
-		dispatcherCh:    make(chan *sarama.ProducerMessage, config.ChannelBufferSize),
-		resultCh:        make(chan produceResult, config.ChannelBufferSize),
+		shutdownTimeout: cfg.Producer.ShutdownTimeout,
+		deadMessageCh:   cfg.Producer.DeadMessageCh,
+		dispatcherCh:    make(chan *sarama.ProducerMessage, cfg.ChannelBufferSize),
+		resultCh:        make(chan produceResult, cfg.ChannelBufferSize),
 	}
-	spawn(&gp.wg, gp.merge)
-	spawn(&gp.wg, gp.dispatch)
-	return gp, nil
+	spawn(&p.wg, p.merge)
+	spawn(&p.wg, p.dispatch)
+	return p, nil
 }
 
 // Stop shuts down all producer goroutines and releases all resources.
-func (gp *GracefulProducer) Stop() {
-	close(gp.dispatcherCh)
-	gp.wg.Wait()
+func (p *T) Stop() {
+	close(p.dispatcherCh)
+	p.wg.Wait()
 }
 
 // Produce submits a message to the specified `topic` of the Kafka cluster
@@ -75,7 +76,7 @@ func (gp *GracefulProducer) Stop() {
 //
 // Errors usually indicate a catastrophic failure of the Kafka cluster, or
 // missing topic if there cluster is not configured to auto create topics.
-func (gp *GracefulProducer) Produce(topic string, key, message sarama.Encoder) (*sarama.ProducerMessage, error) {
+func (p *T) Produce(topic string, key, message sarama.Encoder) (*sarama.ProducerMessage, error) {
 	replyCh := make(chan produceResult, 1)
 	prodMsg := &sarama.ProducerMessage{
 		Topic:    topic,
@@ -83,22 +84,20 @@ func (gp *GracefulProducer) Produce(topic string, key, message sarama.Encoder) (
 		Value:    message,
 		Metadata: replyCh,
 	}
-	gp.dispatcherCh <- prodMsg
+	p.dispatcherCh <- prodMsg
 	result := <-replyCh
 	return result.Msg, result.Err
 }
 
 // AsyncProduce is an asynchronously counterpart of the `Produce` function.
 // Errors are silently ignored.
-//
-// TODO Consider implementing some sort of dead message processing.
-func (gp *GracefulProducer) AsyncProduce(topic string, key, message sarama.Encoder) {
+func (p *T) AsyncProduce(topic string, key, message sarama.Encoder) {
 	prodMsg := &sarama.ProducerMessage{
 		Topic: topic,
 		Key:   key,
 		Value: message,
 	}
-	gp.dispatcherCh <- prodMsg
+	p.dispatcherCh <- prodMsg
 }
 
 // merge receives both message acknowledgements and producer errors from the
@@ -109,11 +108,11 @@ func (gp *GracefulProducer) AsyncProduce(topic string, key, message sarama.Encod
 // It keeps running until both `sarama.AsyncProducer` output channels are
 // closed. Then it closes the `resultCh` to notify the `dispatcher` goroutine
 // that all pending messages have been processed and exits.
-func (gp *GracefulProducer) merge() {
-	cid := gp.baseCID.NewChild("merge")
+func (p *T) merge() {
+	cid := p.baseCID.NewChild("merge")
 	defer cid.LogScope()()
-	nilOrProdSuccessesCh := gp.saramaProducer.Successes()
-	nilOrProdErrorsCh := gp.saramaProducer.Errors()
+	nilOrProdSuccessesCh := p.saramaProducer.Successes()
+	nilOrProdErrorsCh := p.saramaProducer.Errors()
 mergeLoop:
 	for channelsOpened := 2; channelsOpened > 0; {
 		select {
@@ -123,19 +122,19 @@ mergeLoop:
 				nilOrProdSuccessesCh = nil
 				continue mergeLoop
 			}
-			gp.resultCh <- produceResult{Msg: ackedMsg}
+			p.resultCh <- produceResult{Msg: ackedMsg}
 		case prodErr, ok := <-nilOrProdErrorsCh:
 			if !ok {
 				channelsOpened -= 1
 				nilOrProdErrorsCh = nil
 				continue mergeLoop
 			}
-			gp.resultCh <- produceResult{Msg: prodErr.Msg, Err: prodErr.Err}
+			p.resultCh <- produceResult{Msg: prodErr.Msg, Err: prodErr.Err}
 		}
 	}
 	// Close the result channel to notify the `dispatcher` goroutine that all
 	// pending messages have been processed.
-	close(gp.resultCh)
+	close(p.resultCh)
 }
 
 // dispatch implements message processing and graceful shutdown. It receives
@@ -144,10 +143,10 @@ mergeLoop:
 // purpose is to prevent loss of messages during shutdown. It achieves that by
 // allowing some graceful period after it stops receiving messages and stopping
 // the embedded `sarama.AsyncProducer`.
-func (gp *GracefulProducer) dispatch() {
-	cid := gp.baseCID.NewChild("dispatch")
+func (p *T) dispatch() {
+	cid := p.baseCID.NewChild("dispatch")
 	defer cid.LogScope()()
-	nilOrDispatcherCh := gp.dispatcherCh
+	nilOrDispatcherCh := p.dispatcherCh
 	var nilOrProdInputCh chan<- *sarama.ProducerMessage
 	pendingMsgCount := 0
 	// The normal operation loop is implemented as two-stroke machine. On the
@@ -164,40 +163,40 @@ func (gp *GracefulProducer) dispatch() {
 			}
 			pendingMsgCount += 1
 			nilOrDispatcherCh = nil
-			nilOrProdInputCh = gp.saramaProducer.Input()
+			nilOrProdInputCh = p.saramaProducer.Input()
 		case nilOrProdInputCh <- prodMsg:
-			nilOrDispatcherCh = gp.dispatcherCh
+			nilOrDispatcherCh = p.dispatcherCh
 			nilOrProdInputCh = nil
-		case prodResult := <-gp.resultCh:
+		case prodResult := <-p.resultCh:
 			pendingMsgCount -= 1
-			gp.handleProduceResult(cid, prodResult)
+			p.handleProduceResult(cid, prodResult)
 		}
 	}
 gracefulShutdown:
 	// Give the `sarama.AsyncProducer` some time to commit buffered messages.
 	log.Infof("<%v> About to stop producer: pendingMsgCount=%d", cid, pendingMsgCount)
-	shutdownTimeoutCh := time.After(gp.shutdownTimeout)
+	shutdownTimeoutCh := time.After(p.shutdownTimeout)
 	for pendingMsgCount > 0 {
 		select {
 		case <-shutdownTimeoutCh:
 			goto shutdownNow
-		case prodResult := <-gp.resultCh:
+		case prodResult := <-p.resultCh:
 			pendingMsgCount -= 1
-			gp.handleProduceResult(cid, prodResult)
+			p.handleProduceResult(cid, prodResult)
 		}
 	}
 shutdownNow:
 	log.Infof("<%v> Stopping producer: pendingMsgCount=%d", cid, pendingMsgCount)
-	gp.saramaProducer.AsyncClose()
-	for prodResult := range gp.resultCh {
-		gp.handleProduceResult(cid, prodResult)
+	p.saramaProducer.AsyncClose()
+	for prodResult := range p.resultCh {
+		p.handleProduceResult(cid, prodResult)
 	}
 }
 
 // handleProduceResult inspects a production results and if it is an error
 // then logs it and flushes it down the `deadMessageCh` if one had been
 // configured.
-func (gp *GracefulProducer) handleProduceResult(cid *sarama.ContextID, result produceResult) {
+func (p *T) handleProduceResult(cid *sarama.ContextID, result produceResult) {
 	if replyCh, ok := result.Msg.Metadata.(chan produceResult); ok {
 		replyCh <- result
 	}
@@ -208,8 +207,8 @@ func (gp *GracefulProducer) handleProduceResult(cid *sarama.ContextID, result pr
 		result.Msg.Topic, encoderRepr(result.Msg.Key), encoderRepr(result.Msg.Value))
 	log.Errorf("<%v> Failed to submit message: msg=%v, err=(%s)",
 		cid, prodMsgRepr, result.Err)
-	if gp.deadMessageCh != nil {
-		gp.deadMessageCh <- result.Msg
+	if p.deadMessageCh != nil {
+		p.deadMessageCh <- result.Msg
 	}
 }
 
@@ -230,4 +229,14 @@ func encoderRepr(e sarama.Encoder) string {
 			repr[:maxEncoderReprLength], length-maxEncoderReprLength)
 	}
 	return repr
+}
+
+// spawn starts function `f` as a goroutine making it a member of the `wg`
+// wait group.
+func spawn(wg *sync.WaitGroup, f func()) {
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		f()
+	}()
 }

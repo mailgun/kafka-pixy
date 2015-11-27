@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net"
 	"net/http"
 	"os"
 	"path"
@@ -22,102 +21,12 @@ import (
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/producer"
+	"github.com/mailgun/kafka-pixy/testhelpers"
 )
-
-const (
-	// Use Shopify/sarama Vagrant box (copied over from https://github.com/Shopify/sarama/blob/master/functional_test.go#L18)
-	VagrantKafkaPeers     = "192.168.100.67:9091,192.168.100.67:9092,192.168.100.67:9093,192.168.100.67:9094,192.168.100.67:9095"
-	VagrantZookeeperPeers = "192.168.100.67:2181,192.168.100.67:2182,192.168.100.67:2183,192.168.100.67:2184,192.168.100.67:2185"
-)
-
-var (
-	testKafkaPeers     []string
-	testZookeeperPeers []string
-)
-
-func init() {
-	kafkaPeersStr := os.Getenv("KAFKA_PEERS")
-	if kafkaPeersStr == "" {
-		kafkaPeersStr = VagrantKafkaPeers
-	}
-	testKafkaPeers = strings.Split(kafkaPeersStr, ",")
-
-	zookeeperPeersStr := os.Getenv("ZOOKEEPER_PEERS")
-	if zookeeperPeersStr == "" {
-		zookeeperPeersStr = VagrantZookeeperPeers
-	}
-	testZookeeperPeers = strings.Split(zookeeperPeersStr, ",")
-}
 
 func Test(t *testing.T) {
 	TestingT(t)
-}
-
-// NewUDSHTTPClient creates an HTTP client that always connects to the
-// specified unix domain socket ignoring the host part of requested HTTP URLs.
-func NewUDSHTTPClient(unixSockAddr string) *http.Client {
-	dial := func(proto, addr string) (net.Conn, error) {
-		return net.Dial("unix", unixSockAddr)
-	}
-	tr := &http.Transport{Dial: dial}
-	return &http.Client{Transport: tr}
-}
-
-type TestKafkaClient struct {
-	client   sarama.Client
-	consumer sarama.Consumer
-}
-
-func NewTestKafkaClient(brokers []string) *TestKafkaClient {
-	tkc := &TestKafkaClient{}
-	clientCfg := sarama.NewConfig()
-	clientCfg.ClientID = "unittest-runner"
-	err := error(nil)
-	if tkc.client, err = sarama.NewClient(brokers, clientCfg); err != nil {
-		panic(err)
-	}
-	if tkc.consumer, err = sarama.NewConsumerFromClient(tkc.client); err != nil {
-		panic(err)
-	}
-	return tkc
-}
-
-func (tkc *TestKafkaClient) Close() {
-	tkc.consumer.Close()
-	tkc.client.Close()
-}
-
-func (tkc *TestKafkaClient) getOffsets(topic string) []int64 {
-	offsets := []int64{}
-	partitions, err := tkc.client.Partitions(topic)
-	if err != nil {
-		panic(err)
-	}
-	for _, p := range partitions {
-		offset, err := tkc.client.GetOffset(topic, p, sarama.OffsetNewest)
-		if err != nil {
-			panic(err)
-		}
-		offsets = append(offsets, offset)
-	}
-	return offsets
-}
-
-func (tkc *TestKafkaClient) getMessages(topic string, begin, end []int64) [][]string {
-	writtenMsgs := make([][]string, len(begin))
-	for i := range begin {
-		p, _, err := tkc.consumer.ConsumePartition(topic, int32(i), begin[i])
-		if err != nil {
-			panic(err)
-		}
-		writtenMsgCount := int(end[i] - begin[i])
-		for j := 0; j < writtenMsgCount; j++ {
-			connMsg := <-p.Messages()
-			writtenMsgs[i] = append(writtenMsgs[i], string(connMsg.Value))
-		}
-		p.Close()
-	}
-	return writtenMsgs
 }
 
 // GenMessage generates an ASCII message of the specified size.
@@ -197,8 +106,8 @@ func NewTestConfig(clientID string) *config.T {
 	config := config.Default()
 	config.UnixAddr = path.Join(os.TempDir(), "kafka-pixy.sock")
 	config.ClientID = clientID
-	config.Kafka.SeedPeers = testKafkaPeers
-	config.ZooKeeper.SeedPeers = testZookeeperPeers
+	config.Kafka.SeedPeers = testhelpers.KafkaPeers
+	config.ZooKeeper.SeedPeers = testhelpers.ZookeeperPeers
 	config.Consumer.LongPollingTimeout = 3000 * time.Millisecond
 	config.Consumer.BackOffTimeout = 100 * time.Millisecond
 	config.Consumer.RebalanceDelay = 100 * time.Millisecond
@@ -207,8 +116,8 @@ func NewTestConfig(clientID string) *config.T {
 
 func ResetOffsets(c *C, group, topic string) {
 	config := config.Default()
-	config.Kafka.SeedPeers = testKafkaPeers
-	config.ZooKeeper.SeedPeers = testZookeeperPeers
+	config.Kafka.SeedPeers = testhelpers.KafkaPeers
+	config.ZooKeeper.SeedPeers = testhelpers.ZookeeperPeers
 
 	kafkaClient, err := sarama.NewClient(config.Kafka.SeedPeers, config.SaramaConfig())
 	c.Assert(err, IsNil)
@@ -233,8 +142,8 @@ func ResetOffsets(c *C, group, topic string) {
 func GenMessages(c *C, prefix, topic string, keys map[string]int) map[string][]*sarama.ProducerMessage {
 	config := config.Default()
 	config.ClientID = "producer"
-	config.Kafka.SeedPeers = testKafkaPeers
-	producer, err := SpawnGracefulProducer(config)
+	config.Kafka.SeedPeers = testhelpers.KafkaPeers
+	producer, err := producer.Spawn(config)
 	c.Assert(err, IsNil)
 
 	messages := make(map[string][]*sarama.ProducerMessage)

@@ -6,6 +6,7 @@ import (
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/logging"
+	"github.com/mailgun/kafka-pixy/testhelpers"
 )
 
 type AdminSuite struct {
@@ -18,8 +19,8 @@ func (s *AdminSuite) SetUpSuite(c *C) {
 	logging.InitTest()
 	s.config = config.Default()
 	s.config.ClientID = "producer"
-	s.config.Kafka.SeedPeers = testKafkaPeers
-	s.config.ZooKeeper.SeedPeers = testZookeeperPeers
+	s.config.Kafka.SeedPeers = testhelpers.KafkaPeers
+	s.config.ZooKeeper.SeedPeers = testhelpers.ZookeeperPeers
 }
 
 // The end offset of partition ranges is properly reflects the number of

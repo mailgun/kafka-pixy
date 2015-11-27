@@ -9,6 +9,7 @@ import (
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/logging"
+	"github.com/mailgun/kafka-pixy/testhelpers"
 )
 
 type ConsumerGroupRegistrySuite struct {
@@ -23,7 +24,7 @@ func (s *ConsumerGroupRegistrySuite) SetUpSuite(c *C) {
 
 	s.cid = sarama.RootCID.NewChild("cgr-test")
 	var err error
-	s.kazooConn, err = kazoo.NewKazoo(testZookeeperPeers, kazoo.NewConfig())
+	s.kazooConn, err = kazoo.NewKazoo(testhelpers.ZookeeperPeers, kazoo.NewConfig())
 	c.Assert(err, IsNil)
 }
 

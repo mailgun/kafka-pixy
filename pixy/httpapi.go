@@ -14,6 +14,7 @@ import (
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/manners"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	"github.com/mailgun/kafka-pixy/prettyfmt"
+	"github.com/mailgun/kafka-pixy/producer"
 )
 
 const (
@@ -39,7 +40,7 @@ type HTTPAPIServer struct {
 	addr       string
 	listener   net.Listener
 	httpServer *manners.GracefulServer
-	producer   *GracefulProducer
+	producer   *producer.T
 	consumer   *SmartConsumer
 	admin      *Admin
 	errorCh    chan error
@@ -48,7 +49,7 @@ type HTTPAPIServer struct {
 // NewHTTPAPIServer creates an HTTP server instance that will accept API
 // requests at the specified `network`/`address` and execute them with the
 // specified `producer`, `consumer`, or `admin`, depending on the request type.
-func NewHTTPAPIServer(network, addr string, producer *GracefulProducer, consumer *SmartConsumer, admin *Admin) (*HTTPAPIServer, error) {
+func NewHTTPAPIServer(network, addr string, producer *producer.T, consumer *SmartConsumer, admin *Admin) (*HTTPAPIServer, error) {
 	// Start listening on the specified network/address.
 	listener, err := net.Listen(network, addr)
 	if err != nil {
