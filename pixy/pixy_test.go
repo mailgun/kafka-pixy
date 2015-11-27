@@ -10,10 +10,8 @@ import (
 	"net/http"
 	"os"
 	"path"
-	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -21,7 +19,6 @@ import (
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 	"github.com/mailgun/kafka-pixy/config"
-	"github.com/mailgun/kafka-pixy/producer"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 )
 
@@ -138,47 +135,6 @@ func ResetOffsets(c *C, group, topic string) {
 	}
 	offsetManager.Close()
 }
-
-func GenMessages(c *C, prefix, topic string, keys map[string]int) map[string][]*sarama.ProducerMessage {
-	config := config.Default()
-	config.ClientID = "producer"
-	config.Kafka.SeedPeers = testhelpers.KafkaPeers
-	producer, err := producer.Spawn(config)
-	c.Assert(err, IsNil)
-
-	messages := make(map[string][]*sarama.ProducerMessage)
-	var wg sync.WaitGroup
-	var lock sync.Mutex
-	for key, count := range keys {
-		for i := 0; i < count; i++ {
-			key := key
-			message := fmt.Sprintf("%s:%s:%d", prefix, key, i)
-			spawn(&wg, func() {
-				keyEncoder := sarama.StringEncoder(key)
-				msgEncoder := sarama.StringEncoder(message)
-				prodMsg, err := producer.Produce(topic, keyEncoder, msgEncoder)
-				c.Assert(err, IsNil)
-				log.Infof("*** produced: topic=%s, partition=%d, offset=%d, message=%s",
-					topic, prodMsg.Partition, prodMsg.Offset, message)
-				lock.Lock()
-				messages[key] = append(messages[key], prodMsg)
-				lock.Unlock()
-			})
-		}
-	}
-	wg.Wait()
-	// Sort the produced messages in ascending order of their offsets.
-	for _, keyMessages := range messages {
-		sort.Sort(MessageSlice(keyMessages))
-	}
-	return messages
-}
-
-type MessageSlice []*sarama.ProducerMessage
-
-func (p MessageSlice) Len() int           { return len(p) }
-func (p MessageSlice) Less(i, j int) bool { return p[i].Offset < p[j].Offset }
-func (p MessageSlice) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
 func ParseJSONBody(c *C, res *http.Response) interface{} {
 	body, err := ioutil.ReadAll(res.Body)

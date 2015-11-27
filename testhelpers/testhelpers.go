@@ -1,12 +1,17 @@
 package testhelpers
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
+	"sync"
 
+	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
+	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 )
 
 const (
@@ -46,24 +51,31 @@ func NewUDSHTTPClient(unixSockAddr string) *http.Client {
 
 type KafkaHelper struct {
 	client   sarama.Client
+	producer sarama.AsyncProducer
 	consumer sarama.Consumer
 }
 
 func NewKafkaHelper(brokers []string) *KafkaHelper {
-	tkc := &KafkaHelper{}
-	clientCfg := sarama.NewConfig()
-	clientCfg.ClientID = "unittest-runner"
+	kh := &KafkaHelper{}
+	cfg := sarama.NewConfig()
+	cfg.Producer.Return.Successes = true
+	cfg.Producer.Return.Errors = true
+	cfg.ClientID = "unittest-runner"
 	err := error(nil)
-	if tkc.client, err = sarama.NewClient(brokers, clientCfg); err != nil {
+	if kh.client, err = sarama.NewClient(brokers, cfg); err != nil {
 		panic(err)
 	}
-	if tkc.consumer, err = sarama.NewConsumerFromClient(tkc.client); err != nil {
+	if kh.consumer, err = sarama.NewConsumerFromClient(kh.client); err != nil {
 		panic(err)
 	}
-	return tkc
+	if kh.producer, err = sarama.NewAsyncProducerFromClient(kh.client); err != nil {
+		panic(err)
+	}
+	return kh
 }
 
 func (kh *KafkaHelper) Close() {
+	kh.producer.Close()
 	kh.consumer.Close()
 	kh.client.Close()
 }
@@ -100,3 +112,51 @@ func (kh *KafkaHelper) GetMessages(topic string, begin, end []int64) [][]string 
 	}
 	return writtenMsgs
 }
+
+func (kh *KafkaHelper) PutMessages(c *C, prefix, topic string, keys map[string]int) map[string][]*sarama.ProducerMessage {
+	messages := make(map[string][]*sarama.ProducerMessage)
+	var wg sync.WaitGroup
+	total := 0
+	for key, count := range keys {
+		total += count
+		for i := 0; i < count; i++ {
+			key := key
+			message := fmt.Sprintf("%s:%s:%d", prefix, key, i)
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				keyEncoder := sarama.StringEncoder(key)
+				msgEncoder := sarama.StringEncoder(message)
+				prodMsg := &sarama.ProducerMessage{
+					Topic: topic,
+					Key:   keyEncoder,
+					Value: msgEncoder,
+				}
+				kh.producer.Input() <- prodMsg
+			}()
+		}
+	}
+	for i := 0; i < total; i++ {
+		select {
+		case prodMsg := <-kh.producer.Successes():
+			key := string(prodMsg.Key.(sarama.StringEncoder))
+			messages[key] = append(messages[key], prodMsg)
+			log.Infof("*** produced: topic=%s, partition=%d, offset=%d, message=%s",
+				topic, prodMsg.Partition, prodMsg.Offset, prodMsg.Value)
+		case prodErr := <-kh.producer.Errors():
+			c.Error(prodErr)
+		}
+	}
+	// Sort the produced messages in ascending order of their offsets.
+	for _, keyMessages := range messages {
+		sort.Sort(messageSlice(keyMessages))
+	}
+	wg.Wait()
+	return messages
+}
+
+type messageSlice []*sarama.ProducerMessage
+
+func (p messageSlice) Len() int           { return len(p) }
+func (p messageSlice) Less(i, j int) bool { return p[i].Offset < p[j].Offset }
+func (p messageSlice) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }

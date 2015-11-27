@@ -1,7 +1,8 @@
-package pixy
+package admin
 
 import (
 	"strconv"
+	"testing"
 
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 	"github.com/mailgun/kafka-pixy/config"
@@ -9,18 +10,28 @@ import (
 	"github.com/mailgun/kafka-pixy/testhelpers"
 )
 
+func Test(t *testing.T) {
+	TestingT(t)
+}
+
 type AdminSuite struct {
-	config *config.T
+	cfg *config.T
+	kh  *testhelpers.KafkaHelper
 }
 
 var _ = Suite(&AdminSuite{})
 
 func (s *AdminSuite) SetUpSuite(c *C) {
 	logging.InitTest()
-	s.config = config.Default()
-	s.config.ClientID = "producer"
-	s.config.Kafka.SeedPeers = testhelpers.KafkaPeers
-	s.config.ZooKeeper.SeedPeers = testhelpers.ZookeeperPeers
+	s.cfg = config.Default()
+	s.cfg.ClientID = "producer"
+	s.cfg.Kafka.SeedPeers = testhelpers.KafkaPeers
+	s.cfg.ZooKeeper.SeedPeers = testhelpers.ZookeeperPeers
+	s.kh = testhelpers.NewKafkaHelper(testhelpers.KafkaPeers)
+}
+
+func (s *AdminSuite) TearDownSuite(c *C) {
+	s.kh.Close()
 }
 
 // The end offset of partition ranges is properly reflects the number of
@@ -31,13 +42,13 @@ func (s *AdminSuite) TestGetOffsetsAfterProduce(c *C) {
 	for i := 0; i < 64; i++ {
 		keyToCount[strconv.Itoa(i)] = i
 	}
-	GenMessages(c, "get_offsets", "test.64", keyToCount)
+	s.kh.PutMessages(c, "get_offsets", "test.64", keyToCount)
 
-	a, err := SpawnAdmin(s.config)
+	a, err := Spawn(s.cfg)
 	c.Assert(err, IsNil)
 	offsetsBefore, err := a.GetGroupOffsets("foo", "test.64")
 	c.Assert(err, IsNil)
-	GenMessages(c, "get_offsets", "test.64", keyToCount)
+	s.kh.PutMessages(c, "get_offsets", "test.64", keyToCount)
 
 	// When
 	offsetsAfter, err := a.GetGroupOffsets("foo", "test.64")
@@ -52,7 +63,9 @@ func (s *AdminSuite) TestGetOffsetsAfterProduce(c *C) {
 	}
 	for i := 0; i < 64; i++ {
 		actualDiff := int(offsetsAfter[i].End - offsetsBefore[i].End)
-		c.Assert(actualDiff, Equals, rangeEndDiffs[i])
+		if actualDiff != rangeEndDiffs[i] {
+			c.Errorf("partition %d, want=%d, got=%d", i, rangeEndDiffs[i], actualDiff)
+		}
 	}
 	a.Stop()
 }
@@ -60,7 +73,7 @@ func (s *AdminSuite) TestGetOffsetsAfterProduce(c *C) {
 // It is possible to set offsets for only a subset of group/topic partitions.
 func (s *AdminSuite) TestSetOffsetsPartialUpdate(c *C) {
 	// Given
-	a, err := SpawnAdmin(s.config)
+	a, err := Spawn(s.cfg)
 	c.Assert(err, IsNil)
 	a.SetGroupOffsets("foo", "test.4", []PartitionOffset{
 		{Partition: 0, Offset: 1001, Metadata: "A1"},

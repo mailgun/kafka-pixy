@@ -45,6 +45,10 @@ func (s *ServiceSuite) SetUpTest(c *C) {
 	}}
 }
 
+func (s *ServiceSuite) TearDownTest(c *C) {
+	s.kh.Close()
+}
+
 func (s *ServiceSuite) TestStartAndStop(c *C) {
 	svc, err := SpawnService(s.config)
 	c.Assert(err, IsNil)
@@ -372,7 +376,7 @@ func (s *ServiceSuite) TestConsumeInvalidTopic(c *C) {
 func (s *ServiceSuite) TestConsumeSingleMessage(c *C) {
 	// Given
 	ResetOffsets(c, "foo", "test.4")
-	produced := GenMessages(c, "service.consume", "test.4", map[string]int{"B": 1})
+	produced := s.kh.PutMessages(c, "service.consume", "test.4", map[string]int{"B": 1})
 	svc, _ := SpawnService(s.config)
 	defer svc.Stop()
 
@@ -569,7 +573,7 @@ func (s *ServiceSuite) TestGetTopicConsumersInvalid(c *C) {
 func (s *ServiceSuite) TestGetTopicConsumersOne(c *C) {
 	// Given
 	ResetOffsets(c, "foo", "test.4")
-	GenMessages(c, "get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1, "D": 1})
+	s.kh.PutMessages(c, "get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1, "D": 1})
 	svc, _ := SpawnService(NewTestConfig("C1"))
 	defer svc.Stop()
 	for i := 0; i < 4; i++ {
@@ -597,8 +601,8 @@ func (s *ServiceSuite) TestGetAllTopicConsumers(c *C) {
 	ResetOffsets(c, "foo", "test.4")
 	ResetOffsets(c, "bar", "test.1")
 	ResetOffsets(c, "bazz", "test.4")
-	GenMessages(c, "get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1})
-	GenMessages(c, "get.consumers", "test.1", map[string]int{"D": 1})
+	s.kh.PutMessages(c, "get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1})
+	s.kh.PutMessages(c, "get.consumers", "test.1", map[string]int{"D": 1})
 
 	svc1 := spawnTestService(c, 55501)
 	defer svc1.Stop()
@@ -648,7 +652,7 @@ func (s *ServiceSuite) TestGetTopicConsumers(c *C) {
 	// Given
 	ResetOffsets(c, "foo", "test.4")
 	ResetOffsets(c, "bar", "test.4")
-	GenMessages(c, "get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1})
+	s.kh.PutMessages(c, "get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1})
 
 	svc1 := spawnTestService(c, 55501)
 	defer svc1.Stop()

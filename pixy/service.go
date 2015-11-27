@@ -6,6 +6,7 @@ import (
 
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
+	"github.com/mailgun/kafka-pixy/admin"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/producer"
 )
@@ -13,7 +14,7 @@ import (
 type Service struct {
 	producer   *producer.T
 	consumer   *SmartConsumer
-	admin      *Admin
+	admin      *admin.T
 	tcpServer  *HTTPAPIServer
 	unixServer *HTTPAPIServer
 	quitCh     chan struct{}
@@ -29,7 +30,7 @@ func SpawnService(config *config.T) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to spawn consumer, err=(%s)", err)
 	}
-	admin, err := SpawnAdmin(config)
+	admin, err := admin.Spawn(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to spawn admin, err=(%s)", err)
 	}

@@ -13,6 +13,7 @@ import (
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/manners"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
+	"github.com/mailgun/kafka-pixy/admin"
 	"github.com/mailgun/kafka-pixy/prettyfmt"
 	"github.com/mailgun/kafka-pixy/producer"
 )
@@ -42,14 +43,14 @@ type HTTPAPIServer struct {
 	httpServer *manners.GracefulServer
 	producer   *producer.T
 	consumer   *SmartConsumer
-	admin      *Admin
+	admin      *admin.T
 	errorCh    chan error
 }
 
 // NewHTTPAPIServer creates an HTTP server instance that will accept API
 // requests at the specified `network`/`address` and execute them with the
 // specified `producer`, `consumer`, or `admin`, depending on the request type.
-func NewHTTPAPIServer(network, addr string, producer *producer.T, consumer *SmartConsumer, admin *Admin) (*HTTPAPIServer, error) {
+func NewHTTPAPIServer(network, addr string, producer *producer.T, consumer *SmartConsumer, admin *admin.T) (*HTTPAPIServer, error) {
 	// Start listening on the specified network/address.
 	listener, err := net.Listen(network, addr)
 	if err != nil {
@@ -221,7 +222,7 @@ func (as *HTTPAPIServer) handleGetOffsets(w http.ResponseWriter, r *http.Request
 
 	partitionOffsets, err := as.admin.GetGroupOffsets(group, topic)
 	if err != nil {
-		if err, ok := err.(ErrAdminQuery); ok && err.Cause() == sarama.ErrUnknownTopicOrPartition {
+		if err, ok := err.(admin.ErrQuery); ok && err.Cause() == sarama.ErrUnknownTopicOrPartition {
 			respondWithJSON(w, http.StatusNotFound, errorHTTPResponse{"Unknown topic"})
 			return
 		}
@@ -273,7 +274,7 @@ func (as *HTTPAPIServer) handleSetOffsets(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	partitionOffsets := make([]PartitionOffset, len(partitionOffsetViews))
+	partitionOffsets := make([]admin.PartitionOffset, len(partitionOffsetViews))
 	for i, pov := range partitionOffsetViews {
 		partitionOffsets[i].Partition = pov.Partition
 		partitionOffsets[i].Offset = pov.Offset
@@ -282,7 +283,7 @@ func (as *HTTPAPIServer) handleSetOffsets(w http.ResponseWriter, r *http.Request
 
 	err = as.admin.SetGroupOffsets(group, topic, partitionOffsets)
 	if err != nil {
-		if err, ok := err.(ErrAdminQuery); ok && err.Cause() == sarama.ErrUnknownTopicOrPartition {
+		if err, ok := err.(admin.ErrQuery); ok && err.Cause() == sarama.ErrUnknownTopicOrPartition {
 			respondWithJSON(w, http.StatusNotFound, errorHTTPResponse{"Unknown topic"})
 			return
 		}
@@ -322,7 +323,7 @@ func (as *HTTPAPIServer) handleGetTopicConsumers(w http.ResponseWriter, r *http.
 	} else {
 		groupConsumers, err := as.admin.GetTopicConsumers(group, topic)
 		if err != nil {
-			if _, ok := err.(ErrAdminInvalidParam); ok {
+			if _, ok := err.(admin.ErrInvalidParam); ok {
 				respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
 				return
 			}
