@@ -31,9 +31,9 @@ func (s *ServiceSuite) SetUpSuite(c *C) {
 }
 
 func (s *ServiceSuite) SetUpTest(c *C) {
-	s.config = NewTestConfig("service-default")
+	s.config = testhelpers.NewTestConfig("service-default")
 	os.Remove(s.config.UnixAddr)
-	s.kh = testhelpers.NewKafkaHelper(s.config.Kafka.SeedPeers)
+	s.kh = testhelpers.NewKafkaHelper(c)
 	s.unixClient = testhelpers.NewUDSHTTPClient(s.config.UnixAddr)
 	// The default HTTP client cannot be used, because it caches connections,
 	// but each test must have a brand new connection.
@@ -375,8 +375,8 @@ func (s *ServiceSuite) TestConsumeInvalidTopic(c *C) {
 
 func (s *ServiceSuite) TestConsumeSingleMessage(c *C) {
 	// Given
-	ResetOffsets(c, "foo", "test.4")
-	produced := s.kh.PutMessages(c, "service.consume", "test.4", map[string]int{"B": 1})
+	s.kh.ResetOffsets("foo", "test.4")
+	produced := s.kh.PutMessages("service.consume", "test.4", map[string]int{"B": 1})
 	svc, _ := SpawnService(s.config)
 	defer svc.Stop()
 
@@ -572,9 +572,9 @@ func (s *ServiceSuite) TestGetTopicConsumersInvalid(c *C) {
 
 func (s *ServiceSuite) TestGetTopicConsumersOne(c *C) {
 	// Given
-	ResetOffsets(c, "foo", "test.4")
-	s.kh.PutMessages(c, "get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1, "D": 1})
-	svc, _ := SpawnService(NewTestConfig("C1"))
+	s.kh.ResetOffsets("foo", "test.4")
+	s.kh.PutMessages("get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1, "D": 1})
+	svc, _ := SpawnService(testhelpers.NewTestConfig("C1"))
 	defer svc.Stop()
 	for i := 0; i < 4; i++ {
 		s.unixClient.Get("http://_/topics/test.4/messages?group=foo")
@@ -598,11 +598,11 @@ func (s *ServiceSuite) TestGetTopicConsumersOne(c *C) {
 // the topic.
 func (s *ServiceSuite) TestGetAllTopicConsumers(c *C) {
 	// Given
-	ResetOffsets(c, "foo", "test.4")
-	ResetOffsets(c, "bar", "test.1")
-	ResetOffsets(c, "bazz", "test.4")
-	s.kh.PutMessages(c, "get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1})
-	s.kh.PutMessages(c, "get.consumers", "test.1", map[string]int{"D": 1})
+	s.kh.ResetOffsets("foo", "test.4")
+	s.kh.ResetOffsets("bar", "test.1")
+	s.kh.ResetOffsets("bazz", "test.4")
+	s.kh.PutMessages("get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1})
+	s.kh.PutMessages("get.consumers", "test.1", map[string]int{"D": 1})
 
 	svc1 := spawnTestService(c, 55501)
 	defer svc1.Stop()
@@ -650,9 +650,9 @@ func (s *ServiceSuite) TestGetAllTopicConsumers(c *C) {
 // group are returned.
 func (s *ServiceSuite) TestGetTopicConsumers(c *C) {
 	// Given
-	ResetOffsets(c, "foo", "test.4")
-	ResetOffsets(c, "bar", "test.4")
-	s.kh.PutMessages(c, "get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1})
+	s.kh.ResetOffsets("foo", "test.4")
+	s.kh.ResetOffsets("bar", "test.4")
+	s.kh.PutMessages("get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1})
 
 	svc1 := spawnTestService(c, 55501)
 	defer svc1.Stop()
@@ -682,7 +682,7 @@ func (s *ServiceSuite) TestGetTopicConsumers(c *C) {
 }
 
 func spawnTestService(c *C, port int) *Service {
-	config := NewTestConfig(fmt.Sprintf("C%d", port))
+	config := testhelpers.NewTestConfig(fmt.Sprintf("C%d", port))
 	config.UnixAddr = fmt.Sprintf("%s.%d", config.UnixAddr, port)
 	os.Remove(config.UnixAddr)
 	config.TCPAddr = fmt.Sprintf("127.0.0.1:%d", port)

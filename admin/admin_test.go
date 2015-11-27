@@ -27,7 +27,7 @@ func (s *AdminSuite) SetUpSuite(c *C) {
 	s.cfg.ClientID = "producer"
 	s.cfg.Kafka.SeedPeers = testhelpers.KafkaPeers
 	s.cfg.ZooKeeper.SeedPeers = testhelpers.ZookeeperPeers
-	s.kh = testhelpers.NewKafkaHelper(testhelpers.KafkaPeers)
+	s.kh = testhelpers.NewKafkaHelper(c)
 }
 
 func (s *AdminSuite) TearDownSuite(c *C) {
@@ -42,13 +42,13 @@ func (s *AdminSuite) TestGetOffsetsAfterProduce(c *C) {
 	for i := 0; i < 64; i++ {
 		keyToCount[strconv.Itoa(i)] = i
 	}
-	s.kh.PutMessages(c, "get_offsets", "test.64", keyToCount)
+	s.kh.PutMessages("get_offsets", "test.64", keyToCount)
 
 	a, err := Spawn(s.cfg)
 	c.Assert(err, IsNil)
 	offsetsBefore, err := a.GetGroupOffsets("foo", "test.64")
 	c.Assert(err, IsNil)
-	s.kh.PutMessages(c, "get_offsets", "test.64", keyToCount)
+	s.kh.PutMessages("get_offsets", "test.64", keyToCount)
 
 	// When
 	offsetsAfter, err := a.GetGroupOffsets("foo", "test.64")

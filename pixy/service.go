@@ -8,12 +8,13 @@ import (
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	"github.com/mailgun/kafka-pixy/admin"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/producer"
 )
 
 type Service struct {
 	producer   *producer.T
-	consumer   *SmartConsumer
+	consumer   *consumer.T
 	admin      *admin.T
 	tcpServer  *HTTPAPIServer
 	unixServer *HTTPAPIServer
@@ -26,7 +27,7 @@ func SpawnService(config *config.T) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to spawn producer, err=(%s)", err)
 	}
-	consumer, err := SpawnSmartConsumer(config)
+	consumer, err := consumer.Spawn(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to spawn consumer, err=(%s)", err)
 	}
@@ -107,4 +108,14 @@ func (s *Service) supervisor() {
 	spawn(&wg, s.consumer.Stop)
 	spawn(&wg, s.admin.Stop)
 	wg.Wait()
+}
+
+// spawn starts function `f` as a goroutine making it a member of the `wg`
+// wait group.
+func spawn(wg *sync.WaitGroup, f func()) {
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		f()
+	}()
 }

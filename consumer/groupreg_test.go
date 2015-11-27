@@ -1,4 +1,4 @@
-package pixy
+package consumer
 
 import (
 	"sync"

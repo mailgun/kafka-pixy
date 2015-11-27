@@ -33,7 +33,7 @@ func (s *ProducerSuite) SetUpTest(c *C) {
 	s.cfg = config.Default()
 	s.cfg.Kafka.SeedPeers = testhelpers.KafkaPeers
 	s.cfg.Producer.DeadMessageCh = s.deadMessageCh
-	s.kh = testhelpers.NewKafkaHelper(s.cfg.Kafka.SeedPeers)
+	s.kh = testhelpers.NewKafkaHelper(c)
 }
 
 func (s *ProducerSuite) TearDownTest(c *C) {

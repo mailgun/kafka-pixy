@@ -4,7 +4,13 @@ godep:
 	godep save -r ./...
 
 test:
-	go test -v -timeout 3m ./... -check.vv
+	go test -v -timeout 3m github.com/mailgun/kafka-pixy/admin -check.vv
+	go test -v -timeout 3m github.com/mailgun/kafka-pixy/config -check.vv
+	go test -v -timeout 3m github.com/mailgun/kafka-pixy/consumer -check.vv
+	go test -v -timeout 3m github.com/mailgun/kafka-pixy/logging -check.vv
+	go test -v -timeout 3m github.com/mailgun/kafka-pixy/prettyfmt -check.vv
+	go test -v -timeout 3m github.com/mailgun/kafka-pixy/pixy -check.vv
+	go test -v -timeout 3m github.com/mailgun/kafka-pixy/producer -check.vv
 
 rebuild:
 	go clean -i

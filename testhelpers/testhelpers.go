@@ -5,13 +5,16 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
+	"github.com/mailgun/kafka-pixy/config"
 )
 
 const (
@@ -39,6 +42,18 @@ func init() {
 	ZookeeperPeers = strings.Split(zookeeperPeersStr, ",")
 }
 
+func NewTestConfig(clientID string) *config.T {
+	cfg := config.Default()
+	cfg.UnixAddr = path.Join(os.TempDir(), "kafka-pixy.sock")
+	cfg.ClientID = clientID
+	cfg.Kafka.SeedPeers = KafkaPeers
+	cfg.ZooKeeper.SeedPeers = ZookeeperPeers
+	cfg.Consumer.LongPollingTimeout = 3000 * time.Millisecond
+	cfg.Consumer.BackOffTimeout = 100 * time.Millisecond
+	cfg.Consumer.RebalanceDelay = 100 * time.Millisecond
+	return cfg
+}
+
 // NewUDSHTTPClient creates an HTTP client that always connects to the
 // specified unix domain socket ignoring the host part of requested HTTP URLs.
 func NewUDSHTTPClient(unixSockAddr string) *http.Client {
@@ -50,19 +65,21 @@ func NewUDSHTTPClient(unixSockAddr string) *http.Client {
 }
 
 type KafkaHelper struct {
-	client   sarama.Client
-	producer sarama.AsyncProducer
-	consumer sarama.Consumer
+	c         *C
+	client    sarama.Client
+	producer  sarama.AsyncProducer
+	consumer  sarama.Consumer
+	offsetMgr sarama.OffsetManager
 }
 
-func NewKafkaHelper(brokers []string) *KafkaHelper {
-	kh := &KafkaHelper{}
+func NewKafkaHelper(c *C) *KafkaHelper {
+	kh := &KafkaHelper{c: c}
 	cfg := sarama.NewConfig()
 	cfg.Producer.Return.Successes = true
 	cfg.Producer.Return.Errors = true
 	cfg.ClientID = "unittest-runner"
 	err := error(nil)
-	if kh.client, err = sarama.NewClient(brokers, cfg); err != nil {
+	if kh.client, err = sarama.NewClient(KafkaPeers, cfg); err != nil {
 		panic(err)
 	}
 	if kh.consumer, err = sarama.NewConsumerFromClient(kh.client); err != nil {
@@ -71,10 +88,14 @@ func NewKafkaHelper(brokers []string) *KafkaHelper {
 	if kh.producer, err = sarama.NewAsyncProducerFromClient(kh.client); err != nil {
 		panic(err)
 	}
+	if kh.offsetMgr, err = sarama.NewOffsetManagerFromClient(kh.client); err != nil {
+		panic(err)
+	}
 	return kh
 }
 
 func (kh *KafkaHelper) Close() {
+	kh.offsetMgr.Close()
 	kh.producer.Close()
 	kh.consumer.Close()
 	kh.client.Close()
@@ -113,7 +134,7 @@ func (kh *KafkaHelper) GetMessages(topic string, begin, end []int64) [][]string 
 	return writtenMsgs
 }
 
-func (kh *KafkaHelper) PutMessages(c *C, prefix, topic string, keys map[string]int) map[string][]*sarama.ProducerMessage {
+func (kh *KafkaHelper) PutMessages(prefix, topic string, keys map[string]int) map[string][]*sarama.ProducerMessage {
 	messages := make(map[string][]*sarama.ProducerMessage)
 	var wg sync.WaitGroup
 	total := 0
@@ -144,7 +165,7 @@ func (kh *KafkaHelper) PutMessages(c *C, prefix, topic string, keys map[string]i
 			log.Infof("*** produced: topic=%s, partition=%d, offset=%d, message=%s",
 				topic, prodMsg.Partition, prodMsg.Offset, prodMsg.Value)
 		case prodErr := <-kh.producer.Errors():
-			c.Error(prodErr)
+			kh.c.Error(prodErr)
 		}
 	}
 	// Sort the produced messages in ascending order of their offsets.
@@ -153,6 +174,20 @@ func (kh *KafkaHelper) PutMessages(c *C, prefix, topic string, keys map[string]i
 	}
 	wg.Wait()
 	return messages
+}
+
+func (kh *KafkaHelper) ResetOffsets(group, topic string) {
+	partitions, err := kh.client.Partitions(topic)
+	kh.c.Assert(err, IsNil)
+	for _, p := range partitions {
+		offset, err := kh.client.GetOffset(topic, p, sarama.OffsetNewest)
+		kh.c.Assert(err, IsNil)
+		pom, err := kh.offsetMgr.ManagePartition(group, topic, p)
+		kh.c.Assert(err, IsNil)
+		pom.SubmitOffset(offset, "dummy")
+		log.Infof("Set initial offset %s/%s/%d=%d", group, topic, p, offset)
+		pom.Close()
+	}
 }
 
 type messageSlice []*sarama.ProducerMessage

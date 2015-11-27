@@ -1,9 +1,10 @@
-package pixy
+package consumer
 
 import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"testing"
 	"time"
 
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
@@ -13,6 +14,10 @@ import (
 	"github.com/mailgun/kafka-pixy/testhelpers"
 )
 
+func Test(t *testing.T) {
+	TestingT(t)
+}
+
 type SmartConsumerSuite struct {
 	kh *testhelpers.KafkaHelper
 }
@@ -21,7 +26,7 @@ var _ = Suite(&SmartConsumerSuite{})
 
 func (s *SmartConsumerSuite) SetUpSuite(c *C) {
 	logging.InitTest()
-	s.kh = testhelpers.NewKafkaHelper(testhelpers.KafkaPeers)
+	s.kh = testhelpers.NewKafkaHelper(c)
 }
 
 func (s *SmartConsumerSuite) SetUpTest(c *C) {
@@ -98,10 +103,10 @@ func (s *SmartConsumerSuite) TestResolveAssignments(c *C) {
 // in the order they were produced.
 func (s *SmartConsumerSuite) TestSinglePartitionTopic(c *C) {
 	// Given
-	ResetOffsets(c, "group-1", "test.1")
-	produced := s.kh.PutMessages(c, "single", "test.1", map[string]int{"": 3})
+	s.kh.ResetOffsets("group-1", "test.1")
+	produced := s.kh.PutMessages("single", "test.1", map[string]int{"": 3})
 
-	sc, err := SpawnSmartConsumer(NewTestConfig("consumer-1"))
+	sc, err := Spawn(testhelpers.NewTestConfig("consumer-1"))
 	c.Assert(err, IsNil)
 
 	// When/Then
@@ -115,11 +120,11 @@ func (s *SmartConsumerSuite) TestSinglePartitionTopic(c *C) {
 // previous one left off.
 func (s *SmartConsumerSuite) TestSequentialConsume(c *C) {
 	// Given
-	ResetOffsets(c, "group-1", "test.1")
-	produced := s.kh.PutMessages(c, "sequencial", "test.1", map[string]int{"": 3})
+	s.kh.ResetOffsets("group-1", "test.1")
+	produced := s.kh.PutMessages("sequencial", "test.1", map[string]int{"": 3})
 
-	config := NewTestConfig("consumer-1")
-	sc1, err := SpawnSmartConsumer(config)
+	cfg := testhelpers.NewTestConfig("consumer-1")
+	sc1, err := Spawn(cfg)
 	c.Assert(err, IsNil)
 	log.Infof("*** GIVEN 1")
 	consumed := s.consume(c, sc1, "group-1", "test.1", 2)
@@ -129,7 +134,7 @@ func (s *SmartConsumerSuite) TestSequentialConsume(c *C) {
 	// When: one consumer stopped and another one takes its place.
 	log.Infof("*** WHEN")
 	sc1.Stop()
-	sc2, err := SpawnSmartConsumer(config)
+	sc2, err := Spawn(cfg)
 	c.Assert(err, IsNil)
 
 	// Then: the second message is consumed.
@@ -143,11 +148,11 @@ func (s *SmartConsumerSuite) TestSequentialConsume(c *C) {
 // selected for consumption in random order.
 func (s *SmartConsumerSuite) TestMultiplePartitions(c *C) {
 	// Given
-	ResetOffsets(c, "group-1", "test.4")
-	s.kh.PutMessages(c, "multiple.partitions", "test.4", map[string]int{"A": 100, "B": 100})
+	s.kh.ResetOffsets("group-1", "test.4")
+	s.kh.PutMessages("multiple.partitions", "test.4", map[string]int{"A": 100, "B": 100})
 
 	log.Infof("*** GIVEN 1")
-	sc, err := SpawnSmartConsumer(NewTestConfig("consumer-1"))
+	sc, err := Spawn(testhelpers.NewTestConfig("consumer-1"))
 	c.Assert(err, IsNil)
 
 	// When: exactly one half of all produced events is consumed.
@@ -170,13 +175,13 @@ func (s *SmartConsumerSuite) TestMultiplePartitions(c *C) {
 // Different topics can be consumed at the same time.
 func (s *SmartConsumerSuite) TestMultipleTopics(c *C) {
 	// Given
-	ResetOffsets(c, "group-1", "test.1")
-	ResetOffsets(c, "group-1", "test.4")
-	produced1 := s.kh.PutMessages(c, "multiple.topics", "test.1", map[string]int{"A": 1})
-	produced4 := s.kh.PutMessages(c, "multiple.topics", "test.4", map[string]int{"B": 1, "C": 1})
+	s.kh.ResetOffsets("group-1", "test.1")
+	s.kh.ResetOffsets("group-1", "test.4")
+	produced1 := s.kh.PutMessages("multiple.topics", "test.1", map[string]int{"A": 1})
+	produced4 := s.kh.PutMessages("multiple.topics", "test.4", map[string]int{"B": 1, "C": 1})
 
 	log.Infof("*** GIVEN 1")
-	sc, err := SpawnSmartConsumer(NewTestConfig("consumer-1"))
+	sc, err := Spawn(testhelpers.NewTestConfig("consumer-1"))
 	c.Assert(err, IsNil)
 
 	// When
@@ -198,12 +203,12 @@ func (s *SmartConsumerSuite) TestMultipleTopics(c *C) {
 // by one group does not affect the consumption by another.
 func (s *SmartConsumerSuite) TestMultipleGroups(c *C) {
 	// Given
-	ResetOffsets(c, "group-1", "test.4")
-	ResetOffsets(c, "group-2", "test.4")
-	s.kh.PutMessages(c, "multi", "test.4", map[string]int{"A": 10, "B": 10, "C": 10})
+	s.kh.ResetOffsets("group-1", "test.4")
+	s.kh.ResetOffsets("group-2", "test.4")
+	s.kh.PutMessages("multi", "test.4", map[string]int{"A": 10, "B": 10, "C": 10})
 
 	log.Infof("*** GIVEN 1")
-	sc, err := SpawnSmartConsumer(NewTestConfig("consumer-1"))
+	sc, err := Spawn(testhelpers.NewTestConfig("consumer-1"))
 	c.Assert(err, IsNil)
 
 	// When
@@ -224,10 +229,10 @@ func (s *SmartConsumerSuite) TestMultipleGroups(c *C) {
 // some consumers get assigned no partitions and their consume requests timeout.
 func (s *SmartConsumerSuite) TestTooFewPartitions(c *C) {
 	// Given
-	ResetOffsets(c, "group-1", "test.1")
-	produced := s.kh.PutMessages(c, "few", "test.1", map[string]int{"": 3})
+	s.kh.ResetOffsets("group-1", "test.1")
+	produced := s.kh.PutMessages("few", "test.1", map[string]int{"": 3})
 
-	sc1, err := SpawnSmartConsumer(NewTestConfig("consumer-1"))
+	sc1, err := Spawn(testhelpers.NewTestConfig("consumer-1"))
 	c.Assert(err, IsNil)
 	log.Infof("*** GIVEN 1")
 	// Consume first message to make `consumer-1` subscribe for `test.1`
@@ -236,14 +241,14 @@ func (s *SmartConsumerSuite) TestTooFewPartitions(c *C) {
 
 	// When:
 	log.Infof("*** WHEN")
-	sc2, err := SpawnSmartConsumer(NewTestConfig("consumer-2"))
+	sc2, err := Spawn(testhelpers.NewTestConfig("consumer-2"))
 	c.Assert(err, IsNil)
 	_, err = sc2.Consume("group-1", "test.1")
 
 	// Then: `consumer-2` request times out, when `consumer-1` requests keep
 	// return messages.
 	log.Infof("*** THEN")
-	if _, ok := err.(ErrConsumerRequestTimeout); !ok {
+	if _, ok := err.(ErrRequestTimeout); !ok {
 		c.Errorf("Expected ErrConsumerRequestTimeout, got %s", err)
 	}
 	s.consume(c, sc1, "group-1", "test.1", 1, consumed)
@@ -257,10 +262,10 @@ func (s *SmartConsumerSuite) TestTooFewPartitions(c *C) {
 // among all consumers.
 func (s *SmartConsumerSuite) TestRebalanceOnJoin(c *C) {
 	// Given
-	ResetOffsets(c, "group-1", "test.4")
-	s.kh.PutMessages(c, "join", "test.4", map[string]int{"A": 10, "B": 10})
+	s.kh.ResetOffsets("group-1", "test.4")
+	s.kh.PutMessages("join", "test.4", map[string]int{"A": 10, "B": 10})
 
-	sc1, err := SpawnSmartConsumer(NewTestConfig("consumer-1"))
+	sc1, err := Spawn(testhelpers.NewTestConfig("consumer-1"))
 	c.Assert(err, IsNil)
 
 	// Consume the first message to make the consumer join the group and
@@ -280,7 +285,7 @@ func (s *SmartConsumerSuite) TestRebalanceOnJoin(c *C) {
 
 	// When: another consumer joins the group rebalancing occurs.
 	log.Infof("*** WHEN")
-	sc2, err := SpawnSmartConsumer(NewTestConfig("consumer-2"))
+	sc2, err := Spawn(testhelpers.NewTestConfig("consumer-2"))
 	c.Assert(err, IsNil)
 
 	// Then:
@@ -306,13 +311,13 @@ func (s *SmartConsumerSuite) TestRebalanceOnJoin(c *C) {
 // among the remaining consumers.
 func (s *SmartConsumerSuite) TestRebalanceOnLeave(c *C) {
 	// Given
-	ResetOffsets(c, "group-1", "test.4")
-	produced := s.kh.PutMessages(c, "leave", "test.4", map[string]int{"A": 10, "B": 10, "C": 10})
+	s.kh.ResetOffsets("group-1", "test.4")
+	produced := s.kh.PutMessages("leave", "test.4", map[string]int{"A": 10, "B": 10, "C": 10})
 
 	var err error
-	consumers := make([]*SmartConsumer, 3)
+	consumers := make([]*T, 3)
 	for i := 0; i < 3; i++ {
-		consumers[i], err = SpawnSmartConsumer(NewTestConfig(fmt.Sprintf("consumer-%d", i)))
+		consumers[i], err = Spawn(testhelpers.NewTestConfig(fmt.Sprintf("consumer-%d", i)))
 		c.Assert(err, IsNil)
 	}
 	log.Infof("*** GIVEN 1")
@@ -380,15 +385,15 @@ func (s *SmartConsumerSuite) TestRebalanceOnLeave(c *C) {
 // assigned to it are redistributed among active consumers.
 func (s *SmartConsumerSuite) TestRebalanceOnTimeout(c *C) {
 	// Given
-	ResetOffsets(c, "group-1", "test.4")
-	s.kh.PutMessages(c, "join", "test.4", map[string]int{"A": 10, "B": 10})
+	s.kh.ResetOffsets("group-1", "test.4")
+	s.kh.PutMessages("join", "test.4", map[string]int{"A": 10, "B": 10})
 
-	sc1, err := SpawnSmartConsumer(NewTestConfig("consumer-1"))
+	sc1, err := Spawn(testhelpers.NewTestConfig("consumer-1"))
 	c.Assert(err, IsNil)
 
-	config2 := NewTestConfig("consumer-2")
-	config2.Consumer.RegistrationTimeout = 300 * time.Millisecond
-	sc2, err := SpawnSmartConsumer(config2)
+	cfg2 := testhelpers.NewTestConfig("consumer-2")
+	cfg2.Consumer.RegistrationTimeout = 300 * time.Millisecond
+	sc2, err := Spawn(cfg2)
 	c.Assert(err, IsNil)
 
 	// Consume the first message to make the consumers join the group and
@@ -441,12 +446,12 @@ func (s *SmartConsumerSuite) TestRebalanceOnTimeout(c *C) {
 // filled with in-flight consume requests.
 func (s *SmartConsumerSuite) TestBufferOverflowError(c *C) {
 	// Given
-	ResetOffsets(c, "group-1", "test.1")
-	s.kh.PutMessages(c, "join", "test.1", map[string]int{"A": 30})
+	s.kh.ResetOffsets("group-1", "test.1")
+	s.kh.PutMessages("join", "test.1", map[string]int{"A": 30})
 
-	config := NewTestConfig("consumer-1")
-	config.ChannelBufferSize = 1
-	sc, err := SpawnSmartConsumer(config)
+	cfg := testhelpers.NewTestConfig("consumer-1")
+	cfg.ChannelBufferSize = 1
+	sc, err := Spawn(cfg)
 	c.Assert(err, IsNil)
 
 	// When
@@ -456,7 +461,7 @@ func (s *SmartConsumerSuite) TestBufferOverflowError(c *C) {
 		spawn(&wg, func() {
 			for i := 0; i < 10; i++ {
 				_, err := sc.Consume("group-1", "test.1")
-				if _, ok := err.(ErrConsumerBufferOverflow); ok {
+				if _, ok := err.(ErrBufferOverflow); ok {
 					atomic.AddInt32(&overflowErrorCount, 1)
 				}
 			}
@@ -481,13 +486,13 @@ func (s *SmartConsumerSuite) TestBufferOverflowError(c *C) {
 // code coverage reports.
 func (s *SmartConsumerSuite) TestRequestDuringTimeout(c *C) {
 	// Given
-	ResetOffsets(c, "group-1", "test.4")
-	s.kh.PutMessages(c, "join", "test.4", map[string]int{"A": 30})
+	s.kh.ResetOffsets("group-1", "test.4")
+	s.kh.PutMessages("join", "test.4", map[string]int{"A": 30})
 
-	config := NewTestConfig("consumer-1")
-	config.Consumer.RegistrationTimeout = 200 * time.Millisecond
-	config.ChannelBufferSize = 1
-	sc, err := SpawnSmartConsumer(config)
+	cfg := testhelpers.NewTestConfig("consumer-1")
+	cfg.Consumer.RegistrationTimeout = 200 * time.Millisecond
+	cfg.ChannelBufferSize = 1
+	sc, err := Spawn(cfg)
 	c.Assert(err, IsNil)
 
 	// When/Then
@@ -510,16 +515,16 @@ func (s *SmartConsumerSuite) TestRequestDuringTimeout(c *C) {
 // request times out after `Config.Consumer.LongPollingTimeout`.
 func (s *SmartConsumerSuite) TestInvalidTopic(c *C) {
 	// Given
-	config := NewTestConfig("consumer-1")
-	config.Consumer.LongPollingTimeout = 1 * time.Second
-	sc, err := SpawnSmartConsumer(config)
+	cfg := testhelpers.NewTestConfig("consumer-1")
+	cfg.Consumer.LongPollingTimeout = 1 * time.Second
+	sc, err := Spawn(cfg)
 	c.Assert(err, IsNil)
 
 	// When
 	consMsg, err := sc.Consume("group-1", "no-such-topic")
 
 	// Then
-	if _, ok := err.(ErrConsumerRequestTimeout); !ok {
+	if _, ok := err.(ErrRequestTimeout); !ok {
 		c.Errorf("ErrConsumerRequestTimeout is expected")
 	}
 	c.Assert(consMsg, IsNil)
@@ -530,18 +535,18 @@ func (s *SmartConsumerSuite) TestInvalidTopic(c *C) {
 // A topic that has a lot of partitions can be consumed.
 func (s *SmartConsumerSuite) TestLotsOfPartitions(c *C) {
 	// Given
-	ResetOffsets(c, "group-1", "test.64")
+	s.kh.ResetOffsets("group-1", "test.64")
 
-	config := NewTestConfig("consumer-1")
-	sc, err := SpawnSmartConsumer(config)
+	cfg := testhelpers.NewTestConfig("consumer-1")
+	sc, err := Spawn(cfg)
 	c.Assert(err, IsNil)
 
 	// Consume should stop by timeout and nothing should be consumed.
 	msg, err := sc.Consume("group-1", "test.64")
-	if _, ok := err.(ErrConsumerRequestTimeout); !ok {
+	if _, ok := err.(ErrRequestTimeout); !ok {
 		c.Fatalf("Unexpected message consumed: %v", msg)
 	}
-	s.kh.PutMessages(c, "lots", "test.64", map[string]int{"A": 7, "B": 13, "C": 169})
+	s.kh.PutMessages("lots", "test.64", map[string]int{"A": 7, "B": 13, "C": 169})
 
 	// When
 	log.Infof("*** WHEN")
@@ -561,17 +566,17 @@ func (s *SmartConsumerSuite) TestLotsOfPartitions(c *C) {
 func (s *SmartConsumerSuite) TestNewGroup(c *C) {
 	// Given
 	group := fmt.Sprintf("group-%d", time.Now().Unix())
-	cfg := NewTestConfig(group)
+	cfg := testhelpers.NewTestConfig(group)
 	cfg.Consumer.LongPollingTimeout = 500 * time.Millisecond
-	sc, err := SpawnSmartConsumer(cfg)
+	sc, err := Spawn(cfg)
 	c.Assert(err, IsNil)
 
-	s.kh.PutMessages(c, "rand", "test.1", map[string]int{"A1": 1})
+	s.kh.PutMessages("rand", "test.1", map[string]int{"A1": 1})
 
 	// The very first consumption of a group is terminated by timeout because
 	// the default offset is the topic head.
 	msg, err := sc.Consume(group, "test.1")
-	if _, ok := err.(ErrConsumerRequestTimeout); !ok {
+	if _, ok := err.(ErrRequestTimeout); !ok {
 		c.Fatalf("Unexpected message consumed: %v", msg)
 	}
 
@@ -580,8 +585,8 @@ func (s *SmartConsumerSuite) TestNewGroup(c *C) {
 
 	// Then: message produced after that will be consumed by the new consumer
 	// instance from the same group.
-	produced := s.kh.PutMessages(c, "rand", "test.1", map[string]int{"A2": 1})
-	sc, err = SpawnSmartConsumer(cfg)
+	produced := s.kh.PutMessages("rand", "test.1", map[string]int{"A2": 1})
+	sc, err = Spawn(cfg)
 	c.Assert(err, IsNil)
 	msg, err = sc.Consume(group, "test.1")
 	c.Assert(err, IsNil)
@@ -600,7 +605,7 @@ func (s *SmartConsumerSuite) compareMsg(consMsg *sarama.ConsumerMessage, prodMsg
 
 const consumeAll = -1
 
-func (s *SmartConsumerSuite) consume(c *C, sc *SmartConsumer, group, topic string, count int,
+func (s *SmartConsumerSuite) consume(c *C, sc *T, group, topic string, count int,
 	extend ...map[string][]*sarama.ConsumerMessage) map[string][]*sarama.ConsumerMessage {
 
 	var consumed map[string][]*sarama.ConsumerMessage
@@ -611,7 +616,7 @@ func (s *SmartConsumerSuite) consume(c *C, sc *SmartConsumer, group, topic strin
 	}
 	for i := 0; i != count; i++ {
 		consMsg, err := sc.Consume(group, topic)
-		if _, ok := err.(ErrConsumerRequestTimeout); ok {
+		if _, ok := err.(ErrRequestTimeout); ok {
 			if count == consumeAll {
 				return consumed
 			}
@@ -624,12 +629,12 @@ func (s *SmartConsumerSuite) consume(c *C, sc *SmartConsumer, group, topic strin
 	return consumed
 }
 
-func logConsumed(sc *SmartConsumer, consMsg *sarama.ConsumerMessage) {
+func logConsumed(sc *T, consMsg *sarama.ConsumerMessage) {
 	log.Infof("*** consumed: by=%s, topic=%s, partition=%d, offset=%d, message=%s",
 		sc.baseCID.String(), consMsg.Topic, consMsg.Partition, consMsg.Offset, consMsg.Value)
 }
 
-func drainFirstFetched(sc *SmartConsumer) {
+func drainFirstFetched(sc *T) {
 	for {
 		select {
 		case <-firstMessageFetchedCh:
@@ -639,7 +644,7 @@ func drainFirstFetched(sc *SmartConsumer) {
 	}
 }
 
-func waitFirstFetched(sc *SmartConsumer, count int) {
+func waitFirstFetched(sc *T, count int) {
 	var partitions []int32
 	for i := 0; i < count; i++ {
 		ec := <-firstMessageFetchedCh

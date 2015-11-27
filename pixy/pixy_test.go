@@ -8,18 +8,13 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
-	"os"
-	"path"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
-	"github.com/mailgun/kafka-pixy/config"
-	"github.com/mailgun/kafka-pixy/testhelpers"
 )
 
 func Test(t *testing.T) {
@@ -97,43 +92,6 @@ func ProdMsgMetadataSize(key []byte) int {
 		size += sarama.ByteEncoder(key).Length()
 	}
 	return size
-}
-
-func NewTestConfig(clientID string) *config.T {
-	config := config.Default()
-	config.UnixAddr = path.Join(os.TempDir(), "kafka-pixy.sock")
-	config.ClientID = clientID
-	config.Kafka.SeedPeers = testhelpers.KafkaPeers
-	config.ZooKeeper.SeedPeers = testhelpers.ZookeeperPeers
-	config.Consumer.LongPollingTimeout = 3000 * time.Millisecond
-	config.Consumer.BackOffTimeout = 100 * time.Millisecond
-	config.Consumer.RebalanceDelay = 100 * time.Millisecond
-	return config
-}
-
-func ResetOffsets(c *C, group, topic string) {
-	config := config.Default()
-	config.Kafka.SeedPeers = testhelpers.KafkaPeers
-	config.ZooKeeper.SeedPeers = testhelpers.ZookeeperPeers
-
-	kafkaClient, err := sarama.NewClient(config.Kafka.SeedPeers, config.SaramaConfig())
-	c.Assert(err, IsNil)
-	defer kafkaClient.Close()
-
-	offsetManager, err := sarama.NewOffsetManagerFromClient(kafkaClient)
-	c.Assert(err, IsNil)
-	partitions, err := kafkaClient.Partitions(topic)
-	c.Assert(err, IsNil)
-	for _, p := range partitions {
-		offset, err := kafkaClient.GetOffset(topic, p, sarama.OffsetNewest)
-		c.Assert(err, IsNil)
-		pom, err := offsetManager.ManagePartition(group, topic, p)
-		c.Assert(err, IsNil)
-		pom.SubmitOffset(offset, "dummy")
-		log.Infof("Set initial offset %s/%s/%d=%d", group, topic, p, offset)
-		pom.Close()
-	}
-	offsetManager.Close()
 }
 
 func ParseJSONBody(c *C, res *http.Response) interface{} {
