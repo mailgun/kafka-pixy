@@ -49,6 +49,10 @@ func (s *AdminSuite) TestGetOffsetsAfterProduce(c *C) {
 
 	// When
 	offsetsAfter, err := a.GetGroupOffsets("foo", "test.64")
+	// It takes sometime the production result to be reflected in get metadata
+	// output. So the first query sometimes returns unexpected results. So we
+	// make the second request in lame attempt to make this test deterministic.
+	offsetsAfter, err = a.GetGroupOffsets("foo", "test.64")
 	c.Assert(err, IsNil)
 
 	// Then
