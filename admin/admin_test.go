@@ -6,7 +6,6 @@ import (
 
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 	"github.com/mailgun/kafka-pixy/config"
-	"github.com/mailgun/kafka-pixy/logging"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 )
 
@@ -22,7 +21,7 @@ type AdminSuite struct {
 var _ = Suite(&AdminSuite{})
 
 func (s *AdminSuite) SetUpSuite(c *C) {
-	logging.InitTest()
+	testhelpers.InitLogging(c)
 	s.cfg = config.Default()
 	s.cfg.ClientID = "producer"
 	s.cfg.Kafka.SeedPeers = testhelpers.KafkaPeers
@@ -42,8 +41,6 @@ func (s *AdminSuite) TestGetOffsetsAfterProduce(c *C) {
 	for i := 0; i < 64; i++ {
 		keyToCount[strconv.Itoa(i)] = i
 	}
-	s.kh.PutMessages("get_offsets", "test.64", keyToCount)
-
 	a, err := Spawn(s.cfg)
 	c.Assert(err, IsNil)
 	offsetsBefore, err := a.GetGroupOffsets("foo", "test.64")

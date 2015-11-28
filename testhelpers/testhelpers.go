@@ -26,6 +26,8 @@ const (
 var (
 	KafkaPeers     []string
 	ZookeeperPeers []string
+
+	initTestOnce = sync.Once{}
 )
 
 func init() {

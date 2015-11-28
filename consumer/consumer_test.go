@@ -10,7 +10,6 @@ import (
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
-	"github.com/mailgun/kafka-pixy/logging"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 )
 
@@ -25,7 +24,7 @@ type SmartConsumerSuite struct {
 var _ = Suite(&SmartConsumerSuite{})
 
 func (s *SmartConsumerSuite) SetUpSuite(c *C) {
-	logging.InitTest()
+	testhelpers.InitLogging(c)
 	s.kh = testhelpers.NewKafkaHelper(c)
 }
 
