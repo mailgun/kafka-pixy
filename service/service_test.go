@@ -1,24 +1,35 @@
-package pixy
+package service
 
 import (
+	"bytes"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"math"
 	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
+	"github.com/mailgun/kafka-pixy/apiserver"
 	"github.com/mailgun/kafka-pixy/config"
-	"github.com/mailgun/kafka-pixy/logging"
+	"github.com/mailgun/kafka-pixy/testhelpers"
 )
 
+func Test(t *testing.T) {
+	TestingT(t)
+}
+
 type ServiceSuite struct {
-	config     *config.T
-	tkc        *TestKafkaClient
+	cfg        *config.T
+	kh         *testhelpers.KafkaHelper
 	unixClient *http.Client
 	tcpClient  *http.Client
 }
@@ -26,14 +37,14 @@ type ServiceSuite struct {
 var _ = Suite(&ServiceSuite{})
 
 func (s *ServiceSuite) SetUpSuite(c *C) {
-	logging.InitTest()
+	testhelpers.InitLogging(c)
 }
 
 func (s *ServiceSuite) SetUpTest(c *C) {
-	s.config = NewTestConfig("service-default")
-	os.Remove(s.config.UnixAddr)
-	s.tkc = NewTestKafkaClient(s.config.Kafka.SeedPeers)
-	s.unixClient = NewUDSHTTPClient(s.config.UnixAddr)
+	s.cfg = testhelpers.NewTestConfig("service-default")
+	os.Remove(s.cfg.UnixAddr)
+	s.kh = testhelpers.NewKafkaHelper(c)
+	s.unixClient = testhelpers.NewUDSHTTPClient(s.cfg.UnixAddr)
 	// The default HTTP client cannot be used, because it caches connections,
 	// but each test must have a brand new connection.
 	s.tcpClient = &http.Client{Transport: &http.Transport{
@@ -44,18 +55,22 @@ func (s *ServiceSuite) SetUpTest(c *C) {
 	}}
 }
 
+func (s *ServiceSuite) TearDownTest(c *C) {
+	s.kh.Close()
+}
+
 func (s *ServiceSuite) TestStartAndStop(c *C) {
-	svc, err := SpawnService(s.config)
+	svc, err := Spawn(s.cfg)
 	c.Assert(err, IsNil)
 	svc.Stop()
 }
 
 func (s *ServiceSuite) TestInvalidUnixAddr(c *C) {
 	// Given
-	s.config.UnixAddr = "/tmp"
+	s.cfg.UnixAddr = "/tmp"
 
 	// When
-	svc, err := SpawnService(s.config)
+	svc, err := Spawn(s.cfg)
 
 	// Then
 	c.Assert(err.Error(), Equals,
@@ -65,10 +80,10 @@ func (s *ServiceSuite) TestInvalidUnixAddr(c *C) {
 
 func (s *ServiceSuite) TestInvalidKafkaPeers(c *C) {
 	// Given
-	s.config.Kafka.SeedPeers = []string{"localhost:12345"}
+	s.cfg.Kafka.SeedPeers = []string{"localhost:12345"}
 
 	// When
-	svc, err := SpawnService(s.config)
+	svc, err := Spawn(s.cfg)
 
 	// Then
 	c.Assert(err.Error(), Equals,
@@ -80,8 +95,8 @@ func (s *ServiceSuite) TestInvalidKafkaPeers(c *C) {
 // distributed between partitions based on the `key` hash.
 func (s *ServiceSuite) TestProduce(c *C) {
 	// Given
-	svc, _ := SpawnService(s.config)
-	offsetsBefore := s.tkc.getOffsets("test.4")
+	svc, _ := Spawn(s.cfg)
+	offsetsBefore := s.kh.GetOffsets("test.4")
 
 	// When
 	for i := 0; i < 10; i++ {
@@ -97,7 +112,7 @@ func (s *ServiceSuite) TestProduce(c *C) {
 			"text/plain", strings.NewReader(strconv.Itoa(i)))
 	}
 	svc.Stop() // Have to stop before getOffsets
-	offsetsAfter := s.tkc.getOffsets("test.4")
+	offsetsAfter := s.kh.GetOffsets("test.4")
 
 	// Then
 	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0]+20)
@@ -111,8 +126,8 @@ func (s *ServiceSuite) TestProduce(c *C) {
 // all available partitions.
 func (s *ServiceSuite) TestProduceNilKey(c *C) {
 	// Given
-	svc, _ := SpawnService(s.config)
-	offsetsBefore := s.tkc.getOffsets("test.4")
+	svc, _ := Spawn(s.cfg)
+	offsetsBefore := s.kh.GetOffsets("test.4")
 
 	// When
 	for i := 0; i < 100; i++ {
@@ -120,7 +135,7 @@ func (s *ServiceSuite) TestProduceNilKey(c *C) {
 			"text/plain", strings.NewReader(strconv.Itoa(i)))
 	}
 	svc.Stop() // Have to stop before getOffsets
-	offsetsAfter := s.tkc.getOffsets("test.4")
+	offsetsAfter := s.kh.GetOffsets("test.4")
 
 	// Then
 	delta0 := offsetsAfter[0] - offsetsBefore[0]
@@ -134,8 +149,8 @@ func (s *ServiceSuite) TestProduceNilKey(c *C) {
 // If `key` of a produced message is empty then it is deterministically
 // submitted to a particular partition determined by the empty key hash.
 func (s *ServiceSuite) TestProduceEmptyKey(c *C) {
-	svc, _ := SpawnService(s.config)
-	offsetsBefore := s.tkc.getOffsets("test.4")
+	svc, _ := Spawn(s.cfg)
+	offsetsBefore := s.kh.GetOffsets("test.4")
 
 	// When
 	for i := 0; i < 10; i++ {
@@ -143,7 +158,7 @@ func (s *ServiceSuite) TestProduceEmptyKey(c *C) {
 			"text/plain", strings.NewReader(strconv.Itoa(i)))
 	}
 	svc.Stop() // Have to stop before getOffsets
-	offsetsAfter := s.tkc.getOffsets("test.4")
+	offsetsAfter := s.kh.GetOffsets("test.4")
 
 	// Then
 	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0])
@@ -154,8 +169,8 @@ func (s *ServiceSuite) TestProduceEmptyKey(c *C) {
 
 // Utf8 messages are submitted without a problem.
 func (s *ServiceSuite) TestUtf8Message(c *C) {
-	svc, _ := SpawnService(s.config)
-	offsetsBefore := s.tkc.getOffsets("test.4")
+	svc, _ := Spawn(s.cfg)
+	offsetsBefore := s.kh.GetOffsets("test.4")
 
 	// When
 	s.unixClient.Post("http://_/topics/test.4/messages?key=foo",
@@ -163,15 +178,15 @@ func (s *ServiceSuite) TestUtf8Message(c *C) {
 	svc.Stop() // Have to stop before getOffsets
 
 	// Then
-	offsetsAfter := s.tkc.getOffsets("test.4")
-	msgs := s.tkc.getMessages("test.4", offsetsBefore, offsetsAfter)
+	offsetsAfter := s.kh.GetOffsets("test.4")
+	msgs := s.kh.GetMessages("test.4", offsetsBefore, offsetsAfter)
 	c.Assert(msgs, DeepEquals,
 		[][]string{[]string(nil), {"Превед Медвед"}, []string(nil), []string(nil)})
 }
 
 // TCP API is not started by default.
 func (s *ServiceSuite) TestTCPDoesNotWork(c *C) {
-	svc, _ := SpawnService(s.config)
+	svc, _ := Spawn(s.cfg)
 	defer svc.Stop()
 
 	// When
@@ -186,9 +201,9 @@ func (s *ServiceSuite) TestTCPDoesNotWork(c *C) {
 
 // API is served on a TCP socket if it is explicitly configured.
 func (s *ServiceSuite) TestBothAPI(c *C) {
-	offsetsBefore := s.tkc.getOffsets("test.4")
-	s.config.TCPAddr = "127.0.0.1:55501"
-	svc, err := SpawnService(s.config)
+	offsetsBefore := s.kh.GetOffsets("test.4")
+	s.cfg.TCPAddr = "127.0.0.1:55501"
+	svc, err := Spawn(s.cfg)
 	c.Assert(err, IsNil)
 
 	// When
@@ -201,14 +216,14 @@ func (s *ServiceSuite) TestBothAPI(c *C) {
 	svc.Stop() // Have to stop before getOffsets
 	c.Assert(err1, IsNil)
 	c.Assert(err2, IsNil)
-	offsetsAfter := s.tkc.getOffsets("test.4")
-	msgs := s.tkc.getMessages("test.4", offsetsBefore, offsetsAfter)
+	offsetsAfter := s.kh.GetOffsets("test.4")
+	msgs := s.kh.GetMessages("test.4", offsetsBefore, offsetsAfter)
 	c.Assert(msgs, DeepEquals,
 		[][]string{[]string(nil), {"Превед", "Kitty"}, []string(nil), []string(nil)})
 }
 
 func (s *ServiceSuite) TestStoppedServerCall(c *C) {
-	svc, _ := SpawnService(s.config)
+	svc, _ := Spawn(s.cfg)
 	_, err := s.unixClient.Post("http://_/topics/test.4/messages?key=foo",
 		"text/plain", strings.NewReader("Hello"))
 	c.Assert(err, IsNil)
@@ -223,26 +238,14 @@ func (s *ServiceSuite) TestStoppedServerCall(c *C) {
 	c.Assert(r, IsNil)
 }
 
-// If the TCP API Server crashes then the service terminates gracefully.
-func (s *ServiceSuite) TestTCPServerCrash(c *C) {
-	s.config.TCPAddr = "127.0.0.1:55501"
-	svc, _ := SpawnService(s.config)
-
-	// When
-	svc.tcpServer.errorCh <- fmt.Errorf("Kaboom!")
-
-	// Then
-	svc.Stop()
-}
-
 // Messages that have maximum possible size indeed go through. Note that we
 // assume that the broker's limit is the same as the producer's one or higher.
 func (s *ServiceSuite) TestLargestMessage(c *C) {
-	offsetsBefore := s.tkc.getOffsets("test.4")
+	offsetsBefore := s.kh.GetOffsets("test.4")
 	maxMsgSize := sarama.NewConfig().Producer.MaxMessageBytes - ProdMsgMetadataSize([]byte("foo"))
 	msg := GenMessage(maxMsgSize)
-	s.config.TCPAddr = "127.0.0.1:55501"
-	svc, _ := SpawnService(s.config)
+	s.cfg.TCPAddr = "127.0.0.1:55501"
+	svc, _ := Spawn(s.cfg)
 
 	// When
 	r := PostChunked(s.tcpClient, "http://127.0.0.1:55501/topics/test.4/messages?key=foo", msg)
@@ -251,8 +254,8 @@ func (s *ServiceSuite) TestLargestMessage(c *C) {
 	// Then
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
 	c.Assert(ParseJSONBody(c, r), DeepEquals, map[string]interface{}{})
-	offsetsAfter := s.tkc.getOffsets("test.4")
-	messages := s.tkc.getMessages("test.4", offsetsBefore, offsetsAfter)
+	offsetsAfter := s.kh.GetOffsets("test.4")
+	messages := s.kh.GetMessages("test.4", offsetsBefore, offsetsAfter)
 	readMsg := messages[1][0]
 	c.Assert(readMsg, Equals, msg)
 }
@@ -261,11 +264,11 @@ func (s *ServiceSuite) TestLargestMessage(c *C) {
 // dropped. Note that we assume that the broker's limit is the same as the
 // producer's one or higher.
 func (s *ServiceSuite) TestMessageTooLarge(c *C) {
-	offsetsBefore := s.tkc.getOffsets("test.4")
+	offsetsBefore := s.kh.GetOffsets("test.4")
 	maxMsgSize := sarama.NewConfig().Producer.MaxMessageBytes - ProdMsgMetadataSize([]byte("foo")) + 1
 	msg := GenMessage(maxMsgSize)
-	s.config.TCPAddr = "127.0.0.1:55501"
-	svc, _ := SpawnService(s.config)
+	s.cfg.TCPAddr = "127.0.0.1:55501"
+	svc, _ := Spawn(s.cfg)
 
 	// When
 	r := PostChunked(s.tcpClient, "http://127.0.0.1:55501/topics/test.4/messages?key=foo", msg)
@@ -274,20 +277,20 @@ func (s *ServiceSuite) TestMessageTooLarge(c *C) {
 	// Then
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
 	c.Assert(ParseJSONBody(c, r), DeepEquals, map[string]interface{}{})
-	offsetsAfter := s.tkc.getOffsets("test.4")
+	offsetsAfter := s.kh.GetOffsets("test.4")
 	c.Assert(offsetsAfter, DeepEquals, offsetsBefore)
 }
 
 func (s *ServiceSuite) TestSyncProduce(c *C) {
 	// Given
-	svc, _ := SpawnService(s.config)
-	offsetsBefore := s.tkc.getOffsets("test.4")
+	svc, _ := Spawn(s.cfg)
+	offsetsBefore := s.kh.GetOffsets("test.4")
 
 	// When
 	r, err := s.unixClient.Post("http://_/topics/test.4/messages?key=1&sync",
 		"text/plain", strings.NewReader("Foo"))
 	svc.Stop() // Have to stop before getOffsets
-	offsetsAfter := s.tkc.getOffsets("test.4")
+	offsetsAfter := s.kh.GetOffsets("test.4")
 
 	// Then
 	c.Assert(err, IsNil)
@@ -300,7 +303,7 @@ func (s *ServiceSuite) TestSyncProduce(c *C) {
 
 func (s *ServiceSuite) TestSyncProduceInvalidTopic(c *C) {
 	// Given
-	svc, _ := SpawnService(s.config)
+	svc, _ := Spawn(s.cfg)
 	defer svc.Stop()
 
 	// When
@@ -314,18 +317,9 @@ func (s *ServiceSuite) TestSyncProduceInvalidTopic(c *C) {
 	c.Assert(body["error"], Equals, sarama.ErrUnknownTopicOrPartition.Error())
 }
 
-// If the Unix API Server crashes then the service terminates gracefully.
-func (s *ServiceSuite) TestUnixServerCrash(c *C) {
-	svc, _ := SpawnService(s.config)
-	// When
-	svc.unixServer.errorCh <- fmt.Errorf("Kaboom!")
-	// Then
-	svc.Stop()
-}
-
 func (s *ServiceSuite) TestConsumeNoGroup(c *C) {
 	// Given
-	svc, _ := SpawnService(s.config)
+	svc, _ := Spawn(s.cfg)
 	defer svc.Stop()
 
 	// When
@@ -340,7 +334,7 @@ func (s *ServiceSuite) TestConsumeNoGroup(c *C) {
 
 func (s *ServiceSuite) TestConsumeManyGroups(c *C) {
 	// Given
-	svc, _ := SpawnService(s.config)
+	svc, _ := Spawn(s.cfg)
 	defer svc.Stop()
 
 	// When
@@ -355,7 +349,7 @@ func (s *ServiceSuite) TestConsumeManyGroups(c *C) {
 
 func (s *ServiceSuite) TestConsumeInvalidTopic(c *C) {
 	// Given
-	svc, _ := SpawnService(s.config)
+	svc, _ := Spawn(s.cfg)
 	defer svc.Stop()
 
 	// When
@@ -370,9 +364,9 @@ func (s *ServiceSuite) TestConsumeInvalidTopic(c *C) {
 
 func (s *ServiceSuite) TestConsumeSingleMessage(c *C) {
 	// Given
-	ResetOffsets(c, "foo", "test.4")
-	produced := GenMessages(c, "service.consume", "test.4", map[string]int{"B": 1})
-	svc, _ := SpawnService(s.config)
+	s.kh.ResetOffsets("foo", "test.4")
+	produced := s.kh.PutMessages("service.consume", "test.4", map[string]int{"B": 1})
+	svc, _ := Spawn(s.cfg)
 	defer svc.Stop()
 
 	// When
@@ -392,7 +386,7 @@ func (s *ServiceSuite) TestConsumeSingleMessage(c *C) {
 // as the next offset to be consumed for all topic partitions.
 func (s *ServiceSuite) TestGetOffsetsNoSuchGroup(c *C) {
 	// Given
-	svc, _ := SpawnService(s.config)
+	svc, _ := Spawn(s.cfg)
 	defer svc.Stop()
 
 	// When
@@ -412,7 +406,7 @@ func (s *ServiceSuite) TestGetOffsetsNoSuchGroup(c *C) {
 // An attempt to retrieve offsets for a topic that does not exist fails with 404.
 func (s *ServiceSuite) TestGetOffsetsNoSuchTopic(c *C) {
 	// Given
-	svc, _ := SpawnService(s.config)
+	svc, _ := Spawn(s.cfg)
 	defer svc.Stop()
 
 	// When
@@ -428,7 +422,7 @@ func (s *ServiceSuite) TestGetOffsetsNoSuchTopic(c *C) {
 // Committed offsets are returned in a following GET request.
 func (s *ServiceSuite) TestSetOffsets(c *C) {
 	// Given
-	svc, _ := SpawnService(s.config)
+	svc, _ := Spawn(s.cfg)
 	defer svc.Stop()
 
 	// When
@@ -441,7 +435,7 @@ func (s *ServiceSuite) TestSetOffsets(c *C) {
 
 	// Then
 	c.Assert(err, IsNil)
-	c.Assert(ParseJSONBody(c, r), DeepEquals, EmptyResponse)
+	c.Assert(ParseJSONBody(c, r), DeepEquals, apiserver.EmptyResponse)
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
 
 	r, err = s.unixClient.Get("http://_/topics/test.4/offsets?group=foo")
@@ -459,7 +453,7 @@ func (s *ServiceSuite) TestSetOffsets(c *C) {
 // It is not an error to set offsets for a topic that does not exist.
 func (s *ServiceSuite) TestSetOffsetsNoSuchTopic(c *C) {
 	// Given
-	svc, _ := SpawnService(s.config)
+	svc, _ := Spawn(s.cfg)
 	defer svc.Stop()
 
 	// When
@@ -469,13 +463,13 @@ func (s *ServiceSuite) TestSetOffsetsNoSuchTopic(c *C) {
 	// Then
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
-	c.Assert(ParseJSONBody(c, r), DeepEquals, EmptyResponse)
+	c.Assert(ParseJSONBody(c, r), DeepEquals, apiserver.EmptyResponse)
 }
 
 // Invalid body is detected and properly reported.
 func (s *ServiceSuite) TestSetOffsetsInvalidBody(c *C) {
 	// Given
-	svc, _ := SpawnService(s.config)
+	svc, _ := Spawn(s.cfg)
 	defer svc.Stop()
 
 	// When
@@ -492,7 +486,7 @@ func (s *ServiceSuite) TestSetOffsetsInvalidBody(c *C) {
 // It is not an error to set an offset for a missing partition.
 func (s *ServiceSuite) TestSetOffsetsInvalidPartition(c *C) {
 	// Given
-	svc, _ := SpawnService(s.config)
+	svc, _ := Spawn(s.cfg)
 	defer svc.Stop()
 
 	// When
@@ -502,14 +496,14 @@ func (s *ServiceSuite) TestSetOffsetsInvalidPartition(c *C) {
 	// Then
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
-	c.Assert(ParseJSONBody(c, r), DeepEquals, EmptyResponse)
+	c.Assert(ParseJSONBody(c, r), DeepEquals, apiserver.EmptyResponse)
 }
 
 // Reported partition lags are correct, including those corresponding to -1 and
 // -2 special case offset values.
 func (s *ServiceSuite) TestGetOffsetsLag(c *C) {
 	// Given
-	svc, _ := SpawnService(s.config)
+	svc, _ := Spawn(s.cfg)
 	defer svc.Stop()
 	r, err := s.unixClient.Post("http://_/topics/test.4/offsets?group=foo",
 		"application/json", strings.NewReader(
@@ -537,7 +531,7 @@ func (s *ServiceSuite) TestGetOffsetsLag(c *C) {
 // empty consumer map is returned.
 func (s *ServiceSuite) TestGetTopicConsumersNone(c *C) {
 	// Given
-	svc, _ := SpawnService(s.config)
+	svc, _ := Spawn(s.cfg)
 	defer svc.Stop()
 
 	// When
@@ -552,7 +546,7 @@ func (s *ServiceSuite) TestGetTopicConsumersNone(c *C) {
 
 func (s *ServiceSuite) TestGetTopicConsumersInvalid(c *C) {
 	// Given
-	svc, _ := SpawnService(s.config)
+	svc, _ := Spawn(s.cfg)
 	defer svc.Stop()
 
 	// When
@@ -567,9 +561,9 @@ func (s *ServiceSuite) TestGetTopicConsumersInvalid(c *C) {
 
 func (s *ServiceSuite) TestGetTopicConsumersOne(c *C) {
 	// Given
-	ResetOffsets(c, "foo", "test.4")
-	GenMessages(c, "get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1, "D": 1})
-	svc, _ := SpawnService(NewTestConfig("C1"))
+	s.kh.ResetOffsets("foo", "test.4")
+	s.kh.PutMessages("get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1, "D": 1})
+	svc, _ := Spawn(testhelpers.NewTestConfig("C1"))
 	defer svc.Stop()
 	for i := 0; i < 4; i++ {
 		s.unixClient.Get("http://_/topics/test.4/messages?group=foo")
@@ -593,11 +587,11 @@ func (s *ServiceSuite) TestGetTopicConsumersOne(c *C) {
 // the topic.
 func (s *ServiceSuite) TestGetAllTopicConsumers(c *C) {
 	// Given
-	ResetOffsets(c, "foo", "test.4")
-	ResetOffsets(c, "bar", "test.1")
-	ResetOffsets(c, "bazz", "test.4")
-	GenMessages(c, "get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1})
-	GenMessages(c, "get.consumers", "test.1", map[string]int{"D": 1})
+	s.kh.ResetOffsets("foo", "test.4")
+	s.kh.ResetOffsets("bar", "test.1")
+	s.kh.ResetOffsets("bazz", "test.4")
+	s.kh.PutMessages("get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1})
+	s.kh.PutMessages("get.consumers", "test.1", map[string]int{"D": 1})
 
 	svc1 := spawnTestService(c, 55501)
 	defer svc1.Stop()
@@ -645,9 +639,9 @@ func (s *ServiceSuite) TestGetAllTopicConsumers(c *C) {
 // group are returned.
 func (s *ServiceSuite) TestGetTopicConsumers(c *C) {
 	// Given
-	ResetOffsets(c, "foo", "test.4")
-	ResetOffsets(c, "bar", "test.4")
-	GenMessages(c, "get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1})
+	s.kh.ResetOffsets("foo", "test.4")
+	s.kh.ResetOffsets("bar", "test.4")
+	s.kh.PutMessages("get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1})
 
 	svc1 := spawnTestService(c, 55501)
 	defer svc1.Stop()
@@ -676,12 +670,12 @@ func (s *ServiceSuite) TestGetTopicConsumers(c *C) {
 	})
 }
 
-func spawnTestService(c *C, port int) *Service {
-	config := NewTestConfig(fmt.Sprintf("C%d", port))
+func spawnTestService(c *C, port int) *T {
+	config := testhelpers.NewTestConfig(fmt.Sprintf("C%d", port))
 	config.UnixAddr = fmt.Sprintf("%s.%d", config.UnixAddr, port)
 	os.Remove(config.UnixAddr)
 	config.TCPAddr = fmt.Sprintf("127.0.0.1:%d", port)
-	svc, err := SpawnService(config)
+	svc, err := Spawn(config)
 	c.Assert(err, IsNil)
 	return svc
 }
@@ -700,4 +694,106 @@ func assertConsumedPartitions(c *C, consumers map[string]interface{}, expected m
 			c.Assert(partitions, DeepEquals, expectedPartitions)
 		}
 	}
+}
+
+// GenMessage generates an ASCII message of the specified size.
+func GenMessage(size int) string {
+	b := bytes.NewBuffer(nil)
+	for b.Len() < size {
+		b.WriteString(strconv.Itoa(b.Len()))
+		b.WriteString("-")
+	}
+	return string(b.Bytes()[:size])
+}
+
+// ChunkReader allows reading its underlying buffer in chunks making the
+// specified pauses between the chunks. After each pause `Read()` returns
+// `0, nil`. This kind of reader is useful to simulate HTTP requests that
+// require several read operations on the request body to get all of it.
+type ChunkReader struct {
+	buf         []byte
+	begin       int
+	chunkSize   int
+	pause       time.Duration
+	shouldPause bool
+}
+
+func NewChunkReader(s string, count int, pause time.Duration) *ChunkReader {
+	return &ChunkReader{
+		buf:       []byte(s),
+		chunkSize: len(s) / count,
+		pause:     pause,
+	}
+}
+
+func (cr *ChunkReader) Read(b []byte) (n int, err error) {
+	if cr.begin == len(cr.buf) {
+		return 0, io.EOF
+	}
+	if cr.shouldPause = !cr.shouldPause; cr.shouldPause {
+		time.Sleep(cr.pause)
+		return 0, nil
+	}
+	chunkSize := cr.chunkSize
+	if len(b) < chunkSize {
+		chunkSize = len(b)
+	}
+	if len(cr.buf)-cr.begin < chunkSize {
+		chunkSize = len(cr.buf) - cr.begin
+	}
+	end := cr.begin + chunkSize
+	copied := copy(b, cr.buf[cr.begin:end])
+	cr.begin = end
+	return copied, nil
+}
+
+func PostChunked(clt *http.Client, url, msg string) *http.Response {
+	req, err := http.NewRequest("POST", url, NewChunkReader(msg, 1, 10*time.Millisecond))
+	if err != nil {
+		panic(fmt.Sprintf("Failed to make a request object: err=(%s)", err))
+	}
+	req.Header.Add("Content-Type", "text/plain")
+	req.ContentLength = int64(len(msg))
+	resp, err := clt.Do(req)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to do a request: err=(%s)", err))
+	}
+	return resp
+}
+
+func ProdMsgMetadataSize(key []byte) int {
+	size := 26 // the metadata overhead of CRC, flags, etc.
+	if key != nil {
+		size += sarama.ByteEncoder(key).Length()
+	}
+	return size
+}
+
+func ParseJSONBody(c *C, res *http.Response) interface{} {
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		c.Error(err)
+		return nil
+	}
+	res.Body.Close()
+	var parsedBody interface{}
+	if err := json.Unmarshal(body, &parsedBody); err != nil {
+		c.Error(err)
+		return nil
+	}
+	return parsedBody
+}
+
+func ParseBase64(c *C, encoded string) string {
+	decoder := base64.NewDecoder(base64.StdEncoding, strings.NewReader(encoded))
+	decoded, err := ioutil.ReadAll(decoder)
+	if err != nil {
+		c.Error(err)
+		return ""
+	}
+	return string(decoded)
+}
+
+func ProdMsgVal(prodMsg *sarama.ProducerMessage) string {
+	return string(prodMsg.Value.(sarama.StringEncoder))
 }

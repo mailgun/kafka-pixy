@@ -1,4 +1,4 @@
-package pixy
+package service
 
 import (
 	"fmt"
@@ -6,46 +6,50 @@ import (
 
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
+	"github.com/mailgun/kafka-pixy/admin"
+	"github.com/mailgun/kafka-pixy/apiserver"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/consumer"
+	"github.com/mailgun/kafka-pixy/producer"
 )
 
-type Service struct {
-	producer   *GracefulProducer
-	consumer   *SmartConsumer
-	admin      *Admin
-	tcpServer  *HTTPAPIServer
-	unixServer *HTTPAPIServer
+type T struct {
+	producer   *producer.T
+	consumer   *consumer.T
+	admin      *admin.T
+	tcpServer  *apiserver.T
+	unixServer *apiserver.T
 	quitCh     chan struct{}
 	wg         sync.WaitGroup
 }
 
-func SpawnService(config *config.T) (*Service, error) {
-	producer, err := SpawnGracefulProducer(config)
+func Spawn(cfg *config.T) (*T, error) {
+	producer, err := producer.Spawn(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to spawn producer, err=(%s)", err)
 	}
-	consumer, err := SpawnSmartConsumer(config)
+	consumer, err := consumer.Spawn(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to spawn consumer, err=(%s)", err)
 	}
-	admin, err := SpawnAdmin(config)
+	admin, err := admin.Spawn(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to spawn admin, err=(%s)", err)
 	}
-	tcpServer, err := NewHTTPAPIServer(NetworkTCP, config.TCPAddr, producer, consumer, admin)
+	tcpServer, err := apiserver.New(apiserver.NetworkTCP, cfg.TCPAddr, producer, consumer, admin)
 	if err != nil {
 		producer.Stop()
 		return nil, fmt.Errorf("failed to start TCP socket based HTTP API, err=(%s)", err)
 	}
-	var unixServer *HTTPAPIServer
-	if config.UnixAddr != "" {
-		unixServer, err = NewHTTPAPIServer(NetworkUnix, config.UnixAddr, producer, consumer, admin)
+	var unixServer *apiserver.T
+	if cfg.UnixAddr != "" {
+		unixServer, err = apiserver.New(apiserver.NetworkUnix, cfg.UnixAddr, producer, consumer, admin)
 		if err != nil {
 			producer.Stop()
 			return nil, fmt.Errorf("failed to start Unix socket based HTTP API, err=(%s)", err)
 		}
 	}
-	s := &Service{
+	s := &T{
 		producer:   producer,
 		consumer:   consumer,
 		admin:      admin,
@@ -57,13 +61,13 @@ func SpawnService(config *config.T) (*Service, error) {
 	return s, nil
 }
 
-func (s *Service) Stop() {
+func (s *T) Stop() {
 	close(s.quitCh)
 	s.wg.Wait()
 }
 
 // supervisor takes care of the service graceful shutdown.
-func (s *Service) supervisor() {
+func (s *T) supervisor() {
 	defer sarama.RootCID.NewChild("supervisor").LogScope()()
 	var unixServerErrorCh <-chan error
 
@@ -105,4 +109,14 @@ func (s *Service) supervisor() {
 	spawn(&wg, s.consumer.Stop)
 	spawn(&wg, s.admin.Stop)
 	wg.Wait()
+}
+
+// spawn starts function `f` as a goroutine making it a member of the `wg`
+// wait group.
+func spawn(wg *sync.WaitGroup, f func()) {
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		f()
+	}()
 }

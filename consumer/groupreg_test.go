@@ -1,4 +1,4 @@
-package pixy
+package consumer
 
 import (
 	"sync"
@@ -8,7 +8,7 @@ import (
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/wvanbergen/kazoo-go"
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 	"github.com/mailgun/kafka-pixy/config"
-	"github.com/mailgun/kafka-pixy/logging"
+	"github.com/mailgun/kafka-pixy/testhelpers"
 )
 
 type ConsumerGroupRegistrySuite struct {
@@ -19,11 +19,10 @@ type ConsumerGroupRegistrySuite struct {
 var _ = Suite(&ConsumerGroupRegistrySuite{})
 
 func (s *ConsumerGroupRegistrySuite) SetUpSuite(c *C) {
-	logging.InitTest()
-
+	testhelpers.InitLogging(c)
 	s.cid = sarama.RootCID.NewChild("cgr-test")
 	var err error
-	s.kazooConn, err = kazoo.NewKazoo(testZookeeperPeers, kazoo.NewConfig())
+	s.kazooConn, err = kazoo.NewKazoo(testhelpers.ZookeeperPeers, kazoo.NewConfig())
 	c.Assert(err, IsNil)
 }
 

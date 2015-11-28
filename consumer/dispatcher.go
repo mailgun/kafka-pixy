@@ -1,4 +1,4 @@
-package pixy
+package consumer
 
 import (
 	"fmt"
@@ -18,7 +18,7 @@ import (
 // requests resolving to it will come in the nearest future.
 type dispatcher struct {
 	contextID         *sarama.ContextID
-	config            *config.T
+	cfg               *config.T
 	factory           dispatchTierFactory
 	requestsCh        chan consumeRequest
 	children          map[string]*expiringDispatchTier
@@ -63,15 +63,15 @@ type expiringDispatchTier struct {
 	expired   bool
 }
 
-func newDispatcher(baseCID *sarama.ContextID, factory dispatchTierFactory, config *config.T) *dispatcher {
+func newDispatcher(baseCID *sarama.ContextID, factory dispatchTierFactory, cfg *config.T) *dispatcher {
 	d := &dispatcher{
 		contextID:         baseCID.NewChild("dispatcher"),
-		config:            config,
+		cfg:               cfg,
 		factory:           factory,
-		requestsCh:        make(chan consumeRequest, config.ChannelBufferSize),
+		requestsCh:        make(chan consumeRequest, cfg.ChannelBufferSize),
 		children:          make(map[string]*expiringDispatchTier),
-		expiredChildrenCh: make(chan dispatchTier, config.ChannelBufferSize),
-		stoppedChildrenCh: make(chan dispatchTier, config.ChannelBufferSize),
+		expiredChildrenCh: make(chan dispatchTier, cfg.ChannelBufferSize),
+		stoppedChildrenCh: make(chan dispatchTier, cfg.ChannelBufferSize),
 	}
 	return d
 }
@@ -107,7 +107,7 @@ func (d *dispatcher) run() {
 			select {
 			case dt.requests() <- req:
 			default:
-				overflowErr := ErrConsumerBufferOverflow(fmt.Errorf("<%s> buffer overflow", dt))
+				overflowErr := ErrBufferOverflow(fmt.Errorf("<%s> buffer overflow", dt))
 				req.replyCh <- consumeResult{Err: overflowErr}
 			}
 
@@ -139,7 +139,7 @@ done:
 func (d *dispatcher) newExpiringDispatchTier(parent dispatchTierFactory, key string) *expiringDispatchTier {
 	dt := parent.newDispatchTier(key)
 	dt.start(d.stoppedChildrenCh)
-	timeout := d.config.Consumer.RegistrationTimeout
+	timeout := d.cfg.Consumer.RegistrationTimeout
 	edt := &expiringDispatchTier{
 		d:        d,
 		factory:  parent,
@@ -161,7 +161,7 @@ func (d *dispatcher) resolveTier(req consumeRequest) dispatchTier {
 		edt = d.newExpiringDispatchTier(d.factory, childKey)
 		d.children[childKey] = edt
 	}
-	if !edt.expired && edt.timer.Reset(edt.d.config.Consumer.RegistrationTimeout) {
+	if !edt.expired && edt.timer.Reset(edt.d.cfg.Consumer.RegistrationTimeout) {
 		return edt.instance
 	}
 	if edt.successor == nil {
@@ -202,7 +202,7 @@ func (d *dispatcher) handleStopped(dt dispatchTier) dispatchTier {
 	edt.instance = successor
 	edt.successor = nil
 	successor.start(edt.d.stoppedChildrenCh)
-	timeout := edt.d.config.Consumer.RegistrationTimeout
+	timeout := edt.d.cfg.Consumer.RegistrationTimeout
 	edt.timer = time.AfterFunc(timeout, func() { edt.d.expiredChildrenCh <- successor })
 	return edt.instance
 }

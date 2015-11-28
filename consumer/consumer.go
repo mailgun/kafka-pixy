@@ -1,4 +1,4 @@
-package pixy
+package consumer
 
 import (
 	"fmt"
@@ -14,9 +14,9 @@ import (
 )
 
 type (
-	ErrConsumerSetup          error
-	ErrConsumerBufferOverflow error
-	ErrConsumerRequestTimeout error
+	ErrSetup          error
+	ErrBufferOverflow error
+	ErrRequestTimeout error
 )
 
 var (
@@ -34,38 +34,38 @@ var (
 // the `Config.Consumer.RegistrationTimeout` period of time, then the consumer
 // unsubscribes from the topic, likewise if a consumer group has not seen any
 // requests for that period then the consumer deregisters from the group.
-type SmartConsumer struct {
+type T struct {
 	baseCID     *sarama.ContextID
-	config      *config.T
+	cfg         *config.T
 	dispatcher  *dispatcher
 	kafkaClient sarama.Client
 	offsetMgr   sarama.OffsetManager
 	kazooConn   *kazoo.Kazoo
 }
 
-// SpawnSmartConsumer creates a SmartConsumer instance with the specified
-// configuration and starts all its goroutines.
-func SpawnSmartConsumer(config *config.T) (*SmartConsumer, error) {
-	kafkaClient, err := sarama.NewClient(config.Kafka.SeedPeers, config.SaramaConfig())
+// Spawn creates a consumer instance with the specified configuration and
+// starts all its goroutines.
+func Spawn(cfg *config.T) (*T, error) {
+	kafkaClient, err := sarama.NewClient(cfg.Kafka.SeedPeers, cfg.SaramaConfig())
 	if err != nil {
-		return nil, ErrConsumerSetup(fmt.Errorf("failed to create sarama.Client: err=(%v)", err))
+		return nil, ErrSetup(fmt.Errorf("failed to create sarama.Client: err=(%v)", err))
 	}
 	offsetMgr, err := sarama.NewOffsetManagerFromClient(kafkaClient)
 	if err != nil {
-		return nil, ErrConsumerSetup(fmt.Errorf("failed to create sarama.OffsetManager: err=(%v)", err))
+		return nil, ErrSetup(fmt.Errorf("failed to create sarama.OffsetManager: err=(%v)", err))
 	}
-	kazooConn, err := kazoo.NewKazoo(config.ZooKeeper.SeedPeers, config.KazooConfig())
+	kazooConn, err := kazoo.NewKazoo(cfg.ZooKeeper.SeedPeers, cfg.KazooConfig())
 	if err != nil {
-		return nil, ErrConsumerSetup(fmt.Errorf("failed to create kazoo.Kazoo: err=(%v)", err))
+		return nil, ErrSetup(fmt.Errorf("failed to create kazoo.Kazoo: err=(%v)", err))
 	}
-	sc := &SmartConsumer{
+	sc := &T{
 		baseCID:     sarama.RootCID.NewChild("smartConsumer"),
-		config:      config,
+		cfg:         cfg,
 		kafkaClient: kafkaClient,
 		offsetMgr:   offsetMgr,
 		kazooConn:   kazooConn,
 	}
-	sc.dispatcher = newDispatcher(sc.baseCID, sc, sc.config)
+	sc.dispatcher = newDispatcher(sc.baseCID, sc, sc.cfg)
 	sc.dispatcher.start()
 	return sc, nil
 }
@@ -73,7 +73,7 @@ func SpawnSmartConsumer(config *config.T) (*SmartConsumer, error) {
 // Stop sends the shutdown signal to all internal goroutines and blocks until
 // all of them are stopped. It is guaranteed that all last consumed offsets of
 // all consumer groups/topics are committed to Kafka before SmartConsumer stops.
-func (sc *SmartConsumer) Stop() {
+func (sc *T) Stop() {
 	sc.dispatcher.stop()
 }
 
@@ -88,7 +88,7 @@ func (sc *SmartConsumer) Stop() {
 // `ErrConsumerBufferOverflow` or `ErrConsumerRequestTimeout` even when there
 // are messages available for consumption. In that case the user should back
 // off a bit and then repeat the request.
-func (sc *SmartConsumer) Consume(group, topic string) (*sarama.ConsumerMessage, error) {
+func (sc *T) Consume(group, topic string) (*sarama.ConsumerMessage, error) {
 	replyCh := make(chan consumeResult, 1)
 	sc.dispatcher.requests() <- consumeRequest{time.Now().UTC(), group, topic, replyCh}
 	result := <-replyCh
@@ -107,15 +107,15 @@ type consumeResult struct {
 	Err error
 }
 
-func (sc *SmartConsumer) String() string {
+func (sc *T) String() string {
 	return sc.baseCID.String()
 }
 
-func (sc *SmartConsumer) dispatchKey(req consumeRequest) string {
+func (sc *T) dispatchKey(req consumeRequest) string {
 	return req.group
 }
 
-func (sc *SmartConsumer) newDispatchTier(key string) dispatchTier {
+func (sc *T) newDispatchTier(key string) dispatchTier {
 	return sc.newConsumerGroup(key)
 }
 
@@ -123,7 +123,7 @@ func (sc *SmartConsumer) newDispatchTier(key string) dispatchTier {
 // have been inactive for the `Config.Consumer.DisposeAfter` period of time.
 type groupConsumer struct {
 	baseCID               *sarama.ContextID
-	config                *config.T
+	cfg                   *config.T
 	group                 string
 	dispatcher            *dispatcher
 	kafkaClient           sarama.Client
@@ -138,10 +138,10 @@ type groupConsumer struct {
 	wg                    sync.WaitGroup
 }
 
-func (sc *SmartConsumer) newConsumerGroup(group string) *groupConsumer {
+func (sc *T) newConsumerGroup(group string) *groupConsumer {
 	gc := &groupConsumer{
 		baseCID:               sc.baseCID.NewChild(group),
-		config:                sc.config,
+		cfg:                   sc.cfg,
 		group:                 group,
 		kafkaClient:           sc.kafkaClient,
 		offsetMgr:             sc.offsetMgr,
@@ -151,7 +151,7 @@ func (sc *SmartConsumer) newConsumerGroup(group string) *groupConsumer {
 		deleteTopicConsumerCh: make(chan *topicConsumer),
 		stoppingCh:            make(chan none),
 	}
-	gc.dispatcher = newDispatcher(gc.baseCID, gc, sc.config)
+	gc.dispatcher = newDispatcher(gc.baseCID, gc, sc.cfg)
 	return gc
 }
 
@@ -178,9 +178,9 @@ func (gc *groupConsumer) start(stoppedCh chan<- dispatchTier) {
 		gc.dumbConsumer, err = sarama.NewConsumerFromClient(gc.kafkaClient)
 		if err != nil {
 			// Must never happen.
-			panic(ErrConsumerSetup(fmt.Errorf("failed to create sarama.Consumer: err=(%v)", err)))
+			panic(ErrSetup(fmt.Errorf("failed to create sarama.Consumer: err=(%v)", err)))
 		}
-		gc.registry = spawnConsumerGroupRegister(gc.group, gc.config.ClientID, gc.config, gc.kazooConn)
+		gc.registry = spawnConsumerGroupRegister(gc.group, gc.cfg.ClientID, gc.cfg, gc.kazooConn)
 		var manageWg sync.WaitGroup
 		spawn(&manageWg, gc.managePartitions)
 		gc.dispatcher.start()
@@ -249,7 +249,7 @@ func (gc *groupConsumer) managePartitions() {
 			canRebalance = true
 			if err != nil {
 				log.Errorf("<%s> rebalance failed: err=(%s)", cid, err)
-				nilOrRetryCh = time.After(gc.config.Consumer.BackOffTimeout)
+				nilOrRetryCh = time.After(gc.cfg.Consumer.BackOffTimeout)
 				continue
 			}
 		case <-nilOrRetryCh:
@@ -371,7 +371,7 @@ func (gc *groupConsumer) resolvePartitions(subscribersToTopics map[string][]stri
 	}
 	// Create a set of topics this consumer group member subscribed to.
 	subscribedTopics := make(map[string]bool)
-	for _, topic := range subscribersToTopics[gc.config.ClientID] {
+	for _, topic := range subscribersToTopics[gc.cfg.ClientID] {
 		subscribedTopics[topic] = true
 	}
 	// Resolve new partition assignments for the subscribed topics.
@@ -382,7 +382,7 @@ func (gc *groupConsumer) resolvePartitions(subscribersToTopics map[string][]stri
 			return nil, fmt.Errorf("failed to get partition list: topic=%s, err=(%s)", topic, err)
 		}
 		partitionsToSubscribers := assignPartitionsToSubscribers(topicPartitions, topicsToSubscribers[topic])
-		assignedTopicPartitions := partitionsToSubscribers[gc.config.ClientID]
+		assignedTopicPartitions := partitionsToSubscribers[gc.cfg.ClientID]
 		assignedPartitions[topic] = assignedTopicPartitions
 	}
 	return assignedPartitions, nil
@@ -450,7 +450,7 @@ type topicGear struct {
 // requests' reply channel.
 type topicConsumer struct {
 	contextID     *sarama.ContextID
-	config        *config.T
+	cfg           *config.T
 	gc            *groupConsumer
 	group         string
 	topic         string
@@ -463,12 +463,12 @@ type topicConsumer struct {
 func (gc *groupConsumer) newTopicConsumer(topic string) *topicConsumer {
 	return &topicConsumer{
 		contextID:     gc.baseCID.NewChild(topic),
-		config:        gc.config,
+		cfg:           gc.cfg,
 		gc:            gc,
 		group:         gc.group,
 		topic:         topic,
 		assignmentsCh: make(chan []int32),
-		requestsCh:    make(chan consumeRequest, gc.config.ChannelBufferSize),
+		requestsCh:    make(chan consumeRequest, gc.cfg.ChannelBufferSize),
 		messagesCh:    make(chan *sarama.ConsumerMessage),
 	}
 }
@@ -504,11 +504,11 @@ func (tc *topicConsumer) run() {
 		tc.gc.deleteTopicConsumer() <- tc
 	}()
 
-	timeoutErr := ErrConsumerRequestTimeout(fmt.Errorf("long polling timeout"))
+	timeoutErr := ErrRequestTimeout(fmt.Errorf("long polling timeout"))
 	timeoutResult := consumeResult{Err: timeoutErr}
 	for consumeReq := range tc.requestsCh {
 		requestAge := time.Now().UTC().Sub(consumeReq.timestamp)
-		ttl := tc.config.Consumer.LongPollingTimeout - requestAge
+		ttl := tc.cfg.Consumer.LongPollingTimeout - requestAge
 		// The request has been waiting in the buffer for too long. If we
 		// reply with a fetched message, then there is a good chance that the
 		// client won't receive it due to the client HTTP timeout. Therefore
@@ -536,7 +536,7 @@ func (tc *topicConsumer) String() string {
 // consumers to ensure that none of them is neglected.
 type multiplexer struct {
 	contextID          *sarama.ContextID
-	config             *config.T
+	cfg                *config.T
 	exclusiveConsumers []*exclusiveConsumer
 	topicConsumer      *topicConsumer
 	lastPartitionIdx   int
@@ -551,7 +551,7 @@ func (gc *groupConsumer) spawnMultiplexer(tc *topicConsumer, ecs map[int32]*excl
 	}
 	m := &multiplexer{
 		contextID:          gc.baseCID.NewChild(fmt.Sprintf("%s:mux", tc.topic)),
-		config:             tc.config,
+		cfg:                tc.cfg,
 		exclusiveConsumers: exclusiveConsumers,
 		topicConsumer:      tc,
 		stoppingCh:         make(chan none),
@@ -670,7 +670,7 @@ func (m *multiplexer) selectPartition(partitionMessages []*sarama.ConsumerMessag
 // consumed and its offset is committed.
 type exclusiveConsumer struct {
 	contextID    *sarama.ContextID
-	config       *config.T
+	cfg          *config.T
 	group        string
 	topic        string
 	partition    int32
@@ -686,7 +686,7 @@ type exclusiveConsumer struct {
 func (gc *groupConsumer) spawnExclusiveConsumer(topic string, partition int32) *exclusiveConsumer {
 	ec := &exclusiveConsumer{
 		contextID:    gc.baseCID.NewChild(fmt.Sprintf("%s:%d", topic, partition)),
-		config:       gc.config,
+		cfg:          gc.cfg,
 		group:        gc.group,
 		topic:        topic,
 		partition:    partition,
@@ -805,3 +805,21 @@ func (ec *exclusiveConsumer) stop() {
 	close(ec.stoppingCh)
 	ec.wg.Wait()
 }
+
+type none struct{}
+
+// spawn starts function `f` as a goroutine making it a member of the `wg`
+// wait group.
+func spawn(wg *sync.WaitGroup, f func()) {
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		f()
+	}()
+}
+
+type Int32Slice []int32
+
+func (p Int32Slice) Len() int           { return len(p) }
+func (p Int32Slice) Less(i, j int) bool { return p[i] < p[j] }
+func (p Int32Slice) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }

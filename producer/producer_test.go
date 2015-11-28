@@ -1,91 +1,96 @@
-package pixy
+package producer
 
 import (
 	"fmt"
 	"strconv"
+	"testing"
 
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 	"github.com/mailgun/kafka-pixy/config"
-	"github.com/mailgun/kafka-pixy/logging"
+	"github.com/mailgun/kafka-pixy/testhelpers"
 )
 
-type GracefulProducerSuite struct {
-	config        *config.T
-	tkc           *TestKafkaClient
+type ProducerSuite struct {
+	cfg           *config.T
+	kh            *testhelpers.KafkaHelper
 	deadMessageCh chan *sarama.ProducerMessage
 }
 
-var _ = Suite(&GracefulProducerSuite{})
-
-func (s *GracefulProducerSuite) SetUpSuite(c *C) {
-	logging.InitTest()
+func Test(t *testing.T) {
+	TestingT(t)
 }
 
-func (s *GracefulProducerSuite) SetUpTest(c *C) {
+var _ = Suite(&ProducerSuite{})
+
+func (s *ProducerSuite) SetUpSuite(c *C) {
+	testhelpers.InitLogging(c)
+}
+
+func (s *ProducerSuite) SetUpTest(c *C) {
 	s.deadMessageCh = make(chan *sarama.ProducerMessage, 100)
-	s.config = config.Default()
-	s.config.Kafka.SeedPeers = testKafkaPeers
-	s.config.Producer.DeadMessageCh = s.deadMessageCh
-	s.tkc = NewTestKafkaClient(s.config.Kafka.SeedPeers)
+	s.cfg = config.Default()
+	s.cfg.Kafka.SeedPeers = testhelpers.KafkaPeers
+	s.cfg.Producer.DeadMessageCh = s.deadMessageCh
+	s.kh = testhelpers.NewKafkaHelper(c)
 }
 
-func (s *GracefulProducerSuite) TearDownTest(c *C) {
+func (s *ProducerSuite) TearDownTest(c *C) {
 	close(s.deadMessageCh)
-	s.tkc.Close()
+	s.kh.Close()
 }
 
 // A started client can be stopped.
-func (s *GracefulProducerSuite) TestStartAndStop(c *C) {
+func (s *ProducerSuite) TestStartAndStop(c *C) {
 	// Given
-	kci, err := SpawnGracefulProducer(s.config)
+	p, err := Spawn(s.cfg)
 	c.Assert(err, IsNil)
-	c.Assert(kci, NotNil)
+	c.Assert(p, NotNil)
 	// When
-	kci.Stop()
+	p.Stop()
 }
 
-func (s *GracefulProducerSuite) TestProduce(c *C) {
+func (s *ProducerSuite) TestProduce(c *C) {
 	// Given
-	kci, _ := SpawnGracefulProducer(s.config)
-	offsetsBefore := s.tkc.getOffsets("test.4")
+	p, _ := Spawn(s.cfg)
+	offsetsBefore := s.kh.GetOffsets("test.4")
 	// When
-	_, err := kci.Produce("test.4", sarama.StringEncoder("1"), sarama.StringEncoder("Foo"))
+	_, err := p.Produce("test.4", sarama.StringEncoder("1"), sarama.StringEncoder("Foo"))
 	// Then
 	c.Assert(err, IsNil)
-	offsetsAfter := s.tkc.getOffsets("test.4")
+	offsetsAfter := s.kh.GetOffsets("test.4")
 	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0]+1)
 	// Cleanup
-	kci.Stop()
+	p.Stop()
 }
 
-func (s *GracefulProducerSuite) TestProduceInvalidTopic(c *C) {
+func (s *ProducerSuite) TestProduceInvalidTopic(c *C) {
 	// Given
-	kci, _ := SpawnGracefulProducer(s.config)
+	p, _ := Spawn(s.cfg)
 	// When
-	_, err := kci.Produce("no-such-topic", sarama.StringEncoder("1"), sarama.StringEncoder("Foo"))
+	_, err := p.Produce("no-such-topic", sarama.StringEncoder("1"), sarama.StringEncoder("Foo"))
 	// Then
 	c.Assert(err, Equals, sarama.ErrUnknownTopicOrPartition)
 	// Cleanup
-	kci.Stop()
+	p.Stop()
 }
 
 // If `key` is not `nil` then produced messages are deterministically
 // distributed between partitions based on the `key` hash.
-func (s *GracefulProducerSuite) TestAsyncProduce(c *C) {
+func (s *ProducerSuite) TestAsyncProduce(c *C) {
 	// Given
-	kci, _ := SpawnGracefulProducer(s.config)
-	offsetsBefore := s.tkc.getOffsets("test.4")
+	p, _ := Spawn(s.cfg)
+	offsetsBefore := s.kh.GetOffsets("test.4")
 	// When
 	for i := 0; i < 10; i++ {
-		kci.AsyncProduce("test.4", sarama.StringEncoder("1"), sarama.StringEncoder(strconv.Itoa(i)))
-		kci.AsyncProduce("test.4", sarama.StringEncoder("2"), sarama.StringEncoder(strconv.Itoa(i)))
-		kci.AsyncProduce("test.4", sarama.StringEncoder("3"), sarama.StringEncoder(strconv.Itoa(i)))
-		kci.AsyncProduce("test.4", sarama.StringEncoder("4"), sarama.StringEncoder(strconv.Itoa(i)))
-		kci.AsyncProduce("test.4", sarama.StringEncoder("5"), sarama.StringEncoder(strconv.Itoa(i)))
+		p.AsyncProduce("test.4", sarama.StringEncoder("1"), sarama.StringEncoder(strconv.Itoa(i)))
+		p.AsyncProduce("test.4", sarama.StringEncoder("2"), sarama.StringEncoder(strconv.Itoa(i)))
+		p.AsyncProduce("test.4", sarama.StringEncoder("3"), sarama.StringEncoder(strconv.Itoa(i)))
+		p.AsyncProduce("test.4", sarama.StringEncoder("4"), sarama.StringEncoder(strconv.Itoa(i)))
+		p.AsyncProduce("test.4", sarama.StringEncoder("5"), sarama.StringEncoder(strconv.Itoa(i)))
 	}
-	kci.Stop()
-	offsetsAfter := s.tkc.getOffsets("test.4")
+	p.Stop()
+	offsetsAfter := s.kh.GetOffsets("test.4")
 	// Then
 	c.Assert(s.failedMessages(), DeepEquals, []string{})
 	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0]+20)
@@ -97,16 +102,16 @@ func (s *GracefulProducerSuite) TestAsyncProduce(c *C) {
 // If `key` of a produced message is `nil` then it is submitted to a random
 // partition. Therefore a batch of such messages is evenly distributed among
 // all available partitions.
-func (s *GracefulProducerSuite) TestAsyncProduceNilKey(c *C) {
+func (s *ProducerSuite) TestAsyncProduceNilKey(c *C) {
 	// Given
-	kci, _ := SpawnGracefulProducer(s.config)
-	offsetsBefore := s.tkc.getOffsets("test.4")
+	p, _ := Spawn(s.cfg)
+	offsetsBefore := s.kh.GetOffsets("test.4")
 	// When
 	for i := 0; i < 100; i++ {
-		kci.AsyncProduce("test.4", nil, sarama.StringEncoder(strconv.Itoa(i)))
+		p.AsyncProduce("test.4", nil, sarama.StringEncoder(strconv.Itoa(i)))
 	}
-	kci.Stop()
-	offsetsAfter := s.tkc.getOffsets("test.4")
+	p.Stop()
+	offsetsAfter := s.kh.GetOffsets("test.4")
 	// Then
 	c.Assert(s.failedMessages(), DeepEquals, []string{})
 	delta0 := offsetsAfter[0] - offsetsBefore[0]
@@ -119,18 +124,18 @@ func (s *GracefulProducerSuite) TestAsyncProduceNilKey(c *C) {
 // Even though wrapped `sarama.Producer` is instructed to stop immediately on
 // client stop due to `ShutdownTimeout == 0`, still none of messages is lost.
 // because none of them are retries. This test is mostly to increase coverage.
-func (s *GracefulProducerSuite) TestTooSmallShutdownTimeout(c *C) {
+func (s *ProducerSuite) TestTooSmallShutdownTimeout(c *C) {
 	// Given
-	s.config.Producer.ShutdownTimeout = 0
-	kci, _ := SpawnGracefulProducer(s.config)
-	offsetsBefore := s.tkc.getOffsets("test.4")
+	s.cfg.Producer.ShutdownTimeout = 0
+	p, _ := Spawn(s.cfg)
+	offsetsBefore := s.kh.GetOffsets("test.4")
 	// When
 	for i := 0; i < 100; i++ {
 		v := sarama.StringEncoder(strconv.Itoa(i))
-		kci.AsyncProduce("test.4", v, v)
+		p.AsyncProduce("test.4", v, v)
 	}
-	kci.Stop()
-	offsetsAfter := s.tkc.getOffsets("test.4")
+	p.Stop()
+	offsetsAfter := s.kh.GetOffsets("test.4")
 	// Then
 	c.Assert(s.failedMessages(), DeepEquals, []string{})
 	delta := int64(0)
@@ -142,16 +147,16 @@ func (s *GracefulProducerSuite) TestTooSmallShutdownTimeout(c *C) {
 
 // If `key` of a produced message is empty then it is deterministically
 // submitted to a particular partition determined by the empty key hash.
-func (s *GracefulProducerSuite) TestAsyncProduceEmptyKey(c *C) {
+func (s *ProducerSuite) TestAsyncProduceEmptyKey(c *C) {
 	// Given
-	kci, _ := SpawnGracefulProducer(s.config)
-	offsetsBefore := s.tkc.getOffsets("test.4")
+	p, _ := Spawn(s.cfg)
+	offsetsBefore := s.kh.GetOffsets("test.4")
 	// When
 	for i := 0; i < 10; i++ {
-		kci.AsyncProduce("test.4", sarama.StringEncoder(""), sarama.StringEncoder(strconv.Itoa(i)))
+		p.AsyncProduce("test.4", sarama.StringEncoder(""), sarama.StringEncoder(strconv.Itoa(i)))
 	}
-	kci.Stop()
-	offsetsAfter := s.tkc.getOffsets("test.4")
+	p.Stop()
+	offsetsAfter := s.kh.GetOffsets("test.4")
 	// Then
 	c.Assert(s.failedMessages(), DeepEquals, []string{})
 	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0])
@@ -160,7 +165,7 @@ func (s *GracefulProducerSuite) TestAsyncProduceEmptyKey(c *C) {
 	c.Assert(offsetsAfter[3], Equals, offsetsBefore[3]+10)
 }
 
-func (s *GracefulProducerSuite) failedMessages() []string {
+func (s *ProducerSuite) failedMessages() []string {
 	b := []string{}
 	for {
 		select {
