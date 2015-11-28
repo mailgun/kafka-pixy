@@ -9,8 +9,8 @@ test:
 	go test -v -timeout 3m github.com/mailgun/kafka-pixy/consumer -check.vv
 	go test -v -timeout 3m github.com/mailgun/kafka-pixy/logging -check.vv
 	go test -v -timeout 3m github.com/mailgun/kafka-pixy/prettyfmt -check.vv
-	go test -v -timeout 3m github.com/mailgun/kafka-pixy/pixy -check.vv
 	go test -v -timeout 3m github.com/mailgun/kafka-pixy/producer -check.vv
+	go test -v -timeout 3m github.com/mailgun/kafka-pixy/service -check.vv
 
 rebuild:
 	go clean -i

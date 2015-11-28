@@ -14,7 +14,7 @@ import (
 	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/logging"
-	"github.com/mailgun/kafka-pixy/pixy"
+	"github.com/mailgun/kafka-pixy/service"
 )
 
 const (
@@ -79,7 +79,7 @@ func main() {
 	}
 
 	log.Infof("Starting with config: %+v", cfg)
-	svc, err := pixy.SpawnService(cfg)
+	svc, err := service.Spawn(cfg)
 	if err != nil {
 		log.Errorf("Failed to start service: err=(%s)", err)
 		os.Exit(1)
