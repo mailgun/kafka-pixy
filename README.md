@@ -12,6 +12,8 @@ released in that version. Although this API has been introduced in Kafka **0.8.1
 the on-the-wire packet format was different back then, and Kafka-Pixy does not
 support the older format.
 
+You can jump to [Quick Start](README.md#quick-start) if you are anxious to give it a try.
+
 ## Aggregation
 Kafka works best when messages are read/written in batches, but from application
 standpoint it is easier to deal with individual message read/writes. Kafka-Pixy
@@ -33,9 +35,10 @@ alongside a TCP socket (**0.0.0.0:19092** by default).
 
 ### Produce
 
-`POST /topics/<topic>/messages?key=<key>` - submits a message to the topic with
-name **topic**, using a hash of **key** to determine the shard where the message
-should go. The content type can be either `text/plain` or `application/json`. 
+`POST /topics/<topic>/messages?key=<key>` - submits a message to the specified
+**topic** using the hash of the specified **key** to determine the partition
+that the message should go to. The content type can be either `text/plain` or
+`application/json`. 
 
 By default a message is submitted to Kafka asynchronously, that is the HTTP
 request completes as soon as the proxy gets the message, and actual message
@@ -61,41 +64,75 @@ argument, then you can test it using **curl** as follows:
 
 ```
 curl -X POST localhost:8080/topics/foo/messages?key=bar&sync \
-     -H 'Content-Type: application/json' \
-     -d '{"bar": "bazz"}'
+  -H 'Content-Type: application/json' \
+  -d '{"bar": "bazz"}'
+```
+
+If the message is submitted asynchronously then the response will be an empty
+json object `{}`.
+ 
+If the message is submitted synchronously then in case of success (HTTP status
+**200**) the response will be like:
+
+```
+{
+  "partition": <partition number>,
+  "offset": <message offset>
+}
+```
+
+In case of failure (HTTP statuses **404** and **500**) the response will be.
+
+```
+{
+  "error": <human readable explanation>
+}
 ```
 
 ### Consume
 
-`GET /topics/<topic>/messages?group=<group>` - consumes a message from the topic
-with name **topic** on behalf of a consumer group with name **group**. If there
-are no new messages in the topic the request will block waiting for 3 seconds.
+`GET /topics/<topic>/messages?group=<group>` - consumes a message from the
+specified **topic** on behalf of the specified consumer **group**.
+ 
+When a message is consumed on behalf of a consume group for the first time,
+the Kafka-Pixy instance joins the consumer group and subscribes to the topic.
+All Kafka-Pixy instances that are currently members of that group and subscribed
+to that topic divide topic partitions among themselves, so that each Kafka-Pixy
+instance gets a subset of partitions for exclusive consumption (Read more about
+what the Kafka consumer groups [here](http://kafka.apache.org/documentation.html#intro_consumers)).
+If a Kafka-Pixy instance has not consumed from a particular topic on behalf of
+a particular consumer group for 20 seconds (the value is not configurable yet),
+then it unsubscribes from the topic on behalf of that group, and the topic
+partitions are redistributed among Kafka-Pixy instances that are still
+subscribed to the topic.
+ 
+If there are no new messages in the topic the request will block waiting for 3 seconds.
 If there are no messages produced during this long poll waiting then the request
 will return **408** Request Timeout error, otherwise the response will be a JSON
 document of the following structure:
 
 ```
 {
-    "key": <base64 encoded key>,
-    "value": <base64 encoded message body>,
-    "partition": <partition number>,
-    "offset": <message offset>
+  "key": <base64 encoded key>,
+  "value": <base64 encoded message body>,
+  "partition": <partition number>,
+  "offset": <message offset>
 }
 ```
 e.g.:
 ```json
 {
-    "key": "0JzQsNGA0YPRgdGP",
-    "value": "0JzQvtGPINC70Y7QsdC40LzQsNGPINC00L7Rh9C10L3RjNC60LA=",
-    "partition": 0,
-    "offset": 13}
+  "key": "0JzQsNGA0YPRgdGP",
+  "value": "0JzQvtGPINC70Y7QsdC40LzQsNGPINC00L7Rh9C10L3RjNC60LA=",
+  "partition": 0,
+  "offset": 13}
 }
 ```
 
 ### Get Offsets
  
 `GET /topics/<topic>/offsets?group=<group>` - returns offset information for
-all partitions of the specified topic including the next offset to be consumed
+all partitions of the specified **topic** including the next offset to be consumed
 by the specified consumer group. The structure of the returned JSON document is
 as follows:
 
@@ -118,7 +155,7 @@ as follows:
 
 `POST /topics/<topic>/offsets?group=<group>` - sets offsets to be consumed from
 the specified topic by a particular consumer group. The request content should
-be a list of JSON objects, where each objects defines an offset to be set for
+be a list of JSON objects, where each object defines an offset to be set for
 a particular partition:
 
 ```
@@ -142,14 +179,14 @@ group inactivity on all Kafka-Pixy working with the Kafka cluster.
 ### List Consumers
 
 `GET /topics/<topic>/consumers[?group=<group>]` - returns a list of consumers
-that are subscribed to the **topic** along with a list of partitions assigned
-to each consumer. If **group** is not specified then information is provided
-for all consumer groups subscribed to the **topic**.
+that are subscribed to the specified **topic** along with a list of partitions
+assigned to each consumer. If **group** is not specified then information is
+provided for all consumer groups subscribed to the **topic**.
 
 e.g.:
 
 ```
-curl -XGET localhost:19092/topic/some_queue/consumers
+curl -G localhost:19092/topic/some_queue/consumers
 ```
 
 yields:
@@ -216,6 +253,85 @@ that Kafka-Pixy accepts are listed below.
 
 You can run `kafka-pixy -help` to make it list all available command line
 parameters.
+
+## Quick Start
+
+This instruction assumes that you are trying it on Linux host, but it will be
+pretty much the same on Mac.
+
+### Step 1. Download
+
+```
+curl -L https://github.com/mailgun/kafka-pixy/releases/download/v0.9.0/kafka-pixy-v0.9.0-linux-amd64.tar.gz | tar xz
+```
+
+### Step 2. Start
+
+```
+cd kafka-pixy-v0.9.0-linux-amd64
+./kafka-pixy --kafkaPeers "<host1>:9092,...,<hostN>:9092" --zookeeperPeers "<host1>:2181,...,<hostM>:2181"
+```
+
+### Step 3. Create Topic (optional)
+
+If your Kafka cluster is configured to require explicit creation of topics, then
+create one for your testing (e.g. `foo`). [Here](http://kafka.apache.org/documentation.html#basic_ops_add_topic)
+is how you can do that.
+
+### Step 4. Initialize Group Offsets
+
+Consume from the topic on behalf of a consumer group (e.g. `bar`) for the first
+time. The consumption will fail with the long polling timeout (3 seconds), but
+the important side effect of that is that initial offsets will be stored in
+Kafka.
+
+```
+curl -G localhost:19092/topics/foo/messages?group=bar
+```
+
+Output:
+
+```json
+{
+  "error": "long polling timeout"
+}
+```
+
+### Step 5. Produce
+
+```
+curl -X POST localhost:19092/topics/foo/messages?sync \
+  -H 'Content-Type: text/plain' \
+  -d 'blah blah blah'
+```
+
+The output tells the partition the message has been submitted to and the offset
+it has:
+
+```json
+{
+  "partition": 7,
+  "offset": 974563
+}
+```
+
+### Step 6. Consume
+
+```
+curl -G localhost:19092/topics/foo/messages?group=bar
+```
+
+The output provides the retrieved message as a base64 encoded value along with
+some metadata:
+
+```json
+{
+  "key": null,
+  "value": "YmxhaCBibGFoIGJsYWg=",
+  "partition": 7,
+  "offset": 974563
+}
+```
 
 ## License
 
