@@ -72,7 +72,7 @@ type indexedPartition struct {
 // current offset range along with the latest offset and metadata committed by
 // the specified consumer group.
 func (a *T) GetGroupOffsets(group, topic string) ([]PartitionOffset, error) {
-	kafkaClt, err := sarama.NewClient(a.cfg.Kafka.SeedPeers, a.cfg.SaramaConfig())
+	kafkaClt, err := sarama.NewClient(a.cfg.Kafka.SeedPeers, a.saramaConfig())
 	if err != nil {
 		return nil, ErrSetup(fmt.Errorf("failed to create sarama.Client: err=(%v)", err))
 	}
@@ -172,7 +172,7 @@ func (a *T) GetGroupOffsets(group, topic string) ([]PartitionOffset, error) {
 // SetGroupOffsets commits specific offset values along with metadata for a list
 // of partitions of a particular topic on behalf of the specified group.
 func (a *T) SetGroupOffsets(group, topic string, offsets []PartitionOffset) error {
-	kafkaClt, err := sarama.NewClient(a.cfg.Kafka.SeedPeers, a.cfg.SaramaConfig())
+	kafkaClt, err := sarama.NewClient(a.cfg.Kafka.SeedPeers, a.saramaConfig())
 	if err != nil {
 		return ErrSetup(fmt.Errorf("failed to create sarama.Client: err=(%v)", err))
 	}
@@ -270,6 +270,13 @@ func (a *T) GetAllTopicConsumers(topic string) (map[string]map[string][]int32, e
 		}
 	}
 	return consumers, nil
+}
+
+// saramaConfig generates a `Shopify/sarama` library config.
+func (a *T) saramaConfig() *sarama.Config {
+	saramaConfig := sarama.NewConfig()
+	saramaConfig.ClientID = a.cfg.ClientID
+	return saramaConfig
 }
 
 func getOffsetResult(res *sarama.OffsetResponse, topic string, partition int32) (int64, error) {

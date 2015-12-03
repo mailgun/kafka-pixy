@@ -40,7 +40,19 @@ type produceResult struct {
 
 // Spawn creates a producer instance and starts its internal goroutines.
 func Spawn(cfg *config.T) (*T, error) {
-	saramaClient, err := sarama.NewClient(cfg.Kafka.SeedPeers, cfg.SaramaConfig())
+	saramaCfg := sarama.NewConfig()
+	saramaCfg.ClientID = cfg.ClientID
+	saramaCfg.ChannelBufferSize = cfg.Producer.ChannelBufferSize
+	saramaCfg.Producer.RequiredAcks = sarama.WaitForAll
+	saramaCfg.Producer.Return.Successes = true
+	saramaCfg.Producer.Return.Errors = true
+	saramaCfg.Producer.Compression = sarama.CompressionSnappy
+	saramaCfg.Producer.Retry.Backoff = 10 * time.Second
+	saramaCfg.Producer.Retry.Max = 6
+	saramaCfg.Producer.Flush.Frequency = 500 * time.Millisecond
+	saramaCfg.Producer.Flush.Bytes = 1024 * 1024
+
+	saramaClient, err := sarama.NewClient(cfg.Kafka.SeedPeers, saramaCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sarama.Client, err=(%s)", err)
 	}
@@ -48,14 +60,15 @@ func Spawn(cfg *config.T) (*T, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sarama.Producer, err=(%s)", err)
 	}
+
 	p := &T{
 		baseCID:         sarama.RootCID.NewChild("producer"),
 		saramaClient:    saramaClient,
 		saramaProducer:  saramaProducer,
 		shutdownTimeout: cfg.Producer.ShutdownTimeout,
 		deadMessageCh:   cfg.Producer.DeadMessageCh,
-		dispatcherCh:    make(chan *sarama.ProducerMessage, cfg.ChannelBufferSize),
-		resultCh:        make(chan produceResult, cfg.ChannelBufferSize),
+		dispatcherCh:    make(chan *sarama.ProducerMessage, cfg.Producer.ChannelBufferSize),
+		resultCh:        make(chan produceResult, cfg.Producer.ChannelBufferSize),
 	}
 	spawn(&p.wg, p.merge)
 	spawn(&p.wg, p.dispatch)

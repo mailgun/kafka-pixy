@@ -46,7 +46,14 @@ type T struct {
 // Spawn creates a consumer instance with the specified configuration and
 // starts all its goroutines.
 func Spawn(cfg *config.T) (*T, error) {
-	kafkaClient, err := sarama.NewClient(cfg.Kafka.SeedPeers, cfg.SaramaConfig())
+	saramaCfg := sarama.NewConfig()
+	saramaCfg.ClientID = cfg.ClientID
+	saramaCfg.ChannelBufferSize = cfg.Consumer.ChannelBufferSize
+	saramaCfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
+	saramaCfg.Consumer.Retry.Backoff = cfg.Consumer.BackOffTimeout
+	saramaCfg.Consumer.Fetch.Default = 1024 * 1024
+
+	kafkaClient, err := sarama.NewClient(cfg.Kafka.SeedPeers, saramaCfg)
 	if err != nil {
 		return nil, ErrSetup(fmt.Errorf("failed to create sarama.Client: err=(%v)", err))
 	}
@@ -54,10 +61,21 @@ func Spawn(cfg *config.T) (*T, error) {
 	if err != nil {
 		return nil, ErrSetup(fmt.Errorf("failed to create sarama.OffsetManager: err=(%v)", err))
 	}
-	kazooConn, err := kazoo.NewKazoo(cfg.ZooKeeper.SeedPeers, cfg.KazooConfig())
+
+	kazooCfg := kazoo.NewConfig()
+	kazooCfg.Chroot = cfg.ZooKeeper.Chroot
+	// ZooKeeper documentation says following about the session timeout: "The
+	// current (ZooKeeper) implementation requires that the timeout be a
+	// minimum of 2 times the tickTime (as set in the server configuration) and
+	// a maximum of 20 times the tickTime". The default tickTime is 2 seconds.
+	// See http://zookeeper.apache.org/doc/trunk/zookeeperProgrammers.html#ch_zkSessions
+	kazooCfg.Timeout = 15 * time.Second
+
+	kazooConn, err := kazoo.NewKazoo(cfg.ZooKeeper.SeedPeers, kazooCfg)
 	if err != nil {
 		return nil, ErrSetup(fmt.Errorf("failed to create kazoo.Kazoo: err=(%v)", err))
 	}
+
 	sc := &T{
 		baseCID:     sarama.RootCID.NewChild("smartConsumer"),
 		cfg:         cfg,
@@ -468,7 +486,7 @@ func (gc *groupConsumer) newTopicConsumer(topic string) *topicConsumer {
 		group:         gc.group,
 		topic:         topic,
 		assignmentsCh: make(chan []int32),
-		requestsCh:    make(chan consumeRequest, gc.cfg.ChannelBufferSize),
+		requestsCh:    make(chan consumeRequest, gc.cfg.Consumer.ChannelBufferSize),
 		messagesCh:    make(chan *sarama.ConsumerMessage),
 	}
 }

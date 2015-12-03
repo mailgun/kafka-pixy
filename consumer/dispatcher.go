@@ -68,10 +68,10 @@ func newDispatcher(baseCID *sarama.ContextID, factory dispatchTierFactory, cfg *
 		contextID:         baseCID.NewChild("dispatcher"),
 		cfg:               cfg,
 		factory:           factory,
-		requestsCh:        make(chan consumeRequest, cfg.ChannelBufferSize),
+		requestsCh:        make(chan consumeRequest, cfg.Consumer.ChannelBufferSize),
 		children:          make(map[string]*expiringDispatchTier),
-		expiredChildrenCh: make(chan dispatchTier, cfg.ChannelBufferSize),
-		stoppedChildrenCh: make(chan dispatchTier, cfg.ChannelBufferSize),
+		expiredChildrenCh: make(chan dispatchTier, cfg.Consumer.ChannelBufferSize),
+		stoppedChildrenCh: make(chan dispatchTier, cfg.Consumer.ChannelBufferSize),
 	}
 	return d
 }

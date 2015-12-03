@@ -449,7 +449,7 @@ func (s *SmartConsumerSuite) TestBufferOverflowError(c *C) {
 	s.kh.PutMessages("join", "test.1", map[string]int{"A": 30})
 
 	cfg := testhelpers.NewTestConfig("consumer-1")
-	cfg.ChannelBufferSize = 1
+	cfg.Consumer.ChannelBufferSize = 1
 	sc, err := Spawn(cfg)
 	c.Assert(err, IsNil)
 
@@ -490,7 +490,7 @@ func (s *SmartConsumerSuite) TestRequestDuringTimeout(c *C) {
 
 	cfg := testhelpers.NewTestConfig("consumer-1")
 	cfg.Consumer.RegistrationTimeout = 200 * time.Millisecond
-	cfg.ChannelBufferSize = 1
+	cfg.Consumer.ChannelBufferSize = 1
 	sc, err := Spawn(cfg)
 	c.Assert(err, IsNil)
 
