@@ -1,6 +1,6 @@
 # Changelog
 
-#### Version 0.9.0 (2015-11-30)
+#### Version 0.9.1 (2015-11-30)
 
 This release aims to make getting started with Kafka-Pixy easier.
 
@@ -15,6 +15,7 @@ This release aims to make getting started with Kafka-Pixy easier.
   `--pidFile` command line argument to get it created.
 * The source code was refactored into packages to make it easier to understand
   internal dependencies.
+* Integrated with coveralls.io to collect test coverage data.
 
 #### Version 0.8.1 (2015-10-24)
 

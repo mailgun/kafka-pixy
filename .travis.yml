@@ -17,9 +17,15 @@ before_install:
   - Godeps/_workspace/src/github.com/mailgun/sarama/vagrant/install_cluster.sh
   - Godeps/_workspace/src/github.com/mailgun/sarama/vagrant/boot_cluster.sh
   - Godeps/_workspace/src/github.com/mailgun/sarama/vagrant/create_topics.sh
+  # Install coveralls.io dependencies
+  - go get github.com/axw/gocov/gocov
+  - go get github.com/mattn/goveralls
+  - go get golang.org/x/tools/cmd/cover
+  - go get github.com/pierrre/gotestcover
 
 script:
- - make test
+ - $HOME/gopath/bin/gotestcover -covermode=atomic -parallelpackages=1 -coverprofile=cover.out -timeout=5m ./...
+ - $HOME/gopath/bin/goveralls -coverprofile=cover.out -service=travis-ci
  - make vet
  - make fmt
 
