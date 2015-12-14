@@ -465,12 +465,12 @@ offsetCommitLoop:
 			if time.Now().UTC().Sub(lastErrTime) < bom.config.Consumer.Retry.Backoff {
 				continue offsetCommitLoop
 			}
-
 			nilOrOffsetBatchesCh = nil
 			for group, groupOffsets := range batchedOffsets {
 				req := &OffsetCommitRequest{
-					Version:       1,
-					ConsumerGroup: group,
+					Version:                 1,
+					ConsumerGroup:           group,
+					ConsumerGroupGeneration: GroupGenerationUndefined,
 				}
 				for _, so := range groupOffsets {
 					req.AddBlock(so.gtp.topic, so.gtp.partition, so.offset, ReceiveTime, so.metadata)

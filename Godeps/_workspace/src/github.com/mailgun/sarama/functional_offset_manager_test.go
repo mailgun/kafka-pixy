@@ -7,7 +7,8 @@ import (
 
 // The latest committed offset saved by one partition manager instance is
 // returned by another as the initial commit.
-func TestFuncOffsetManagerSimple(t *testing.T) {
+func TestFuncOffsetManager(t *testing.T) {
+	checkKafkaVersion(t, "0.8.2")
 	setupFunctionalTest(t)
 	defer teardownFunctionalTest(t)
 
