@@ -183,7 +183,11 @@ func (a *T) SetGroupOffsets(group, topic string, offsets []PartitionOffset) erro
 		return NewErrQuery(err, "failed to get coordinator")
 	}
 
-	req := sarama.OffsetCommitRequest{ConsumerGroup: group, Version: ProtocolVer1}
+	req := sarama.OffsetCommitRequest{
+		Version:                 ProtocolVer1,
+		ConsumerGroup:           group,
+		ConsumerGroupGeneration: sarama.GroupGenerationUndefined,
+	}
 	for _, po := range offsets {
 		req.AddBlock(topic, po.Partition, po.Offset, sarama.ReceiveTime, po.Metadata)
 	}

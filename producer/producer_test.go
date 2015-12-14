@@ -170,7 +170,7 @@ func (s *ProducerSuite) failedMessages() []string {
 	for {
 		select {
 		case prodMsg := <-s.deadMessageCh:
-			b = append(b, string(prodMsg.Value.(sarama.ByteEncoder)))
+			b = append(b, string(prodMsg.Value.(sarama.StringEncoder)))
 		default:
 			goto done
 		}

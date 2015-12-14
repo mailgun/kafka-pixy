@@ -450,7 +450,8 @@ func (s *ServiceSuite) TestSetOffsets(c *C) {
 	}
 }
 
-// It is not an error to set offsets for a topic that does not exist.
+// Result of setting offsets for a non-existent topic depends on the Kafka
+// version. It is ok for 0.8, but error in 0.9.
 func (s *ServiceSuite) TestSetOffsetsNoSuchTopic(c *C) {
 	// Given
 	svc, _ := Spawn(s.cfg)
@@ -461,6 +462,15 @@ func (s *ServiceSuite) TestSetOffsetsNoSuchTopic(c *C) {
 		"application/json", strings.NewReader(`[{"partition": 0, "offset": 1100, "metadata": "A100"}]`))
 
 	// Then
+	kafkaVersion := os.Getenv("KAFKA_VERSION")
+	if strings.HasPrefix(kafkaVersion, "0.9") {
+		c.Assert(err, IsNil)
+		c.Assert(r.StatusCode, Equals, http.StatusNotFound)
+		body := ParseJSONBody(c, r).(map[string]interface{})
+		c.Assert(body["error"], Equals, "Unknown topic")
+		return
+	}
+
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
 	c.Assert(ParseJSONBody(c, r), DeepEquals, apiserver.EmptyResponse)

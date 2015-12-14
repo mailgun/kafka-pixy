@@ -79,6 +79,7 @@ func NewKafkaHelper(c *C) *KafkaHelper {
 	cfg := sarama.NewConfig()
 	cfg.Producer.Return.Successes = true
 	cfg.Producer.Return.Errors = true
+	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
 	cfg.ClientID = "unittest-runner"
 	err := error(nil)
 	if kh.client, err = sarama.NewClient(KafkaPeers, cfg); err != nil {
