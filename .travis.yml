@@ -1,6 +1,6 @@
 language: go
 go:
-  - 1.5.1
+  - 1.5.2
 
 env:
   global:
@@ -11,6 +11,7 @@ env:
     - DEBUG=true
   matrix:
     - KAFKA_VERSION=0.8.2.1
+    - KAFKA_VERSION=0.9.0.0
 
 before_install:
   - export REPOSITORY_ROOT=${TRAVIS_BUILD_DIR}/Godeps/_workspace/src/github.com/mailgun/sarama
@@ -28,13 +29,5 @@ script:
  - $HOME/gopath/bin/goveralls -coverprofile=cover.out -service=travis-ci
  - make vet
  - make fmt
-
-matrix:
-  include:
-    - go: tip
-      env: KAFKA_VERSION=0.8.2.1
-  allow_failures:
-    - go: tip
-  fast_finish: true
 
 sudo: false

@@ -6,11 +6,10 @@ Kafka-Pixy is a local aggregating HTTP proxy to Kafka messaging cluster. It is
 designed to hide the complexity of the Kafka client protocol and provide a
 stupid simple HTTP API that is trivial to implement in any language.
 
-Kafka-Pixy works with Kafka **8.2.x** or later, because it uses the
+Kafka-Pixy works with Kafka **0.8.2.x** and **0.9.0.x**. It uses the Kafka 
 [Offset Commit/Fetch API](https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol#AGuideToTheKafkaProtocol-OffsetCommit/FetchAPI)
-released in that version. Although this API has been introduced in Kafka **0.8.1.1**,
-the on-the-wire packet format was different back then, and Kafka-Pixy does not
-support the older format.
+to keep track of consumer offsets and ZooKeeper to manage distribution of
+partitions among consumer group members.
 
 You can jump to [Quick Start](README.md#quick-start) if you are anxious to give it a try.
 

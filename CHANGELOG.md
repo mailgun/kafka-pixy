@@ -1,5 +1,11 @@
 # Changelog
 
+#### Version 0.10.0 (TBD)
+
+* [#47](https://github.com/mailgun/kafka-pixy/pull/47) Support for Kafka 0.9.0.0.
+  Note that consumer group management is still implemented via ZooKeeper rather
+  than the new Kafka [group management API](https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol#AGuideToTheKafkaProtocol-GroupMembershipAPI).
+
 #### Version 0.9.1 (2015-11-30)
 
 This release aims to make getting started with Kafka-Pixy easier.

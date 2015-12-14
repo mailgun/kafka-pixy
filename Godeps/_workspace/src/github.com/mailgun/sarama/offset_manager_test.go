@@ -27,7 +27,9 @@ func TestOffsetManagerInitialOffset(t *testing.T) {
 			SetOffset("group-1", "topic-2", 9, 3000, "bazz", ErrNoError),
 	})
 
-	client, err := NewClient([]string{broker1.Addr()}, nil)
+	cfg := NewConfig()
+	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
+	client, err := NewClient([]string{broker1.Addr()}, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,10 +66,11 @@ func TestOffsetManagerInitialNoCoordinator(t *testing.T) {
 			SetError("group-1", ErrOffsetsLoadInProgress),
 	})
 
-	config := NewConfig()
-	config.Consumer.Retry.Backoff = 50 * time.Millisecond
-	config.Consumer.Return.Errors = true
-	client, err := NewClient([]string{broker1.Addr()}, config)
+	cfg := NewConfig()
+	cfg.Consumer.Retry.Backoff = 50 * time.Millisecond
+	cfg.Consumer.Return.Errors = true
+	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
+	client, err := NewClient([]string{broker1.Addr()}, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,10 +109,11 @@ func TestOffsetManagerInitialFetchError(t *testing.T) {
 			SetOffset("group-1", "topic-1", 7, 0, "", ErrNotLeaderForPartition),
 	})
 
-	config := NewConfig()
-	config.Consumer.Retry.Backoff = 50 * time.Millisecond
-	config.Consumer.Return.Errors = true
-	client, err := NewClient([]string{broker1.Addr()}, config)
+	cfg := NewConfig()
+	cfg.Consumer.Retry.Backoff = 50 * time.Millisecond
+	cfg.Consumer.Return.Errors = true
+	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
+	client, err := NewClient([]string{broker1.Addr()}, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,10 +156,11 @@ func TestOffsetManagerCommitError(t *testing.T) {
 			SetError("group-1", "topic-1", 7, ErrNotLeaderForPartition),
 	})
 
-	config := NewConfig()
-	config.Consumer.Retry.Backoff = 1000 * time.Millisecond
-	config.Consumer.Return.Errors = true
-	client, err := NewClient([]string{broker1.Addr()}, config)
+	cfg := NewConfig()
+	cfg.Consumer.Retry.Backoff = 1000 * time.Millisecond
+	cfg.Consumer.Return.Errors = true
+	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
+	client, err := NewClient([]string{broker1.Addr()}, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,11 +211,12 @@ func TestOffsetManagerCommitBeforeClose(t *testing.T) {
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
 	})
 
-	config := NewConfig()
-	config.Net.ReadTimeout = 10 * time.Millisecond
-	config.Consumer.Retry.Backoff = 25 * time.Millisecond
-	config.Consumer.Return.Errors = true
-	client, err := NewClient([]string{broker1.Addr()}, config)
+	cfg := NewConfig()
+	cfg.Net.ReadTimeout = 10 * time.Millisecond
+	cfg.Consumer.Retry.Backoff = 25 * time.Millisecond
+	cfg.Consumer.Return.Errors = true
+	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
+	client, err := NewClient([]string{broker1.Addr()}, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,8 +323,9 @@ func TestOffsetManagerCommitDifferentGroups(t *testing.T) {
 			SetError("group-2", "topic-1", 7, ErrNoError),
 	})
 
-	config := NewConfig()
-	client, err := NewClient([]string{broker1.Addr()}, config)
+	cfg := NewConfig()
+	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
+	client, err := NewClient([]string{broker1.Addr()}, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,11 +384,13 @@ func TestOffsetManagerCommitNetworkError(t *testing.T) {
 			SetOffset("group-2", "topic-1", 7, 3000, "foo3", ErrNoError),
 	})
 
-	config := NewConfig()
-	config.Net.ReadTimeout = 50 * time.Millisecond
-	config.Consumer.Offsets.Timeout = 200 * time.Millisecond
-	config.Consumer.Return.Errors = true
-	client, err := NewClient([]string{broker1.Addr()}, config)
+	cfg := NewConfig()
+	cfg.Net.ReadTimeout = 50 * time.Millisecond
+	cfg.Consumer.Return.Errors = true
+	cfg.Consumer.Retry.Backoff = 100 * time.Millisecond
+	cfg.Consumer.Offsets.Timeout = 200 * time.Millisecond
+	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
+	client, err := NewClient([]string{broker1.Addr()}, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -405,12 +414,13 @@ func TestOffsetManagerCommitNetworkError(t *testing.T) {
 	pom2.SubmitOffset(2001, "bar2")
 	pom3.SubmitOffset(3001, "bar3")
 
+	Logger.Printf("*** Waiting for errors...")
 	<-pom1.Errors()
 	<-pom2.Errors()
 	<-pom3.Errors()
 
 	// When
-	time.Sleep(config.Consumer.Retry.Backoff * 2)
+	time.Sleep(cfg.Consumer.Retry.Backoff * 2)
 	Logger.Printf("*** Network recovering...")
 	broker1.SetHandlerByMap(map[string]MockResponse{
 		"ConsumerMetadataRequest": newMockConsumerMetadataResponse(t).
@@ -457,8 +467,9 @@ func TestOffsetManagerCommittedChannel(t *testing.T) {
 			SetError("group-1", "topic-1", 7, ErrNoError),
 	})
 
-	config := NewConfig()
-	client, err := NewClient([]string{broker1.Addr()}, config)
+	cfg := NewConfig()
+	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
+	client, err := NewClient([]string{broker1.Addr()}, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -509,11 +520,12 @@ func TestOffsetManagerConnectionRestored(t *testing.T) {
 			SetCoordinator("group-1", broker2),
 	})
 
-	config := NewConfig()
-	config.Net.ReadTimeout = 100 * time.Millisecond
-	config.Consumer.Return.Errors = true
-	config.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
-	client, err := NewClient([]string{broker1.Addr()}, config)
+	cfg := NewConfig()
+	cfg.Net.ReadTimeout = 100 * time.Millisecond
+	cfg.Consumer.Return.Errors = true
+	cfg.Consumer.Retry.Backoff = 100 * time.Millisecond
+	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
+	client, err := NewClient([]string{broker1.Addr()}, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -542,7 +554,7 @@ func TestOffsetManagerConnectionRestored(t *testing.T) {
 	// client connection with broker2 from the broker end.
 	pom.Close()
 	broker2.Close()
-	time.Sleep(config.Consumer.Retry.Backoff * 2)
+	time.Sleep(cfg.Consumer.Retry.Backoff * 2)
 
 	Logger.Printf("    GIVEN 3")
 	// Simulate broker restart. Make sure that the new instances listens on the
