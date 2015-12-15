@@ -1,14 +1,10 @@
 {
 	"ImportPath": "github.com/mailgun/kafka-pixy",
-	"GoVersion": "go1.5.1",
+	"GoVersion": "go1.5.2",
 	"Packages": [
 		"./..."
 	],
 	"Deps": [
-		{
-			"ImportPath": "github.com/davecgh/go-spew/spew",
-			"Rev": "f9f629a1d082960e5d1747f33c2b378612615fea"
-		},
 		{
 			"ImportPath": "github.com/eapache/go-resiliency/breaker",
 			"Comment": "v1",
@@ -36,10 +32,6 @@
 			"Rev": "a5d1ea1c7bb4ad05a27df06491071dd6d45d1a08"
 		},
 		{
-			"ImportPath": "github.com/mailgun/go-zookeeper/zk",
-			"Rev": "913027ed60abbe2436b35cf960193b06b00105cf"
-		},
-		{
 			"ImportPath": "github.com/mailgun/log",
 			"Rev": "2f35a4607f1abf71f97f77f99b0de8493ef6f4ef"
 		},
@@ -54,8 +46,12 @@
 			"Rev": "a9bd8660f70d831413be0145c449142f8ce75f00"
 		},
 		{
+			"ImportPath": "github.com/samuel/go-zookeeper/zk",
+			"Rev": "218e9c81c0dd8b3b18172b2bbfad92cc7d6db55f"
+		},
+		{
 			"ImportPath": "github.com/wvanbergen/kazoo-go",
-			"Rev": "dfbf187816b85d5126ae1e22d0d2a7bbb80c4479"
+			"Rev": "0f768712ae6f76454f987c3356177e138df258f8"
 		},
 		{
 			"ImportPath": "gopkg.in/check.v1",
