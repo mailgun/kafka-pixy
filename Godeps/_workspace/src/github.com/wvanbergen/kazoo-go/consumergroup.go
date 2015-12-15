@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/go-zookeeper/zk"
+	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/samuel/go-zookeeper/zk"
 )
 
 var (
@@ -165,7 +165,7 @@ func (cg *Consumergroup) Instance(id string) *ConsumergroupInstance {
 }
 
 // PartitionOwner returns the ConsumergroupInstance that has claimed the given partition.
-// This can be nil if nobody has claime dit yet.
+// This can be nil if nobody has claimed it yet.
 func (cg *Consumergroup) PartitionOwner(topic string, partition int32) (*ConsumergroupInstance, error) {
 	node := fmt.Sprintf("%s/consumers/%s/owners/%s/%d", cg.kz.conf.Chroot, cg.Name, topic, partition)
 	val, _, err := cg.kz.conn.Get(node)
@@ -417,8 +417,11 @@ func (cg *Consumergroup) ResetOffsets() error {
 
 		for _, partition := range partitions {
 			partitionNode := fmt.Sprintf("%s/consumers/%s/offsets/%s/%s", cg.kz.conf.Chroot, cg.Name, topic, partition)
-			if err := cg.kz.conn.Delete(partitionNode, 0); err != nil {
-				return err
+			exists, stat, err := cg.kz.conn.Exists(partitionNode)
+			if exists {
+				if err = cg.kz.conn.Delete(partitionNode, stat.Version); err != nil {
+					return err
+				}
 			}
 		}
 

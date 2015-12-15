@@ -6,7 +6,7 @@ package sarama
 const ReceiveTime int64 = -1
 
 // GroupGenerationUndefined is a special value for the group generation field of
-// Offset Commit Request that should be used when a consumer group does not rely
+// Offset Commit Requests that should be used when a consumer group does not rely
 // on Kafka for partition management.
 const GroupGenerationUndefined = -1
 
