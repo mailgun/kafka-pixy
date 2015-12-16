@@ -1,6 +1,6 @@
 # Changelog
 
-#### Version 0.10.0 (TBD)
+#### Version 0.10.0 (2015-12-16)
 
 * [#47](https://github.com/mailgun/kafka-pixy/pull/47) Support for Kafka 0.9.0.0.
   Note that consumer group management is still implemented via ZooKeeper rather
