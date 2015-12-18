@@ -236,7 +236,7 @@ type exclusiveConsumer struct {
 	topic        string
 	partition    int32
 	dumbConsumer sarama.Consumer
-	registry     *consumerGroupRegistry
+	registry     *groupRegistrator
 	offsetMgr    sarama.OffsetManager
 	messagesCh   chan *sarama.ConsumerMessage
 	acksCh       chan *sarama.ConsumerMessage

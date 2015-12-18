@@ -23,7 +23,7 @@ type groupConsumer struct {
 	dumbConsumer          sarama.Consumer
 	offsetMgr             sarama.OffsetManager
 	kazooConn             *kazoo.Kazoo
-	registry              *consumerGroupRegistry
+	registry              *groupRegistrator
 	topicGears            map[string]*topicGear
 	addTopicConsumerCh    chan *topicConsumer
 	deleteTopicConsumerCh chan *topicConsumer
@@ -73,7 +73,7 @@ func (gc *groupConsumer) start(stoppedCh chan<- dispatchTier) {
 			// Must never happen.
 			panic(ErrSetup(fmt.Errorf("failed to create sarama.Consumer: err=(%v)", err)))
 		}
-		gc.registry = spawnConsumerGroupRegister(gc.group, gc.cfg.ClientID, gc.cfg, gc.kazooConn)
+		gc.registry = spawnGroupRegistrator(gc.group, gc.cfg.ClientID, gc.cfg, gc.kazooConn)
 		var manageWg sync.WaitGroup
 		spawn(&manageWg, gc.managePartitions)
 		gc.dispatcher.start()

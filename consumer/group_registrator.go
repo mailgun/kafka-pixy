@@ -13,13 +13,13 @@ import (
 	"github.com/mailgun/kafka-pixy/config"
 )
 
-// consumerGroupRegistry maintains proper consumer group member registration
-// in ZooKeeper based on the number of topics the respective consumer group
-// member consumes at the moment. The list of consumed topics is managed via
-// `Topics()` channel. It also watches for other group members that join/leave
-// the group. Updated group member subscriptions are sent down to the
-// `MembershipChanges()` channel.
-type consumerGroupRegistry struct {
+// GroupRegistrator maintains proper consumer group member registration in
+// ZooKeeper based on the number of topics the respective consumer group member
+// consumes at the moment. The list of consumed topics is managed via `topics()`
+// channel. It also watches for other group members that join/leave the group.
+// Updated group member subscriptions are sent down to the `membershipChanges()`
+// channel.
+type groupRegistrator struct {
 	baseCID             *sarama.ContextID
 	group               string
 	config              *config.T
@@ -27,14 +27,14 @@ type consumerGroupRegistry struct {
 	groupMemberZNode    *kazoo.ConsumergroupInstance
 	topicsCh            chan []string
 	membershipChangesCh chan map[string][]string
-	stoppingCh          chan none
+	stopCh              chan none
 	wg                  sync.WaitGroup
 }
 
-func spawnConsumerGroupRegister(group, memberID string, config *config.T, kazooConn *kazoo.Kazoo) *consumerGroupRegistry {
+func spawnGroupRegistrator(group, memberID string, config *config.T, kazooConn *kazoo.Kazoo) *groupRegistrator {
 	groupZNode := kazooConn.Consumergroup(group)
 	groupMemberZNode := groupZNode.Instance(memberID)
-	cgr := &consumerGroupRegistry{
+	gr := &groupRegistrator{
 		baseCID:             sarama.RootCID.NewChild(fmt.Sprintf("registry:%s", group)),
 		group:               group,
 		config:              config,
@@ -42,46 +42,46 @@ func spawnConsumerGroupRegister(group, memberID string, config *config.T, kazooC
 		groupMemberZNode:    groupMemberZNode,
 		topicsCh:            make(chan []string),
 		membershipChangesCh: make(chan map[string][]string),
-		stoppingCh:          make(chan none),
+		stopCh:              make(chan none),
 	}
-	spawn(&cgr.wg, cgr.watcher)
-	spawn(&cgr.wg, cgr.register)
-	return cgr
+	spawn(&gr.wg, gr.watcher)
+	spawn(&gr.wg, gr.register)
+	return gr
 }
 
-func (cgr *consumerGroupRegistry) topics() chan<- []string {
-	return cgr.topicsCh
+func (gr *groupRegistrator) topics() chan<- []string {
+	return gr.topicsCh
 }
 
-func (cgr *consumerGroupRegistry) membershipChanges() <-chan map[string][]string {
-	return cgr.membershipChangesCh
+func (gr *groupRegistrator) membershipChanges() <-chan map[string][]string {
+	return gr.membershipChangesCh
 }
 
-func (cgr *consumerGroupRegistry) claimPartition(cid *sarama.ContextID, topic string, partition int32, cancelCh <-chan none) func() {
-	if !retry(func() error { return cgr.groupMemberZNode.ClaimPartition(topic, partition) }, nil,
-		fmt.Sprintf("<%s> failed to claim partition", cid), cgr.config.Consumer.BackOffTimeout, cancelCh,
+func (gr *groupRegistrator) claimPartition(cid *sarama.ContextID, topic string, partition int32, cancelCh <-chan none) func() {
+	if !retry(func() error { return gr.groupMemberZNode.ClaimPartition(topic, partition) }, nil,
+		fmt.Sprintf("<%s> failed to claim partition", cid), gr.config.Consumer.BackOffTimeout, cancelCh,
 	) {
 		log.Infof("<%s> partition claimed", cid)
 	}
 	return func() {
-		if !retry(func() error { return cgr.groupMemberZNode.ReleasePartition(topic, partition) },
+		if !retry(func() error { return gr.groupMemberZNode.ReleasePartition(topic, partition) },
 			func(err error) bool { return err != nil && err != kazoo.ErrPartitionNotClaimed },
-			fmt.Sprintf("<%s> failed to release partition", cid), cgr.config.Consumer.BackOffTimeout, cancelCh,
+			fmt.Sprintf("<%s> failed to release partition", cid), gr.config.Consumer.BackOffTimeout, cancelCh,
 		) {
 			log.Infof("<%s> partition released", cid)
 		}
 	}
 }
 
-func (cgr *consumerGroupRegistry) stop() {
-	close(cgr.stoppingCh)
-	cgr.wg.Wait()
+func (gr *groupRegistrator) stop() {
+	close(gr.stopCh)
+	gr.wg.Wait()
 }
 
 // partitionOwner returns the id of the consumer group member that has claimed
 // the specified topic/partition.
-func (cgr *consumerGroupRegistry) partitionOwner(topic string, partition int32) (string, error) {
-	owner, err := cgr.groupZNode.PartitionOwner(topic, partition)
+func (gr *groupRegistrator) partitionOwner(topic string, partition int32) (string, error) {
+	owner, err := gr.groupZNode.PartitionOwner(topic, partition)
 	if err != nil {
 		return "", err
 	}
@@ -94,24 +94,24 @@ func (cgr *consumerGroupRegistry) partitionOwner(topic string, partition int32) 
 // watcher keeps an eye on the consumer group membership/subscription changes,
 // that is when members join/leave the group and sends notifications about such
 // changes down to the `membershipChangesCh` channel. Note that subscription
-// changes introduced by the `register` goroutine of this `consumerGroupRegistry`
+// changes introduced by the `register` goroutine of this `GroupRegistrator`
 // instance are also detected, and that is by design.
-func (cgr *consumerGroupRegistry) watcher() {
-	cid := cgr.baseCID.NewChild("watcher")
+func (gr *groupRegistrator) watcher() {
+	cid := gr.baseCID.NewChild("watcher")
 	defer cid.LogScope()()
-	defer close(cgr.membershipChangesCh)
+	defer close(gr.membershipChangesCh)
 
-	if cgr.retry(cgr.groupZNode.Create, nil, fmt.Sprintf("<%s> failed to create a group znode", cid)) {
+	if gr.retry(gr.groupZNode.Create, nil, fmt.Sprintf("<%s> failed to create a group znode", cid)) {
 		return
 	}
 watchLoop:
 	for {
 		var members []*kazoo.ConsumergroupInstance
 		var membershipChangedCh <-chan zk.Event
-		if cgr.retry(
+		if gr.retry(
 			func() error {
 				var err error
-				members, membershipChangedCh, err = cgr.groupZNode.WatchInstances()
+				members, membershipChangedCh, err = gr.groupZNode.WatchInstances()
 				// FIXME: Empty member list means that our ZooKeeper session
 				// FIXME: has expired. That can be a result of a severe network
 				// FIXME: interruption. When a session expires, it means that
@@ -133,18 +133,18 @@ watchLoop:
 		select {
 		case <-membershipChangedCh:
 			continue watchLoop
-		case <-cgr.stoppingCh:
+		case <-gr.stopCh:
 			return
-		case <-time.After(cgr.config.Consumer.RebalanceDelay):
+		case <-time.After(gr.config.Consumer.RebalanceDelay):
 		}
 
-		cgr.sendMembershipUpdate(cid, members)
+		gr.sendMembershipUpdate(cid, members)
 
 		// Wait for another membership change or a signal to quit.
 		select {
 		case <-membershipChangedCh:
 			continue watchLoop
-		case <-cgr.stoppingCh:
+		case <-gr.stopCh:
 			return
 		}
 	}
@@ -158,12 +158,12 @@ watchLoop:
 // FIXME: It is assumed that all members of the group are registered with the
 // FIXME: `static` pattern. If a member that pattern is either `white_list` or
 // FIXME: `black_list` joins the group the result will be unpredictable.
-func (cgr *consumerGroupRegistry) sendMembershipUpdate(cid *sarama.ContextID, members []*kazoo.ConsumergroupInstance) {
+func (gr *groupRegistrator) sendMembershipUpdate(cid *sarama.ContextID, members []*kazoo.ConsumergroupInstance) {
 	log.Infof("<%s> fetching group subscriptions...", cid)
 	subscriptions := make(map[string][]string, len(members))
 	for _, member := range members {
 		var registration *kazoo.Registration
-		if cgr.retry(
+		if gr.retry(
 			func() error {
 				var err error
 				registration, err = member.Registration()
@@ -183,48 +183,48 @@ func (cgr *consumerGroupRegistry) sendMembershipUpdate(cid *sarama.ContextID, me
 	}
 	log.Infof("<%s> group subscriptions changed: %v", cid, subscriptions)
 	select {
-	case cgr.membershipChangesCh <- subscriptions:
-	case <-cgr.stoppingCh:
+	case gr.membershipChangesCh <- subscriptions:
+	case <-gr.stopCh:
 		return
 	}
 }
 
 // register listens for topic subscription updates on the `topicsCh` channel
 // and updates the member registration in ZooKeeper accordingly.
-func (cgr *consumerGroupRegistry) register() {
-	cid := cgr.baseCID.NewChild("register")
+func (gr *groupRegistrator) register() {
+	cid := gr.baseCID.NewChild("register")
 	defer cid.LogScope()()
-	defer cgr.retry(cgr.groupMemberZNode.Deregister,
+	defer gr.retry(gr.groupMemberZNode.Deregister,
 		func(err error) bool { return err != nil && err != kazoo.ErrInstanceNotRegistered },
 		fmt.Sprintf("<%s> failed to deregister", cid))
 
 	for {
 		var topics []string
 		select {
-		case topics = <-cgr.topicsCh:
-		case <-cgr.stoppingCh:
+		case topics = <-gr.topicsCh:
+		case <-gr.stopCh:
 			return
 		}
 		sort.Sort(sort.StringSlice(topics))
 
-		log.Infof("<%s> registering...: id=%s, topics=%v", cid, cgr.groupMemberZNode.ID, topics)
-		if cgr.retry(
+		log.Infof("<%s> registering...: id=%s, topics=%v", cid, gr.groupMemberZNode.ID, topics)
+		if gr.retry(
 			func() error {
-				if err := cgr.groupMemberZNode.Deregister(); err != nil && err != kazoo.ErrInstanceNotRegistered {
+				if err := gr.groupMemberZNode.Deregister(); err != nil && err != kazoo.ErrInstanceNotRegistered {
 					return fmt.Errorf("could not deregister: err=(%s)", err)
 				}
-				return cgr.groupMemberZNode.Register(topics)
+				return gr.groupMemberZNode.Register(topics)
 			},
 			nil, fmt.Sprintf("<%s> failed to register", cid),
 		) {
 			return
 		}
-		log.Infof("<%s> registered: id=%s, topics=%v", cid, cgr.groupMemberZNode.ID, topics)
+		log.Infof("<%s> registered: id=%s, topics=%v", cid, gr.groupMemberZNode.ID, topics)
 	}
 }
 
-func (cgr *consumerGroupRegistry) retry(f func() error, shouldRetry func(err error) bool, errorMsg string) (canceled bool) {
-	return retry(f, shouldRetry, errorMsg, cgr.config.Consumer.BackOffTimeout, cgr.stoppingCh)
+func (gr *groupRegistrator) retry(f func() error, shouldRetry func(err error) bool, errorMsg string) (canceled bool) {
+	return retry(f, shouldRetry, errorMsg, gr.config.Consumer.BackOffTimeout, gr.stopCh)
 }
 
 // retry keeps calling the `f` function until it succeeds. `shouldRetry` is
