@@ -15,34 +15,38 @@ import (
 // groupConsumer manages a fleet of topic consumers and disposes of those that
 // have been inactive for the `Config.Consumer.DisposeAfter` period of time.
 type groupConsumer struct {
-	baseCID               *sarama.ContextID
-	cfg                   *config.T
-	group                 string
-	dispatcher            *dispatcher
-	kafkaClient           sarama.Client
-	dumbConsumer          sarama.Consumer
-	offsetMgr             sarama.OffsetManager
-	kazooConn             *kazoo.Kazoo
-	registry              *groupRegistrator
-	topicGears            map[string]*topicGear
-	addTopicConsumerCh    chan *topicConsumer
-	deleteTopicConsumerCh chan *topicConsumer
-	stoppingCh            chan none
-	wg                    sync.WaitGroup
+	baseCID                 *sarama.ContextID
+	cfg                     *config.T
+	group                   string
+	dispatcher              *dispatcher
+	kafkaClient             sarama.Client
+	dumbConsumer            sarama.Consumer
+	offsetMgr               sarama.OffsetManager
+	kazooConn               *kazoo.Kazoo
+	registry                *groupRegistrator
+	topicConsumerGears      map[string]*topicConsumerGear
+	topicConsumerLifespanCh chan *topicConsumer
+	stoppingCh              chan none
+	wg                      sync.WaitGroup
+
+	// Exist just to be overridden in tests with mocks.
+	fetchTopicPartitionsFn func(topic string) ([]int32, error)
+	muxInputsAsyncFn       func()
 }
 
 func (sc *T) newConsumerGroup(group string) *groupConsumer {
 	gc := &groupConsumer{
-		baseCID:               sc.baseCID.NewChild(group),
-		cfg:                   sc.cfg,
-		group:                 group,
-		kafkaClient:           sc.kafkaClient,
-		offsetMgr:             sc.offsetMgr,
-		kazooConn:             sc.kazooConn,
-		topicGears:            make(map[string]*topicGear),
-		addTopicConsumerCh:    make(chan *topicConsumer),
-		deleteTopicConsumerCh: make(chan *topicConsumer),
-		stoppingCh:            make(chan none),
+		baseCID:                 sc.baseCID.NewChild(group),
+		cfg:                     sc.cfg,
+		group:                   group,
+		kafkaClient:             sc.kafkaClient,
+		offsetMgr:               sc.offsetMgr,
+		kazooConn:               sc.kazooConn,
+		topicConsumerGears:      make(map[string]*topicConsumerGear),
+		topicConsumerLifespanCh: make(chan *topicConsumer),
+		stoppingCh:              make(chan none),
+
+		fetchTopicPartitionsFn: sc.kafkaClient.Partitions,
 	}
 	gc.dispatcher = newDispatcher(gc.baseCID, gc, sc.cfg)
 	return gc
@@ -52,12 +56,8 @@ func (gc *groupConsumer) String() string {
 	return gc.baseCID.String()
 }
 
-func (gc *groupConsumer) addTopicConsumer() chan<- *topicConsumer {
-	return gc.addTopicConsumerCh
-}
-
-func (gc *groupConsumer) deleteTopicConsumer() chan<- *topicConsumer {
-	return gc.deleteTopicConsumerCh
+func (gc *groupConsumer) topicConsumerLifespan() chan<- *topicConsumer {
+	return gc.topicConsumerLifespanCh
 }
 
 func (gc *groupConsumer) key() string {
@@ -110,7 +110,7 @@ func (gc *groupConsumer) managePartitions() {
 	var (
 		topicConsumers                = make(map[string]*topicConsumer)
 		topics                        []string
-		memberSubscriptions           map[string][]string
+		subscriptions                 map[string][]string
 		ok                            = true
 		nilOrRetryCh                  <-chan time.Time
 		nilOrRegistryTopicsCh         chan<- []string
@@ -119,20 +119,21 @@ func (gc *groupConsumer) managePartitions() {
 	)
 	for {
 		select {
-		case tc := <-gc.addTopicConsumerCh:
-			topicConsumers[tc.topic] = tc
-			topics = listTopics(topicConsumers)
-			nilOrRegistryTopicsCh = gc.registry.topics()
-			continue
-		case tc := <-gc.deleteTopicConsumerCh:
-			delete(topicConsumers, tc.topic)
+		case tc := <-gc.topicConsumerLifespanCh:
+			// It is assumed that only one topicConsumer can exist for a
+			// particular topic at a time.
+			if topicConsumers[tc.topic] == tc {
+				delete(topicConsumers, tc.topic)
+			} else {
+				topicConsumers[tc.topic] = tc
+			}
 			topics = listTopics(topicConsumers)
 			nilOrRegistryTopicsCh = gc.registry.topics()
 			continue
 		case nilOrRegistryTopicsCh <- topics:
 			nilOrRegistryTopicsCh = nil
 			continue
-		case memberSubscriptions, ok = <-gc.registry.membershipChanges():
+		case subscriptions, ok = <-gc.registry.membershipChanges():
 			if !ok {
 				goto done
 			}
@@ -156,60 +157,53 @@ func (gc *groupConsumer) managePartitions() {
 			for topic, tc := range topicConsumers {
 				topicConsumerCopy[topic] = tc
 			}
-			go gc.rebalance(topicConsumerCopy, memberSubscriptions, rebalanceResultCh)
+			go gc.rebalance(topicConsumerCopy, subscriptions, rebalanceResultCh)
 			shouldRebalance, canRebalance = false, false
 		}
 	}
 done:
 	var wg sync.WaitGroup
-	for _, tg := range gc.topicGears {
-		tg := tg
-		spawn(&wg, func() { gc.rewireMultiplexer(tg, nil) })
+	for _, tcg := range gc.topicConsumerGears {
+		spawn(&wg, tcg.stop)
 	}
 	wg.Wait()
 }
 
 func (gc *groupConsumer) rebalance(topicConsumers map[string]*topicConsumer,
-	memberSubscriptions map[string][]string, rebalanceResultCh chan<- error,
+	subscriptions map[string][]string, rebalanceResultCh chan<- error,
 ) {
 	cid := gc.baseCID.NewChild("rebalance")
-	defer cid.LogScope(topicConsumers, memberSubscriptions)()
+	defer cid.LogScope(topicConsumers, subscriptions)()
 
-	assignedPartitions, err := gc.resolvePartitions(memberSubscriptions)
+	assignedPartitions, err := gc.resolvePartitions(subscriptions)
 	if err != nil {
 		rebalanceResultCh <- err
 		return
 	}
-	log.Infof("<%s> assigned: %v", cid, assignedPartitions)
+	log.Infof("<%s> assigned partitions: %v", cid, assignedPartitions)
 	var wg sync.WaitGroup
 	// Stop consuming partitions that are no longer assigned to this group
 	// and start consuming newly assigned partitions for topics that has been
 	// consumed already.
-	for topic, tg := range gc.topicGears {
-		tg := tg
-		assignedTopicPartition := assignedPartitions[topic]
-		spawn(&wg, func() { gc.rewireMultiplexer(tg, assignedTopicPartition) })
+	for topic, tcg := range gc.topicConsumerGears {
+		tcg.muxInputsAsync(&wg, topicConsumers[topic], assignedPartitions[topic])
 	}
 	// Start consuming partitions for topics that has not been consumed before.
 	for topic, assignedTopicPartitions := range assignedPartitions {
 		tc := topicConsumers[topic]
-		tg := gc.topicGears[topic]
-		if tc == nil || tg != nil {
+		tcg := gc.topicConsumerGears[topic]
+		if tc == nil || tcg != nil {
 			continue
 		}
-		tg = &topicGear{
-			topicConsumer:      tc,
-			exclusiveConsumers: make(map[int32]*exclusiveConsumer, len(assignedTopicPartitions)),
-		}
-		assignedTopicPartitions := assignedTopicPartitions
-		spawn(&wg, func() { gc.rewireMultiplexer(tg, assignedTopicPartitions) })
-		gc.topicGears[topic] = tg
+		tcg = newTopicConsumerGear(gc.spawnTopicInput)
+		tcg.muxInputsAsync(&wg, tc, assignedTopicPartitions)
+		gc.topicConsumerGears[topic] = tcg
 	}
 	wg.Wait()
-	// Clean up gears for topics that are not consumed anymore.
-	for topic, tg := range gc.topicGears {
-		if tg.multiplexer == nil {
-			delete(gc.topicGears, topic)
+	// Clean up gears for topics that do not have assigned partitions anymore.
+	for topic, tcg := range gc.topicConsumerGears {
+		if tcg.isIdle() {
+			delete(gc.topicConsumerGears, topic)
 		}
 	}
 	// Notify the caller that rebalancing has completed successfully.
@@ -217,47 +211,14 @@ func (gc *groupConsumer) rebalance(topicConsumers map[string]*topicConsumer,
 	return
 }
 
-// rewireMultiplexer ensures that only assigned partitions are multiplexed to
-// the topic consumer. It stops exclusive consumers for partitions that are not
-// assigned anymore, spins up exclusive consumers for newly assigned partitions,
-// and restarts the multiplexer to account for the changes if there is any.
-func (gc *groupConsumer) rewireMultiplexer(tg *topicGear, assigned map[int32]bool) {
-	var wg sync.WaitGroup
-	for partition, ec := range tg.exclusiveConsumers {
-		if !assigned[partition] {
-			if tg.multiplexer != nil {
-				tg.multiplexer.stop()
-				tg.multiplexer = nil
-			}
-			spawn(&wg, ec.stop)
-			delete(tg.exclusiveConsumers, partition)
-		}
-	}
-	wg.Wait()
-	for partition := range assigned {
-		if _, ok := tg.exclusiveConsumers[partition]; !ok {
-			if tg.multiplexer != nil {
-				tg.multiplexer.stop()
-				tg.multiplexer = nil
-			}
-			ec := gc.spawnExclusiveConsumer(tg.topicConsumer.topic, partition)
-			tg.exclusiveConsumers[partition] = ec
-		}
-	}
-	if tg.multiplexer == nil && len(tg.exclusiveConsumers) > 0 {
-		muxIns := make([]multiplexerIn, 0, len(tg.exclusiveConsumers))
-		for _, ec := range tg.exclusiveConsumers {
-			muxIns = append(muxIns, ec)
-		}
-		tg.multiplexer = spawnMultiplexer(tg.topicConsumer.contextID, tg.topicConsumer, muxIns)
-	}
+func (gc *groupConsumer) spawnTopicInput(topic string, partition int32) muxInputActor {
+	return gc.spawnExclusiveConsumer(topic, partition)
 }
 
-// resolvePartitions takes a `consumer group members->topics` map and returns a
-// `topic->partitions` map that for every consumed topic tells what partitions
-// this consumer group instance is responsible for.
+// resolvePartitions given topic subscriptions of all consumer group members,
+// resolves what topic partitions are assigned to the specified group member.
 func (gc *groupConsumer) resolvePartitions(membersToTopics map[string][]string) (
-	assignedPartitions map[string]map[int32]bool, err error,
+	assignedPartitions map[string][]int32, err error,
 ) {
 	// Convert members->topics to topic->members map.
 	topicsToMembers := make(map[string][]string)
@@ -271,27 +232,29 @@ func (gc *groupConsumer) resolvePartitions(membersToTopics map[string][]string) 
 	for _, topic := range membersToTopics[gc.cfg.ClientID] {
 		subscribedTopics[topic] = true
 	}
-	// Resolve new partition assignments for the subscribed topics.
-	assignedPartitions = make(map[string]map[int32]bool)
+	// Resolve new partition assignments for all subscribed topics.
+	assignedPartitions = make(map[string][]int32)
 	for topic := range subscribedTopics {
-		topicPartitions, err := gc.kafkaClient.Partitions(topic)
+		topicPartitions, err := gc.fetchTopicPartitionsFn(topic)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get partition list: topic=%s, err=(%s)", topic, err)
 		}
-		subscribersToPartitions := assignPartitionsToSubscribers(topicPartitions, topicsToMembers[topic])
+		subscribersToPartitions := assignTopicPartitions(topicPartitions, topicsToMembers[topic])
 		assignedTopicPartitions := subscribersToPartitions[gc.cfg.ClientID]
-		assignedPartitions[topic] = assignedTopicPartitions
+		if len(assignedTopicPartitions) > 0 {
+			assignedPartitions[topic] = assignedTopicPartitions
+		}
 	}
 	return assignedPartitions, nil
 }
 
-// assignPartitionsToSubscribers divides topic partitions among all consumer
-// group members subscribed to the topic. The algorithm used closely resembles
-// the one implemented by the standard Java High-Level consumer
+// assignTopicPartitions divides topic partitions among all consumer group
+// members subscribed to the topic. The algorithm used closely resembles the
+// one implemented by the standard Java High-Level consumer
 // (see http://kafka.apache.org/documentation.html#distributionimpl and scroll
 // down to *Consumer registration algorithm*) except it does not take in account
 // how partitions are distributed among brokers.
-func assignPartitionsToSubscribers(partitions []int32, subscribers []string) map[string]map[int32]bool {
+func assignTopicPartitions(partitions []int32, subscribers []string) map[string][]int32 {
 	partitionCount := len(partitions)
 	subscriberCount := len(subscribers)
 	if partitionCount == 0 || subscriberCount == 0 {
@@ -300,7 +263,7 @@ func assignPartitionsToSubscribers(partitions []int32, subscribers []string) map
 	sort.Sort(Int32Slice(partitions))
 	sort.Sort(sort.StringSlice(subscribers))
 
-	subscribersToPartitions := make(map[string]map[int32]bool, subscriberCount)
+	subscribersToPartitions := make(map[string][]int32, subscriberCount)
 	partitionsPerSubscriber := partitionCount / subscriberCount
 	extra := partitionCount - subscriberCount*partitionsPerSubscriber
 
@@ -311,13 +274,9 @@ func assignPartitionsToSubscribers(partitions []int32, subscribers []string) map
 			end++
 			extra--
 		}
-		for _, partition := range partitions[begin:end] {
-			topicAssignments := subscribersToPartitions[groupMemberID]
-			if topicAssignments == nil {
-				topicAssignments = make(map[int32]bool, partitionCount)
-				subscribersToPartitions[groupMemberID] = topicAssignments
-			}
-			subscribersToPartitions[groupMemberID][partition] = true
+		assigned := partitions[begin:end]
+		if len(assigned) > 0 {
+			subscribersToPartitions[groupMemberID] = partitions[begin:end]
 		}
 		begin = end
 	}
@@ -330,14 +289,6 @@ func listTopics(topicConsumers map[string]*topicConsumer) []string {
 		topics = append(topics, topic)
 	}
 	return topics
-}
-
-// topicGear represents a set of actors that a consumer group maintains for
-// each consumed topic.
-type topicGear struct {
-	topicConsumer      *topicConsumer
-	multiplexer        *multiplexer
-	exclusiveConsumers map[int32]*exclusiveConsumer
 }
 
 type Int32Slice []int32

@@ -192,9 +192,9 @@ func (tc *topicConsumer) stop() {
 
 func (tc *topicConsumer) run() {
 	defer tc.contextID.LogScope()()
-	tc.gc.addTopicConsumer() <- tc
+	tc.gc.topicConsumerLifespan() <- tc
 	defer func() {
-		tc.gc.deleteTopicConsumer() <- tc
+		tc.gc.topicConsumerLifespan() <- tc
 	}()
 
 	timeoutErr := ErrRequestTimeout(fmt.Errorf("long polling timeout"))
