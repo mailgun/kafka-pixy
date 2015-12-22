@@ -1,5 +1,9 @@
 # Changelog
 
+#### Version 0.10.1 (2015-12-21)
+
+* [#49](https://github.com/mailgun/kafka-pixy/pull/49) Topic consumption stops while ownership retained.
+
 #### Version 0.10.0 (2015-12-16)
 
 * [#47](https://github.com/mailgun/kafka-pixy/pull/47) Support for Kafka 0.9.0.0.

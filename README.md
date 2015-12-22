@@ -261,13 +261,13 @@ pretty much the same on Mac.
 ### Step 1. Download
 
 ```
-curl -L https://github.com/mailgun/kafka-pixy/releases/download/v0.10.0/kafka-pixy-v0.10.0-linux-amd64.tar.gz | tar xz
+curl -L https://github.com/mailgun/kafka-pixy/releases/download/v0.10.1/kafka-pixy-v0.10.1-linux-amd64.tar.gz | tar xz
 ```
 
 ### Step 2. Start
 
 ```
-cd kafka-pixy-v0.10.0-linux-amd64
+cd kafka-pixy-v0.10.1-linux-amd64
 ./kafka-pixy --kafkaPeers "<host1>:9092,...,<hostN>:9092" --zookeeperPeers "<host1>:2181,...,<hostM>:2181"
 ```
 
