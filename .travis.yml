@@ -25,7 +25,7 @@ before_install:
   - go get github.com/pierrre/gotestcover
 
 script:
- - $HOME/gopath/bin/gotestcover -covermode=atomic -parallelpackages=1 -coverprofile=cover.out -timeout=5m ./...
+ - $HOME/gopath/bin/gotestcover -v -covermode=atomic -parallelpackages=1 -coverprofile=cover.out -timeout=5m ./... -check.v
  - $HOME/gopath/bin/goveralls -coverprofile=cover.out -service=travis-ci
  - make vet
  - make fmt
