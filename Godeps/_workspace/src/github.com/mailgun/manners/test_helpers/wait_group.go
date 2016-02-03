@@ -1,12 +1,10 @@
 package test_helpers
 
-import (
-	"sync"
-)
+import "sync"
 
 type WaitGroup struct {
 	sync.Mutex
-	count        int
+	Count        int
 	WaitCalled   chan int
 	CountChanged chan int
 }
@@ -20,20 +18,20 @@ func NewWaitGroup() *WaitGroup {
 
 func (wg *WaitGroup) Add(delta int) {
 	wg.Lock()
-	wg.count++
-	wg.CountChanged <- wg.count
+	wg.Count++
+	wg.CountChanged <- wg.Count
 	wg.Unlock()
 }
 
 func (wg *WaitGroup) Done() {
 	wg.Lock()
-	wg.count--
-	wg.CountChanged <- wg.count
+	wg.Count--
+	wg.CountChanged <- wg.Count
 	wg.Unlock()
 }
 
 func (wg *WaitGroup) Wait() {
 	wg.Lock()
-	wg.WaitCalled <- wg.count
+	wg.WaitCalled <- wg.Count
 	wg.Unlock()
 }

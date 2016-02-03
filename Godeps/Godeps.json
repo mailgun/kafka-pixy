@@ -17,7 +17,7 @@
 		},
 		{
 			"ImportPath": "github.com/golang/snappy",
-			"Rev": "0c7f8a7704bfec561913f4df52c832f094ef56f0"
+			"Rev": "1963d058044b19e16595f80d5050fa54e2070438"
 		},
 		{
 			"ImportPath": "github.com/gorilla/context",
@@ -29,7 +29,7 @@
 		},
 		{
 			"ImportPath": "github.com/klauspost/crc32",
-			"Rev": "a5d1ea1c7bb4ad05a27df06491071dd6d45d1a08"
+			"Rev": "999f3125931f6557b991b2f8472172bdfa578d38"
 		},
 		{
 			"ImportPath": "github.com/mailgun/log",
@@ -37,13 +37,13 @@
 		},
 		{
 			"ImportPath": "github.com/mailgun/manners",
-			"Comment": "0.4.0-7-g37136f7",
-			"Rev": "37136f736785d7c6aa3b9a27b4b2dd1028ca6d79"
+			"Comment": "0.4.0-12-gfada451",
+			"Rev": "fada45142db3f93097ca917da107aa3fad0ffcb5"
 		},
 		{
 			"ImportPath": "github.com/mailgun/sarama",
-			"Comment": "v1.7.0-8-ga9bd866",
-			"Rev": "a9bd8660f70d831413be0145c449142f8ce75f00"
+			"Comment": "v1.8.0-3-ga9f5394",
+			"Rev": "a9f53943c8222ef2e25ee9a8f2ff0ebc5efb4b5a"
 		},
 		{
 			"ImportPath": "github.com/samuel/go-zookeeper/zk",

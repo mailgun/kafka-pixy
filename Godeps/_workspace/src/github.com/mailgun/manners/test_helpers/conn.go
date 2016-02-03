@@ -4,7 +4,7 @@ import "net"
 
 type Conn struct {
 	net.Conn
-	localAddr   net.Addr
+	localAddr net.Addr
 }
 
 func (f *Conn) LocalAddr() net.Addr {
