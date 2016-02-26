@@ -6,11 +6,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/samuel/go-zookeeper/zk"
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/wvanbergen/kazoo-go"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/log"
+	"github.com/mailgun/sarama"
+	"github.com/samuel/go-zookeeper/zk"
+	"github.com/wvanbergen/kazoo-go"
 )
 
 // GroupRegistrator maintains proper consumer group member registration in

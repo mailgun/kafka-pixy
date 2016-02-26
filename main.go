@@ -11,10 +11,10 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/logging"
 	"github.com/mailgun/kafka-pixy/service"
+	"github.com/mailgun/log"
 )
 
 const (

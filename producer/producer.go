@@ -5,9 +5,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/log"
+	"github.com/mailgun/sarama"
 )
 
 const (

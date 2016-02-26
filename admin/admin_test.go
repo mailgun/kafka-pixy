@@ -4,9 +4,9 @@ import (
 	"strconv"
 	"testing"
 
-	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/testhelpers"
+	. "gopkg.in/check.v1"
 )
 
 func Test(t *testing.T) {

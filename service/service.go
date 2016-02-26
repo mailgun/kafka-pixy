@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
 	"github.com/mailgun/kafka-pixy/admin"
 	"github.com/mailgun/kafka-pixy/apiserver"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/producer"
+	"github.com/mailgun/log"
+	"github.com/mailgun/sarama"
 )
 
 type T struct {

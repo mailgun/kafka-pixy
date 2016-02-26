@@ -16,11 +16,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
-	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 	"github.com/mailgun/kafka-pixy/apiserver"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/testhelpers"
+	"github.com/mailgun/sarama"
+	. "gopkg.in/check.v1"
 )
 
 func Test(t *testing.T) {

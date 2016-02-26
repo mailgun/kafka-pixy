@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/wvanbergen/kazoo-go"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/log"
+	"github.com/mailgun/sarama"
+	"github.com/wvanbergen/kazoo-go"
 )
 
 // groupConsumer manages a fleet of topic consumers and disposes of those that

@@ -3,9 +3,9 @@ package logging
 import (
 	"fmt"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/samuel/go-zookeeper/zk"
+	"github.com/mailgun/log"
+	"github.com/mailgun/sarama"
+	"github.com/samuel/go-zookeeper/zk"
 )
 
 // Init3rdParty makes the internal loggers of various 3rd-party libraries

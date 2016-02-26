@@ -9,14 +9,14 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/gorilla/mux"
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/manners"
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
+	"github.com/gorilla/mux"
 	"github.com/mailgun/kafka-pixy/admin"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/prettyfmt"
 	"github.com/mailgun/kafka-pixy/producer"
+	"github.com/mailgun/log"
+	"github.com/mailgun/manners"
+	"github.com/mailgun/sarama"
 )
 
 const (

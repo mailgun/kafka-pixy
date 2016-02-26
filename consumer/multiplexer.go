@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
+	"github.com/mailgun/sarama"
 )
 
 // multiplexer pulls messages fetched by exclusive consumers and offers them

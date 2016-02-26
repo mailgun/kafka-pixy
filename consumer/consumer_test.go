@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
-	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 	"github.com/mailgun/kafka-pixy/testhelpers"
+	"github.com/mailgun/log"
+	"github.com/mailgun/sarama"
+	. "gopkg.in/check.v1"
 )
 
 func Test(t *testing.T) {

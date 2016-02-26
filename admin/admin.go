@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/samuel/go-zookeeper/zk"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/sarama"
+	"github.com/samuel/go-zookeeper/zk"
 )
 
 type (

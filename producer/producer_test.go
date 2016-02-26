@@ -5,10 +5,10 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
-	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/testhelpers"
+	"github.com/mailgun/sarama"
+	. "gopkg.in/check.v1"
 )
 
 type ProducerSuite struct {
