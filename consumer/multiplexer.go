@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"sync"
 
+	"github.com/mailgun/kafka-pixy/context"
 	"github.com/mailgun/sarama"
 )
 
@@ -11,7 +12,7 @@ import (
 // one by one to the topic consumer choosing wisely between different exclusive
 // consumers to ensure that none of them is neglected.
 type multiplexer struct {
-	contextID    *sarama.ContextID
+	contextID    *context.ID
 	inputs       []muxInput
 	output       muxOutput
 	lastInputIdx int
@@ -28,7 +29,7 @@ type muxOutput interface {
 	messages() chan<- *sarama.ConsumerMessage
 }
 
-func spawnMultiplexer(baseCID *sarama.ContextID, output muxOutput, inputs []muxInput) *multiplexer {
+func spawnMultiplexer(baseCID *context.ID, output muxOutput, inputs []muxInput) *multiplexer {
 	m := &multiplexer{
 		contextID: baseCID.NewChild("mux"),
 		inputs:    inputs,

@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/mailgun/kafka-pixy/admin"
 	"github.com/mailgun/kafka-pixy/consumer"
+	"github.com/mailgun/kafka-pixy/context"
 	"github.com/mailgun/kafka-pixy/prettyfmt"
 	"github.com/mailgun/kafka-pixy/producer"
 	"github.com/mailgun/log"
@@ -93,7 +94,7 @@ func New(network, addr string, producer *producer.T, consumer *consumer.T, admin
 // will be sent down to `HTTPAPIServer.ErrorCh()`.
 func (as *T) Start() {
 	go func() {
-		hid := sarama.RootCID.NewChild(fmt.Sprintf("API@%s", as.addr))
+		hid := context.RootID.NewChild(fmt.Sprintf("API@%s", as.addr))
 		defer hid.LogScope()()
 		defer close(as.errorCh)
 		if err := as.httpServer.Serve(as.listener); err != nil {

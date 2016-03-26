@@ -8,9 +8,9 @@ import (
 	"github.com/mailgun/kafka-pixy/apiserver"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer"
+	"github.com/mailgun/kafka-pixy/context"
 	"github.com/mailgun/kafka-pixy/producer"
 	"github.com/mailgun/log"
-	"github.com/mailgun/sarama"
 )
 
 type T struct {
@@ -68,7 +68,7 @@ func (s *T) Stop() {
 
 // supervisor takes care of the service graceful shutdown.
 func (s *T) supervisor() {
-	defer sarama.RootCID.NewChild("supervisor").LogScope()()
+	defer context.RootID.NewChild("supervisor").LogScope()()
 	var unixServerErrorCh <-chan error
 
 	s.tcpServer.Start()

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/context"
 	"github.com/mailgun/log"
 	"github.com/mailgun/sarama"
 )
@@ -23,7 +24,7 @@ const (
 //
 // TODO Consider implementing some sort of dead message processing.
 type T struct {
-	baseCID         *sarama.ContextID
+	baseCID         *context.ID
 	saramaClient    sarama.Client
 	saramaProducer  sarama.AsyncProducer
 	shutdownTimeout time.Duration
@@ -61,7 +62,7 @@ func Spawn(cfg *config.T) (*T, error) {
 	}
 
 	p := &T{
-		baseCID:         sarama.RootCID.NewChild("producer"),
+		baseCID:         context.RootID.NewChild("producer"),
 		saramaClient:    saramaClient,
 		saramaProducer:  saramaProducer,
 		shutdownTimeout: cfg.Producer.ShutdownTimeout,
@@ -208,7 +209,7 @@ shutdownNow:
 // handleProduceResult inspects a production results and if it is an error
 // then logs it and flushes it down the `deadMessageCh` if one had been
 // configured.
-func (p *T) handleProduceResult(cid *sarama.ContextID, result produceResult) {
+func (p *T) handleProduceResult(cid *context.ID, result produceResult) {
 	if replyCh, ok := result.Msg.Metadata.(chan produceResult); ok {
 		replyCh <- result
 	}

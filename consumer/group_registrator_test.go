@@ -5,14 +5,14 @@ import (
 	"time"
 
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/context"
 	"github.com/mailgun/kafka-pixy/testhelpers"
-	"github.com/mailgun/sarama"
 	"github.com/wvanbergen/kazoo-go"
 	. "gopkg.in/check.v1"
 )
 
 type GroupRegistratorSuite struct {
-	cid       *sarama.ContextID
+	cid       *context.ID
 	kazooConn *kazoo.Kazoo
 }
 
@@ -20,7 +20,7 @@ var _ = Suite(&GroupRegistratorSuite{})
 
 func (s *GroupRegistratorSuite) SetUpSuite(c *C) {
 	testhelpers.InitLogging(c)
-	s.cid = sarama.RootCID.NewChild("gr-test")
+	s.cid = context.RootID.NewChild("gr-test")
 	var err error
 	s.kazooConn, err = kazoo.NewKazoo(testhelpers.ZookeeperPeers, kazoo.NewConfig())
 	c.Assert(err, IsNil)

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/context"
 	"github.com/mailgun/log"
 	"github.com/mailgun/sarama"
 	"github.com/wvanbergen/kazoo-go"
@@ -33,7 +34,7 @@ var (
 // unsubscribes from the topic, likewise if a consumer group has not seen any
 // requests for that period then the consumer deregisters from the group.
 type T struct {
-	baseCID     *sarama.ContextID
+	baseCID     *context.ID
 	cfg         *config.T
 	dispatcher  *dispatcher
 	kafkaClient sarama.Client
@@ -75,7 +76,7 @@ func Spawn(cfg *config.T) (*T, error) {
 	}
 
 	sc := &T{
-		baseCID:     sarama.RootCID.NewChild("smartConsumer"),
+		baseCID:     context.RootID.NewChild("smartConsumer"),
 		cfg:         cfg,
 		kafkaClient: kafkaClient,
 		offsetMgr:   offsetMgr,
@@ -142,7 +143,7 @@ func (sc *T) newDispatchTier(key string) dispatchTier {
 // `Config.Consumer.LongPollingTimeout` then a timeout error is sent to the
 // requests' reply channel.
 type topicConsumer struct {
-	contextID     *sarama.ContextID
+	contextID     *context.ID
 	cfg           *config.T
 	gc            *groupConsumer
 	group         string
@@ -230,7 +231,7 @@ func (tc *topicConsumer) String() string {
 // message is pulled from the `messages()` channel, it is considered to be
 // consumed and its offset is committed.
 type exclusiveConsumer struct {
-	contextID    *sarama.ContextID
+	contextID    *context.ID
 	cfg          *config.T
 	group        string
 	topic        string
