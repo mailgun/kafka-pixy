@@ -1,10 +1,16 @@
 {
 	"ImportPath": "github.com/mailgun/kafka-pixy",
 	"GoVersion": "go1.6",
-	"Packages": [
-		"./..."
-	],
 	"Deps": [
+		{
+			"ImportPath": "github.com/Shopify/sarama",
+			"Comment": "v1.8.0",
+			"Rev": "4ba9bba6adb6697bcec3841e1ecdfecf5227c3b9"
+		},
+		{
+			"ImportPath": "github.com/davecgh/go-spew/spew",
+			"Rev": "5215b55f46b2b919f50a1df0eaa5886afe4e3b3d"
+		},
 		{
 			"ImportPath": "github.com/eapache/go-resiliency/breaker",
 			"Comment": "v1",
@@ -52,10 +58,6 @@
 		{
 			"ImportPath": "github.com/wvanbergen/kazoo-go",
 			"Rev": "0f768712ae6f76454f987c3356177e138df258f8"
-		},
-		{
-			"ImportPath": "gopkg.in/check.v1",
-			"Rev": "64131543e7896d5bcc6bd5a76287eb75ea96c673"
 		}
 	]
 }
