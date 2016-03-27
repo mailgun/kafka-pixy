@@ -5,10 +5,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/context"
 	"github.com/mailgun/log"
-	"github.com/mailgun/sarama"
 )
 
 const (

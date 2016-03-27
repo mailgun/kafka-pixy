@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/mailgun/sarama"
+	"github.com/Shopify/sarama"
 )
 
 type T struct {

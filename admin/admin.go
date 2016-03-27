@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/config"
-	"github.com/mailgun/sarama"
 	"github.com/samuel/go-zookeeper/zk"
 )
 

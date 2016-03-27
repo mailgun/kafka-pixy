@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/context"
 	"github.com/mailgun/log"
-	"github.com/mailgun/sarama"
 	"github.com/wvanbergen/kazoo-go"
 )
 
@@ -21,8 +21,8 @@ type groupConsumer struct {
 	group                   string
 	dispatcher              *dispatcher
 	kafkaClient             sarama.Client
-	dumbConsumer            sarama.Consumer
-	offsetMgr               sarama.OffsetManager
+	dumbConsumer            Consumer
+	offsetMgr               OffsetManager
 	kazooConn               *kazoo.Kazoo
 	registry                *groupRegistrator
 	topicConsumerGears      map[string]*topicConsumerGear
@@ -69,7 +69,7 @@ func (gc *groupConsumer) start(stoppedCh chan<- dispatchTier) {
 	spawn(&gc.wg, func() {
 		defer func() { stoppedCh <- gc }()
 		var err error
-		gc.dumbConsumer, err = sarama.NewConsumerFromClient(gc.kafkaClient)
+		gc.dumbConsumer, err = NewConsumerFromClient(gc.kafkaClient)
 		if err != nil {
 			// Must never happen.
 			panic(ErrSetup(fmt.Errorf("failed to create sarama.Consumer: err=(%v)", err)))

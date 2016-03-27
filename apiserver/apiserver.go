@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/Shopify/sarama"
 	"github.com/gorilla/mux"
 	"github.com/mailgun/kafka-pixy/admin"
 	"github.com/mailgun/kafka-pixy/consumer"
@@ -17,7 +18,6 @@ import (
 	"github.com/mailgun/kafka-pixy/producer"
 	"github.com/mailgun/log"
 	"github.com/mailgun/manners"
-	"github.com/mailgun/sarama"
 )
 
 const (

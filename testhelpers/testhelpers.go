@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/log"
-	"github.com/mailgun/sarama"
 	. "gopkg.in/check.v1"
 )
 
@@ -67,11 +67,10 @@ func NewUDSHTTPClient(unixSockAddr string) *http.Client {
 }
 
 type KafkaHelper struct {
-	c         *C
-	client    sarama.Client
-	producer  sarama.AsyncProducer
-	consumer  sarama.Consumer
-	offsetMgr sarama.OffsetManager
+	c        *C
+	client   sarama.Client
+	producer sarama.AsyncProducer
+	consumer sarama.Consumer
 }
 
 func NewKafkaHelper(c *C) *KafkaHelper {
@@ -91,14 +90,10 @@ func NewKafkaHelper(c *C) *KafkaHelper {
 	if kh.producer, err = sarama.NewAsyncProducerFromClient(kh.client); err != nil {
 		panic(err)
 	}
-	if kh.offsetMgr, err = sarama.NewOffsetManagerFromClient(kh.client); err != nil {
-		panic(err)
-	}
 	return kh
 }
 
 func (kh *KafkaHelper) Close() {
-	kh.offsetMgr.Close()
 	kh.producer.Close()
 	kh.consumer.Close()
 	kh.client.Close()
@@ -123,7 +118,7 @@ func (kh *KafkaHelper) GetOffsets(topic string) []int64 {
 func (kh *KafkaHelper) GetMessages(topic string, begin, end []int64) [][]string {
 	writtenMsgs := make([][]string, len(begin))
 	for i := range begin {
-		p, _, err := kh.consumer.ConsumePartition(topic, int32(i), begin[i])
+		p, err := kh.consumer.ConsumePartition(topic, int32(i), begin[i])
 		if err != nil {
 			panic(err)
 		}
@@ -180,14 +175,17 @@ func (kh *KafkaHelper) PutMessages(prefix, topic string, keys map[string]int) ma
 }
 
 func (kh *KafkaHelper) ResetOffsets(group, topic string) {
+	offsetMgr, err := sarama.NewOffsetManagerFromClient(group, kh.client)
+	kh.c.Assert(err, IsNil)
+	defer offsetMgr.Close()
 	partitions, err := kh.client.Partitions(topic)
 	kh.c.Assert(err, IsNil)
 	for _, p := range partitions {
 		offset, err := kh.client.GetOffset(topic, p, sarama.OffsetNewest)
 		kh.c.Assert(err, IsNil)
-		pom, err := kh.offsetMgr.ManagePartition(group, topic, p)
+		pom, err := offsetMgr.ManagePartition(topic, p)
 		kh.c.Assert(err, IsNil)
-		pom.SubmitOffset(offset, "dummy")
+		pom.MarkOffset(offset, "dummy")
 		log.Infof("Set initial offset %s/%s/%d=%d", group, topic, p, offset)
 		pom.Close()
 	}

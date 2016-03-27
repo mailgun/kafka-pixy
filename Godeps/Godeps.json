@@ -47,11 +47,6 @@
 			"Rev": "fada45142db3f93097ca917da107aa3fad0ffcb5"
 		},
 		{
-			"ImportPath": "github.com/mailgun/sarama",
-			"Comment": "v1.8.0-3-ga9f5394",
-			"Rev": "a9f53943c8222ef2e25ee9a8f2ff0ebc5efb4b5a"
-		},
-		{
 			"ImportPath": "github.com/samuel/go-zookeeper/zk",
 			"Rev": "218e9c81c0dd8b3b18172b2bbfad92cc7d6db55f"
 		},

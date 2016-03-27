@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/testhelpers"
-	"github.com/mailgun/sarama"
 	. "gopkg.in/check.v1"
 )
 

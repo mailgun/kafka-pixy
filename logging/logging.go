@@ -3,8 +3,8 @@ package logging
 import (
 	"fmt"
 
+	"github.com/Shopify/sarama"
 	"github.com/mailgun/log"
-	"github.com/mailgun/sarama"
 	"github.com/samuel/go-zookeeper/zk"
 )
 
