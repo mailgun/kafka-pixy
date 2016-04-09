@@ -8,6 +8,7 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/context"
+	"github.com/mailgun/kafka-pixy/mapper"
 	"github.com/mailgun/log"
 )
 
@@ -65,7 +66,7 @@ type consumer struct {
 	ownClient    bool
 	children     map[topicPartition]*partitionConsumer
 	childrenLock sync.Mutex
-	mapper       *partition2BrokerMapper
+	mapper       *mapper.T
 }
 
 type topicPartition struct {
@@ -101,7 +102,7 @@ func NewConsumerFromClient(client sarama.Client) (Consumer, error) {
 		config:   client.Config(),
 		children: make(map[topicPartition]*partitionConsumer),
 	}
-	c.mapper = spawnPartition2BrokerMapper(c.baseCID, c)
+	c.mapper = mapper.Spawn(c.baseCID, c)
 	return c, nil
 }
 
@@ -110,10 +111,10 @@ func (c *consumer) Close() error {
 	for _, pc := range c.children {
 		close(pc.closingCh)
 		<-pc.closedCh
-		c.mapper.workerClosed() <- pc
+		c.mapper.WorkerStopped() <- pc
 	}
 	c.childrenLock.Unlock()
-	c.mapper.close()
+	c.mapper.Stop()
 	if c.ownClient {
 		return c.client.Close()
 	}
@@ -134,19 +135,32 @@ func (c *consumer) ConsumePartition(topic string, partition int32, offset int64)
 		return nil, sarama.OffsetNewest, sarama.ConfigurationError("That topic/partition is already being consumed")
 	}
 	pc := c.spawnPartitionConsumer(tp, concreteOffset)
-	c.mapper.workerCreated() <- pc
+	c.mapper.WorkerSpawned() <- pc
 	c.children[tp] = pc
 	return pc, concreteOffset, nil
 }
 
-// resolveBroker queries the Kafka cluster for a new partition leader and
-// returns it in case of success, otherwise an error is returned.
-func (c *consumer) resolveBroker(pw partitionWorker) (*sarama.Broker, error) {
+// implements `mapper.Resolver.ResolveBroker()`.
+func (c *consumer) ResolveBroker(pw mapper.Worker) (*sarama.Broker, error) {
 	pc := pw.(*partitionConsumer)
 	if err := c.client.RefreshMetadata(pc.tp.topic); err != nil {
 		return nil, err
 	}
 	return c.client.Leader(pc.tp.topic, pc.tp.partition)
+}
+
+// implements `mapper.Resolver.Executor()`
+func (c *consumer) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
+	bc := &brokerConsumer{
+		baseCID:         c.baseCID.NewChild(fmt.Sprintf("broker:%d", brokerConn.ID())),
+		config:          c.config,
+		conn:            brokerConn,
+		requestsCh:      make(chan fetchRequest),
+		batchRequestsCh: make(chan []fetchRequest),
+	}
+	spawn(&bc.wg, bc.batchRequests)
+	spawn(&bc.wg, bc.executeBatches)
+	return bc
 }
 
 // chooseStartingOffset takes an offset value that may be either an actual
@@ -209,12 +223,13 @@ type PartitionConsumer interface {
 	HighWaterMarkOffset() int64
 }
 
+// implements `mapper.Worker`.
 type partitionConsumer struct {
 	consumer *consumer
 	tp       topicPartition
 	baseCID  *context.ID
 
-	assignmentCh chan brokerExecutor
+	assignmentCh chan mapper.Executor
 	initErrorCh  chan error
 	messagesCh   chan *ConsumerMessage
 	errorsCh     chan *ConsumerError
@@ -232,7 +247,7 @@ func (c *consumer) spawnPartitionConsumer(tp topicPartition, offset int64) *part
 		consumer:     c,
 		tp:           tp,
 		baseCID:      c.baseCID.NewChild(fmt.Sprintf("%s:%d", tp.topic, tp.partition)),
-		assignmentCh: make(chan brokerExecutor, 1),
+		assignmentCh: make(chan mapper.Executor, 1),
 		initErrorCh:  make(chan error),
 		messagesCh:   make(chan *ConsumerMessage, c.config.ChannelBufferSize),
 		errorsCh:     make(chan *ConsumerError, c.config.ChannelBufferSize),
@@ -266,7 +281,7 @@ func (pc *partitionConsumer) Close() error {
 	delete(pc.consumer.children, pc.tp)
 	pc.consumer.childrenLock.Unlock()
 
-	pc.consumer.mapper.workerClosed() <- pc
+	pc.consumer.mapper.WorkerStopped() <- pc
 
 	if len(errors) > 0 {
 		return errors
@@ -278,7 +293,8 @@ func (pc *partitionConsumer) HighWaterMarkOffset() int64 {
 	return atomic.LoadInt64(&pc.highWaterMarkOffset)
 }
 
-func (pc *partitionConsumer) assignment() chan<- brokerExecutor {
+// implements `mapper.Worker`.
+func (pc *partitionConsumer) Assignment() chan<- mapper.Executor {
 	return pc.assignmentCh
 }
 
@@ -308,7 +324,7 @@ func (pc *partitionConsumer) pullMessages() {
 		if now.Sub(lastReassignTime) > pc.consumer.config.Consumer.Retry.Backoff {
 			log.Infof("<%s> trigger reassign: reason=(%s)", cid, reason)
 			lastReassignTime = now
-			pc.consumer.mapper.workerReassign() <- pc
+			pc.consumer.mapper.WorkerReassign() <- pc
 		} else {
 			log.Infof("<%s> schedule reassign: reason=(%s)", cid, reason)
 		}
@@ -373,7 +389,7 @@ pullMessagesLoop:
 			nilOrFetchRequestsCh = assignedFetchRequestCh
 
 		case <-nilOrReassignRetryTimerCh:
-			pc.consumer.mapper.workerReassign() <- pc
+			pc.consumer.mapper.WorkerReassign() <- pc
 			log.Infof("<%s> reassign triggered by timeout", cid)
 			nilOrReassignRetryTimerCh = time.After(pc.consumer.config.Consumer.Retry.Backoff)
 
@@ -481,6 +497,8 @@ func (pc *partitionConsumer) String() string {
 // processes fetch requests from partition consumers and sends responses back.
 // The dispatcher goroutine of the master consumer is responsible for keeping
 // a broker consumer alive it is assigned to at least one partition consumer.
+//
+// implements `mapper.Executor`.
 type brokerConsumer struct {
 	baseCID         *context.ID
 	config          *sarama.Config
@@ -504,24 +522,13 @@ type fetchResult struct {
 	Err      error
 }
 
-func (c *consumer) spawnBrokerExecutor(brokerConn *sarama.Broker) brokerExecutor {
-	bc := &brokerConsumer{
-		baseCID:         c.baseCID.NewChild(fmt.Sprintf("broker:%d", brokerConn.ID())),
-		config:          c.config,
-		conn:            brokerConn,
-		requestsCh:      make(chan fetchRequest),
-		batchRequestsCh: make(chan []fetchRequest),
-	}
-	spawn(&bc.wg, bc.batchRequests)
-	spawn(&bc.wg, bc.executeBatches)
-	return bc
-}
-
-func (bc *brokerConsumer) brokerConn() *sarama.Broker {
+// implements `mapper.Executor`.
+func (bc *brokerConsumer) BrokerConn() *sarama.Broker {
 	return bc.conn
 }
 
-func (bc *brokerConsumer) close() {
+// implements `mapper.Executor`.
+func (bc *brokerConsumer) Stop() {
 	close(bc.requestsCh)
 	bc.wg.Wait()
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/testhelpers"
+	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
 	"github.com/mailgun/log"
 	. "gopkg.in/check.v1"
 )
@@ -18,14 +19,14 @@ func Test(t *testing.T) {
 }
 
 type SmartConsumerSuite struct {
-	kh *testhelpers.KafkaHelper
+	kh *kafkahelper.T
 }
 
 var _ = Suite(&SmartConsumerSuite{})
 
 func (s *SmartConsumerSuite) SetUpSuite(c *C) {
 	testhelpers.InitLogging(c)
-	s.kh = testhelpers.NewKafkaHelper(c)
+	s.kh = kafkahelper.New(c)
 }
 
 func (s *SmartConsumerSuite) SetUpTest(c *C) {

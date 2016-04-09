@@ -8,12 +8,13 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/testhelpers"
+	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
 	. "gopkg.in/check.v1"
 )
 
 type ProducerSuite struct {
 	cfg           *config.T
-	kh            *testhelpers.KafkaHelper
+	kh            *kafkahelper.T
 	deadMessageCh chan *sarama.ProducerMessage
 }
 
@@ -32,7 +33,7 @@ func (s *ProducerSuite) SetUpTest(c *C) {
 	s.cfg = config.Default()
 	s.cfg.Kafka.SeedPeers = testhelpers.KafkaPeers
 	s.cfg.Producer.DeadMessageCh = s.deadMessageCh
-	s.kh = testhelpers.NewKafkaHelper(c)
+	s.kh = kafkahelper.New(c)
 }
 
 func (s *ProducerSuite) TearDownTest(c *C) {

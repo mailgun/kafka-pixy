@@ -1,4 +1,4 @@
-package consumer
+package mapper
 
 import (
 	"fmt"
@@ -9,138 +9,140 @@ import (
 	"github.com/mailgun/log"
 )
 
-// partition2BrokerMapper manages mapping partition workers to brokers
-// responsible for executing requests coming from the partition worker. To
-// determine what broker should processes requests from a particular partition
-// worker an external resolver is used.
+// T maintains mapping of partition workers that generate requests to broker
+// executors that process them. It uses an external resolver to determine a
+// particular broker executor instance to assign to a partition worker.
 //
 // Mapper triggers reassignment whenever one of the following events happen:
-//   * it is signaled that a new partition worker has been spawned via `workerCreated()`;
-//   * it is signaled to close a partition consumer via `workerClosing()`.
-//     The mapper synchronously terminates the worker calling its `close()`;
-//   * a partition worker explicitly requested reassignment via `workerReassign()`
-//   * a broker executor reported connection error via `brokerFailed()`.
+//   * it is signaled that a new worker has been spawned via `WorkerSpawned()`;
+//   * it is signaled that an existing worker has stopped via `WorkerStopped()`;
+//   * a worker explicitly requested reassignment via `WorkerReassign()`
+//   * an executor reported connection error via `BrokerFailed()`.
 //
 // Broker executors are spawned on demand when a broker connection is mapped to
 // a partition worker for the first time. It is guaranteed that a broker
-// executor is closed only after all partition consumers that used to be assigned
-// to it have either been closed or assigned another broker executor.
-type partition2BrokerMapper struct {
+// executor is stopped only after all partition workers that used to be assigned
+// to it have either been stopped or assigned another broker executor.
+type T struct {
 	baseCID          *context.ID
-	resolver         brokerResolver
-	workerCreatedCh  chan partitionWorker
-	workerClosedCh   chan partitionWorker
-	workerReassignCh chan partitionWorker
-	assignments      map[partitionWorker]brokerExecutor
-	references       map[brokerExecutor]int
-	connections      map[*sarama.Broker]brokerExecutor
-	closingCh        chan none
+	resolver         Resolver
+	workerSpawnedCh  chan Worker
+	workerStoppedCh  chan Worker
+	workerReassignCh chan Worker
+	assignments      map[Worker]Executor
+	references       map[Executor]int
+	connections      map[*sarama.Broker]Executor
+	stopCh           chan none
 	wg               sync.WaitGroup
 }
 
-// brokerResolver defines an interface to resolve a broker connection that
-// should server requests of a particular partition worker and a way to create
-// a broker executor from a broker connection.
-type brokerResolver interface {
-	resolveBroker(pw partitionWorker) (*sarama.Broker, error)
-	spawnBrokerExecutor(brokerConn *sarama.Broker) brokerExecutor
+// Resolver defines an interface to resolve a broker connection that should
+// serve requests of a particular partition worker and create a broker executor
+// from a broker connection.
+type Resolver interface {
+	// ResolveBroker returns a broker connection that should be used to
+	// determine a broker executor assigned to the specified partition worker.
+	ResolveBroker(pw Worker) (*sarama.Broker, error)
+	// SpawnExecutor spawns a broker executor for the specified connection.
+	SpawnExecutor(brokerConn *sarama.Broker) Executor
 }
 
-// partitionWorker represents an entity that makes requests via an assigned
-// broker executor.
-type partitionWorker interface {
+// Worker represents an entity that makes requests via an assigned broker
+// executor.
+type Worker interface {
 	// assignment returns a channel that the worker expects broker assignments
 	// at. Implementations have to ensure that the channel has a non zero buffer
 	// and that they read from this channel as soon as the value becomes
 	// available, for mapper will drop assignments in case the write to the
 	// channel may block.
-	assignment() chan<- brokerExecutor
+	Assignment() chan<- Executor
 }
 
-// brokerExecutor represents an entity that executes requests of partition
-// workers via a particular broker connection.
-type brokerExecutor interface {
-	brokerConn() *sarama.Broker
-	close()
+// Executor represents an entity that executes requests of partition workers
+// via a particular broker connection.
+type Executor interface {
+	// BrokerConn returns a broker connection used by the executor.
+	BrokerConn() *sarama.Broker
+	// Stop synchronously stops the executor.
+	Stop()
 }
 
-// spawnPartition2BrokerMapper spawns an instance of Partition2BrokerMapper
-// that uses the specified resolver to make partition-to-broker mapping decisions.
-func spawnPartition2BrokerMapper(cid *context.ID, resolver brokerResolver) *partition2BrokerMapper {
-	m := &partition2BrokerMapper{
+// Spawn creates a mapper instance and starts its internal goroutines.
+func Spawn(cid *context.ID, resolver Resolver) *T {
+	m := &T{
 		baseCID:          cid,
 		resolver:         resolver,
-		workerCreatedCh:  make(chan partitionWorker),
-		workerClosedCh:   make(chan partitionWorker),
-		workerReassignCh: make(chan partitionWorker),
-		assignments:      make(map[partitionWorker]brokerExecutor),
-		references:       make(map[brokerExecutor]int),
-		connections:      make(map[*sarama.Broker]brokerExecutor),
-		closingCh:        make(chan none),
+		workerSpawnedCh:  make(chan Worker),
+		workerStoppedCh:  make(chan Worker),
+		workerReassignCh: make(chan Worker),
+		assignments:      make(map[Worker]Executor),
+		references:       make(map[Executor]int),
+		connections:      make(map[*sarama.Broker]Executor),
+		stopCh:           make(chan none),
 	}
 	spawn(&m.wg, m.watch4Changes)
 	return m
 }
 
-func (m *partition2BrokerMapper) workerCreated() chan<- partitionWorker {
-	return m.workerCreatedCh
+func (m *T) WorkerSpawned() chan<- Worker {
+	return m.workerSpawnedCh
 }
 
-func (m *partition2BrokerMapper) workerClosed() chan<- partitionWorker {
-	return m.workerClosedCh
+func (m *T) WorkerStopped() chan<- Worker {
+	return m.workerStoppedCh
 }
 
-func (m *partition2BrokerMapper) workerReassign() chan<- partitionWorker {
+func (m *T) WorkerReassign() chan<- Worker {
 	return m.workerReassignCh
 }
 
-func (m *partition2BrokerMapper) close() {
-	close(m.closingCh)
+func (m *T) Stop() {
+	close(m.stopCh)
 	m.wg.Wait()
 }
 
 type mappingChange struct {
-	created  map[partitionWorker]none
-	outdated map[partitionWorker]none
-	closed   map[partitionWorker]none
+	spawned  map[Worker]none
+	outdated map[Worker]none
+	stopped  map[Worker]none
 }
 
-func (m *partition2BrokerMapper) newMappingChange() *mappingChange {
+func (m *T) newMappingChange() *mappingChange {
 	return &mappingChange{
-		created:  make(map[partitionWorker]none),
-		outdated: make(map[partitionWorker]none),
-		closed:   make(map[partitionWorker]none),
+		spawned:  make(map[Worker]none),
+		outdated: make(map[Worker]none),
+		stopped:  make(map[Worker]none),
 	}
 }
 
 func (mc *mappingChange) isEmtpy() bool {
-	return len(mc.created) == 0 && len(mc.outdated) == 0 && len(mc.closed) == 0
+	return len(mc.spawned) == 0 && len(mc.outdated) == 0 && len(mc.stopped) == 0
 }
 
 func (mc *mappingChange) String() string {
 	return fmt.Sprintf("{created=%d, outdated=%d, closed=%d}",
-		len(mc.created), len(mc.outdated), len(mc.closed))
+		len(mc.spawned), len(mc.outdated), len(mc.stopped))
 }
 
 // watch4Changes listens for mapping affecting signals, batches them into
 // a mappingChange object and triggers reassignments, making sure to run only
 // one at a time. When signaled to stop it only quits when all children have
 // closed.
-func (m *partition2BrokerMapper) watch4Changes() {
+func (m *T) watch4Changes() {
 	cid := m.baseCID.NewChild("watch4Changes")
 	defer cid.LogScope()()
 
 	change := m.newMappingChange()
 	redispatchDoneCh := make(chan none, 1)
 	var nilOrRedispatchDoneCh <-chan none
-	closing := false
+	stop := false
 	for {
 		select {
-		case pw := <-m.workerCreatedCh:
-			change.created[pw] = nothing
+		case pw := <-m.workerSpawnedCh:
+			change.spawned[pw] = nothing
 
-		case pw := <-m.workerClosedCh:
-			change.closed[pw] = nothing
+		case pw := <-m.workerStoppedCh:
+			change.stopped[pw] = nothing
 
 		case pw := <-m.workerReassignCh:
 			change.outdated[pw] = nothing
@@ -148,8 +150,8 @@ func (m *partition2BrokerMapper) watch4Changes() {
 		case <-nilOrRedispatchDoneCh:
 			nilOrRedispatchDoneCh = nil
 
-		case <-m.closingCh:
-			closing = true
+		case <-m.stopCh:
+			stop = true
 		}
 		// If redispatch is required and there is none running at the moment
 		// then spawn a redispatch goroutine.
@@ -160,23 +162,23 @@ func (m *partition2BrokerMapper) watch4Changes() {
 			nilOrRedispatchDoneCh = redispatchDoneCh
 		}
 		// Do not leave this loop until all workers are closed.
-		if closing && nilOrRedispatchDoneCh == nil && len(m.assignments) == 0 {
+		if stop && nilOrRedispatchDoneCh == nil && len(m.assignments) == 0 {
 			return
 		}
 	}
 }
 
 // reassign updates partition-to-broker assignments using the external resolver.
-func (m *partition2BrokerMapper) reassign(parentGid *context.ID, change *mappingChange, doneCh chan none) {
+func (m *T) reassign(parentGid *context.ID, change *mappingChange, doneCh chan none) {
 	cid := parentGid.NewChild("reassign")
 	defer cid.LogScope(change)()
 	defer func() { doneCh <- nothing }()
 
-	// Travers through closed workers and dereference brokers assigned to them.
-	for pw := range change.closed {
+	// Travers through stopped workers and dereference brokers assigned to them.
+	for pw := range change.stopped {
 		be := m.assignments[pw]
 		delete(m.assignments, pw)
-		delete(change.created, pw)
+		delete(change.spawned, pw)
 		if be != nil {
 			m.references[be] = m.references[be] - 1
 			log.Infof("<%s> unassign %s -> %s (ref=%d)", cid, pw, be, m.references[be])
@@ -189,7 +191,7 @@ func (m *partition2BrokerMapper) reassign(parentGid *context.ID, change *mapping
 		}
 	}
 	// Run resolution for the created and outdated partition workers.
-	for pw := range change.created {
+	for pw := range change.spawned {
 		m.resolveBroker(cid, pw)
 	}
 	for pw := range change.outdated {
@@ -202,26 +204,26 @@ func (m *partition2BrokerMapper) reassign(parentGid *context.ID, change *mapping
 			continue
 		}
 		log.Infof("<%s> decomission %s", cid, be)
-		be.close()
+		be.Stop()
 		delete(m.references, be)
-		if m.connections[be.brokerConn()] == be {
-			delete(m.connections, be.brokerConn())
+		if m.connections[be.BrokerConn()] == be {
+			delete(m.connections, be.BrokerConn())
 		}
 	}
 }
 
 // resolveBroker queries the Kafka cluster for a new partition leader and
 // assigns it to the specified partition consumer.
-func (m *partition2BrokerMapper) resolveBroker(cid *context.ID, pw partitionWorker) {
-	var newBrokerExecutor brokerExecutor
-	brokerConn, err := m.resolver.resolveBroker(pw)
+func (m *T) resolveBroker(cid *context.ID, pw Worker) {
+	var newBrokerExecutor Executor
+	brokerConn, err := m.resolver.ResolveBroker(pw)
 	if err != nil {
 		log.Infof("<%s> failed to resolve broker: pw=%s, err=(%s)", cid, pw, err)
 	} else {
 		if brokerConn != nil {
 			newBrokerExecutor = m.connections[brokerConn]
 			if newBrokerExecutor == nil && brokerConn != nil {
-				newBrokerExecutor = m.resolver.spawnBrokerExecutor(brokerConn)
+				newBrokerExecutor = m.resolver.SpawnExecutor(brokerConn)
 				log.Infof("<%s> spawned %s", cid, newBrokerExecutor)
 				m.connections[brokerConn] = newBrokerExecutor
 			}
@@ -229,7 +231,7 @@ func (m *partition2BrokerMapper) resolveBroker(cid *context.ID, pw partitionWork
 	}
 	// Assign the new broker executor, but only if it does not block.
 	select {
-	case pw.assignment() <- newBrokerExecutor:
+	case pw.Assignment() <- newBrokerExecutor:
 	default:
 		return
 	}

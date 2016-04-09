@@ -8,6 +8,7 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/context"
+	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/log"
 	"github.com/wvanbergen/kazoo-go"
 )
@@ -34,12 +35,12 @@ var (
 // unsubscribes from the topic, likewise if a consumer group has not seen any
 // requests for that period then the consumer deregisters from the group.
 type T struct {
-	baseCID     *context.ID
-	cfg         *config.T
-	dispatcher  *dispatcher
-	kafkaClient sarama.Client
-	offsetMgr   OffsetManager
-	kazooConn   *kazoo.Kazoo
+	baseCID          *context.ID
+	cfg              *config.T
+	dispatcher       *dispatcher
+	kafkaClient      sarama.Client
+	offsetMgrFactory offsetmgr.Factory
+	kazooConn        *kazoo.Kazoo
 }
 
 // Spawn creates a consumer instance with the specified configuration and
@@ -56,10 +57,7 @@ func Spawn(cfg *config.T) (*T, error) {
 	if err != nil {
 		return nil, ErrSetup(fmt.Errorf("failed to create sarama.Client: err=(%v)", err))
 	}
-	offsetMgr, err := NewOffsetManagerFromClient(kafkaClient)
-	if err != nil {
-		return nil, ErrSetup(fmt.Errorf("failed to create sarama.OffsetManager: err=(%v)", err))
-	}
+	offsetMgrFactory := offsetmgr.NewFactory(kafkaClient)
 
 	kazooCfg := kazoo.NewConfig()
 	kazooCfg.Chroot = cfg.ZooKeeper.Chroot
@@ -76,11 +74,11 @@ func Spawn(cfg *config.T) (*T, error) {
 	}
 
 	sc := &T{
-		baseCID:     context.RootID.NewChild("smartConsumer"),
-		cfg:         cfg,
-		kafkaClient: kafkaClient,
-		offsetMgr:   offsetMgr,
-		kazooConn:   kazooConn,
+		baseCID:          context.RootID.NewChild("smartConsumer"),
+		cfg:              cfg,
+		kafkaClient:      kafkaClient,
+		offsetMgrFactory: offsetMgrFactory,
+		kazooConn:        kazooConn,
 	}
 	sc.dispatcher = newDispatcher(sc.baseCID, sc, sc.cfg)
 	sc.dispatcher.start()
@@ -231,33 +229,33 @@ func (tc *topicConsumer) String() string {
 // message is pulled from the `messages()` channel, it is considered to be
 // consumed and its offset is committed.
 type exclusiveConsumer struct {
-	contextID    *context.ID
-	cfg          *config.T
-	group        string
-	topic        string
-	partition    int32
-	dumbConsumer Consumer
-	registry     *groupRegistrator
-	offsetMgr    OffsetManager
-	messagesCh   chan *ConsumerMessage
-	acksCh       chan *ConsumerMessage
-	stoppingCh   chan none
-	wg           sync.WaitGroup
+	contextID        *context.ID
+	cfg              *config.T
+	group            string
+	topic            string
+	partition        int32
+	dumbConsumer     Consumer
+	registry         *groupRegistrator
+	offsetMgrFactory offsetmgr.Factory
+	messagesCh       chan *ConsumerMessage
+	acksCh           chan *ConsumerMessage
+	stoppingCh       chan none
+	wg               sync.WaitGroup
 }
 
 func (gc *groupConsumer) spawnExclusiveConsumer(topic string, partition int32) *exclusiveConsumer {
 	ec := &exclusiveConsumer{
-		contextID:    gc.baseCID.NewChild(fmt.Sprintf("%s:%d", topic, partition)),
-		cfg:          gc.cfg,
-		group:        gc.group,
-		topic:        topic,
-		partition:    partition,
-		dumbConsumer: gc.dumbConsumer,
-		registry:     gc.registry,
-		offsetMgr:    gc.offsetMgr,
-		messagesCh:   make(chan *ConsumerMessage),
-		acksCh:       make(chan *ConsumerMessage),
-		stoppingCh:   make(chan none),
+		contextID:        gc.baseCID.NewChild(fmt.Sprintf("%s:%d", topic, partition)),
+		cfg:              gc.cfg,
+		group:            gc.group,
+		topic:            topic,
+		partition:        partition,
+		dumbConsumer:     gc.dumbConsumer,
+		registry:         gc.registry,
+		offsetMgrFactory: gc.offsetMgrFactory,
+		messagesCh:       make(chan *ConsumerMessage),
+		acksCh:           make(chan *ConsumerMessage),
+		stoppingCh:       make(chan none),
 	}
 	spawn(&ec.wg, ec.run)
 	return ec
@@ -275,16 +273,16 @@ func (ec *exclusiveConsumer) run() {
 	defer ec.contextID.LogScope()()
 	defer ec.registry.claimPartition(ec.contextID, ec.topic, ec.partition, ec.stoppingCh)()
 
-	pom, err := ec.offsetMgr.ManagePartition(ec.group, ec.topic, ec.partition)
+	om, err := ec.offsetMgrFactory.NewOffsetManager(ec.group, ec.topic, ec.partition)
 	if err != nil {
 		panic(fmt.Errorf("<%s> failed to spawn partition manager: err=(%s)", ec.contextID, err))
 	}
-	defer pom.Close()
+	defer om.Stop()
 
 	// Wait for the initial offset to be retrieved.
-	var initialOffset DecoratedOffset
+	var initialOffset offsetmgr.DecoratedOffset
 	select {
-	case initialOffset = <-pom.InitialOffset():
+	case initialOffset = <-om.InitialOffset():
 	case <-ec.stoppingCh:
 		return
 	}
@@ -301,7 +299,7 @@ func (ec *exclusiveConsumer) run() {
 
 	// Initialize the Kafka offset storage for a group on first consumption.
 	if initialOffset.Offset == sarama.OffsetNewest {
-		pom.SubmitOffset(concreteOffset, "")
+		om.SubmitOffset(concreteOffset, "")
 		lastSubmittedOffset = concreteOffset
 	}
 
@@ -319,7 +317,7 @@ func (ec *exclusiveConsumer) run() {
 					firstMessageFetchedCh <- ec
 				}
 				goto offerAndAck
-			case committedOffset := <-pom.CommittedOffsets():
+			case committedOffset := <-om.CommittedOffsets():
 				lastCommittedOffset = committedOffset.Offset
 				continue
 			case <-ec.stoppingCh:
@@ -335,9 +333,9 @@ func (ec *exclusiveConsumer) run() {
 				// Keep offering the same message until it is acknowledged.
 			case <-ec.acksCh:
 				lastSubmittedOffset = msg.Offset + 1
-				pom.SubmitOffset(lastSubmittedOffset, "")
+				om.SubmitOffset(lastSubmittedOffset, "")
 				break offerAndAck
-			case committedOffset := <-pom.CommittedOffsets():
+			case committedOffset := <-om.CommittedOffsets():
 				lastCommittedOffset = committedOffset.Offset
 				continue
 			case <-ec.stoppingCh:
@@ -354,7 +352,7 @@ done:
 	// otherwise the message can be consumed by the new partition owner again.
 	log.Infof("<%s> waiting for the last offset to be committed: submitted=%d, committed=%d",
 		ec.contextID, lastSubmittedOffset, lastCommittedOffset)
-	for committedOffset := range pom.CommittedOffsets() {
+	for committedOffset := range om.CommittedOffsets() {
 		if committedOffset.Offset == lastSubmittedOffset {
 			return
 		}

@@ -1,20 +1,15 @@
 package testhelpers
 
 import (
-	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"path"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/config"
-	"github.com/mailgun/log"
-	. "gopkg.in/check.v1"
 )
 
 const (
@@ -65,134 +60,3 @@ func NewUDSHTTPClient(unixSockAddr string) *http.Client {
 	tr := &http.Transport{Dial: dial}
 	return &http.Client{Transport: tr}
 }
-
-type KafkaHelper struct {
-	c        *C
-	client   sarama.Client
-	producer sarama.AsyncProducer
-	consumer sarama.Consumer
-}
-
-func NewKafkaHelper(c *C) *KafkaHelper {
-	kh := &KafkaHelper{c: c}
-	cfg := sarama.NewConfig()
-	cfg.Producer.Return.Successes = true
-	cfg.Producer.Return.Errors = true
-	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
-	cfg.ClientID = "unittest-runner"
-	err := error(nil)
-	if kh.client, err = sarama.NewClient(KafkaPeers, cfg); err != nil {
-		panic(err)
-	}
-	if kh.consumer, err = sarama.NewConsumerFromClient(kh.client); err != nil {
-		panic(err)
-	}
-	if kh.producer, err = sarama.NewAsyncProducerFromClient(kh.client); err != nil {
-		panic(err)
-	}
-	return kh
-}
-
-func (kh *KafkaHelper) Close() {
-	kh.producer.Close()
-	kh.consumer.Close()
-	kh.client.Close()
-}
-
-func (kh *KafkaHelper) GetOffsets(topic string) []int64 {
-	offsets := []int64{}
-	partitions, err := kh.client.Partitions(topic)
-	if err != nil {
-		panic(err)
-	}
-	for _, p := range partitions {
-		offset, err := kh.client.GetOffset(topic, p, sarama.OffsetNewest)
-		if err != nil {
-			panic(err)
-		}
-		offsets = append(offsets, offset)
-	}
-	return offsets
-}
-
-func (kh *KafkaHelper) GetMessages(topic string, begin, end []int64) [][]string {
-	writtenMsgs := make([][]string, len(begin))
-	for i := range begin {
-		p, err := kh.consumer.ConsumePartition(topic, int32(i), begin[i])
-		if err != nil {
-			panic(err)
-		}
-		writtenMsgCount := int(end[i] - begin[i])
-		for j := 0; j < writtenMsgCount; j++ {
-			connMsg := <-p.Messages()
-			writtenMsgs[i] = append(writtenMsgs[i], string(connMsg.Value))
-		}
-		p.Close()
-	}
-	return writtenMsgs
-}
-
-func (kh *KafkaHelper) PutMessages(prefix, topic string, keys map[string]int) map[string][]*sarama.ProducerMessage {
-	messages := make(map[string][]*sarama.ProducerMessage)
-	var wg sync.WaitGroup
-	total := 0
-	for key, count := range keys {
-		total += count
-		for i := 0; i < count; i++ {
-			key := key
-			message := fmt.Sprintf("%s:%s:%d", prefix, key, i)
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				keyEncoder := sarama.StringEncoder(key)
-				msgEncoder := sarama.StringEncoder(message)
-				prodMsg := &sarama.ProducerMessage{
-					Topic: topic,
-					Key:   keyEncoder,
-					Value: msgEncoder,
-				}
-				kh.producer.Input() <- prodMsg
-			}()
-		}
-	}
-	for i := 0; i < total; i++ {
-		select {
-		case prodMsg := <-kh.producer.Successes():
-			key := string(prodMsg.Key.(sarama.StringEncoder))
-			messages[key] = append(messages[key], prodMsg)
-			log.Infof("*** produced: topic=%s, partition=%d, offset=%d, message=%s",
-				topic, prodMsg.Partition, prodMsg.Offset, prodMsg.Value)
-		case prodErr := <-kh.producer.Errors():
-			kh.c.Error(prodErr)
-		}
-	}
-	// Sort the produced messages in ascending order of their offsets.
-	for _, keyMessages := range messages {
-		sort.Sort(messageSlice(keyMessages))
-	}
-	wg.Wait()
-	return messages
-}
-
-func (kh *KafkaHelper) ResetOffsets(group, topic string) {
-	offsetMgr, err := sarama.NewOffsetManagerFromClient(group, kh.client)
-	kh.c.Assert(err, IsNil)
-	defer offsetMgr.Close()
-	partitions, err := kh.client.Partitions(topic)
-	kh.c.Assert(err, IsNil)
-	for _, p := range partitions {
-		offset, err := kh.client.GetOffset(topic, p, sarama.OffsetNewest)
-		kh.c.Assert(err, IsNil)
-		pom, err := offsetMgr.ManagePartition(topic, p)
-		kh.c.Assert(err, IsNil)
-		pom.MarkOffset(offset, "dummy")
-		log.Infof("Set initial offset %s/%s/%d=%d", group, topic, p, offset)
-		pom.Close()
-	}
-}
-
-type messageSlice []*sarama.ProducerMessage
-
-func (p messageSlice) Len() int           { return len(p) }
-func (p messageSlice) Less(i, j int) bool { return p[i].Offset < p[j].Offset }
-func (p messageSlice) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }

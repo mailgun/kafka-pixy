@@ -9,6 +9,7 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/context"
+	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/log"
 	"github.com/wvanbergen/kazoo-go"
 )
@@ -22,7 +23,7 @@ type groupConsumer struct {
 	dispatcher              *dispatcher
 	kafkaClient             sarama.Client
 	dumbConsumer            Consumer
-	offsetMgr               OffsetManager
+	offsetMgrFactory        offsetmgr.Factory
 	kazooConn               *kazoo.Kazoo
 	registry                *groupRegistrator
 	topicConsumerGears      map[string]*topicConsumerGear
@@ -41,7 +42,7 @@ func (sc *T) newConsumerGroup(group string) *groupConsumer {
 		cfg:                     sc.cfg,
 		group:                   group,
 		kafkaClient:             sc.kafkaClient,
-		offsetMgr:               sc.offsetMgr,
+		offsetMgrFactory:        sc.offsetMgrFactory,
 		kazooConn:               sc.kazooConn,
 		topicConsumerGears:      make(map[string]*topicConsumerGear),
 		topicConsumerLifespanCh: make(chan *topicConsumer),
