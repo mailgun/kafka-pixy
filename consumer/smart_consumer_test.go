@@ -419,6 +419,9 @@ func (s *SmartConsumerSuite) TestBufferOverflowError(c *C) {
 // registration timeout, in that case a successor tier is created that will be
 // started as soon as the original one is completely shutdown.
 //
+// Note that rebalancing sometimes may take longer then long polling timeout,
+// so occasionally ErrRequestTimeout can be returned.
+//
 // It is impossible to see from the service behavior if the expected code path
 // has been exercised by the test. The only way to check that is through the
 // code coverage reports.
@@ -439,7 +442,10 @@ func (s *SmartConsumerSuite) TestRequestDuringTimeout(c *C) {
 			begin := time.Now()
 			log.Infof("*** consuming...")
 			consMsg, err := sc.Consume("group-1", "test.4")
-			c.Assert(err, IsNil)
+			_, ok := err.(ErrRequestTimeout)
+			if err != nil && !ok {
+				c.Errorf("Expected err to be nil or ErrRequestTimeout, got: %v", err)
+			}
 			log.Infof("*** consumed: in=%s, by=%s, topic=%s, partition=%d, offset=%d, message=%s",
 				time.Now().Sub(begin), sc.baseCID.String(), consMsg.Topic, consMsg.Partition, consMsg.Offset, consMsg.Value)
 		}
