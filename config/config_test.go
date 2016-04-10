@@ -1,7 +1,7 @@
 package config
 
 import (
-	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
+	. "gopkg.in/check.v1"
 )
 
 type ConfigSuite struct{}

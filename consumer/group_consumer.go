@@ -6,22 +6,24 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/wvanbergen/kazoo-go"
+	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/context"
+	"github.com/mailgun/kafka-pixy/offsetmgr"
+	"github.com/mailgun/log"
+	"github.com/wvanbergen/kazoo-go"
 )
 
 // groupConsumer manages a fleet of topic consumers and disposes of those that
 // have been inactive for the `Config.Consumer.DisposeAfter` period of time.
 type groupConsumer struct {
-	baseCID                 *sarama.ContextID
+	baseCID                 *context.ID
 	cfg                     *config.T
 	group                   string
 	dispatcher              *dispatcher
 	kafkaClient             sarama.Client
-	dumbConsumer            sarama.Consumer
-	offsetMgr               sarama.OffsetManager
+	dumbConsumer            Consumer
+	offsetMgrFactory        offsetmgr.Factory
 	kazooConn               *kazoo.Kazoo
 	registry                *groupRegistrator
 	topicConsumerGears      map[string]*topicConsumerGear
@@ -40,7 +42,7 @@ func (sc *T) newConsumerGroup(group string) *groupConsumer {
 		cfg:                     sc.cfg,
 		group:                   group,
 		kafkaClient:             sc.kafkaClient,
-		offsetMgr:               sc.offsetMgr,
+		offsetMgrFactory:        sc.offsetMgrFactory,
 		kazooConn:               sc.kazooConn,
 		topicConsumerGears:      make(map[string]*topicConsumerGear),
 		topicConsumerLifespanCh: make(chan *topicConsumer),
@@ -68,7 +70,7 @@ func (gc *groupConsumer) start(stoppedCh chan<- dispatchTier) {
 	spawn(&gc.wg, func() {
 		defer func() { stoppedCh <- gc }()
 		var err error
-		gc.dumbConsumer, err = sarama.NewConsumerFromClient(gc.kafkaClient)
+		gc.dumbConsumer, err = NewConsumerFromClient(gc.kafkaClient)
 		if err != nil {
 			// Must never happen.
 			panic(ErrSetup(fmt.Errorf("failed to create sarama.Consumer: err=(%v)", err)))

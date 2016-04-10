@@ -4,9 +4,10 @@ import (
 	"strconv"
 	"testing"
 
-	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/testhelpers"
+	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
+	. "gopkg.in/check.v1"
 )
 
 func Test(t *testing.T) {
@@ -15,7 +16,7 @@ func Test(t *testing.T) {
 
 type AdminSuite struct {
 	cfg *config.T
-	kh  *testhelpers.KafkaHelper
+	kh  *kafkahelper.T
 }
 
 var _ = Suite(&AdminSuite{})
@@ -26,7 +27,7 @@ func (s *AdminSuite) SetUpSuite(c *C) {
 	s.cfg.ClientID = "producer"
 	s.cfg.Kafka.SeedPeers = testhelpers.KafkaPeers
 	s.cfg.ZooKeeper.SeedPeers = testhelpers.ZookeeperPeers
-	s.kh = testhelpers.NewKafkaHelper(c)
+	s.kh = kafkahelper.New(c)
 }
 
 func (s *AdminSuite) TearDownSuite(c *C) {

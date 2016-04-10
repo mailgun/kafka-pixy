@@ -3,47 +3,47 @@ package consumer
 import (
 	"time"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
-	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
+	"github.com/mailgun/kafka-pixy/context"
+	. "gopkg.in/check.v1"
 )
 
 type MultiplexerSuite struct {
-	cid *sarama.ContextID
+	cid *context.ID
 }
 
 var _ = Suite(&MultiplexerSuite{})
 
 func (s *MultiplexerSuite) SetUpSuite(c *C) {
-	s.cid = sarama.RootCID.NewChild("testMux")
+	s.cid = context.RootID.NewChild("testMux")
 }
 
 func (s *MultiplexerSuite) TestFindMaxLag(c *C) {
-	max, idx, cnt := findMaxLag([]*sarama.ConsumerMessage{nil, lag(11), lag(13), nil, lag(12)})
+	max, idx, cnt := findMaxLag([]*ConsumerMessage{nil, lag(11), lag(13), nil, lag(12)})
 	c.Assert(max, Equals, int64(13))
 	c.Assert(idx, Equals, 2)
 	c.Assert(cnt, Equals, 1)
 
-	max, idx, cnt = findMaxLag([]*sarama.ConsumerMessage{nil, lag(11), lag(11), nil, lag(11)})
+	max, idx, cnt = findMaxLag([]*ConsumerMessage{nil, lag(11), lag(11), nil, lag(11)})
 	c.Assert(max, Equals, int64(11))
 	c.Assert(idx, Equals, 1)
 	c.Assert(cnt, Equals, 3)
 }
 
 func (s *MultiplexerSuite) TestSelectInputOne(c *C) {
-	c.Assert(2, Equals, selectInput(-1, []*sarama.ConsumerMessage{nil, lag(11), lag(13), nil, lag(12)}))
-	c.Assert(2, Equals, selectInput(2, []*sarama.ConsumerMessage{nil, lag(11), lag(13), nil, lag(12)}))
+	c.Assert(2, Equals, selectInput(-1, []*ConsumerMessage{nil, lag(11), lag(13), nil, lag(12)}))
+	c.Assert(2, Equals, selectInput(2, []*ConsumerMessage{nil, lag(11), lag(13), nil, lag(12)}))
 }
 
 func (s *MultiplexerSuite) TestSelectInputMany(c *C) {
-	c.Assert(1, Equals, selectInput(-1, []*sarama.ConsumerMessage{nil, lag(11), lag(11), nil, lag(11)}))
-	c.Assert(2, Equals, selectInput(1, []*sarama.ConsumerMessage{nil, lag(11), lag(11), nil, lag(11)}))
-	c.Assert(4, Equals, selectInput(2, []*sarama.ConsumerMessage{nil, lag(11), lag(11), nil, lag(11)}))
-	c.Assert(1, Equals, selectInput(4, []*sarama.ConsumerMessage{nil, lag(11), lag(11), nil, lag(11)}))
+	c.Assert(1, Equals, selectInput(-1, []*ConsumerMessage{nil, lag(11), lag(11), nil, lag(11)}))
+	c.Assert(2, Equals, selectInput(1, []*ConsumerMessage{nil, lag(11), lag(11), nil, lag(11)}))
+	c.Assert(4, Equals, selectInput(2, []*ConsumerMessage{nil, lag(11), lag(11), nil, lag(11)}))
+	c.Assert(1, Equals, selectInput(4, []*ConsumerMessage{nil, lag(11), lag(11), nil, lag(11)}))
 }
 
 // If there is just one input then it is forwarded to the output.
 func (s *MultiplexerSuite) TestOneInput(c *C) {
-	acksCh := make(chan *sarama.ConsumerMessage, 100)
+	acksCh := make(chan *ConsumerMessage, 100)
 	in1 := newMockMuxIn(acksCh,
 		msg(1001, 1),
 		msg(1002, 1),
@@ -62,7 +62,7 @@ func (s *MultiplexerSuite) TestOneInput(c *C) {
 // If there are several inputs with the same max lag then messages from them
 // are multiplexed in the round robin fashion. Note that messages are acknowledged
 func (s *MultiplexerSuite) TestSameLag(c *C) {
-	acksCh := make(chan *sarama.ConsumerMessage, 100)
+	acksCh := make(chan *ConsumerMessage, 100)
 	in1 := newMockMuxIn(acksCh,
 		msg(1001, 1),
 		msg(1002, 1),
@@ -105,7 +105,7 @@ func (s *MultiplexerSuite) TestSameLag(c *C) {
 
 // Messages with the largest lag among current channel heads is selected.
 func (s *MultiplexerSuite) TestLargeLagPreferred(c *C) {
-	acksCh := make(chan *sarama.ConsumerMessage, 100)
+	acksCh := make(chan *ConsumerMessage, 100)
 	in1 := newMockMuxIn(acksCh,
 		msg(1001, 1),
 		msg(1002, 3),
@@ -134,7 +134,7 @@ func (s *MultiplexerSuite) TestLargeLagPreferred(c *C) {
 // for a message to appear in any of the inputs.
 func (s *MultiplexerSuite) TestNoMessages(c *C) {
 	// Given
-	acksCh := make(chan *sarama.ConsumerMessage, 100)
+	acksCh := make(chan *ConsumerMessage, 100)
 	in1 := newMockMuxIn(acksCh, msg(1001, 1))
 	in2 := newMockMuxIn(acksCh)
 	in3 := newMockMuxIn(acksCh)
@@ -158,13 +158,13 @@ func (s *MultiplexerSuite) TestNoMessages(c *C) {
 }
 
 type mockMuxIn struct {
-	messagesCh chan *sarama.ConsumerMessage
-	acksCh     chan *sarama.ConsumerMessage
+	messagesCh chan *ConsumerMessage
+	acksCh     chan *ConsumerMessage
 }
 
-func newMockMuxIn(acksCh chan *sarama.ConsumerMessage, messages ...*sarama.ConsumerMessage) *mockMuxIn {
+func newMockMuxIn(acksCh chan *ConsumerMessage, messages ...*ConsumerMessage) *mockMuxIn {
 	mmi := mockMuxIn{
-		messagesCh: make(chan *sarama.ConsumerMessage, len(messages)),
+		messagesCh: make(chan *ConsumerMessage, len(messages)),
 		acksCh:     acksCh,
 	}
 	for _, m := range messages {
@@ -173,43 +173,43 @@ func newMockMuxIn(acksCh chan *sarama.ConsumerMessage, messages ...*sarama.Consu
 	return &mmi
 }
 
-func (mmi *mockMuxIn) messages() <-chan *sarama.ConsumerMessage {
+func (mmi *mockMuxIn) messages() <-chan *ConsumerMessage {
 	return mmi.messagesCh
 }
 
-func (mmi *mockMuxIn) acks() chan<- *sarama.ConsumerMessage {
+func (mmi *mockMuxIn) acks() chan<- *ConsumerMessage {
 	return mmi.acksCh
 }
 
 type mockMuxOut struct {
-	messagesCh chan *sarama.ConsumerMessage
+	messagesCh chan *ConsumerMessage
 }
 
 func newMockMuxOut(capacity int) *mockMuxOut {
 	return &mockMuxOut{
-		messagesCh: make(chan *sarama.ConsumerMessage, capacity),
+		messagesCh: make(chan *ConsumerMessage, capacity),
 	}
 }
 
-func (mmo *mockMuxOut) messages() chan<- *sarama.ConsumerMessage {
+func (mmo *mockMuxOut) messages() chan<- *ConsumerMessage {
 	return mmo.messagesCh
 }
 
-func msg(offset, lag int64) *sarama.ConsumerMessage {
-	return &sarama.ConsumerMessage{
+func msg(offset, lag int64) *ConsumerMessage {
+	return &ConsumerMessage{
 		Offset:        offset,
 		HighWaterMark: offset + lag,
 	}
 }
 
-func lag(lag int64) *sarama.ConsumerMessage {
-	return &sarama.ConsumerMessage{
+func lag(lag int64) *ConsumerMessage {
+	return &ConsumerMessage{
 		Offset:        0,
 		HighWaterMark: lag,
 	}
 }
 
-func checkMsg(c *C, outCh, acksCh chan *sarama.ConsumerMessage, expected *sarama.ConsumerMessage) {
+func checkMsg(c *C, outCh, acksCh chan *ConsumerMessage, expected *ConsumerMessage) {
 	c.Assert(<-outCh, DeepEquals, expected)
 	c.Assert(<-acksCh, DeepEquals, expected)
 }

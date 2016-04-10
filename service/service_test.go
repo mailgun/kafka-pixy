@@ -16,11 +16,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
-	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
+	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/apiserver"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/testhelpers"
+	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
+	. "gopkg.in/check.v1"
 )
 
 func Test(t *testing.T) {
@@ -29,7 +30,7 @@ func Test(t *testing.T) {
 
 type ServiceSuite struct {
 	cfg        *config.T
-	kh         *testhelpers.KafkaHelper
+	kh         *kafkahelper.T
 	unixClient *http.Client
 	tcpClient  *http.Client
 }
@@ -43,7 +44,7 @@ func (s *ServiceSuite) SetUpSuite(c *C) {
 func (s *ServiceSuite) SetUpTest(c *C) {
 	s.cfg = testhelpers.NewTestConfig("service-default")
 	os.Remove(s.cfg.UnixAddr)
-	s.kh = testhelpers.NewKafkaHelper(c)
+	s.kh = kafkahelper.New(c)
 	s.unixClient = testhelpers.NewUDSHTTPClient(s.cfg.UnixAddr)
 	// The default HTTP client cannot be used, because it caches connections,
 	// but each test must have a brand new connection.

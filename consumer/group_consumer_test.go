@@ -2,8 +2,8 @@ package consumer
 
 import (
 	"errors"
-	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 	"github.com/mailgun/kafka-pixy/config"
+	. "gopkg.in/check.v1"
 )
 
 type GroupConsumerSuite struct {

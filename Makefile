@@ -15,7 +15,7 @@ all:
 	go install github.com/mailgun/kafka-pixy/tools/testproducer
 	go install github.com/mailgun/kafka-pixy/tools/testconsumer
 
-vet: install_go_vet
+vet:
 	go vet ./...
 
 errcheck: install_errcheck
@@ -26,6 +26,3 @@ fmt:
 
 install_errcheck:
 	go get github.com/kisielk/errcheck
-
-install_go_vet:
-	go get golang.org/x/tools/cmd/vet

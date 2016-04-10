@@ -1,13 +1,19 @@
 package prettyfmt
 
 import (
-	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
+	"testing"
+
+	. "gopkg.in/check.v1"
 )
 
 type PrettyFmtSuite struct {
 }
 
 var _ = Suite(&PrettyFmtSuite{})
+
+func Test(t *testing.T) {
+	TestingT(t)
+}
 
 func (s *PrettyFmtSuite) TestCollapseJSON(c *C) {
 	orig := `

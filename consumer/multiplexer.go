@@ -4,14 +4,14 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/sarama"
+	"github.com/mailgun/kafka-pixy/context"
 )
 
 // multiplexer pulls messages fetched by exclusive consumers and offers them
 // one by one to the topic consumer choosing wisely between different exclusive
 // consumers to ensure that none of them is neglected.
 type multiplexer struct {
-	contextID    *sarama.ContextID
+	contextID    *context.ID
 	inputs       []muxInput
 	output       muxOutput
 	lastInputIdx int
@@ -20,15 +20,15 @@ type multiplexer struct {
 }
 
 type muxInput interface {
-	messages() <-chan *sarama.ConsumerMessage
-	acks() chan<- *sarama.ConsumerMessage
+	messages() <-chan *ConsumerMessage
+	acks() chan<- *ConsumerMessage
 }
 
 type muxOutput interface {
-	messages() chan<- *sarama.ConsumerMessage
+	messages() chan<- *ConsumerMessage
 }
 
-func spawnMultiplexer(baseCID *sarama.ContextID, output muxOutput, inputs []muxInput) *multiplexer {
+func spawnMultiplexer(baseCID *context.ID, output muxOutput, inputs []muxInput) *multiplexer {
 	m := &multiplexer{
 		contextID: baseCID.NewChild("mux"),
 		inputs:    inputs,
@@ -52,7 +52,7 @@ func (m *multiplexer) run() {
 	}
 	selectCases[inputCount] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(m.stopCh)}
 
-	nextMessages := make([]*sarama.ConsumerMessage, inputCount)
+	nextMessages := make([]*ConsumerMessage, inputCount)
 	inputIdx := -1
 	for {
 		// Collect next messages from all inputs.
@@ -78,7 +78,7 @@ func (m *multiplexer) run() {
 			if !ok {
 				return
 			}
-			nextMessages[selected] = value.Interface().(*sarama.ConsumerMessage)
+			nextMessages[selected] = value.Interface().(*ConsumerMessage)
 		}
 		// At this point there is at least one next message available.
 		inputIdx = selectInput(inputIdx, nextMessages)
@@ -101,7 +101,7 @@ func (m *multiplexer) stop() {
 // selectInput picks an input that should be multiplexed next. It prefers the
 // inputs with the largest lag. If there is more then one input with the largest
 // lag then it picks the one that index is following the lastInputIdx.
-func selectInput(lastInputIdx int, inputMessages []*sarama.ConsumerMessage) int {
+func selectInput(lastInputIdx int, inputMessages []*ConsumerMessage) int {
 	maxLag, maxLagIdx, maxLagCount := findMaxLag(inputMessages)
 	if maxLagCount == 1 {
 		return maxLagIdx
@@ -125,7 +125,7 @@ func selectInput(lastInputIdx int, inputMessages []*sarama.ConsumerMessage) int 
 // returns the value of the max lag among them, along with the index of the
 // first message with the max lag value and the total count of messages that
 // have max lag.
-func findMaxLag(inputMessages []*sarama.ConsumerMessage) (maxLag int64, maxLagIdx, maxLagCount int) {
+func findMaxLag(inputMessages []*ConsumerMessage) (maxLag int64, maxLagIdx, maxLagCount int) {
 	maxLag = -1
 	maxLagIdx = -1
 	for i, msg := range inputMessages {

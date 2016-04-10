@@ -5,9 +5,9 @@ import (
 	"io"
 	"time"
 
-	"github.com/mailgun/kafka-pixy/Godeps/_workspace/src/github.com/mailgun/log"
-	. "github.com/mailgun/kafka-pixy/Godeps/_workspace/src/gopkg.in/check.v1"
 	"github.com/mailgun/kafka-pixy/logging"
+	"github.com/mailgun/log"
+	. "gopkg.in/check.v1"
 )
 
 // InitLogging initializes both internal and 3rd party loggers to output logs

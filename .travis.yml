@@ -1,6 +1,6 @@
 language: go
 go:
-  - 1.5.2
+  - 1.6
 
 env:
   global:
@@ -11,13 +11,13 @@ env:
     - DEBUG=true
   matrix:
     - KAFKA_VERSION=0.8.2.2
-    - KAFKA_VERSION=0.9.0.0
+    - KAFKA_VERSION=0.9.0.1
 
 before_install:
-  - export REPOSITORY_ROOT=${TRAVIS_BUILD_DIR}/Godeps/_workspace/src/github.com/mailgun/sarama
-  - Godeps/_workspace/src/github.com/mailgun/sarama/vagrant/install_cluster.sh
-  - Godeps/_workspace/src/github.com/mailgun/sarama/vagrant/boot_cluster.sh
-  - Godeps/_workspace/src/github.com/mailgun/sarama/vagrant/create_topics.sh
+  - export REPOSITORY_ROOT=${TRAVIS_BUILD_DIR}/vendor/github.com/Shopify/sarama
+  - vendor/github.com/Shopify/sarama/vagrant/install_cluster.sh
+  - vendor/github.com/Shopify/sarama/vagrant/boot_cluster.sh
+  - vendor/github.com/Shopify/sarama/vagrant/create_topics.sh
   # Install coveralls.io dependencies
   - go get github.com/axw/gocov/gocov
   - go get github.com/mattn/goveralls
@@ -27,7 +27,8 @@ before_install:
 script:
  - $HOME/gopath/bin/gotestcover -v -covermode=atomic -parallelpackages=1 -coverprofile=cover.out -timeout=5m ./... -check.v
  - $HOME/gopath/bin/goveralls -coverprofile=cover.out -service=travis-ci
- - make vet
+# TODO Uncomment when vet stops checking the `vendor` directory
+# - make vet
  - make fmt
 
 sudo: false
