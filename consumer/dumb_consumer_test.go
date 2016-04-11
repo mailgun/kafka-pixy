@@ -102,9 +102,6 @@ func TestConsumerOffsetNewest(t *testing.T) {
 	if msg.HighWaterMark != 14 {
 		t.Errorf("Invalid high water mark: expected=14, actual=%d", msg.HighWaterMark)
 	}
-	if hwmo := consumer.HighWaterMarkOffset(); hwmo != 14 {
-		t.Errorf("Expected high water mark offset 14, found %d", hwmo)
-	}
 
 	safeClose(t, consumer)
 	safeClose(t, master)

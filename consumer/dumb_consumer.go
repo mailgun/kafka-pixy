@@ -3,7 +3,6 @@ package consumer
 import (
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/Shopify/sarama"
@@ -217,11 +216,6 @@ type PartitionConsumer interface {
 	// errors are logged and not returned over this channel. If you want to implement any custom error
 	// handling, set your config's Consumer.Return.Errors setting to true, and read from this channel.
 	Errors() <-chan *ConsumerError
-
-	// HighWaterMarkOffset returns the high water mark offset of the partition, i.e. the offset that will
-	// be used for the next message that will be produced. You can use this to determine how far behind
-	// the processing is.
-	HighWaterMarkOffset() int64
 }
 
 // implements `mapper.Worker`.
@@ -237,10 +231,9 @@ type partitionConsumer struct {
 	closingCh    chan none
 	closedCh     chan none
 
-	fetchSize           int32
-	offset              int64
-	highWaterMarkOffset int64
-	lag                 int64
+	fetchSize int32
+	offset    int64
+	lag       int64
 }
 
 func (c *consumer) spawnPartitionConsumer(tp topicPartition, offset int64) *partitionConsumer {
@@ -288,10 +281,6 @@ func (pc *partitionConsumer) Close() error {
 		return errors
 	}
 	return nil
-}
-
-func (pc *partitionConsumer) HighWaterMarkOffset() int64 {
-	return atomic.LoadInt64(&pc.highWaterMarkOffset)
 }
 
 // implements `mapper.Worker`.
@@ -446,8 +435,6 @@ func (pc *partitionConsumer) parseFetchResult(cid *context.ID, fetchResult fetch
 
 	// we got messages, reset our fetch size in case it was increased for a previous request
 	pc.fetchSize = pc.consumer.config.Consumer.Fetch.Default
-	atomic.StoreInt64(&pc.highWaterMarkOffset, block.HighWaterMarkOffset)
-
 	var fetchedMessages []*ConsumerMessage
 	for _, msgBlock := range block.MsgSet.Messages {
 		for _, msg := range msgBlock.Messages() {
