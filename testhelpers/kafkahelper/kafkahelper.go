@@ -40,13 +40,17 @@ func New(c *C) *T {
 	return kh
 }
 
+func (kh *T) Client() sarama.Client {
+	return kh.client
+}
+
 func (kh *T) Close() {
 	kh.producer.Close()
 	kh.consumer.Close()
 	kh.client.Close()
 }
 
-func (kh *T) GetOffsets(topic string) []int64 {
+func (kh *T) GetNewestOffsets(topic string) []int64 {
 	offsets := []int64{}
 	partitions, err := kh.client.Partitions(topic)
 	if err != nil {
@@ -54,6 +58,22 @@ func (kh *T) GetOffsets(topic string) []int64 {
 	}
 	for _, p := range partitions {
 		offset, err := kh.client.GetOffset(topic, p, sarama.OffsetNewest)
+		if err != nil {
+			panic(err)
+		}
+		offsets = append(offsets, offset)
+	}
+	return offsets
+}
+
+func (kh *T) GetOldestOffsets(topic string) []int64 {
+	offsets := []int64{}
+	partitions, err := kh.client.Partitions(topic)
+	if err != nil {
+		panic(err)
+	}
+	for _, p := range partitions {
+		offset, err := kh.client.GetOffset(topic, p, sarama.OffsetOldest)
 		if err != nil {
 			panic(err)
 		}

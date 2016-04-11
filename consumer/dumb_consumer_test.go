@@ -785,8 +785,8 @@ func TestConsumerOffsetOutOfRange(t *testing.T) {
 			SetBroker(broker0.Addr(), broker0.BrokerID()).
 			SetLeader("my_topic", 0, broker0.BrokerID()),
 		"OffsetRequest": sarama.NewMockOffsetResponse(t).
-			SetOffset("my_topic", 0, sarama.OffsetNewest, 1234).
-			SetOffset("my_topic", 0, sarama.OffsetOldest, 2345),
+			SetOffset("my_topic", 0, sarama.OffsetNewest, 2000).
+			SetOffset("my_topic", 0, sarama.OffsetOldest, 1000),
 	})
 
 	master, err := NewConsumer([]string{broker0.Addr()}, nil)
@@ -795,15 +795,23 @@ func TestConsumerOffsetOutOfRange(t *testing.T) {
 	}
 
 	// When/Then
-	if _, _, err := master.ConsumePartition("my_topic", 0, 0); err != sarama.ErrOffsetOutOfRange {
-		t.Fatal("Should return ErrOffsetOutOfRange, got:", err)
+	pc, offset, err := master.ConsumePartition("my_topic", 0, 0)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, _, err := master.ConsumePartition("my_topic", 0, 3456); err != sarama.ErrOffsetOutOfRange {
-		t.Fatal("Should return ErrOffsetOutOfRange, got:", err)
+	if offset != 1000 {
+		t.Fatal("Should return 1000, got:", offset)
 	}
-	if _, _, err := master.ConsumePartition("my_topic", 0, -3); err != sarama.ErrOffsetOutOfRange {
-		t.Fatal("Should return ErrOffsetOutOfRange, got:", err)
+	safeClose(t, pc)
+
+	pc, offset, err = master.ConsumePartition("my_topic", 0, 3456)
+	if err != nil {
+		t.Fatal(err)
 	}
+	if offset != 2000 {
+		t.Fatal("Should return 2000, got:", offset)
+	}
+	safeClose(t, pc)
 
 	safeClose(t, master)
 	broker0.Close()

@@ -275,7 +275,9 @@ func (ec *exclusiveConsumer) run() {
 
 	om, err := ec.offsetMgrFactory.NewOffsetManager(ec.group, ec.topic, ec.partition)
 	if err != nil {
-		panic(fmt.Errorf("<%s> failed to spawn partition manager: err=(%s)", ec.contextID, err))
+		// Must never happen.
+		log.Errorf("<%s> failed to spawn offset manager: err=(%s)", ec.contextID, err)
+		return
 	}
 	defer om.Stop()
 
@@ -289,11 +291,16 @@ func (ec *exclusiveConsumer) run() {
 
 	pc, concreteOffset, err := ec.dumbConsumer.ConsumePartition(ec.topic, ec.partition, initialOffset.Offset)
 	if err != nil {
-		panic(fmt.Errorf("<%s> failed to start partition consumer: offset=%d, err=(%s)", ec.contextID, initialOffset.Offset, err))
+		// Must never happen.
+		log.Errorf("<%s> failed to start partition consumer: offset=%d, err=(%s)", ec.contextID, initialOffset.Offset, err)
+		return
 	}
 	defer pc.Close()
-	log.Infof("<%s> initialized: initialOffset=%d, concreteOffset=%d",
-		ec.contextID, initialOffset.Offset, concreteOffset)
+	if initialOffset.Offset != concreteOffset {
+		log.Errorf("<%s> invalid initial offset: stored=%d, adjusted=%d",
+			ec.contextID, initialOffset.Offset, concreteOffset)
+	}
+	log.Infof("<%s> initialized: offset=%d", ec.contextID, concreteOffset)
 
 	var lastSubmittedOffset, lastCommittedOffset int64
 

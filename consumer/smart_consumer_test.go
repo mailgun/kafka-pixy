@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Shopify/sarama"
+	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
 	"github.com/mailgun/log"
@@ -35,6 +36,38 @@ func (s *SmartConsumerSuite) SetUpTest(c *C) {
 
 func (s *SmartConsumerSuite) TearDownSuite(c *C) {
 	s.kh.Close()
+}
+
+// If initial offset stored in Kafka is greater then the newest offset for a
+// partition, then the first message consumed from the partition is the next one
+// posted to it.
+func (s *SmartConsumerSuite) TestInitialOffsetTooLarge(c *C) {
+	oldestOffsets := s.kh.GetOldestOffsets("test.1")
+	newestOffsets := s.kh.GetNewestOffsets("test.1")
+	log.Infof("*** test.1 offsets: oldest=%v, newest=%v", oldestOffsets, newestOffsets)
+
+	omf := offsetmgr.NewFactory(s.kh.Client())
+	defer omf.Stop()
+	om, err := omf.NewOffsetManager("group-1", "test.1", 0)
+	c.Assert(err, IsNil)
+	om.SubmitOffset(newestOffsets[0]+100, "")
+	om.Stop()
+
+	sc, err := Spawn(testhelpers.NewTestConfig("group-1"))
+	c.Assert(err, IsNil)
+
+	// When
+	_, err = sc.Consume("group-1", "test.1")
+
+	// Then
+	c.Assert(err, FitsTypeOf, ErrRequestTimeout(fmt.Errorf("")))
+
+	produced := s.kh.PutMessages("offset-too-large", "test.1", map[string]int{"key": 1})
+	consumed := s.consume(c, sc, "group-1", "test.1", 1)
+	c.Assert(consumed["key"][0].Offset, Equals, newestOffsets[0])
+	assertMsg(c, consumed["key"][0], produced["key"][0])
+
+	sc.Stop()
 }
 
 // If a topic has only one partition then the consumer will retrieve messages

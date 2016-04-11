@@ -2,32 +2,11 @@ package consumer
 
 import (
 	"fmt"
-	"math"
 	"testing"
 	"time"
 
 	"github.com/Shopify/sarama"
 )
-
-func TestFuncConsumerOffsetOutOfRange(t *testing.T) {
-	setupFunctionalTest(t)
-	defer teardownFunctionalTest(t)
-
-	consumer, err := NewConsumer(kafkaBrokers, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if _, _, err := consumer.ConsumePartition("test.1", 0, -10); err != sarama.ErrOffsetOutOfRange {
-		t.Error("Expected ErrOffsetOutOfRange, got:", err)
-	}
-
-	if _, _, err := consumer.ConsumePartition("test.1", 0, math.MaxInt64); err != sarama.ErrOffsetOutOfRange {
-		t.Error("Expected ErrOffsetOutOfRange, got:", err)
-	}
-
-	safeClose(t, consumer)
-}
 
 func TestConsumerHighWaterMarkOffset(t *testing.T) {
 	setupFunctionalTest(t)

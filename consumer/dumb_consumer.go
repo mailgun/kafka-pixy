@@ -45,14 +45,17 @@ func (ce ConsumerErrors) Error() string {
 // Consumer manages PartitionConsumers which process Kafka messages from brokers. You MUST call Close()
 // on a consumer to avoid leaks, it will not be garbage-collected automatically when it passes out of
 // scope.
-//
-// Sarama's Consumer type does not currently support automatic consumer group rebalancing and offset tracking,
-// however the https://github.com/wvanbergen/kafka library builds on Sarama to add this support. We plan
-// to properly integrate this functionality at a later date.
 type Consumer interface {
-	// ConsumePartition creates a PartitionConsumer on the given topic/partition with the given offset. It will
-	// return an error if this Consumer is already consuming on the given topic/partition. Offset can be a
-	// literal offset, or OffsetNewest or OffsetOldest
+	// ConsumePartition creates a PartitionConsumer on the given topic/partition
+	// with the given offset. It will return an error if this Consumer is
+	// already consuming on the given topic/partition. Offset can be a
+	// literal offset, or OffsetNewest or OffsetOldest.
+	//
+	// If offset is smaller then the oldest offset then the oldest offset is
+	// returned. If offset is larger then the newest offset then the newest
+	// offset is returned. If offset is either sarama.OffsetNewest or
+	// sarama.OffsetOldest constant, then the actual offset value is returned.
+	// otherwise offset is returned.
 	ConsumePartition(topic string, partition int32, offset int64) (PartitionConsumer, int64, error)
 
 	// Close shuts down the consumer. It must be called after all child PartitionConsumers have already been closed.
@@ -181,14 +184,12 @@ func (c *consumer) chooseStartingOffset(topic string, partition int32, offset in
 	}
 
 	switch {
-	case offset == sarama.OffsetNewest:
+	case offset == sarama.OffsetNewest || offset > newestOffset:
 		return newestOffset, nil
-	case offset == sarama.OffsetOldest:
+	case offset == sarama.OffsetOldest || offset < oldestOffset:
 		return oldestOffset, nil
-	case offset >= oldestOffset && offset <= newestOffset:
-		return offset, nil
 	default:
-		return 0, sarama.ErrOffsetOutOfRange
+		return offset, nil
 	}
 }
 
