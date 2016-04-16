@@ -8,6 +8,7 @@ import (
 
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/context"
+	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
 	"github.com/samuel/go-zookeeper/zk"
 	"github.com/wvanbergen/kazoo-go"
@@ -27,7 +28,7 @@ type groupRegistrator struct {
 	groupMemberZNode    *kazoo.ConsumergroupInstance
 	topicsCh            chan []string
 	membershipChangesCh chan map[string][]string
-	stopCh              chan none
+	stopCh              chan none.T
 	wg                  sync.WaitGroup
 }
 
@@ -42,7 +43,7 @@ func spawnGroupRegistrator(group, memberID string, config *config.T, kazooConn *
 		groupMemberZNode:    groupMemberZNode,
 		topicsCh:            make(chan []string),
 		membershipChangesCh: make(chan map[string][]string),
-		stopCh:              make(chan none),
+		stopCh:              make(chan none.T),
 	}
 	spawn(&gr.wg, gr.watcher)
 	spawn(&gr.wg, gr.register)
@@ -57,7 +58,7 @@ func (gr *groupRegistrator) membershipChanges() <-chan map[string][]string {
 	return gr.membershipChangesCh
 }
 
-func (gr *groupRegistrator) claimPartition(cid *context.ID, topic string, partition int32, cancelCh <-chan none) func() {
+func (gr *groupRegistrator) claimPartition(cid *context.ID, topic string, partition int32, cancelCh <-chan none.T) func() {
 	if !retry(func() error { return gr.groupMemberZNode.ClaimPartition(topic, partition) }, nil,
 		fmt.Sprintf("<%s> failed to claim partition", cid), gr.config.Consumer.BackOffTimeout, cancelCh,
 	) {
@@ -232,7 +233,7 @@ func (gr *groupRegistrator) retry(f func() error, shouldRetry func(err error) bo
 // retried. If `shouldRetry` is not specified then any non `nil` error will
 // result in retry.
 func retry(f func() error, shouldRetry func(err error) bool, errorMsg string,
-	delay time.Duration, cancelCh <-chan none,
+	delay time.Duration, cancelCh <-chan none.T,
 ) (canceled bool) {
 	err := f()
 	if shouldRetry == nil {

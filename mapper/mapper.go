@@ -6,6 +6,7 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/context"
+	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
 )
 
@@ -32,7 +33,7 @@ type T struct {
 	assignments      map[Worker]Executor
 	references       map[Executor]int
 	connections      map[*sarama.Broker]Executor
-	stopCh           chan none
+	stopCh           chan none.T
 	wg               sync.WaitGroup
 }
 
@@ -78,7 +79,7 @@ func Spawn(cid *context.ID, resolver Resolver) *T {
 		assignments:      make(map[Worker]Executor),
 		references:       make(map[Executor]int),
 		connections:      make(map[*sarama.Broker]Executor),
-		stopCh:           make(chan none),
+		stopCh:           make(chan none.T),
 	}
 	spawn(&m.wg, m.watch4Changes)
 	return m
@@ -102,16 +103,16 @@ func (m *T) Stop() {
 }
 
 type mappingChange struct {
-	spawned  map[Worker]none
-	outdated map[Worker]none
-	stopped  map[Worker]none
+	spawned  map[Worker]none.T
+	outdated map[Worker]none.T
+	stopped  map[Worker]none.T
 }
 
 func (m *T) newMappingChange() *mappingChange {
 	return &mappingChange{
-		spawned:  make(map[Worker]none),
-		outdated: make(map[Worker]none),
-		stopped:  make(map[Worker]none),
+		spawned:  make(map[Worker]none.T),
+		outdated: make(map[Worker]none.T),
+		stopped:  make(map[Worker]none.T),
 	}
 }
 
@@ -133,19 +134,19 @@ func (m *T) watch4Changes() {
 	defer cid.LogScope()()
 
 	change := m.newMappingChange()
-	redispatchDoneCh := make(chan none, 1)
-	var nilOrRedispatchDoneCh <-chan none
+	redispatchDoneCh := make(chan none.T, 1)
+	var nilOrRedispatchDoneCh <-chan none.T
 	stop := false
 	for {
 		select {
 		case pw := <-m.workerSpawnedCh:
-			change.spawned[pw] = nothing
+			change.spawned[pw] = none.V
 
 		case pw := <-m.workerStoppedCh:
-			change.stopped[pw] = nothing
+			change.stopped[pw] = none.V
 
 		case pw := <-m.workerReassignCh:
-			change.outdated[pw] = nothing
+			change.outdated[pw] = none.V
 
 		case <-nilOrRedispatchDoneCh:
 			nilOrRedispatchDoneCh = nil
@@ -169,10 +170,10 @@ func (m *T) watch4Changes() {
 }
 
 // reassign updates partition-to-broker assignments using the external resolver.
-func (m *T) reassign(parentGid *context.ID, change *mappingChange, doneCh chan none) {
+func (m *T) reassign(parentGid *context.ID, change *mappingChange, doneCh chan none.T) {
 	cid := parentGid.NewChild("reassign")
 	defer cid.LogScope(change)()
-	defer func() { doneCh <- nothing }()
+	defer func() { doneCh <- none.V }()
 
 	// Travers through stopped workers and dereference brokers assigned to them.
 	for pw := range change.stopped {

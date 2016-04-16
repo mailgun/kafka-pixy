@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/mailgun/kafka-pixy/context"
+	"github.com/mailgun/kafka-pixy/none"
 )
 
 // multiplexer pulls messages fetched by exclusive consumers and offers them
@@ -15,7 +16,7 @@ type multiplexer struct {
 	inputs       []muxInput
 	output       muxOutput
 	lastInputIdx int
-	stopCh       chan none
+	stopCh       chan none.T
 	wg           sync.WaitGroup
 }
 
@@ -33,7 +34,7 @@ func spawnMultiplexer(baseCID *context.ID, output muxOutput, inputs []muxInput) 
 		contextID: baseCID.NewChild("mux"),
 		inputs:    inputs,
 		output:    output,
-		stopCh:    make(chan none),
+		stopCh:    make(chan none.T),
 	}
 	spawn(&m.wg, m.run)
 	return m

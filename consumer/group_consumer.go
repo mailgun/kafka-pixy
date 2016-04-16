@@ -9,6 +9,7 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/context"
+	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/log"
 	"github.com/wvanbergen/kazoo-go"
@@ -28,7 +29,7 @@ type groupConsumer struct {
 	registry                *groupRegistrator
 	topicConsumerGears      map[string]*topicConsumerGear
 	topicConsumerLifespanCh chan *topicConsumer
-	stoppingCh              chan none
+	stoppingCh              chan none.T
 	wg                      sync.WaitGroup
 
 	// Exist just to be overridden in tests with mocks.
@@ -46,7 +47,7 @@ func (sc *T) newConsumerGroup(group string) *groupConsumer {
 		kazooConn:               sc.kazooConn,
 		topicConsumerGears:      make(map[string]*topicConsumerGear),
 		topicConsumerLifespanCh: make(chan *topicConsumer),
-		stoppingCh:              make(chan none),
+		stoppingCh:              make(chan none.T),
 
 		fetchTopicPartitionsFn: sc.kafkaClient.Partitions,
 	}

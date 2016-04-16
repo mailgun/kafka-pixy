@@ -8,6 +8,7 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/context"
 	"github.com/mailgun/kafka-pixy/mapper"
+	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
 )
 
@@ -228,8 +229,8 @@ type partitionConsumer struct {
 	initErrorCh  chan error
 	messagesCh   chan *ConsumerMessage
 	errorsCh     chan *ConsumerError
-	closingCh    chan none
-	closedCh     chan none
+	closingCh    chan none.T
+	closedCh     chan none.T
 
 	fetchSize int32
 	offset    int64
@@ -245,8 +246,8 @@ func (c *consumer) spawnPartitionConsumer(tp topicPartition, offset int64) *part
 		initErrorCh:  make(chan error),
 		messagesCh:   make(chan *ConsumerMessage, c.config.ChannelBufferSize),
 		errorsCh:     make(chan *ConsumerError, c.config.ChannelBufferSize),
-		closingCh:    make(chan none, 1),
-		closedCh:     make(chan none),
+		closingCh:    make(chan none.T, 1),
+		closedCh:     make(chan none.T),
 		offset:       offset,
 		fetchSize:    c.config.Consumer.Fetch.Default,
 	}

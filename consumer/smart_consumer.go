@@ -8,6 +8,7 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/context"
+	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/log"
 	"github.com/wvanbergen/kazoo-go"
@@ -239,7 +240,7 @@ type exclusiveConsumer struct {
 	offsetMgrFactory offsetmgr.Factory
 	messagesCh       chan *ConsumerMessage
 	acksCh           chan *ConsumerMessage
-	stoppingCh       chan none
+	stoppingCh       chan none.T
 	wg               sync.WaitGroup
 }
 
@@ -255,7 +256,7 @@ func (gc *groupConsumer) spawnExclusiveConsumer(topic string, partition int32) *
 		offsetMgrFactory: gc.offsetMgrFactory,
 		messagesCh:       make(chan *ConsumerMessage),
 		acksCh:           make(chan *ConsumerMessage),
-		stoppingCh:       make(chan none),
+		stoppingCh:       make(chan none.T),
 	}
 	spawn(&ec.wg, ec.run)
 	return ec

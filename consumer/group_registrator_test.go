@@ -6,6 +6,7 @@ import (
 
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/context"
+	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/wvanbergen/kazoo-go"
 	. "gopkg.in/check.v1"
@@ -147,7 +148,7 @@ func (s *GroupRegistratorSuite) TestClaimPartition(c *C) {
 	cfg := config.Default()
 	gr := spawnGroupRegistrator("gr_test", "m1", cfg, s.kazooConn)
 	defer gr.stop()
-	cancelCh := make(chan none)
+	cancelCh := make(chan none.T)
 
 	owner, err := gr.partitionOwner("foo", 1)
 	c.Assert(err, IsNil)
@@ -172,7 +173,7 @@ func (s *GroupRegistratorSuite) TestClaimPartitionClaimed(c *C) {
 	defer gr1.stop()
 	gr2 := spawnGroupRegistrator("gr_test", "m2", cfg, s.kazooConn)
 	defer gr2.stop()
-	cancelCh := make(chan none)
+	cancelCh := make(chan none.T)
 	close(cancelCh) // there will be no retries
 
 	claim1 := gr1.claimPartition(s.cid, "foo", 1, cancelCh)
@@ -194,7 +195,7 @@ func (s *GroupRegistratorSuite) TestClaimPartitionTwice(c *C) {
 	cfg := config.Default()
 	gr := spawnGroupRegistrator("gr_test", "m1", cfg, s.kazooConn)
 	defer gr.stop()
-	cancelCh := make(chan none)
+	cancelCh := make(chan none.T)
 
 	// When
 	claim1 := gr.claimPartition(s.cid, "foo", 1, cancelCh)
@@ -215,7 +216,7 @@ func (s *GroupRegistratorSuite) TestReleasePartition(c *C) {
 	cfg := config.Default()
 	gr := spawnGroupRegistrator("gr_test", "m1", cfg, s.kazooConn)
 	defer gr.stop()
-	cancelCh := make(chan none)
+	cancelCh := make(chan none.T)
 	claim1 := gr.claimPartition(s.cid, "foo", 1, cancelCh)
 	claim2 := gr.claimPartition(s.cid, "foo", 1, cancelCh)
 
@@ -239,7 +240,7 @@ func (s *GroupRegistratorSuite) TestClaimPartitionParallel(c *C) {
 	defer gr1.stop()
 	gr2 := spawnGroupRegistrator("gr_test", "m2", cfg, s.kazooConn)
 	defer gr2.stop()
-	cancelCh := make(chan none)
+	cancelCh := make(chan none.T)
 
 	claim1 := gr1.claimPartition(s.cid, "foo", 1, cancelCh)
 	go func() {
@@ -266,8 +267,8 @@ func (s *GroupRegistratorSuite) TestClaimPartitionCanceled(c *C) {
 	defer gr1.stop()
 	gr2 := spawnGroupRegistrator("gr_test", "m2", cfg, s.kazooConn)
 	defer gr2.stop()
-	cancelCh1 := make(chan none)
-	cancelCh2 := make(chan none)
+	cancelCh1 := make(chan none.T)
+	cancelCh2 := make(chan none.T)
 	wg := &sync.WaitGroup{}
 
 	claim1 := gr1.claimPartition(s.cid, "foo", 1, cancelCh1)
