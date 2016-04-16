@@ -41,7 +41,7 @@ func (s *PartitionConsumerFuncSuite) TestSlacker(c *C) {
 	// (buffer size + 1)th message to the respective PartitionConsumer message
 	// channel will block, given that nobody is reading from the channel.
 	config.ChannelBufferSize = 10
-	f, err := NewConsumer(kafkaBrokers, config)
+	f, err := NewConsumer(testhelpers.KafkaPeers, config)
 	c.Assert(err, IsNil)
 	defer f.Close()
 
