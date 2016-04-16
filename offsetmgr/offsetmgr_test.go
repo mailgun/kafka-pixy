@@ -14,16 +14,12 @@ import (
 )
 
 func Test(t *testing.T) {
-	testingT = t
 	TestingT(t)
 }
 
 type OffsetMgrSuite struct{}
 
-var (
-	_                   = Suite(&OffsetMgrSuite{})
-	testingT *testing.T = nil
-)
+var _ = Suite(&OffsetMgrSuite{})
 
 func (s *OffsetMgrSuite) SetUpSuite(c *C) {
 	testhelpers.InitLogging(c)
@@ -33,14 +29,14 @@ func (s *OffsetMgrSuite) SetUpSuite(c *C) {
 // the InitialOffset() channel.
 func (s *OffsetMgrSuite) TestOffsetManagerInitialOffset(c *C) {
 	// Given
-	broker1 := sarama.NewMockBroker(testingT, 101)
+	broker1 := sarama.NewMockBroker(c, 101)
 	defer broker1.Close()
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
-		"MetadataRequest": sarama.NewMockMetadataResponse(testingT).
+		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(testingT).
+		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
 			SetCoordinator("group-1", broker1),
-		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(testingT).
+		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
 			SetOffset("group-1", "topic-1", 7, 1000, "foo", sarama.ErrNoError).
 			SetOffset("group-1", "topic-1", 8, 2000, "bar", sarama.ErrNoError).
 			SetOffset("group-1", "topic-2", 9, 3000, "bazz", sarama.ErrNoError),
@@ -68,12 +64,12 @@ func (s *OffsetMgrSuite) TestOffsetManagerInitialOffset(c *C) {
 // resolve the coordinator for the broker.
 func (s *OffsetMgrSuite) TestOffsetManagerInitialNoCoordinator(c *C) {
 	// Given
-	broker1 := sarama.NewMockBroker(testingT, 101)
+	broker1 := sarama.NewMockBroker(c, 101)
 	defer broker1.Close()
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
-		"MetadataRequest": sarama.NewMockMetadataResponse(testingT).
+		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(testingT).
+		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
 			SetError("group-1", sarama.ErrOffsetsLoadInProgress),
 	})
 
@@ -101,14 +97,14 @@ func (s *OffsetMgrSuite) TestOffsetManagerInitialNoCoordinator(c *C) {
 // resolve the coordinator for the broker.
 func (s *OffsetMgrSuite) TestOffsetManagerInitialFetchError(c *C) {
 	// Given
-	broker1 := sarama.NewMockBroker(testingT, 101)
+	broker1 := sarama.NewMockBroker(c, 101)
 	defer broker1.Close()
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
-		"MetadataRequest": sarama.NewMockMetadataResponse(testingT).
+		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(testingT).
+		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
 			SetCoordinator("group-1", broker1),
-		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(testingT).
+		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
 			SetOffset("group-1", "topic-1", 7, 0, "", sarama.ErrNotLeaderForPartition),
 	})
 
@@ -136,17 +132,17 @@ func (s *OffsetMgrSuite) TestOffsetManagerInitialFetchError(c *C) {
 // errors channel, but the offset manager keeps retrying until it succeeds.
 func (s *OffsetMgrSuite) TestOffsetManagerCommitError(c *C) {
 	// Given
-	broker1 := sarama.NewMockBroker(testingT, 101)
+	broker1 := sarama.NewMockBroker(c, 101)
 	defer broker1.Close()
 
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
-		"MetadataRequest": sarama.NewMockMetadataResponse(testingT).
+		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(testingT).
+		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
 			SetCoordinator("group-1", broker1),
-		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(testingT).
+		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
 			SetOffset("group-1", "topic-1", 7, 1234, "foo", sarama.ErrNoError),
-		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(testingT).
+		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
 			SetError("group-1", "topic-1", 7, sarama.ErrNotLeaderForPartition),
 	})
 
@@ -171,9 +167,9 @@ func (s *OffsetMgrSuite) TestOffsetManagerCommitError(c *C) {
 	c.Assert(oce, DeepEquals, &OffsetCommitError{"group-1", "topic-1", 7, sarama.ErrNotLeaderForPartition})
 
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(testingT).
+		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
 			SetCoordinator("group-1", broker1),
-		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(testingT).
+		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
 			SetError("group-1", "topic-1", 7, sarama.ErrNoError),
 	})
 
@@ -187,11 +183,11 @@ func (s *OffsetMgrSuite) TestOffsetManagerCommitError(c *C) {
 // before it terminates. Note that it will try indefinitely by design.
 func (s *OffsetMgrSuite) TestOffsetManagerCommitBeforeClose(c *C) {
 	// Given
-	broker1 := sarama.NewMockBroker(testingT, 101)
+	broker1 := sarama.NewMockBroker(c, 101)
 	defer broker1.Close()
 
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
-		"MetadataRequest": sarama.NewMockMetadataResponse(testingT).
+		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
 	})
 
@@ -222,9 +218,9 @@ func (s *OffsetMgrSuite) TestOffsetManagerCommitBeforeClose(c *C) {
 	// STAGE 2: Requests for initial offset return errors
 	log.Infof("    STAGE 2")
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(testingT).
+		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
 			SetCoordinator("group-1", broker1),
-		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(testingT).
+		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
 			SetOffset("group-1", "topic-1", 7, 0, "", sarama.ErrNotLeaderForPartition),
 	})
 	for oce = range om.Errors() {
@@ -237,11 +233,11 @@ func (s *OffsetMgrSuite) TestOffsetManagerCommitBeforeClose(c *C) {
 	// STAGE 3: Offset commit requests fail
 	log.Infof("    STAGE 3")
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(testingT).
+		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
 			SetCoordinator("group-1", broker1),
-		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(testingT).
+		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
 			SetOffset("group-1", "topic-1", 7, 1234, "foo", sarama.ErrNoError),
-		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(testingT).
+		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
 			SetError("group-1", "topic-1", 7, sarama.ErrOffsetMetadataTooLarge),
 	})
 	for oce = range om.Errors() {
@@ -254,11 +250,11 @@ func (s *OffsetMgrSuite) TestOffsetManagerCommitBeforeClose(c *C) {
 	// STAGE 4: Finally everything is fine
 	log.Infof("    STAGE 4")
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(testingT).
+		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
 			SetCoordinator("group-1", broker1),
-		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(testingT).
+		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
 			SetOffset("group-1", "topic-1", 7, 0, "", sarama.ErrNoError),
-		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(testingT).
+		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
 			SetError("group-1", "topic-1", 7, sarama.ErrNoError),
 	})
 	// The errors channel is closed when the partition offset manager has
@@ -276,19 +272,19 @@ func (s *OffsetMgrSuite) TestOffsetManagerCommitBeforeClose(c *C) {
 // topic/partition, even where they have the same broker as a coordinator.
 func (s *OffsetMgrSuite) TestOffsetManagerCommitDifferentGroups(c *C) {
 	// Given
-	broker1 := sarama.NewMockBroker(testingT, 101)
+	broker1 := sarama.NewMockBroker(c, 101)
 	defer broker1.Close()
 
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
-		"MetadataRequest": sarama.NewMockMetadataResponse(testingT).
+		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(testingT).
+		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
 			SetCoordinator("group-1", broker1).
 			SetCoordinator("group-2", broker1),
-		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(testingT).
+		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
 			SetOffset("group-1", "topic-1", 7, 1000, "foo", sarama.ErrNoError).
 			SetOffset("group-2", "topic-1", 7, 2000, "bar", sarama.ErrNoError),
-		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(testingT).
+		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
 			SetError("group-1", "topic-1", 7, sarama.ErrNoError).
 			SetError("group-2", "topic-1", 7, sarama.ErrNoError),
 	})
@@ -326,16 +322,16 @@ func (s *OffsetMgrSuite) TestOffsetManagerCommitDifferentGroups(c *C) {
 
 func (s *OffsetMgrSuite) TestOffsetManagerCommitNetworkError(c *C) {
 	// Given
-	broker1 := sarama.NewMockBroker(testingT, 101)
+	broker1 := sarama.NewMockBroker(c, 101)
 	defer broker1.Close()
 
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
-		"MetadataRequest": sarama.NewMockMetadataResponse(testingT).
+		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(testingT).
+		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
 			SetCoordinator("group-1", broker1).
 			SetCoordinator("group-2", broker1),
-		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(testingT).
+		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
 			SetOffset("group-1", "topic-1", 7, 1000, "foo1", sarama.ErrNoError).
 			SetOffset("group-1", "topic-1", 8, 2000, "foo2", sarama.ErrNoError).
 			SetOffset("group-2", "topic-1", 7, 3000, "foo3", sarama.ErrNoError),
@@ -368,10 +364,10 @@ func (s *OffsetMgrSuite) TestOffsetManagerCommitNetworkError(c *C) {
 	time.Sleep(cfg.Consumer.Retry.Backoff * 2)
 	log.Infof("*** Network recovering...")
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(testingT).
+		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
 			SetCoordinator("group-1", broker1).
 			SetCoordinator("group-2", broker1),
-		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(testingT).
+		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
 			SetError("group-1", "topic-1", 7, sarama.ErrNoError).
 			SetError("group-1", "topic-1", 8, sarama.ErrNoError).
 			SetError("group-2", "topic-1", 7, sarama.ErrNoError),
@@ -392,17 +388,17 @@ func (s *OffsetMgrSuite) TestOffsetManagerCommitNetworkError(c *C) {
 
 func (s *OffsetMgrSuite) TestOffsetManagerCommittedChannel(c *C) {
 	// Given
-	broker1 := sarama.NewMockBroker(testingT, 101)
+	broker1 := sarama.NewMockBroker(c, 101)
 	defer broker1.Close()
 
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
-		"MetadataRequest": sarama.NewMockMetadataResponse(testingT).
+		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(testingT).
+		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
 			SetCoordinator("group-1", broker1),
-		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(testingT).
+		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
 			SetOffset("group-1", "topic-1", 7, 1000, "foo1", sarama.ErrNoError),
-		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(testingT).
+		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
 			SetError("group-1", "topic-1", 7, sarama.ErrNoError),
 	})
 
@@ -437,15 +433,15 @@ func (s *OffsetMgrSuite) TestOffsetManagerCommittedChannel(c *C) {
 // would never try to reestablish connection and get stuck in an infinite loop
 // of unassign->assign of the same broker over and over again.
 func (s *OffsetMgrSuite) TestOffsetManagerConnectionRestored(c *C) {
-	broker1 := sarama.NewMockBroker(testingT, 101)
+	broker1 := sarama.NewMockBroker(c, 101)
 	defer broker1.Close()
-	broker2 := sarama.NewMockBroker(testingT, 102)
+	broker2 := sarama.NewMockBroker(c, 102)
 
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
-		"MetadataRequest": sarama.NewMockMetadataResponse(testingT).
+		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()).
 			SetBroker(broker2.Addr(), broker2.BrokerID()),
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(testingT).
+		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
 			SetCoordinator("group-1", broker2),
 	})
 
@@ -480,11 +476,11 @@ func (s *OffsetMgrSuite) TestOffsetManagerConnectionRestored(c *C) {
 	log.Infof("    GIVEN 3")
 	// Simulate broker restart. Make sure that the new instances listens on the
 	// same port as the old one.
-	broker2_2 := sarama.NewMockBrokerAddr(testingT, broker2.BrokerID(), broker2.Addr())
+	broker2_2 := sarama.NewMockBrokerAddr(c, broker2.BrokerID(), broker2.Addr())
 	broker2_2.SetHandlerByMap(map[string]sarama.MockResponse{
-		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(testingT).
+		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
 			SetOffset("group-1", "topic-1", 7, 1000, "foo", sarama.ErrNoError),
-		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(testingT).
+		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
 			SetError("group-1", "topic-1", 7, sarama.ErrNoError),
 	})
 
