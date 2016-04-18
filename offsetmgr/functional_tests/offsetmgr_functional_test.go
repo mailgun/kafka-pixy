@@ -21,7 +21,7 @@ var _ = Suite(&OffsetMgrFuncSuite{})
 
 // The latest committed offset saved by one partition manager instance is
 // returned by another as the initial commit.
-func (s *OffsetMgrFuncSuite) TestFuncOffsetManager(c *C) {
+func (s *OffsetMgrFuncSuite) TestLatestOffsetSaved(c *C) {
 	// Given
 	newOffset := time.Now().Unix()
 

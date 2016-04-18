@@ -27,7 +27,7 @@ func (s *OffsetMgrSuite) SetUpSuite(c *C) {
 
 // When a partition consumer is created, then an initial offset is sent down
 // the InitialOffset() channel.
-func (s *OffsetMgrSuite) TestOffsetManagerInitialOffset(c *C) {
+func (s *OffsetMgrSuite) TestInitialOffset(c *C) {
 	// Given
 	broker1 := sarama.NewMockBroker(c, 101)
 	defer broker1.Close()
@@ -62,7 +62,7 @@ func (s *OffsetMgrSuite) TestOffsetManagerInitialOffset(c *C) {
 
 // A partition offset manager can be closed even while it keeps trying to
 // resolve the coordinator for the broker.
-func (s *OffsetMgrSuite) TestOffsetManagerInitialNoCoordinator(c *C) {
+func (s *OffsetMgrSuite) TestInitialNoCoordinator(c *C) {
 	// Given
 	broker1 := sarama.NewMockBroker(c, 101)
 	defer broker1.Close()
@@ -95,7 +95,7 @@ func (s *OffsetMgrSuite) TestOffsetManagerInitialNoCoordinator(c *C) {
 
 // A partition offset manager can be closed even while it keeps trying to
 // resolve the coordinator for the broker.
-func (s *OffsetMgrSuite) TestOffsetManagerInitialFetchError(c *C) {
+func (s *OffsetMgrSuite) TestInitialFetchError(c *C) {
 	// Given
 	broker1 := sarama.NewMockBroker(c, 101)
 	defer broker1.Close()
@@ -130,7 +130,7 @@ func (s *OffsetMgrSuite) TestOffsetManagerInitialFetchError(c *C) {
 
 // If offset commit fails then the corresponding error is sent down to the
 // errors channel, but the offset manager keeps retrying until it succeeds.
-func (s *OffsetMgrSuite) TestOffsetManagerCommitError(c *C) {
+func (s *OffsetMgrSuite) TestCommitError(c *C) {
 	// Given
 	broker1 := sarama.NewMockBroker(c, 101)
 	defer broker1.Close()
@@ -181,7 +181,7 @@ func (s *OffsetMgrSuite) TestOffsetManagerCommitError(c *C) {
 
 // It is guaranteed that a partition offset manager commits all pending offsets
 // before it terminates. Note that it will try indefinitely by design.
-func (s *OffsetMgrSuite) TestOffsetManagerCommitBeforeClose(c *C) {
+func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 	// Given
 	broker1 := sarama.NewMockBroker(c, 101)
 	defer broker1.Close()
@@ -270,7 +270,7 @@ func (s *OffsetMgrSuite) TestOffsetManagerCommitBeforeClose(c *C) {
 
 // Different consumer groups can keep different offsets for the same
 // topic/partition, even where they have the same broker as a coordinator.
-func (s *OffsetMgrSuite) TestOffsetManagerCommitDifferentGroups(c *C) {
+func (s *OffsetMgrSuite) TestCommitDifferentGroups(c *C) {
 	// Given
 	broker1 := sarama.NewMockBroker(c, 101)
 	defer broker1.Close()
@@ -320,7 +320,7 @@ func (s *OffsetMgrSuite) TestOffsetManagerCommitDifferentGroups(c *C) {
 	f.Stop()
 }
 
-func (s *OffsetMgrSuite) TestOffsetManagerCommitNetworkError(c *C) {
+func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 	// Given
 	broker1 := sarama.NewMockBroker(c, 101)
 	defer broker1.Close()
@@ -386,7 +386,7 @@ func (s *OffsetMgrSuite) TestOffsetManagerCommitNetworkError(c *C) {
 	f.Stop()
 }
 
-func (s *OffsetMgrSuite) TestOffsetManagerCommittedChannel(c *C) {
+func (s *OffsetMgrSuite) TestCommittedChannel(c *C) {
 	// Given
 	broker1 := sarama.NewMockBroker(c, 101)
 	defer broker1.Close()
@@ -432,7 +432,7 @@ func (s *OffsetMgrSuite) TestOffsetManagerCommittedChannel(c *C) {
 // side while a partition manager tried to retrieve an initial commit, the later
 // would never try to reestablish connection and get stuck in an infinite loop
 // of unassign->assign of the same broker over and over again.
-func (s *OffsetMgrSuite) TestOffsetManagerConnectionRestored(c *C) {
+func (s *OffsetMgrSuite) TestConnectionRestored(c *C) {
 	broker1 := sarama.NewMockBroker(c, 101)
 	defer broker1.Close()
 	broker2 := sarama.NewMockBroker(c, 102)
