@@ -272,16 +272,20 @@ func (s *GroupRegistratorSuite) TestClaimPartitionCanceled(c *C) {
 	wg := &sync.WaitGroup{}
 
 	claim1 := gr1.claimPartition(s.cid, "foo", 1, cancelCh1)
-	spawn(wg, func() {
+	wg.Add(1)
+	go func() {
+		wg.Done()
 		time.Sleep(300 * time.Millisecond)
 		claim1()
-	})
+	}()
 
 	// This goroutine will cancel the claim of m2 before, m1 releases the partition.
-	spawn(wg, func() {
+	wg.Add(1)
+	go func() {
+		wg.Done()
 		time.Sleep(150 * time.Millisecond)
 		close(cancelCh2)
-	})
+	}()
 
 	// When
 	claim2 := gr2.claimPartition(s.cid, "foo", 1, cancelCh2)

@@ -63,13 +63,13 @@ type Consumer interface {
 }
 
 type consumer struct {
-	baseCID      *actor.ID
-	config       *sarama.Config
-	client       sarama.Client
-	ownClient    bool
-	children     map[topicPartition]*partitionConsumer
-	childrenLock sync.Mutex
-	mapper       *mapper.T
+	actorNamespace *actor.ID
+	config         *sarama.Config
+	client         sarama.Client
+	ownClient      bool
+	children       map[topicPartition]*partitionConsumer
+	childrenLock   sync.Mutex
+	mapper         *mapper.T
 }
 
 type topicPartition struct {
@@ -100,12 +100,12 @@ func NewConsumerFromClient(client sarama.Client) (Consumer, error) {
 		return nil, sarama.ErrClosedClient
 	}
 	c := &consumer{
-		baseCID:  actor.RootID.NewChild("consumer"),
-		client:   client,
-		config:   client.Config(),
-		children: make(map[topicPartition]*partitionConsumer),
+		actorNamespace: actor.RootID.NewChild("partitionConsumer"),
+		client:         client,
+		config:         client.Config(),
+		children:       make(map[topicPartition]*partitionConsumer),
 	}
-	c.mapper = mapper.Spawn(c.baseCID, c)
+	c.mapper = mapper.Spawn(c.actorNamespace, c)
 	return c, nil
 }
 
@@ -155,14 +155,15 @@ func (c *consumer) ResolveBroker(pw mapper.Worker) (*sarama.Broker, error) {
 // implements `mapper.Resolver.Executor()`
 func (c *consumer) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
 	bc := &brokerConsumer{
-		baseCID:         c.baseCID.NewChild(fmt.Sprintf("broker:%d", brokerConn.ID())),
-		config:          c.config,
-		conn:            brokerConn,
-		requestsCh:      make(chan fetchRequest),
-		batchRequestsCh: make(chan []fetchRequest),
+		aggregatorActorID: c.actorNamespace.NewChild(fmt.Sprintf("broker:%d:aggr", brokerConn.ID())),
+		executorActorID:   c.actorNamespace.NewChild(fmt.Sprintf("broker:%d:exec", brokerConn.ID())),
+		config:            c.config,
+		conn:              brokerConn,
+		requestsCh:        make(chan fetchRequest),
+		batchRequestsCh:   make(chan []fetchRequest),
 	}
-	spawn(&bc.wg, bc.batchRequests)
-	spawn(&bc.wg, bc.executeBatches)
+	actor.Spawn(bc.aggregatorActorID, &bc.wg, bc.runAggregator)
+	actor.Spawn(bc.executorActorID, &bc.wg, bc.runExecutor)
 	return bc
 }
 
@@ -221,9 +222,9 @@ type PartitionConsumer interface {
 
 // implements `mapper.Worker`.
 type partitionConsumer struct {
+	actorID  *actor.ID
 	consumer *consumer
 	tp       topicPartition
-	baseCID  *actor.ID
 
 	assignmentCh chan mapper.Executor
 	initErrorCh  chan error
@@ -238,10 +239,10 @@ type partitionConsumer struct {
 }
 
 func (c *consumer) spawnPartitionConsumer(tp topicPartition, offset int64) *partitionConsumer {
-	cp := &partitionConsumer{
+	pc := &partitionConsumer{
+		actorID:      c.actorNamespace.NewChild(fmt.Sprintf("%s:%d", tp.topic, tp.partition)),
 		consumer:     c,
 		tp:           tp,
-		baseCID:      c.baseCID.NewChild(fmt.Sprintf("%s:%d", tp.topic, tp.partition)),
 		assignmentCh: make(chan mapper.Executor, 1),
 		initErrorCh:  make(chan error),
 		messagesCh:   make(chan *ConsumerMessage, c.config.ChannelBufferSize),
@@ -251,8 +252,8 @@ func (c *consumer) spawnPartitionConsumer(tp topicPartition, offset int64) *part
 		offset:       offset,
 		fetchSize:    c.config.Consumer.Fetch.Default,
 	}
-	go cp.pullMessages()
-	return cp
+	actor.Spawn(pc.actorID, nil, pc.run)
+	return pc
 }
 
 func (pc *partitionConsumer) Messages() <-chan *ConsumerMessage {
@@ -293,9 +294,7 @@ func (pc *partitionConsumer) Assignment() chan<- mapper.Executor {
 // redispatch goroutine; parses broker fetch responses and pushes parsed
 // `ConsumerMessages` to the message channel. It tries to keep the message
 // channel buffer full making fetch requests to the assigned broker as needed.
-func (pc *partitionConsumer) pullMessages() {
-	cid := pc.baseCID.NewChild("pullMessages")
-	defer cid.LogScope()()
+func (pc *partitionConsumer) run() {
 	var (
 		assignedFetchRequestCh    chan<- fetchRequest
 		nilOrFetchRequestsCh      chan<- fetchRequest
@@ -313,11 +312,11 @@ func (pc *partitionConsumer) pullMessages() {
 		assignedFetchRequestCh = nil
 		now := time.Now().UTC()
 		if now.Sub(lastReassignTime) > pc.consumer.config.Consumer.Retry.Backoff {
-			log.Infof("<%s> trigger reassign: reason=(%s)", cid, reason)
+			log.Infof("<%s> trigger reassign: reason=(%s)", pc.actorID, reason)
 			lastReassignTime = now
 			pc.consumer.mapper.WorkerReassign() <- pc
 		} else {
-			log.Infof("<%s> schedule reassign: reason=(%s)", cid, reason)
+			log.Infof("<%s> schedule reassign: reason=(%s)", pc.actorID, reason)
 		}
 		nilOrReassignRetryTimerCh = time.After(pc.consumer.config.Consumer.Retry.Backoff)
 	}
@@ -325,7 +324,7 @@ pullMessagesLoop:
 	for {
 		select {
 		case bw := <-pc.assignmentCh:
-			log.Infof("<%s> assigned %s", cid, bw)
+			log.Infof("<%s> assigned %s", pc.actorID, bw)
 			if bw == nil {
 				triggerOrScheduleReassign("no broker assigned")
 				continue pullMessagesLoop
@@ -347,8 +346,8 @@ pullMessagesLoop:
 
 		case result := <-nilOrFetchResultsCh:
 			nilOrFetchResultsCh = nil
-			if fetchedMessages, err = pc.parseFetchResult(cid, result); err != nil {
-				log.Infof("<%s> fetch failed: err=%s", cid, err)
+			if fetchedMessages, err = pc.parseFetchResult(pc.actorID, result); err != nil {
+				log.Infof("<%s> fetch failed: err=%s", pc.actorID, err)
 				pc.reportError(err)
 				if err == sarama.ErrOffsetOutOfRange {
 					// There's no point in retrying this it will just fail the
@@ -381,7 +380,7 @@ pullMessagesLoop:
 
 		case <-nilOrReassignRetryTimerCh:
 			pc.consumer.mapper.WorkerReassign() <- pc
-			log.Infof("<%s> reassign triggered by timeout", cid)
+			log.Infof("<%s> reassign triggered by timeout", pc.actorID)
 			nilOrReassignRetryTimerCh = time.After(pc.consumer.config.Consumer.Retry.Backoff)
 
 		case <-pc.closingCh:
@@ -479,7 +478,7 @@ func (pc *partitionConsumer) reportError(err error) {
 }
 
 func (pc *partitionConsumer) String() string {
-	return pc.baseCID.String()
+	return pc.actorID.String()
 }
 
 // brokerConsumer maintains a connection with a particular Kafka broker. It
@@ -489,12 +488,13 @@ func (pc *partitionConsumer) String() string {
 //
 // implements `mapper.Executor`.
 type brokerConsumer struct {
-	baseCID         *actor.ID
-	config          *sarama.Config
-	conn            *sarama.Broker
-	requestsCh      chan fetchRequest
-	batchRequestsCh chan []fetchRequest
-	wg              sync.WaitGroup
+	aggregatorActorID *actor.ID
+	executorActorID   *actor.ID
+	config            *sarama.Config
+	conn              *sarama.Broker
+	requestsCh        chan fetchRequest
+	batchRequestsCh   chan []fetchRequest
+	wg                sync.WaitGroup
 }
 
 type fetchRequest struct {
@@ -522,12 +522,10 @@ func (bc *brokerConsumer) Stop() {
 	bc.wg.Wait()
 }
 
-// batchRequests collects fetch requests from partition consumers into batches
+// runAggregator collects fetch requests from partition consumers into batches
 // while the request executor goroutine is busy processing the previous batch.
 // As soon as the executor is done, a new batch is handed over to it.
-func (bc *brokerConsumer) batchRequests() {
-	cid := bc.baseCID.NewChild("batchRequests")
-	defer cid.LogScope()()
+func (bc *brokerConsumer) runAggregator() {
 	defer close(bc.batchRequestsCh)
 
 	var nilOrBatchRequestCh chan<- []fetchRequest
@@ -548,11 +546,8 @@ func (bc *brokerConsumer) batchRequests() {
 	}
 }
 
-// executeBatches executes fetch request received from partition consumers.
-func (bc *brokerConsumer) executeBatches() {
-	cid := bc.baseCID.NewChild("executeBatches")
-	defer cid.LogScope()()
-
+// runExecutor executes fetch request received from partition consumers.
+func (bc *brokerConsumer) runExecutor() {
 	var lastErr error
 	var lastErrTime time.Time
 	for fetchRequests := range bc.batchRequestsCh {
@@ -577,7 +572,7 @@ func (bc *brokerConsumer) executeBatches() {
 		if lastErr != nil {
 			lastErrTime = time.Now().UTC()
 			bc.conn.Close()
-			log.Infof("<%s> connection reset: err=(%s)", cid, lastErr)
+			log.Infof("<%s> connection reset: err=(%s)", bc.executorActorID, lastErr)
 		}
 		// Fan the response out to the partition consumers.
 		for _, fr := range fetchRequests {
@@ -590,5 +585,5 @@ func (bc *brokerConsumer) String() string {
 	if bc == nil {
 		return "<nil>"
 	}
-	return bc.baseCID.String()
+	return bc.aggregatorActorID.String()
 }

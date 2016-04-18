@@ -429,14 +429,16 @@ func (s *SmartConsumerSuite) TestBufferOverflowError(c *C) {
 	var overflowErrorCount int32
 	var wg sync.WaitGroup
 	for i := 0; i < 3; i++ {
-		spawn(&wg, func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			for i := 0; i < 10; i++ {
 				_, err := sc.Consume("group-1", "test.1")
 				if _, ok := err.(ErrBufferOverflow); ok {
 					atomic.AddInt32(&overflowErrorCount, 1)
 				}
 			}
-		})
+		}()
 	}
 	wg.Wait()
 
@@ -480,7 +482,7 @@ func (s *SmartConsumerSuite) TestRequestDuringTimeout(c *C) {
 				c.Errorf("Expected err to be nil or ErrRequestTimeout, got: %v", err)
 			}
 			log.Infof("*** consumed: in=%s, by=%s, topic=%s, partition=%d, offset=%d, message=%s",
-				time.Now().Sub(begin), sc.baseCID.String(), consMsg.Topic, consMsg.Partition, consMsg.Offset, consMsg.Value)
+				time.Now().Sub(begin), sc.actorNamespace.String(), consMsg.Topic, consMsg.Partition, consMsg.Offset, consMsg.Value)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
@@ -608,7 +610,7 @@ func (s *SmartConsumerSuite) consume(c *C, sc *T, group, topic string, count int
 
 func logConsumed(sc *T, consMsg *ConsumerMessage) {
 	log.Infof("*** consumed: by=%s, topic=%s, partition=%d, offset=%d, message=%s",
-		sc.baseCID.String(), consMsg.Topic, consMsg.Partition, consMsg.Offset, consMsg.Value)
+		sc.actorNamespace.String(), consMsg.Topic, consMsg.Partition, consMsg.Offset, consMsg.Value)
 }
 
 func drainFirstFetched(sc *T) {

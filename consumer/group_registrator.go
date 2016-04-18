@@ -21,7 +21,8 @@ import (
 // Updated group member subscriptions are sent down to the `membershipChanges()`
 // channel.
 type groupRegistrator struct {
-	baseCID             *actor.ID
+	watcherActorID      *actor.ID
+	registerActorID     *actor.ID
 	group               string
 	config              *config.T
 	groupZNode          *kazoo.Consumergroup
@@ -35,8 +36,10 @@ type groupRegistrator struct {
 func spawnGroupRegistrator(group, memberID string, config *config.T, kazooConn *kazoo.Kazoo) *groupRegistrator {
 	groupZNode := kazooConn.Consumergroup(group)
 	groupMemberZNode := groupZNode.Instance(memberID)
+	actorNamespace := actor.RootID.NewChild(fmt.Sprintf("registry:%s", group))
 	gr := &groupRegistrator{
-		baseCID:             actor.RootID.NewChild(fmt.Sprintf("registry:%s", group)),
+		watcherActorID:      actorNamespace.NewChild("watcher"),
+		registerActorID:     actor.RootID.NewChild("register"),
 		group:               group,
 		config:              config,
 		groupZNode:          groupZNode,
@@ -45,8 +48,8 @@ func spawnGroupRegistrator(group, memberID string, config *config.T, kazooConn *
 		membershipChangesCh: make(chan map[string][]string),
 		stopCh:              make(chan none.T),
 	}
-	spawn(&gr.wg, gr.watcher)
-	spawn(&gr.wg, gr.register)
+	actor.Spawn(gr.watcherActorID, &gr.wg, gr.runWatcher)
+	actor.Spawn(gr.watcherActorID, &gr.wg, gr.runRegister)
 	return gr
 }
 
@@ -97,12 +100,10 @@ func (gr *groupRegistrator) partitionOwner(topic string, partition int32) (strin
 // changes down to the `membershipChangesCh` channel. Note that subscription
 // changes introduced by the `register` goroutine of this `GroupRegistrator`
 // instance are also detected, and that is by design.
-func (gr *groupRegistrator) watcher() {
-	cid := gr.baseCID.NewChild("watcher")
-	defer cid.LogScope()()
+func (gr *groupRegistrator) runWatcher() {
 	defer close(gr.membershipChangesCh)
 
-	if gr.retry(gr.groupZNode.Create, nil, fmt.Sprintf("<%s> failed to create a group znode", cid)) {
+	if gr.retry(gr.groupZNode.Create, nil, fmt.Sprintf("<%s> failed to create a group znode", gr.watcherActorID)) {
 		return
 	}
 watchLoop:
@@ -124,7 +125,7 @@ watchLoop:
 				}
 				return err
 			},
-			nil, fmt.Sprintf("<%s> failed to watch members", cid),
+			nil, fmt.Sprintf("<%s> failed to watch members", gr.watcherActorID),
 		) {
 			return
 		}
@@ -139,7 +140,7 @@ watchLoop:
 		case <-time.After(gr.config.Consumer.RebalanceDelay):
 		}
 
-		gr.sendMembershipUpdate(cid, members)
+		gr.sendMembershipUpdate(members)
 
 		// Wait for another membership change or a signal to quit.
 		select {
@@ -159,8 +160,8 @@ watchLoop:
 // FIXME: It is assumed that all members of the group are registered with the
 // FIXME: `static` pattern. If a member that pattern is either `white_list` or
 // FIXME: `black_list` joins the group the result will be unpredictable.
-func (gr *groupRegistrator) sendMembershipUpdate(cid *actor.ID, members []*kazoo.ConsumergroupInstance) {
-	log.Infof("<%s> fetching group subscriptions...", cid)
+func (gr *groupRegistrator) sendMembershipUpdate(members []*kazoo.ConsumergroupInstance) {
+	log.Infof("<%s> fetching group subscriptions...", gr.watcherActorID)
 	subscriptions := make(map[string][]string, len(members))
 	for _, member := range members {
 		var registration *kazoo.Registration
@@ -170,7 +171,7 @@ func (gr *groupRegistrator) sendMembershipUpdate(cid *actor.ID, members []*kazoo
 				registration, err = member.Registration()
 				return err
 			},
-			nil, fmt.Sprintf("<%s> failed to get member registration", cid),
+			nil, fmt.Sprintf("<%s> failed to get member registration", gr.watcherActorID),
 		) {
 			return
 		}
@@ -182,7 +183,7 @@ func (gr *groupRegistrator) sendMembershipUpdate(cid *actor.ID, members []*kazoo
 		sort.Sort(sort.StringSlice(topics))
 		subscriptions[member.ID] = topics
 	}
-	log.Infof("<%s> group subscriptions changed: %v", cid, subscriptions)
+	log.Infof("<%s> group subscriptions changed: %v", gr.watcherActorID, subscriptions)
 	select {
 	case gr.membershipChangesCh <- subscriptions:
 	case <-gr.stopCh:
@@ -192,12 +193,10 @@ func (gr *groupRegistrator) sendMembershipUpdate(cid *actor.ID, members []*kazoo
 
 // register listens for topic subscription updates on the `topicsCh` channel
 // and updates the member registration in ZooKeeper accordingly.
-func (gr *groupRegistrator) register() {
-	cid := gr.baseCID.NewChild("register")
-	defer cid.LogScope()()
+func (gr *groupRegistrator) runRegister() {
 	defer gr.retry(gr.groupMemberZNode.Deregister,
 		func(err error) bool { return err != nil && err != kazoo.ErrInstanceNotRegistered },
-		fmt.Sprintf("<%s> failed to deregister", cid))
+		fmt.Sprintf("<%s> failed to deregister", gr.registerActorID))
 
 	for {
 		var topics []string
@@ -208,7 +207,7 @@ func (gr *groupRegistrator) register() {
 		}
 		sort.Sort(sort.StringSlice(topics))
 
-		log.Infof("<%s> registering...: id=%s, topics=%v", cid, gr.groupMemberZNode.ID, topics)
+		log.Infof("<%s> registering...: id=%s, topics=%v", gr.registerActorID, gr.groupMemberZNode.ID, topics)
 		if gr.retry(
 			func() error {
 				if err := gr.groupMemberZNode.Deregister(); err != nil && err != kazoo.ErrInstanceNotRegistered {
@@ -216,11 +215,11 @@ func (gr *groupRegistrator) register() {
 				}
 				return gr.groupMemberZNode.Register(topics)
 			},
-			nil, fmt.Sprintf("<%s> failed to register", cid),
+			nil, fmt.Sprintf("<%s> failed to register", gr.registerActorID),
 		) {
 			return
 		}
-		log.Infof("<%s> registered: id=%s, topics=%v", cid, gr.groupMemberZNode.ID, topics)
+		log.Infof("<%s> registered: id=%s, topics=%v", gr.registerActorID, gr.groupMemberZNode.ID, topics)
 	}
 }
 

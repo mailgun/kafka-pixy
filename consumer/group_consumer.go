@@ -18,7 +18,8 @@ import (
 // groupConsumer manages a fleet of topic consumers and disposes of those that
 // have been inactive for the `Config.Consumer.DisposeAfter` period of time.
 type groupConsumer struct {
-	baseCID                 *actor.ID
+	supervisorActorID       *actor.ID
+	managerActorID          *actor.ID
 	cfg                     *config.T
 	group                   string
 	dispatcher              *dispatcher
@@ -38,8 +39,10 @@ type groupConsumer struct {
 }
 
 func (sc *T) newConsumerGroup(group string) *groupConsumer {
+	supervisorActorID := sc.actorNamespace.NewChild(group)
 	gc := &groupConsumer{
-		baseCID:                 sc.baseCID.NewChild(group),
+		supervisorActorID:       supervisorActorID,
+		managerActorID:          supervisorActorID.NewChild("manager"),
 		cfg:                     sc.cfg,
 		group:                   group,
 		kafkaClient:             sc.kafkaClient,
@@ -51,12 +54,12 @@ func (sc *T) newConsumerGroup(group string) *groupConsumer {
 
 		fetchTopicPartitionsFn: sc.kafkaClient.Partitions,
 	}
-	gc.dispatcher = newDispatcher(gc.baseCID, gc, sc.cfg)
+	gc.dispatcher = newDispatcher(gc.supervisorActorID, gc, sc.cfg)
 	return gc
 }
 
 func (gc *groupConsumer) String() string {
-	return gc.baseCID.String()
+	return gc.supervisorActorID.String()
 }
 
 func (gc *groupConsumer) topicConsumerLifespan() chan<- *topicConsumer {
@@ -68,7 +71,7 @@ func (gc *groupConsumer) key() string {
 }
 
 func (gc *groupConsumer) start(stoppedCh chan<- dispatchTier) {
-	spawn(&gc.wg, func() {
+	actor.Spawn(gc.supervisorActorID, &gc.wg, func() {
 		defer func() { stoppedCh <- gc }()
 		var err error
 		gc.dumbConsumer, err = NewConsumerFromClient(gc.kafkaClient)
@@ -78,7 +81,7 @@ func (gc *groupConsumer) start(stoppedCh chan<- dispatchTier) {
 		}
 		gc.registry = spawnGroupRegistrator(gc.group, gc.cfg.ClientID, gc.cfg, gc.kazooConn)
 		var manageWg sync.WaitGroup
-		spawn(&manageWg, gc.managePartitions)
+		actor.Spawn(gc.managerActorID, &manageWg, gc.runManager)
 		gc.dispatcher.start()
 		// Wait for a stop signal and shutdown gracefully when one is received.
 		<-gc.stoppingCh
@@ -107,9 +110,7 @@ func (gc *groupConsumer) newDispatchTier(key string) dispatchTier {
 	return tc
 }
 
-func (gc *groupConsumer) managePartitions() {
-	cid := gc.baseCID.NewChild("managePartitions")
-	defer cid.LogScope()()
+func (gc *groupConsumer) runManager() {
 	var (
 		topicConsumers                = make(map[string]*topicConsumer)
 		topics                        []string
@@ -145,7 +146,7 @@ func (gc *groupConsumer) managePartitions() {
 		case err := <-rebalanceResultCh:
 			canRebalance = true
 			if err != nil {
-				log.Errorf("<%s> rebalance failed: err=(%s)", cid, err)
+				log.Errorf("<%s> rebalance failed: err=(%s)", gc.managerActorID, err)
 				nilOrRetryCh = time.After(gc.cfg.Consumer.BackOffTimeout)
 				continue
 			}
@@ -160,30 +161,35 @@ func (gc *groupConsumer) managePartitions() {
 			for topic, tc := range topicConsumers {
 				topicConsumerCopy[topic] = tc
 			}
-			go gc.rebalance(topicConsumerCopy, subscriptions, rebalanceResultCh)
+			balancerActorID := gc.managerActorID.NewChild("balancer")
+			subscriptions := subscriptions
+			actor.Spawn(balancerActorID, nil, func() {
+				gc.runBalancer(balancerActorID, topicConsumerCopy, subscriptions, rebalanceResultCh)
+			})
 			shouldRebalance, canRebalance = false, false
 		}
 	}
 done:
 	var wg sync.WaitGroup
 	for _, tcg := range gc.topicConsumerGears {
-		spawn(&wg, tcg.stop)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			tcg.stop()
+		}()
 	}
 	wg.Wait()
 }
 
-func (gc *groupConsumer) rebalance(topicConsumers map[string]*topicConsumer,
+func (gc *groupConsumer) runBalancer(actorID *actor.ID, topicConsumers map[string]*topicConsumer,
 	subscriptions map[string][]string, rebalanceResultCh chan<- error,
 ) {
-	cid := gc.baseCID.NewChild("rebalance")
-	defer cid.LogScope(topicConsumers, subscriptions)()
-
 	assignedPartitions, err := gc.resolvePartitions(subscriptions)
 	if err != nil {
 		rebalanceResultCh <- err
 		return
 	}
-	log.Infof("<%s> assigned partitions: %v", cid, assignedPartitions)
+	log.Infof("<%s> assigned partitions: %v", actorID, assignedPartitions)
 	var wg sync.WaitGroup
 	// Stop consuming partitions that are no longer assigned to this group
 	// and start consuming newly assigned partitions for topics that has been

@@ -36,7 +36,7 @@ var (
 // unsubscribes from the topic, likewise if a consumer group has not seen any
 // requests for that period then the consumer deregisters from the group.
 type T struct {
-	baseCID          *actor.ID
+	actorNamespace   *actor.ID
 	cfg              *config.T
 	dispatcher       *dispatcher
 	kafkaClient      sarama.Client
@@ -75,13 +75,13 @@ func Spawn(cfg *config.T) (*T, error) {
 	}
 
 	sc := &T{
-		baseCID:          actor.RootID.NewChild("smartConsumer"),
+		actorNamespace:   actor.RootID.NewChild("consumer"),
 		cfg:              cfg,
 		kafkaClient:      kafkaClient,
 		offsetMgrFactory: offsetMgrFactory,
 		kazooConn:        kazooConn,
 	}
-	sc.dispatcher = newDispatcher(sc.baseCID, sc, sc.cfg)
+	sc.dispatcher = newDispatcher(sc.actorNamespace, sc, sc.cfg)
 	sc.dispatcher.start()
 	return sc, nil
 }
@@ -124,7 +124,7 @@ type consumeResult struct {
 }
 
 func (sc *T) String() string {
-	return sc.baseCID.String()
+	return sc.actorNamespace.String()
 }
 
 func (sc *T) dispatchKey(req consumeRequest) string {
@@ -142,7 +142,7 @@ func (sc *T) newDispatchTier(key string) dispatchTier {
 // `Config.Consumer.LongPollingTimeout` then a timeout error is sent to the
 // requests' reply channel.
 type topicConsumer struct {
-	contextID     *actor.ID
+	actorID       *actor.ID
 	cfg           *config.T
 	gc            *groupConsumer
 	group         string
@@ -155,7 +155,7 @@ type topicConsumer struct {
 
 func (gc *groupConsumer) newTopicConsumer(topic string) *topicConsumer {
 	return &topicConsumer{
-		contextID:     gc.baseCID.NewChild(topic),
+		actorID:       gc.supervisorActorID.NewChild(topic),
 		cfg:           gc.cfg,
 		gc:            gc,
 		group:         gc.group,
@@ -179,7 +179,7 @@ func (tc *topicConsumer) requests() chan<- consumeRequest {
 }
 
 func (tc *topicConsumer) start(stoppedCh chan<- dispatchTier) {
-	spawn(&tc.wg, func() {
+	actor.Spawn(tc.actorID, &tc.wg, func() {
 		defer func() { stoppedCh <- tc }()
 		tc.run()
 	})
@@ -191,7 +191,6 @@ func (tc *topicConsumer) stop() {
 }
 
 func (tc *topicConsumer) run() {
-	defer tc.contextID.LogScope()()
 	tc.gc.topicConsumerLifespan() <- tc
 	defer func() {
 		tc.gc.topicConsumerLifespan() <- tc
@@ -221,7 +220,7 @@ func (tc *topicConsumer) run() {
 }
 
 func (tc *topicConsumer) String() string {
-	return tc.contextID.String()
+	return tc.actorID.String()
 }
 
 // exclusiveConsumer ensures exclusive consumption of messages from a topic
@@ -230,7 +229,7 @@ func (tc *topicConsumer) String() string {
 // message is pulled from the `messages()` channel, it is considered to be
 // consumed and its offset is committed.
 type exclusiveConsumer struct {
-	contextID        *actor.ID
+	actorID          *actor.ID
 	cfg              *config.T
 	group            string
 	topic            string
@@ -246,7 +245,7 @@ type exclusiveConsumer struct {
 
 func (gc *groupConsumer) spawnExclusiveConsumer(topic string, partition int32) *exclusiveConsumer {
 	ec := &exclusiveConsumer{
-		contextID:        gc.baseCID.NewChild(fmt.Sprintf("%s:%d", topic, partition)),
+		actorID:          gc.supervisorActorID.NewChild(fmt.Sprintf("%s:%d", topic, partition)),
 		cfg:              gc.cfg,
 		group:            gc.group,
 		topic:            topic,
@@ -258,7 +257,7 @@ func (gc *groupConsumer) spawnExclusiveConsumer(topic string, partition int32) *
 		acksCh:           make(chan *ConsumerMessage),
 		stoppingCh:       make(chan none.T),
 	}
-	spawn(&ec.wg, ec.run)
+	actor.Spawn(ec.actorID, &ec.wg, ec.run)
 	return ec
 }
 
@@ -271,13 +270,12 @@ func (ec *exclusiveConsumer) acks() chan<- *ConsumerMessage {
 }
 
 func (ec *exclusiveConsumer) run() {
-	defer ec.contextID.LogScope()()
-	defer ec.registry.claimPartition(ec.contextID, ec.topic, ec.partition, ec.stoppingCh)()
+	defer ec.registry.claimPartition(ec.actorID, ec.topic, ec.partition, ec.stoppingCh)()
 
 	om, err := ec.offsetMgrFactory.NewOffsetManager(ec.group, ec.topic, ec.partition)
 	if err != nil {
 		// Must never happen.
-		log.Errorf("<%s> failed to spawn offset manager: err=(%s)", ec.contextID, err)
+		log.Errorf("<%s> failed to spawn offset manager: err=(%s)", ec.actorID, err)
 		return
 	}
 	defer om.Stop()
@@ -293,15 +291,15 @@ func (ec *exclusiveConsumer) run() {
 	pc, concreteOffset, err := ec.dumbConsumer.ConsumePartition(ec.topic, ec.partition, initialOffset.Offset)
 	if err != nil {
 		// Must never happen.
-		log.Errorf("<%s> failed to start partition consumer: offset=%d, err=(%s)", ec.contextID, initialOffset.Offset, err)
+		log.Errorf("<%s> failed to start partition consumer: offset=%d, err=(%s)", ec.actorID, initialOffset.Offset, err)
 		return
 	}
 	defer pc.Close()
 	if initialOffset.Offset != concreteOffset {
 		log.Errorf("<%s> invalid initial offset: stored=%d, adjusted=%d",
-			ec.contextID, initialOffset.Offset, concreteOffset)
+			ec.actorID, initialOffset.Offset, concreteOffset)
 	}
-	log.Infof("<%s> initialized: offset=%d", ec.contextID, concreteOffset)
+	log.Infof("<%s> initialized: offset=%d", ec.actorID, concreteOffset)
 
 	var lastSubmittedOffset, lastCommittedOffset int64
 
@@ -359,13 +357,13 @@ done:
 	// be committed to Kafka before releasing ownership over the partition,
 	// otherwise the message can be consumed by the new partition owner again.
 	log.Infof("<%s> waiting for the last offset to be committed: submitted=%d, committed=%d",
-		ec.contextID, lastSubmittedOffset, lastCommittedOffset)
+		ec.actorID, lastSubmittedOffset, lastCommittedOffset)
 	for committedOffset := range om.CommittedOffsets() {
 		if committedOffset.Offset == lastSubmittedOffset {
 			return
 		}
 		log.Infof("<%s> waiting for the last offset to be committed: submitted=%d, committed=%d",
-			ec.contextID, lastSubmittedOffset, committedOffset.Offset)
+			ec.actorID, lastSubmittedOffset, committedOffset.Offset)
 	}
 }
 

@@ -33,17 +33,6 @@ func (id *ID) String() string {
 	return id.absoluteName
 }
 
-func (id *ID) LogScope(args ...interface{}) func() {
-	if len(args) == 0 {
-		log.Infof("<%v> entered", id)
-	} else {
-		log.Infof("<%v> entered: %s", id, fmt.Sprint(args))
-	}
-	return func() {
-		log.Infof("<%v> leaving", id)
-	}
-}
-
 // Spawn starts function `f` as a goroutine making it a member of the `wg`
 // wait group.
 func Spawn(actorID *ID, wg *sync.WaitGroup, f func()) {

@@ -93,24 +93,24 @@ var ErrRequestTimeout = errors.New("request timeout")
 // NewFactory creates a new offset manager factory from the given client.
 func NewFactory(client sarama.Client) Factory {
 	f := &factory{
-		baseCID:  actor.RootID.NewChild("offsetManagerFactory"),
-		client:   client,
-		config:   client.Config(),
-		children: make(map[groupTopicPartition]*offsetManager),
+		actorNamespace: actor.RootID.NewChild("offsetMgr"),
+		client:         client,
+		config:         client.Config(),
+		children:       make(map[groupTopicPartition]*offsetManager),
 	}
-	f.mapper = mapper.Spawn(f.baseCID, f)
+	f.mapper = mapper.Spawn(f.actorNamespace, f)
 	return f
 }
 
 // implements `Factory`
 // implements `mapper.Resolver`
 type factory struct {
-	baseCID      *actor.ID
-	client       sarama.Client
-	config       *sarama.Config
-	mapper       *mapper.T
-	children     map[groupTopicPartition]*offsetManager
-	childrenLock sync.Mutex
+	actorNamespace *actor.ID
+	client         sarama.Client
+	config         *sarama.Config
+	mapper         *mapper.T
+	children       map[groupTopicPartition]*offsetManager
+	childrenLock   sync.Mutex
 }
 
 type groupTopicPartition struct {
@@ -151,20 +151,21 @@ func (f *factory) ResolveBroker(pw mapper.Worker) (*sarama.Broker, error) {
 // implements `mapper.Resolver`.
 func (f *factory) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
 	be := &brokerExecutor{
-		baseCID:            f.baseCID.NewChild(fmt.Sprintf("broker:%d", brokerConn.ID())),
+		aggregatorActorID:  f.actorNamespace.NewChild(fmt.Sprintf("broker:%d:aggr", brokerConn.ID())),
+		executorActorID:    f.actorNamespace.NewChild(fmt.Sprintf("broker:%d:exec", brokerConn.ID())),
 		config:             f.config,
 		conn:               brokerConn,
 		submittedOffsetsCh: make(chan submittedOffset),
 		offsetBatches:      make(chan map[string]map[groupTopicPartition]submittedOffset),
 	}
-	spawn(&be.wg, be.batchSubmitted)
-	spawn(&be.wg, be.executeBatches)
+	actor.Spawn(be.aggregatorActorID, &be.wg, be.runAggregator)
+	actor.Spawn(be.executorActorID, &be.wg, be.runExecutor)
 	return be
 }
 
 func (f *factory) spawnOffsetManager(gtp groupTopicPartition) *offsetManager {
 	om := &offsetManager{
-		baseCID:            f.baseCID.NewChild(fmt.Sprintf("%s:%s:%d", gtp.group, gtp.topic, gtp.partition)),
+		actorID:            f.actorNamespace.NewChild(fmt.Sprintf("%s:%s:%d", gtp.group, gtp.topic, gtp.partition)),
 		f:                  f,
 		gtp:                gtp,
 		initialOffsetCh:    make(chan DecoratedOffset, 1),
@@ -173,7 +174,7 @@ func (f *factory) spawnOffsetManager(gtp groupTopicPartition) *offsetManager {
 		committedOffsetsCh: make(chan DecoratedOffset, f.config.ChannelBufferSize),
 		errorsCh:           make(chan *OffsetCommitError, f.config.ChannelBufferSize),
 	}
-	spawn(&om.wg, om.processCommits)
+	actor.Spawn(om.actorID, &om.wg, om.run)
 	return om
 }
 
@@ -185,7 +186,7 @@ func (f *factory) Stop() {
 // implements `T`
 // implements `mapper.Worker`
 type offsetManager struct {
-	baseCID            *actor.ID
+	actorID            *actor.ID
 	f                  *factory
 	gtp                groupTopicPartition
 	initialOffsetCh    chan DecoratedOffset
@@ -236,12 +237,10 @@ func (om *offsetManager) Assignment() chan<- mapper.Executor {
 }
 
 func (om *offsetManager) String() string {
-	return om.baseCID.String()
+	return om.actorID.String()
 }
 
-func (om *offsetManager) processCommits() {
-	cid := om.baseCID.NewChild("processCommits")
-	defer cid.LogScope()()
+func (om *offsetManager) run() {
 	defer close(om.committedOffsetsCh)
 	defer close(om.errorsCh)
 	var (
@@ -267,11 +266,11 @@ func (om *offsetManager) processCommits() {
 		nilOrBrokerCommitsCh = nil
 		now := time.Now().UTC()
 		if now.Sub(lastReassignTime) > om.f.config.Consumer.Retry.Backoff {
-			log.Infof("<%s> trigger reassign: reason=%s, err=(%s)", cid, reason, err)
+			log.Infof("<%s> trigger reassign: reason=%s, err=(%s)", om.actorID, reason, err)
 			lastReassignTime = now
 			om.f.mapper.WorkerReassign() <- om
 		} else {
-			log.Infof("<%s> schedule reassign: reason=%s, err=(%s)", cid, reason, err)
+			log.Infof("<%s> schedule reassign: reason=%s, err=(%s)", om.actorID, reason, err)
 		}
 		nilOrReassignRetryTimerCh = time.After(om.f.config.Consumer.Retry.Backoff)
 	}
@@ -337,7 +336,7 @@ func (om *offsetManager) processCommits() {
 			}
 		case <-nilOrReassignRetryTimerCh:
 			om.f.mapper.WorkerReassign() <- om
-			log.Infof("<%s> reassign triggered by timeout", cid)
+			log.Infof("<%s> reassign triggered by timeout", om.actorID)
 			nilOrReassignRetryTimerCh = time.After(om.f.config.Consumer.Retry.Backoff)
 		}
 	}
@@ -415,7 +414,8 @@ type commitResult struct {
 //
 // implements `mapper.Executor`.
 type brokerExecutor struct {
-	baseCID            *actor.ID
+	aggregatorActorID  *actor.ID
+	executorActorID    *actor.ID
 	config             *sarama.Config
 	conn               *sarama.Broker
 	submittedOffsetsCh chan submittedOffset
@@ -434,8 +434,7 @@ func (be *brokerExecutor) Stop() {
 	be.wg.Wait()
 }
 
-func (be *brokerExecutor) batchSubmitted() {
-	defer be.baseCID.NewChild("aggregator").LogScope()()
+func (be *brokerExecutor) runAggregator() {
 	defer close(be.offsetBatches)
 
 	batchCommit := make(map[string]map[groupTopicPartition]submittedOffset)
@@ -460,10 +459,7 @@ func (be *brokerExecutor) batchSubmitted() {
 	}
 }
 
-func (be *brokerExecutor) executeBatches() {
-	cid := be.baseCID.NewChild("executor")
-	defer cid.LogScope()()
-
+func (be *brokerExecutor) runExecutor() {
 	var nilOrOffsetBatchesCh chan map[string]map[groupTopicPartition]submittedOffset
 	var lastErr error
 	var lastErrTime time.Time
@@ -499,7 +495,7 @@ offsetCommitLoop:
 				if lastErr != nil {
 					lastErrTime = time.Now().UTC()
 					be.conn.Close()
-					log.Infof("<%s> connection reset: err=(%v)", cid, lastErr)
+					log.Infof("<%s> connection reset: err=(%v)", be.executorActorID, lastErr)
 					continue offsetCommitLoop
 				}
 				// Fan the response out to the partition offset managers.
@@ -515,5 +511,5 @@ func (be *brokerExecutor) String() string {
 	if be == nil {
 		return "<nil>"
 	}
-	return be.baseCID.String()
+	return be.aggregatorActorID.String()
 }

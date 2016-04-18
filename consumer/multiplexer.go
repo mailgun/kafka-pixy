@@ -12,7 +12,7 @@ import (
 // one by one to the topic consumer choosing wisely between different exclusive
 // consumers to ensure that none of them is neglected.
 type multiplexer struct {
-	contextID    *actor.ID
+	actorID      *actor.ID
 	inputs       []muxInput
 	output       muxOutput
 	lastInputIdx int
@@ -29,19 +29,18 @@ type muxOutput interface {
 	messages() chan<- *ConsumerMessage
 }
 
-func spawnMultiplexer(baseCID *actor.ID, output muxOutput, inputs []muxInput) *multiplexer {
+func spawnMultiplexer(parentActorID *actor.ID, output muxOutput, inputs []muxInput) *multiplexer {
 	m := &multiplexer{
-		contextID: baseCID.NewChild("mux"),
-		inputs:    inputs,
-		output:    output,
-		stopCh:    make(chan none.T),
+		actorID: parentActorID.NewChild("mux"),
+		inputs:  inputs,
+		output:  output,
+		stopCh:  make(chan none.T),
 	}
-	spawn(&m.wg, m.run)
+	actor.Spawn(m.actorID, &m.wg, m.run)
 	return m
 }
 
 func (m *multiplexer) run() {
-	defer m.contextID.LogScope()()
 	inputCount := len(m.inputs)
 	// Prepare a list of reflective select cases that is used when there are no
 	// messages available from any of the inputs and we need to wait on all

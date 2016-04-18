@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Shopify/sarama"
+	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/log"
 	. "gopkg.in/check.v1"
@@ -160,7 +161,7 @@ func (s *OffsetMgrSuite) TestCommitError(c *C) {
 	// When
 	om.SubmitOffset(1000, "foo")
 	var wg sync.WaitGroup
-	spawn(&wg, om.Stop)
+	actor.Spawn(actor.RootID.NewChild("stopper"), &wg, om.Stop)
 
 	// Then
 	oce := <-om.Errors()
@@ -306,13 +307,10 @@ func (s *OffsetMgrSuite) TestCommitDifferentGroups(c *C) {
 	om2.SubmitOffset(2011, "bar2")
 	om1.SubmitOffset(1017, "foo3")
 	om2.SubmitOffset(2019, "bar3")
-	var wg sync.WaitGroup
-	spawn(&wg, om1.Stop)
-	spawn(&wg, om2.Stop)
+	om1.Stop()
+	om2.Stop()
 
 	// Then
-	wg.Wait()
-
 	committedOffset1 := lastCommittedOffset(broker1, "group-1", "topic-1", 7)
 	c.Assert(committedOffset1, DeepEquals, DecoratedOffset{1017, "foo3"})
 	committedOffset2 := lastCommittedOffset(broker1, "group-2", "topic-1", 7)

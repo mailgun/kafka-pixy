@@ -24,14 +24,15 @@ const (
 //
 // TODO Consider implementing some sort of dead message processing.
 type T struct {
-	baseCID         *actor.ID
-	saramaClient    sarama.Client
-	saramaProducer  sarama.AsyncProducer
-	shutdownTimeout time.Duration
-	deadMessageCh   chan<- *sarama.ProducerMessage
-	dispatcherCh    chan *sarama.ProducerMessage
-	resultCh        chan produceResult
-	wg              sync.WaitGroup
+	mergerActorID     *actor.ID
+	dispatcherActorID *actor.ID
+	saramaClient      sarama.Client
+	saramaProducer    sarama.AsyncProducer
+	shutdownTimeout   time.Duration
+	deadMessageCh     chan<- *sarama.ProducerMessage
+	dispatcherCh      chan *sarama.ProducerMessage
+	resultCh          chan produceResult
+	wg                sync.WaitGroup
 }
 
 type produceResult struct {
@@ -61,17 +62,19 @@ func Spawn(cfg *config.T) (*T, error) {
 		return nil, fmt.Errorf("failed to create sarama.Producer, err=(%s)", err)
 	}
 
+	actorNamespace := actor.RootID.NewChild("producer")
 	p := &T{
-		baseCID:         actor.RootID.NewChild("producer"),
-		saramaClient:    saramaClient,
-		saramaProducer:  saramaProducer,
-		shutdownTimeout: cfg.Producer.ShutdownTimeout,
-		deadMessageCh:   cfg.Producer.DeadMessageCh,
-		dispatcherCh:    make(chan *sarama.ProducerMessage, cfg.Producer.ChannelBufferSize),
-		resultCh:        make(chan produceResult, cfg.Producer.ChannelBufferSize),
+		mergerActorID:     actorNamespace.NewChild("merger"),
+		dispatcherActorID: actorNamespace.NewChild("dispatcher"),
+		saramaClient:      saramaClient,
+		saramaProducer:    saramaProducer,
+		shutdownTimeout:   cfg.Producer.ShutdownTimeout,
+		deadMessageCh:     cfg.Producer.DeadMessageCh,
+		dispatcherCh:      make(chan *sarama.ProducerMessage, cfg.Producer.ChannelBufferSize),
+		resultCh:          make(chan produceResult, cfg.Producer.ChannelBufferSize),
 	}
-	spawn(&p.wg, p.merge)
-	spawn(&p.wg, p.dispatch)
+	actor.Spawn(p.mergerActorID, &p.wg, p.runMerger)
+	actor.Spawn(p.dispatcherActorID, &p.wg, p.runDispatcher)
 	return p, nil
 }
 
@@ -121,9 +124,7 @@ func (p *T) AsyncProduce(topic string, key, message sarama.Encoder) {
 // It keeps running until both `sarama.AsyncProducer` output channels are
 // closed. Then it closes the `resultCh` to notify the `dispatcher` goroutine
 // that all pending messages have been processed and exits.
-func (p *T) merge() {
-	cid := p.baseCID.NewChild("merge")
-	defer cid.LogScope()()
+func (p *T) runMerger() {
 	nilOrProdSuccessesCh := p.saramaProducer.Successes()
 	nilOrProdErrorsCh := p.saramaProducer.Errors()
 mergeLoop:
@@ -156,9 +157,7 @@ mergeLoop:
 // purpose is to prevent loss of messages during shutdown. It achieves that by
 // allowing some graceful period after it stops receiving messages and stopping
 // the embedded `sarama.AsyncProducer`.
-func (p *T) dispatch() {
-	cid := p.baseCID.NewChild("dispatch")
-	defer cid.LogScope()()
+func (p *T) runDispatcher() {
 	nilOrDispatcherCh := p.dispatcherCh
 	var nilOrProdInputCh chan<- *sarama.ProducerMessage
 	pendingMsgCount := 0
@@ -182,12 +181,12 @@ func (p *T) dispatch() {
 			nilOrProdInputCh = nil
 		case prodResult := <-p.resultCh:
 			pendingMsgCount -= 1
-			p.handleProduceResult(cid, prodResult)
+			p.handleProduceResult(prodResult)
 		}
 	}
 gracefulShutdown:
 	// Give the `sarama.AsyncProducer` some time to commit buffered messages.
-	log.Infof("<%v> About to stop producer: pendingMsgCount=%d", cid, pendingMsgCount)
+	log.Infof("<%v> About to stop producer: pendingMsgCount=%d", p.dispatcherActorID, pendingMsgCount)
 	shutdownTimeoutCh := time.After(p.shutdownTimeout)
 	for pendingMsgCount > 0 {
 		select {
@@ -195,21 +194,21 @@ gracefulShutdown:
 			goto shutdownNow
 		case prodResult := <-p.resultCh:
 			pendingMsgCount -= 1
-			p.handleProduceResult(cid, prodResult)
+			p.handleProduceResult(prodResult)
 		}
 	}
 shutdownNow:
-	log.Infof("<%v> Stopping producer: pendingMsgCount=%d", cid, pendingMsgCount)
+	log.Infof("<%v> Stopping producer: pendingMsgCount=%d", p.dispatcherActorID, pendingMsgCount)
 	p.saramaProducer.AsyncClose()
 	for prodResult := range p.resultCh {
-		p.handleProduceResult(cid, prodResult)
+		p.handleProduceResult(prodResult)
 	}
 }
 
 // handleProduceResult inspects a production results and if it is an error
 // then logs it and flushes it down the `deadMessageCh` if one had been
 // configured.
-func (p *T) handleProduceResult(cid *actor.ID, result produceResult) {
+func (p *T) handleProduceResult(result produceResult) {
 	if replyCh, ok := result.Msg.Metadata.(chan produceResult); ok {
 		replyCh <- result
 	}
@@ -219,7 +218,7 @@ func (p *T) handleProduceResult(cid *actor.ID, result produceResult) {
 	prodMsgRepr := fmt.Sprintf(`{Topic: "%s", Key: "%s", Value: "%s"}`,
 		result.Msg.Topic, encoderRepr(result.Msg.Key), encoderRepr(result.Msg.Value))
 	log.Errorf("<%v> Failed to submit message: msg=%v, err=(%s)",
-		cid, prodMsgRepr, result.Err)
+		p.dispatcherActorID, prodMsgRepr, result.Err)
 	if p.deadMessageCh != nil {
 		p.deadMessageCh <- result.Msg
 	}
@@ -242,14 +241,4 @@ func encoderRepr(e sarama.Encoder) string {
 			repr[:maxEncoderReprLength], length-maxEncoderReprLength)
 	}
 	return repr
-}
-
-// spawn starts function `f` as a goroutine making it a member of the `wg`
-// wait group.
-func spawn(wg *sync.WaitGroup, f func()) {
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		f()
-	}()
 }

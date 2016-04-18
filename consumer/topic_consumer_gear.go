@@ -36,7 +36,7 @@ func newTopicConsumerGear(spawnInputFn spawnInputFn) *topicConsumerGear {
 		inputs:       make(map[int32]muxInputActor),
 		spawnInputFn: spawnInputFn,
 		spawnMuxFn: func(output muxOutput, inputs []muxInput) muxActor {
-			return spawnMultiplexer(output.(*topicConsumer).contextID, output, inputs)
+			return spawnMultiplexer(output.(*topicConsumer).actorID, output, inputs)
 		},
 	}
 }
@@ -70,7 +70,11 @@ func (tcg *topicConsumerGear) muxInputs(tc *topicConsumer, assigned []int32) {
 
 	if tc == nil {
 		for partition, input := range tcg.inputs {
-			spawn(&wg, input.stop)
+			wg.Add(1)
+			go func(input muxInputActor) {
+				defer wg.Done()
+				input.stop()
+			}(input)
 			delete(tcg.inputs, partition)
 		}
 		wg.Wait()
@@ -83,7 +87,11 @@ func (tcg *topicConsumerGear) muxInputs(tc *topicConsumer, assigned []int32) {
 				tcg.multiplexer.stop()
 				tcg.multiplexer = nil
 			}
-			spawn(&wg, input.stop)
+			wg.Add(1)
+			go func(input muxInputActor) {
+				defer wg.Done()
+				input.stop()
+			}(input)
 			delete(tcg.inputs, partition)
 		}
 	}
@@ -106,7 +114,11 @@ func (tcg *topicConsumerGear) muxInputs(tc *topicConsumer, assigned []int32) {
 
 // muxInputsAsync calls muxInputs in another goroutine.
 func (tcg *topicConsumerGear) muxInputsAsync(wg *sync.WaitGroup, tc *topicConsumer, assigned []int32) {
-	spawn(wg, func() { tcg.muxInputs(tc, assigned) })
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		tcg.muxInputs(tc, assigned)
+	}()
 }
 
 // sortedInputs given a partition->input map returns a slice of all the inputs
