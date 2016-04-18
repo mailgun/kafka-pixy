@@ -3,18 +3,18 @@ package consumer
 import (
 	"time"
 
-	"github.com/mailgun/kafka-pixy/context"
+	"github.com/mailgun/kafka-pixy/actor"
 	. "gopkg.in/check.v1"
 )
 
 type MultiplexerSuite struct {
-	cid *context.ID
+	cid *actor.ID
 }
 
 var _ = Suite(&MultiplexerSuite{})
 
 func (s *MultiplexerSuite) SetUpSuite(c *C) {
-	s.cid = context.RootID.NewChild("testMux")
+	s.cid = actor.RootID.NewChild("testMux")
 }
 
 func (s *MultiplexerSuite) TestFindMaxLag(c *C) {

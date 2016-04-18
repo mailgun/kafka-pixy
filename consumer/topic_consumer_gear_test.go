@@ -1,7 +1,7 @@
 package consumer
 
 import (
-	"github.com/mailgun/kafka-pixy/context"
+	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	. "gopkg.in/check.v1"
 )
@@ -35,7 +35,7 @@ func (s *TopicConsumerGearSuite) TestSortedInputs(c *C) {
 }
 
 func (s *TopicConsumerGearSuite) TestInitial(c *C) {
-	tc := &topicConsumer{contextID: context.RootID.NewChild("test")}
+	tc := &topicConsumer{contextID: actor.RootID.NewChild("test")}
 	tcg := newTopicConsumerGear(s.spawnInput)
 	tcg.spawnMuxFn = s.spawnMultiplexer
 	c.Assert(s.spawnedPartitions, DeepEquals, map[int32]bool{})
@@ -53,7 +53,7 @@ func (s *TopicConsumerGearSuite) TestInitial(c *C) {
 }
 
 func (s *TopicConsumerGearSuite) TestPartitionsAdd(c *C) {
-	tc := &topicConsumer{contextID: context.RootID.NewChild("test")}
+	tc := &topicConsumer{contextID: actor.RootID.NewChild("test")}
 	tcg := newTopicConsumerGear(s.spawnInput)
 	tcg.spawnMuxFn = s.spawnMultiplexer
 	tcg.muxInputs(tc, []int32{2, 3, 4})
@@ -71,7 +71,7 @@ func (s *TopicConsumerGearSuite) TestPartitionsAdd(c *C) {
 }
 
 func (s *TopicConsumerGearSuite) TestPartitionsRemove(c *C) {
-	tc := &topicConsumer{contextID: context.RootID.NewChild("test")}
+	tc := &topicConsumer{contextID: actor.RootID.NewChild("test")}
 	tcg := newTopicConsumerGear(s.spawnInput)
 	tcg.spawnMuxFn = s.spawnMultiplexer
 	tcg.muxInputs(tc, []int32{2, 3, 4})
@@ -89,7 +89,7 @@ func (s *TopicConsumerGearSuite) TestPartitionsRemove(c *C) {
 }
 
 func (s *TopicConsumerGearSuite) TestPartitionsAddRemove(c *C) {
-	tc := &topicConsumer{contextID: context.RootID.NewChild("test")}
+	tc := &topicConsumer{contextID: actor.RootID.NewChild("test")}
 	tcg := newTopicConsumerGear(s.spawnInput)
 	tcg.spawnMuxFn = s.spawnMultiplexer
 	tcg.muxInputs(tc, []int32{2, 3, 4})
@@ -109,7 +109,7 @@ func (s *TopicConsumerGearSuite) TestPartitionsAddRemove(c *C) {
 // If muxInputs called with the same set of partitions and topic consumer as
 // before, then such call is silently ignored.
 func (s *TopicConsumerGearSuite) TestPartitionsSame(c *C) {
-	tc := &topicConsumer{contextID: context.RootID.NewChild("test")}
+	tc := &topicConsumer{contextID: actor.RootID.NewChild("test")}
 	tcg := newTopicConsumerGear(s.spawnInput)
 	tcg.spawnMuxFn = s.spawnMultiplexer
 	tcg.muxInputs(tc, []int32{2, 3, 4})
@@ -125,7 +125,7 @@ func (s *TopicConsumerGearSuite) TestPartitionsSame(c *C) {
 }
 
 func (s *TopicConsumerGearSuite) TestPartitionsNone(c *C) {
-	tc := &topicConsumer{contextID: context.RootID.NewChild("test")}
+	tc := &topicConsumer{contextID: actor.RootID.NewChild("test")}
 	tcg := newTopicConsumerGear(s.spawnInput)
 	tcg.spawnMuxFn = s.spawnMultiplexer
 	tcg.muxInputs(tc, []int32{2, 3, 4})
@@ -143,7 +143,7 @@ func (s *TopicConsumerGearSuite) TestPartitionsNone(c *C) {
 }
 
 func (s *TopicConsumerGearSuite) TestPartitionsNil(c *C) {
-	tc := &topicConsumer{contextID: context.RootID.NewChild("test")}
+	tc := &topicConsumer{contextID: actor.RootID.NewChild("test")}
 	tcg := newTopicConsumerGear(s.spawnInput)
 	tcg.spawnMuxFn = s.spawnMultiplexer
 	tcg.muxInputs(tc, []int32{2, 3, 4})
@@ -163,8 +163,8 @@ func (s *TopicConsumerGearSuite) TestPartitionsNil(c *C) {
 // If it is only topic consumer that is changed then the multiplexer is
 // restarted anyway.
 func (s *TopicConsumerGearSuite) TestTopicConsumerChanged(c *C) {
-	tc1 := &topicConsumer{contextID: context.RootID.NewChild("test")}
-	tc2 := &topicConsumer{contextID: context.RootID.NewChild("test")}
+	tc1 := &topicConsumer{contextID: actor.RootID.NewChild("test")}
+	tc2 := &topicConsumer{contextID: actor.RootID.NewChild("test")}
 	tcg := newTopicConsumerGear(s.spawnInput)
 	tcg.spawnMuxFn = s.spawnMultiplexer
 	tcg.muxInputs(tc1, []int32{2, 3, 4})
@@ -185,7 +185,7 @@ func (s *TopicConsumerGearSuite) TestTopicConsumerChanged(c *C) {
 // If it is only topic consumer that is changed then the multiplexer is
 // restarted anyway.
 func (s *TopicConsumerGearSuite) TestTopicConsumerNil(c *C) {
-	tc := &topicConsumer{contextID: context.RootID.NewChild("test")}
+	tc := &topicConsumer{contextID: actor.RootID.NewChild("test")}
 	tcg := newTopicConsumerGear(s.spawnInput)
 	tcg.spawnMuxFn = s.spawnMultiplexer
 	tcg.muxInputs(tc, []int32{2, 3, 4})
@@ -203,7 +203,7 @@ func (s *TopicConsumerGearSuite) TestTopicConsumerNil(c *C) {
 }
 
 func (s *TopicConsumerGearSuite) TestStop(c *C) {
-	tc := &topicConsumer{contextID: context.RootID.NewChild("test")}
+	tc := &topicConsumer{contextID: actor.RootID.NewChild("test")}
 	tcg := newTopicConsumerGear(s.spawnInput)
 	tcg.spawnMuxFn = s.spawnMultiplexer
 	tcg.muxInputs(tc, []int32{2, 3, 4})

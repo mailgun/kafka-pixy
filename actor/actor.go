@@ -1,0 +1,67 @@
+package actor
+
+import (
+	"fmt"
+	"runtime/debug"
+	"sync"
+
+	"github.com/mailgun/log"
+)
+
+type ID struct {
+	absoluteName     string
+	childrenCounters map[string]int32
+	childrenLock     sync.Mutex
+}
+
+// RootID is the root of the context id hierarchy.
+var RootID = &ID{}
+
+// NewChild creates a child id.
+func (id *ID) NewChild(name string) *ID {
+	id.childrenLock.Lock()
+	if id.childrenCounters == nil {
+		id.childrenCounters = make(map[string]int32)
+	}
+	idx := id.childrenCounters[name]
+	id.childrenCounters[name] = idx + 1
+	id.childrenLock.Unlock()
+	return &ID{absoluteName: fmt.Sprintf("%s/%s[%d]", id.absoluteName, name, idx)}
+}
+
+func (id *ID) String() string {
+	return id.absoluteName
+}
+
+func (id *ID) LogScope(args ...interface{}) func() {
+	if len(args) == 0 {
+		log.Infof("<%v> entered", id)
+	} else {
+		log.Infof("<%v> entered: %s", id, fmt.Sprint(args))
+	}
+	return func() {
+		log.Infof("<%v> leaving", id)
+	}
+}
+
+// Spawn starts function `f` as a goroutine making it a member of the `wg`
+// wait group.
+func Spawn(actorID *ID, wg *sync.WaitGroup, f func()) {
+	if wg != nil {
+		wg.Add(1)
+	}
+	go func() {
+		if wg != nil {
+			defer wg.Done()
+		}
+		log.Infof("<%s> started", actorID)
+		defer func() {
+			if p := recover(); p != nil {
+				log.Errorf("<%s> paniced: %v, stack=%s", p, debug.Stack())
+				panic(p)
+			}
+			log.Infof("<%s> stopped", actorID)
+		}()
+		f()
+	}()
+}

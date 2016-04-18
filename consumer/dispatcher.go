@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
-	"github.com/mailgun/kafka-pixy/context"
 	"github.com/mailgun/log"
 )
 
@@ -17,7 +17,7 @@ import (
 // When a down stream dispatch tier is created it is cached in case more
 // requests resolving to it will come in the nearest future.
 type dispatcher struct {
-	contextID         *context.ID
+	contextID         *actor.ID
 	cfg               *config.T
 	factory           dispatchTierFactory
 	requestsCh        chan consumeRequest
@@ -63,7 +63,7 @@ type expiringDispatchTier struct {
 	expired   bool
 }
 
-func newDispatcher(baseCID *context.ID, factory dispatchTierFactory, cfg *config.T) *dispatcher {
+func newDispatcher(baseCID *actor.ID, factory dispatchTierFactory, cfg *config.T) *dispatcher {
 	d := &dispatcher{
 		contextID:         baseCID.NewChild("dispatcher"),
 		cfg:               cfg,

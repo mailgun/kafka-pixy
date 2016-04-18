@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/Shopify/sarama"
-	"github.com/mailgun/kafka-pixy/context"
+	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/mapper"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
@@ -63,7 +63,7 @@ type Consumer interface {
 }
 
 type consumer struct {
-	baseCID      *context.ID
+	baseCID      *actor.ID
 	config       *sarama.Config
 	client       sarama.Client
 	ownClient    bool
@@ -100,7 +100,7 @@ func NewConsumerFromClient(client sarama.Client) (Consumer, error) {
 		return nil, sarama.ErrClosedClient
 	}
 	c := &consumer{
-		baseCID:  context.RootID.NewChild("consumer"),
+		baseCID:  actor.RootID.NewChild("consumer"),
 		client:   client,
 		config:   client.Config(),
 		children: make(map[topicPartition]*partitionConsumer),
@@ -223,7 +223,7 @@ type PartitionConsumer interface {
 type partitionConsumer struct {
 	consumer *consumer
 	tp       topicPartition
-	baseCID  *context.ID
+	baseCID  *actor.ID
 
 	assignmentCh chan mapper.Executor
 	initErrorCh  chan error
@@ -395,7 +395,7 @@ done:
 }
 
 // parseFetchResult parses a fetch response received a broker.
-func (pc *partitionConsumer) parseFetchResult(cid *context.ID, fetchResult fetchResult) ([]*ConsumerMessage, error) {
+func (pc *partitionConsumer) parseFetchResult(cid *actor.ID, fetchResult fetchResult) ([]*ConsumerMessage, error) {
 	if fetchResult.Err != nil {
 		return nil, fetchResult.Err
 	}
@@ -489,7 +489,7 @@ func (pc *partitionConsumer) String() string {
 //
 // implements `mapper.Executor`.
 type brokerConsumer struct {
-	baseCID         *context.ID
+	baseCID         *actor.ID
 	config          *sarama.Config
 	conn            *sarama.Broker
 	requestsCh      chan fetchRequest

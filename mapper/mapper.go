@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	"github.com/Shopify/sarama"
-	"github.com/mailgun/kafka-pixy/context"
+	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
 )
@@ -25,7 +25,7 @@ import (
 // executor is stopped only after all partition workers that used to be assigned
 // to it have either been stopped or assigned another broker executor.
 type T struct {
-	baseCID          *context.ID
+	baseCID          *actor.ID
 	resolver         Resolver
 	workerSpawnedCh  chan Worker
 	workerStoppedCh  chan Worker
@@ -69,7 +69,7 @@ type Executor interface {
 }
 
 // Spawn creates a mapper instance and starts its internal goroutines.
-func Spawn(cid *context.ID, resolver Resolver) *T {
+func Spawn(cid *actor.ID, resolver Resolver) *T {
 	m := &T{
 		baseCID:          cid,
 		resolver:         resolver,
@@ -170,7 +170,7 @@ func (m *T) watch4Changes() {
 }
 
 // reassign updates partition-to-broker assignments using the external resolver.
-func (m *T) reassign(parentGid *context.ID, change *mappingChange, doneCh chan none.T) {
+func (m *T) reassign(parentGid *actor.ID, change *mappingChange, doneCh chan none.T) {
 	cid := parentGid.NewChild("reassign")
 	defer cid.LogScope(change)()
 	defer func() { doneCh <- none.V }()
@@ -215,7 +215,7 @@ func (m *T) reassign(parentGid *context.ID, change *mappingChange, doneCh chan n
 
 // resolveBroker queries the Kafka cluster for a new partition leader and
 // assigns it to the specified partition consumer.
-func (m *T) resolveBroker(cid *context.ID, pw Worker) {
+func (m *T) resolveBroker(cid *actor.ID, pw Worker) {
 	var newBrokerExecutor Executor
 	brokerConn, err := m.resolver.ResolveBroker(pw)
 	if err != nil {

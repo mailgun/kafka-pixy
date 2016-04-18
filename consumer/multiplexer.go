@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/mailgun/kafka-pixy/context"
+	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/none"
 )
 
@@ -12,7 +12,7 @@ import (
 // one by one to the topic consumer choosing wisely between different exclusive
 // consumers to ensure that none of them is neglected.
 type multiplexer struct {
-	contextID    *context.ID
+	contextID    *actor.ID
 	inputs       []muxInput
 	output       muxOutput
 	lastInputIdx int
@@ -29,7 +29,7 @@ type muxOutput interface {
 	messages() chan<- *ConsumerMessage
 }
 
-func spawnMultiplexer(baseCID *context.ID, output muxOutput, inputs []muxInput) *multiplexer {
+func spawnMultiplexer(baseCID *actor.ID, output muxOutput, inputs []muxInput) *multiplexer {
 	m := &multiplexer{
 		contextID: baseCID.NewChild("mux"),
 		inputs:    inputs,

@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/Shopify/sarama"
+	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
-	"github.com/mailgun/kafka-pixy/context"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/log"
@@ -18,7 +18,7 @@ import (
 // groupConsumer manages a fleet of topic consumers and disposes of those that
 // have been inactive for the `Config.Consumer.DisposeAfter` period of time.
 type groupConsumer struct {
-	baseCID                 *context.ID
+	baseCID                 *actor.ID
 	cfg                     *config.T
 	group                   string
 	dispatcher              *dispatcher

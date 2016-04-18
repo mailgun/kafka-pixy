@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
-	"github.com/mailgun/kafka-pixy/context"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
 	"github.com/samuel/go-zookeeper/zk"
@@ -21,7 +21,7 @@ import (
 // Updated group member subscriptions are sent down to the `membershipChanges()`
 // channel.
 type groupRegistrator struct {
-	baseCID             *context.ID
+	baseCID             *actor.ID
 	group               string
 	config              *config.T
 	groupZNode          *kazoo.Consumergroup
@@ -36,7 +36,7 @@ func spawnGroupRegistrator(group, memberID string, config *config.T, kazooConn *
 	groupZNode := kazooConn.Consumergroup(group)
 	groupMemberZNode := groupZNode.Instance(memberID)
 	gr := &groupRegistrator{
-		baseCID:             context.RootID.NewChild(fmt.Sprintf("registry:%s", group)),
+		baseCID:             actor.RootID.NewChild(fmt.Sprintf("registry:%s", group)),
 		group:               group,
 		config:              config,
 		groupZNode:          groupZNode,
@@ -58,7 +58,7 @@ func (gr *groupRegistrator) membershipChanges() <-chan map[string][]string {
 	return gr.membershipChangesCh
 }
 
-func (gr *groupRegistrator) claimPartition(cid *context.ID, topic string, partition int32, cancelCh <-chan none.T) func() {
+func (gr *groupRegistrator) claimPartition(cid *actor.ID, topic string, partition int32, cancelCh <-chan none.T) func() {
 	if !retry(func() error { return gr.groupMemberZNode.ClaimPartition(topic, partition) }, nil,
 		fmt.Sprintf("<%s> failed to claim partition", cid), gr.config.Consumer.BackOffTimeout, cancelCh,
 	) {
@@ -159,7 +159,7 @@ watchLoop:
 // FIXME: It is assumed that all members of the group are registered with the
 // FIXME: `static` pattern. If a member that pattern is either `white_list` or
 // FIXME: `black_list` joins the group the result will be unpredictable.
-func (gr *groupRegistrator) sendMembershipUpdate(cid *context.ID, members []*kazoo.ConsumergroupInstance) {
+func (gr *groupRegistrator) sendMembershipUpdate(cid *actor.ID, members []*kazoo.ConsumergroupInstance) {
 	log.Infof("<%s> fetching group subscriptions...", cid)
 	subscriptions := make(map[string][]string, len(members))
 	for _, member := range members {

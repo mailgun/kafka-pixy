@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/Shopify/sarama"
-	"github.com/mailgun/kafka-pixy/context"
+	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/mapper"
 	"github.com/mailgun/log"
 )
@@ -93,7 +93,7 @@ var ErrRequestTimeout = errors.New("request timeout")
 // NewFactory creates a new offset manager factory from the given client.
 func NewFactory(client sarama.Client) Factory {
 	f := &factory{
-		baseCID:  context.RootID.NewChild("offsetManagerFactory"),
+		baseCID:  actor.RootID.NewChild("offsetManagerFactory"),
 		client:   client,
 		config:   client.Config(),
 		children: make(map[groupTopicPartition]*offsetManager),
@@ -105,7 +105,7 @@ func NewFactory(client sarama.Client) Factory {
 // implements `Factory`
 // implements `mapper.Resolver`
 type factory struct {
-	baseCID      *context.ID
+	baseCID      *actor.ID
 	client       sarama.Client
 	config       *sarama.Config
 	mapper       *mapper.T
@@ -185,7 +185,7 @@ func (f *factory) Stop() {
 // implements `T`
 // implements `mapper.Worker`
 type offsetManager struct {
-	baseCID            *context.ID
+	baseCID            *actor.ID
 	f                  *factory
 	gtp                groupTopicPartition
 	initialOffsetCh    chan DecoratedOffset
@@ -415,7 +415,7 @@ type commitResult struct {
 //
 // implements `mapper.Executor`.
 type brokerExecutor struct {
-	baseCID            *context.ID
+	baseCID            *actor.ID
 	config             *sarama.Config
 	conn               *sarama.Broker
 	submittedOffsetsCh chan submittedOffset
