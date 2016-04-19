@@ -7,36 +7,16 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
+	"github.com/mailgun/kafka-pixy/consumer/consumermsg"
 	"github.com/mailgun/kafka-pixy/consumer/mapper"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
 )
 
-// ConsumerMessage encapsulates a Kafka message returned by the consumer.
-type ConsumerMessage struct {
-	Key, Value    []byte
-	Topic         string
-	Partition     int32
-	Offset        int64
-	HighWaterMark int64
-}
-
-// ConsumerError is what is provided to the user when an error occurs.
-// It wraps an error and includes the topic and partition.
-type ConsumerError struct {
-	Topic     string
-	Partition int32
-	Err       error
-}
-
-func (ce ConsumerError) Error() string {
-	return fmt.Sprintf("kafka: error while consuming %s/%d: %s", ce.Topic, ce.Partition, ce.Err)
-}
-
 // ConsumerErrors is a type that wraps a batch of errors and implements the Error interface.
 // It can be returned from the PartitionConsumer's Close methods to avoid the need to manually drain errors
 // when stopping.
-type ConsumerErrors []*ConsumerError
+type ConsumerErrors []*consumermsg.ConsumerError
 
 func (ce ConsumerErrors) Error() string {
 	return fmt.Sprintf("kafka: %d errors while consuming", len(ce))
@@ -212,12 +192,12 @@ type PartitionConsumer interface {
 	Close() error
 
 	// Messages returns the read channel for the messages that are returned by the broker.
-	Messages() <-chan *ConsumerMessage
+	Messages() <-chan *consumermsg.ConsumerMessage
 
 	// Errors returns a read channel of errors that occured during consuming, if enabled. By default,
 	// errors are logged and not returned over this channel. If you want to implement any custom error
 	// handling, set your config's Consumer.Return.Errors setting to true, and read from this channel.
-	Errors() <-chan *ConsumerError
+	Errors() <-chan *consumermsg.ConsumerError
 }
 
 // implements `mapper.Worker`.
@@ -228,8 +208,8 @@ type partitionConsumer struct {
 
 	assignmentCh chan mapper.Executor
 	initErrorCh  chan error
-	messagesCh   chan *ConsumerMessage
-	errorsCh     chan *ConsumerError
+	messagesCh   chan *consumermsg.ConsumerMessage
+	errorsCh     chan *consumermsg.ConsumerError
 	closingCh    chan none.T
 	closedCh     chan none.T
 
@@ -245,8 +225,8 @@ func (c *consumer) spawnPartitionConsumer(tp topicPartition, offset int64) *part
 		tp:           tp,
 		assignmentCh: make(chan mapper.Executor, 1),
 		initErrorCh:  make(chan error),
-		messagesCh:   make(chan *ConsumerMessage, c.config.ChannelBufferSize),
-		errorsCh:     make(chan *ConsumerError, c.config.ChannelBufferSize),
+		messagesCh:   make(chan *consumermsg.ConsumerMessage, c.config.ChannelBufferSize),
+		errorsCh:     make(chan *consumermsg.ConsumerError, c.config.ChannelBufferSize),
 		closingCh:    make(chan none.T, 1),
 		closedCh:     make(chan none.T),
 		offset:       offset,
@@ -256,11 +236,11 @@ func (c *consumer) spawnPartitionConsumer(tp topicPartition, offset int64) *part
 	return pc
 }
 
-func (pc *partitionConsumer) Messages() <-chan *ConsumerMessage {
+func (pc *partitionConsumer) Messages() <-chan *consumermsg.ConsumerMessage {
 	return pc.messagesCh
 }
 
-func (pc *partitionConsumer) Errors() <-chan *ConsumerError {
+func (pc *partitionConsumer) Errors() <-chan *consumermsg.ConsumerError {
 	return pc.errorsCh
 }
 
@@ -300,11 +280,11 @@ func (pc *partitionConsumer) run() {
 		nilOrFetchRequestsCh      chan<- fetchRequest
 		fetchResultCh             = make(chan fetchResult, 1)
 		nilOrFetchResultsCh       <-chan fetchResult
-		nilOrMessagesCh           chan<- *ConsumerMessage
+		nilOrMessagesCh           chan<- *consumermsg.ConsumerMessage
 		nilOrReassignRetryTimerCh <-chan time.Time
-		fetchedMessages           []*ConsumerMessage
+		fetchedMessages           []*consumermsg.ConsumerMessage
 		err                       error
-		currMessage               *ConsumerMessage
+		currMessage               *consumermsg.ConsumerMessage
 		currMessageIdx            int
 		lastReassignTime          time.Time
 	)
@@ -394,7 +374,7 @@ done:
 }
 
 // parseFetchResult parses a fetch response received a broker.
-func (pc *partitionConsumer) parseFetchResult(cid *actor.ID, fetchResult fetchResult) ([]*ConsumerMessage, error) {
+func (pc *partitionConsumer) parseFetchResult(cid *actor.ID, fetchResult fetchResult) ([]*consumermsg.ConsumerMessage, error) {
 	if fetchResult.Err != nil {
 		return nil, fetchResult.Err
 	}
@@ -435,13 +415,13 @@ func (pc *partitionConsumer) parseFetchResult(cid *actor.ID, fetchResult fetchRe
 
 	// we got messages, reset our fetch size in case it was increased for a previous request
 	pc.fetchSize = pc.consumer.config.Consumer.Fetch.Default
-	var fetchedMessages []*ConsumerMessage
+	var fetchedMessages []*consumermsg.ConsumerMessage
 	for _, msgBlock := range block.MsgSet.Messages {
 		for _, msg := range msgBlock.Messages() {
 			if msg.Offset < pc.offset {
 				continue
 			}
-			consumerMessage := &ConsumerMessage{
+			consumerMessage := &consumermsg.ConsumerMessage{
 				Topic:         pc.tp.topic,
 				Partition:     pc.tp.partition,
 				Key:           msg.Msg.Key,
@@ -466,7 +446,7 @@ func (pc *partitionConsumer) reportError(err error) {
 	if !pc.consumer.config.Consumer.Return.Errors {
 		return
 	}
-	ce := &ConsumerError{
+	ce := &consumermsg.ConsumerError{
 		Topic:     pc.tp.topic,
 		Partition: pc.tp.partition,
 		Err:       err,

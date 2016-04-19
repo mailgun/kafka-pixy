@@ -8,6 +8,7 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/consumer/consumermsg"
 	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
@@ -104,7 +105,7 @@ func (sc *T) Stop() {
 // `ErrConsumerBufferOverflow` or `ErrConsumerRequestTimeout` even when there
 // are messages available for consumption. In that case the user should back
 // off a bit and then repeat the request.
-func (sc *T) Consume(group, topic string) (*ConsumerMessage, error) {
+func (sc *T) Consume(group, topic string) (*consumermsg.ConsumerMessage, error) {
 	replyCh := make(chan consumeResult, 1)
 	sc.dispatcher.requests() <- consumeRequest{time.Now().UTC(), group, topic, replyCh}
 	result := <-replyCh
@@ -119,7 +120,7 @@ type consumeRequest struct {
 }
 
 type consumeResult struct {
-	Msg *ConsumerMessage
+	Msg *consumermsg.ConsumerMessage
 	Err error
 }
 
@@ -149,7 +150,7 @@ type topicConsumer struct {
 	topic         string
 	assignmentsCh chan []int32
 	requestsCh    chan consumeRequest
-	messagesCh    chan *ConsumerMessage
+	messagesCh    chan *consumermsg.ConsumerMessage
 	wg            sync.WaitGroup
 }
 
@@ -162,11 +163,11 @@ func (gc *groupConsumer) newTopicConsumer(topic string) *topicConsumer {
 		topic:         topic,
 		assignmentsCh: make(chan []int32),
 		requestsCh:    make(chan consumeRequest, gc.cfg.Consumer.ChannelBufferSize),
-		messagesCh:    make(chan *ConsumerMessage),
+		messagesCh:    make(chan *consumermsg.ConsumerMessage),
 	}
 }
 
-func (tc *topicConsumer) messages() chan<- *ConsumerMessage {
+func (tc *topicConsumer) messages() chan<- *consumermsg.ConsumerMessage {
 	return tc.messagesCh
 }
 
@@ -237,8 +238,8 @@ type exclusiveConsumer struct {
 	dumbConsumer     Consumer
 	registry         *groupRegistrator
 	offsetMgrFactory offsetmgr.Factory
-	messagesCh       chan *ConsumerMessage
-	acksCh           chan *ConsumerMessage
+	messagesCh       chan *consumermsg.ConsumerMessage
+	acksCh           chan *consumermsg.ConsumerMessage
 	stoppingCh       chan none.T
 	wg               sync.WaitGroup
 }
@@ -253,19 +254,19 @@ func (gc *groupConsumer) spawnExclusiveConsumer(topic string, partition int32) *
 		dumbConsumer:     gc.dumbConsumer,
 		registry:         gc.registry,
 		offsetMgrFactory: gc.offsetMgrFactory,
-		messagesCh:       make(chan *ConsumerMessage),
-		acksCh:           make(chan *ConsumerMessage),
+		messagesCh:       make(chan *consumermsg.ConsumerMessage),
+		acksCh:           make(chan *consumermsg.ConsumerMessage),
 		stoppingCh:       make(chan none.T),
 	}
 	actor.Spawn(ec.actorID, &ec.wg, ec.run)
 	return ec
 }
 
-func (ec *exclusiveConsumer) messages() <-chan *ConsumerMessage {
+func (ec *exclusiveConsumer) messages() <-chan *consumermsg.ConsumerMessage {
 	return ec.messagesCh
 }
 
-func (ec *exclusiveConsumer) acks() chan<- *ConsumerMessage {
+func (ec *exclusiveConsumer) acks() chan<- *consumermsg.ConsumerMessage {
 	return ec.acksCh
 }
 
@@ -311,7 +312,7 @@ func (ec *exclusiveConsumer) run() {
 
 	firstMessageFetched := false
 	for {
-		var msg *ConsumerMessage
+		var msg *consumermsg.ConsumerMessage
 		// Wait for a fetched message to to provided by the controlled
 		// partition consumer.
 		for {

@@ -2,6 +2,7 @@ package consumer
 
 import (
 	"github.com/mailgun/kafka-pixy/actor"
+	"github.com/mailgun/kafka-pixy/consumer/consumermsg"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	. "gopkg.in/check.v1"
 )
@@ -256,11 +257,11 @@ func (s *TopicConsumerGearSuite) spawnInput(topic string, partition int32) muxIn
 	return input
 }
 
-func (m *mockMuxInputActor) messages() <-chan *ConsumerMessage {
+func (m *mockMuxInputActor) messages() <-chan *consumermsg.ConsumerMessage {
 	return nil
 }
 
-func (m *mockMuxInputActor) acks() chan<- *ConsumerMessage {
+func (m *mockMuxInputActor) acks() chan<- *consumermsg.ConsumerMessage {
 	return nil
 }
 

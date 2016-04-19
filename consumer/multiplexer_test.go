@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/mailgun/kafka-pixy/actor"
+	"github.com/mailgun/kafka-pixy/consumer/consumermsg"
 	. "gopkg.in/check.v1"
 )
 
@@ -18,32 +19,32 @@ func (s *MultiplexerSuite) SetUpSuite(c *C) {
 }
 
 func (s *MultiplexerSuite) TestFindMaxLag(c *C) {
-	max, idx, cnt := findMaxLag([]*ConsumerMessage{nil, lag(11), lag(13), nil, lag(12)})
+	max, idx, cnt := findMaxLag([]*consumermsg.ConsumerMessage{nil, lag(11), lag(13), nil, lag(12)})
 	c.Assert(max, Equals, int64(13))
 	c.Assert(idx, Equals, 2)
 	c.Assert(cnt, Equals, 1)
 
-	max, idx, cnt = findMaxLag([]*ConsumerMessage{nil, lag(11), lag(11), nil, lag(11)})
+	max, idx, cnt = findMaxLag([]*consumermsg.ConsumerMessage{nil, lag(11), lag(11), nil, lag(11)})
 	c.Assert(max, Equals, int64(11))
 	c.Assert(idx, Equals, 1)
 	c.Assert(cnt, Equals, 3)
 }
 
 func (s *MultiplexerSuite) TestSelectInputOne(c *C) {
-	c.Assert(2, Equals, selectInput(-1, []*ConsumerMessage{nil, lag(11), lag(13), nil, lag(12)}))
-	c.Assert(2, Equals, selectInput(2, []*ConsumerMessage{nil, lag(11), lag(13), nil, lag(12)}))
+	c.Assert(2, Equals, selectInput(-1, []*consumermsg.ConsumerMessage{nil, lag(11), lag(13), nil, lag(12)}))
+	c.Assert(2, Equals, selectInput(2, []*consumermsg.ConsumerMessage{nil, lag(11), lag(13), nil, lag(12)}))
 }
 
 func (s *MultiplexerSuite) TestSelectInputMany(c *C) {
-	c.Assert(1, Equals, selectInput(-1, []*ConsumerMessage{nil, lag(11), lag(11), nil, lag(11)}))
-	c.Assert(2, Equals, selectInput(1, []*ConsumerMessage{nil, lag(11), lag(11), nil, lag(11)}))
-	c.Assert(4, Equals, selectInput(2, []*ConsumerMessage{nil, lag(11), lag(11), nil, lag(11)}))
-	c.Assert(1, Equals, selectInput(4, []*ConsumerMessage{nil, lag(11), lag(11), nil, lag(11)}))
+	c.Assert(1, Equals, selectInput(-1, []*consumermsg.ConsumerMessage{nil, lag(11), lag(11), nil, lag(11)}))
+	c.Assert(2, Equals, selectInput(1, []*consumermsg.ConsumerMessage{nil, lag(11), lag(11), nil, lag(11)}))
+	c.Assert(4, Equals, selectInput(2, []*consumermsg.ConsumerMessage{nil, lag(11), lag(11), nil, lag(11)}))
+	c.Assert(1, Equals, selectInput(4, []*consumermsg.ConsumerMessage{nil, lag(11), lag(11), nil, lag(11)}))
 }
 
 // If there is just one input then it is forwarded to the output.
 func (s *MultiplexerSuite) TestOneInput(c *C) {
-	acksCh := make(chan *ConsumerMessage, 100)
+	acksCh := make(chan *consumermsg.ConsumerMessage, 100)
 	in1 := newMockMuxIn(acksCh,
 		msg(1001, 1),
 		msg(1002, 1),
@@ -62,7 +63,7 @@ func (s *MultiplexerSuite) TestOneInput(c *C) {
 // If there are several inputs with the same max lag then messages from them
 // are multiplexed in the round robin fashion. Note that messages are acknowledged
 func (s *MultiplexerSuite) TestSameLag(c *C) {
-	acksCh := make(chan *ConsumerMessage, 100)
+	acksCh := make(chan *consumermsg.ConsumerMessage, 100)
 	in1 := newMockMuxIn(acksCh,
 		msg(1001, 1),
 		msg(1002, 1),
@@ -105,7 +106,7 @@ func (s *MultiplexerSuite) TestSameLag(c *C) {
 
 // Messages with the largest lag among current channel heads is selected.
 func (s *MultiplexerSuite) TestLargeLagPreferred(c *C) {
-	acksCh := make(chan *ConsumerMessage, 100)
+	acksCh := make(chan *consumermsg.ConsumerMessage, 100)
 	in1 := newMockMuxIn(acksCh,
 		msg(1001, 1),
 		msg(1002, 3),
@@ -134,7 +135,7 @@ func (s *MultiplexerSuite) TestLargeLagPreferred(c *C) {
 // for a message to appear in any of the inputs.
 func (s *MultiplexerSuite) TestNoMessages(c *C) {
 	// Given
-	acksCh := make(chan *ConsumerMessage, 100)
+	acksCh := make(chan *consumermsg.ConsumerMessage, 100)
 	in1 := newMockMuxIn(acksCh, msg(1001, 1))
 	in2 := newMockMuxIn(acksCh)
 	in3 := newMockMuxIn(acksCh)
@@ -158,13 +159,13 @@ func (s *MultiplexerSuite) TestNoMessages(c *C) {
 }
 
 type mockMuxIn struct {
-	messagesCh chan *ConsumerMessage
-	acksCh     chan *ConsumerMessage
+	messagesCh chan *consumermsg.ConsumerMessage
+	acksCh     chan *consumermsg.ConsumerMessage
 }
 
-func newMockMuxIn(acksCh chan *ConsumerMessage, messages ...*ConsumerMessage) *mockMuxIn {
+func newMockMuxIn(acksCh chan *consumermsg.ConsumerMessage, messages ...*consumermsg.ConsumerMessage) *mockMuxIn {
 	mmi := mockMuxIn{
-		messagesCh: make(chan *ConsumerMessage, len(messages)),
+		messagesCh: make(chan *consumermsg.ConsumerMessage, len(messages)),
 		acksCh:     acksCh,
 	}
 	for _, m := range messages {
@@ -173,43 +174,43 @@ func newMockMuxIn(acksCh chan *ConsumerMessage, messages ...*ConsumerMessage) *m
 	return &mmi
 }
 
-func (mmi *mockMuxIn) messages() <-chan *ConsumerMessage {
+func (mmi *mockMuxIn) messages() <-chan *consumermsg.ConsumerMessage {
 	return mmi.messagesCh
 }
 
-func (mmi *mockMuxIn) acks() chan<- *ConsumerMessage {
+func (mmi *mockMuxIn) acks() chan<- *consumermsg.ConsumerMessage {
 	return mmi.acksCh
 }
 
 type mockMuxOut struct {
-	messagesCh chan *ConsumerMessage
+	messagesCh chan *consumermsg.ConsumerMessage
 }
 
 func newMockMuxOut(capacity int) *mockMuxOut {
 	return &mockMuxOut{
-		messagesCh: make(chan *ConsumerMessage, capacity),
+		messagesCh: make(chan *consumermsg.ConsumerMessage, capacity),
 	}
 }
 
-func (mmo *mockMuxOut) messages() chan<- *ConsumerMessage {
+func (mmo *mockMuxOut) messages() chan<- *consumermsg.ConsumerMessage {
 	return mmo.messagesCh
 }
 
-func msg(offset, lag int64) *ConsumerMessage {
-	return &ConsumerMessage{
+func msg(offset, lag int64) *consumermsg.ConsumerMessage {
+	return &consumermsg.ConsumerMessage{
 		Offset:        offset,
 		HighWaterMark: offset + lag,
 	}
 }
 
-func lag(lag int64) *ConsumerMessage {
-	return &ConsumerMessage{
+func lag(lag int64) *consumermsg.ConsumerMessage {
+	return &consumermsg.ConsumerMessage{
 		Offset:        0,
 		HighWaterMark: lag,
 	}
 }
 
-func checkMsg(c *C, outCh, acksCh chan *ConsumerMessage, expected *ConsumerMessage) {
+func checkMsg(c *C, outCh, acksCh chan *consumermsg.ConsumerMessage, expected *consumermsg.ConsumerMessage) {
 	c.Assert(<-outCh, DeepEquals, expected)
 	c.Assert(<-acksCh, DeepEquals, expected)
 }

@@ -19,6 +19,10 @@ type OffsetMgrFuncSuite struct {
 
 var _ = Suite(&OffsetMgrFuncSuite{})
 
+func (s *OffsetMgrFuncSuite) SetUpSuite(c *C) {
+	testhelpers.InitLogging(c)
+}
+
 // The latest committed offset saved by one partition manager instance is
 // returned by another as the initial commit.
 func (s *OffsetMgrFuncSuite) TestLatestOffsetSaved(c *C) {

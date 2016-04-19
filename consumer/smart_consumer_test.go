@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Shopify/sarama"
+	"github.com/mailgun/kafka-pixy/consumer/consumermsg"
 	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
@@ -294,7 +295,7 @@ func (s *SmartConsumerSuite) TestRebalanceOnLeave(c *C) {
 	log.Infof("*** GIVEN 1")
 	// Consume the first message to make the consumer join the group and
 	// subscribe to the topic.
-	consumed := make([]map[string][]*ConsumerMessage, 3)
+	consumed := make([]map[string][]*consumermsg.ConsumerMessage, 3)
 	for i := 0; i < 3; i++ {
 		consumed[i] = s.consume(c, consumers[i], "group-1", "test.4", 1)
 	}
@@ -573,23 +574,23 @@ func (s *SmartConsumerSuite) TestNewGroup(c *C) {
 	sc.Stop()
 }
 
-func assertMsg(c *C, consMsg *ConsumerMessage, prodMsg *sarama.ProducerMessage) {
+func assertMsg(c *C, consMsg *consumermsg.ConsumerMessage, prodMsg *sarama.ProducerMessage) {
 	c.Assert(sarama.StringEncoder(consMsg.Value), Equals, prodMsg.Value)
 	c.Assert(consMsg.Offset, Equals, prodMsg.Offset)
 }
 
-func (s *SmartConsumerSuite) compareMsg(consMsg *ConsumerMessage, prodMsg *sarama.ProducerMessage) bool {
+func (s *SmartConsumerSuite) compareMsg(consMsg *consumermsg.ConsumerMessage, prodMsg *sarama.ProducerMessage) bool {
 	return sarama.StringEncoder(consMsg.Value) == prodMsg.Value.(sarama.Encoder) && consMsg.Offset == prodMsg.Offset
 }
 
 const consumeAll = -1
 
 func (s *SmartConsumerSuite) consume(c *C, sc *T, group, topic string, count int,
-	extend ...map[string][]*ConsumerMessage) map[string][]*ConsumerMessage {
+	extend ...map[string][]*consumermsg.ConsumerMessage) map[string][]*consumermsg.ConsumerMessage {
 
-	var consumed map[string][]*ConsumerMessage
+	var consumed map[string][]*consumermsg.ConsumerMessage
 	if len(extend) == 0 {
-		consumed = make(map[string][]*ConsumerMessage)
+		consumed = make(map[string][]*consumermsg.ConsumerMessage)
 	} else {
 		consumed = extend[0]
 	}
@@ -608,7 +609,7 @@ func (s *SmartConsumerSuite) consume(c *C, sc *T, group, topic string, count int
 	return consumed
 }
 
-func logConsumed(sc *T, consMsg *ConsumerMessage) {
+func logConsumed(sc *T, consMsg *consumermsg.ConsumerMessage) {
 	log.Infof("*** consumed: by=%s, topic=%s, partition=%d, offset=%d, message=%s",
 		sc.actorNamespace.String(), consMsg.Topic, consMsg.Partition, consMsg.Offset, consMsg.Value)
 }

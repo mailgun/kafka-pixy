@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/mailgun/kafka-pixy/actor"
+	"github.com/mailgun/kafka-pixy/consumer/consumermsg"
 	"github.com/mailgun/kafka-pixy/none"
 )
 
@@ -21,12 +22,12 @@ type multiplexer struct {
 }
 
 type muxInput interface {
-	messages() <-chan *ConsumerMessage
-	acks() chan<- *ConsumerMessage
+	messages() <-chan *consumermsg.ConsumerMessage
+	acks() chan<- *consumermsg.ConsumerMessage
 }
 
 type muxOutput interface {
-	messages() chan<- *ConsumerMessage
+	messages() chan<- *consumermsg.ConsumerMessage
 }
 
 func spawnMultiplexer(parentActorID *actor.ID, output muxOutput, inputs []muxInput) *multiplexer {
@@ -52,7 +53,7 @@ func (m *multiplexer) run() {
 	}
 	selectCases[inputCount] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(m.stopCh)}
 
-	nextMessages := make([]*ConsumerMessage, inputCount)
+	nextMessages := make([]*consumermsg.ConsumerMessage, inputCount)
 	inputIdx := -1
 	for {
 		// Collect next messages from all inputs.
@@ -78,7 +79,7 @@ func (m *multiplexer) run() {
 			if !ok {
 				return
 			}
-			nextMessages[selected] = value.Interface().(*ConsumerMessage)
+			nextMessages[selected] = value.Interface().(*consumermsg.ConsumerMessage)
 		}
 		// At this point there is at least one next message available.
 		inputIdx = selectInput(inputIdx, nextMessages)
@@ -101,7 +102,7 @@ func (m *multiplexer) stop() {
 // selectInput picks an input that should be multiplexed next. It prefers the
 // inputs with the largest lag. If there is more then one input with the largest
 // lag then it picks the one that index is following the lastInputIdx.
-func selectInput(lastInputIdx int, inputMessages []*ConsumerMessage) int {
+func selectInput(lastInputIdx int, inputMessages []*consumermsg.ConsumerMessage) int {
 	maxLag, maxLagIdx, maxLagCount := findMaxLag(inputMessages)
 	if maxLagCount == 1 {
 		return maxLagIdx
@@ -125,7 +126,7 @@ func selectInput(lastInputIdx int, inputMessages []*ConsumerMessage) int {
 // returns the value of the max lag among them, along with the index of the
 // first message with the max lag value and the total count of messages that
 // have max lag.
-func findMaxLag(inputMessages []*ConsumerMessage) (maxLag int64, maxLagIdx, maxLagCount int) {
+func findMaxLag(inputMessages []*consumermsg.ConsumerMessage) (maxLag int64, maxLagIdx, maxLagCount int) {
 	maxLag = -1
 	maxLagIdx = -1
 	for i, msg := range inputMessages {
