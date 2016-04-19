@@ -1,6 +1,7 @@
-package consumer
+package multiplexer
 
 import (
+	"testing"
 	"time"
 
 	"github.com/mailgun/kafka-pixy/actor"
@@ -8,14 +9,18 @@ import (
 	. "gopkg.in/check.v1"
 )
 
+func Test(t *testing.T) {
+	TestingT(t)
+}
+
 type MultiplexerSuite struct {
-	cid *actor.ID
+	actorID *actor.ID
 }
 
 var _ = Suite(&MultiplexerSuite{})
 
 func (s *MultiplexerSuite) SetUpSuite(c *C) {
-	s.cid = actor.RootID.NewChild("testMux")
+	s.actorID = actor.RootID.NewChild("testMux")
 }
 
 func (s *MultiplexerSuite) TestFindMaxLag(c *C) {
@@ -51,13 +56,13 @@ func (s *MultiplexerSuite) TestOneInput(c *C) {
 		msg(1003, 1),
 	)
 	out := newMockMuxOut(100)
-	m := spawnMultiplexer(s.cid, out, []muxInput{in1})
+	m := Spawn(s.actorID, out, []In{in1})
 
 	checkMsg(c, out.messagesCh, acksCh, msg(1001, 1))
 	checkMsg(c, out.messagesCh, acksCh, msg(1002, 1))
 	checkMsg(c, out.messagesCh, acksCh, msg(1003, 1))
 
-	m.stop()
+	m.Stop()
 }
 
 // If there are several inputs with the same max lag then messages from them
@@ -84,7 +89,7 @@ func (s *MultiplexerSuite) TestSameLag(c *C) {
 		msg(4001, 1),
 	)
 	out := newMockMuxOut(100)
-	m := spawnMultiplexer(s.cid, out, []muxInput{in1, in2, in3, in4})
+	m := Spawn(s.actorID, out, []In{in1, in2, in3, in4})
 
 	checkMsg(c, out.messagesCh, acksCh, msg(1001, 1))
 	checkMsg(c, out.messagesCh, acksCh, msg(2001, 1))
@@ -101,7 +106,7 @@ func (s *MultiplexerSuite) TestSameLag(c *C) {
 	checkMsg(c, out.messagesCh, acksCh, msg(1004, 1))
 
 	checkMsg(c, out.messagesCh, acksCh, msg(1005, 1))
-	m.stop()
+	m.Stop()
 }
 
 // Messages with the largest lag among current channel heads is selected.
@@ -120,7 +125,7 @@ func (s *MultiplexerSuite) TestLargeLagPreferred(c *C) {
 		msg(3002, 4),
 	)
 	out := newMockMuxOut(100)
-	m := spawnMultiplexer(s.cid, out, []muxInput{in1, in2, in3})
+	m := Spawn(s.actorID, out, []In{in1, in2, in3})
 
 	checkMsg(c, out.messagesCh, acksCh, msg(2001, 2))
 	checkMsg(c, out.messagesCh, acksCh, msg(3001, 1))
@@ -128,7 +133,7 @@ func (s *MultiplexerSuite) TestLargeLagPreferred(c *C) {
 	checkMsg(c, out.messagesCh, acksCh, msg(1001, 1))
 	checkMsg(c, out.messagesCh, acksCh, msg(1002, 3))
 	checkMsg(c, out.messagesCh, acksCh, msg(2002, 1))
-	m.stop()
+	m.Stop()
 }
 
 // If there are no messages available on the inputs, multiplexer blocks waiting
@@ -140,7 +145,7 @@ func (s *MultiplexerSuite) TestNoMessages(c *C) {
 	in2 := newMockMuxIn(acksCh)
 	in3 := newMockMuxIn(acksCh)
 	out := newMockMuxOut(100)
-	m := spawnMultiplexer(s.cid, out, []muxInput{in1, in2, in3})
+	m := Spawn(s.actorID, out, []In{in1, in2, in3})
 
 	// Make sure that multiplexer started and is pumping messages.
 	checkMsg(c, out.messagesCh, acksCh, msg(1001, 1))
@@ -155,7 +160,7 @@ func (s *MultiplexerSuite) TestNoMessages(c *C) {
 
 	// Then
 	checkMsg(c, out.messagesCh, acksCh, msg(2001, 1))
-	m.stop()
+	m.Stop()
 }
 
 type mockMuxIn struct {
@@ -174,11 +179,13 @@ func newMockMuxIn(acksCh chan *consumermsg.ConsumerMessage, messages ...*consume
 	return &mmi
 }
 
-func (mmi *mockMuxIn) messages() <-chan *consumermsg.ConsumerMessage {
+// implements `In`
+func (mmi *mockMuxIn) Messages() <-chan *consumermsg.ConsumerMessage {
 	return mmi.messagesCh
 }
 
-func (mmi *mockMuxIn) acks() chan<- *consumermsg.ConsumerMessage {
+// implements `In`
+func (mmi *mockMuxIn) Acks() chan<- *consumermsg.ConsumerMessage {
 	return mmi.acksCh
 }
 
@@ -192,7 +199,8 @@ func newMockMuxOut(capacity int) *mockMuxOut {
 	}
 }
 
-func (mmo *mockMuxOut) messages() chan<- *consumermsg.ConsumerMessage {
+// implements `Out`
+func (mmo *mockMuxOut) Messages() chan<- *consumermsg.ConsumerMessage {
 	return mmo.messagesCh
 }
 

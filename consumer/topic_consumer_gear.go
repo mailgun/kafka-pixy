@@ -3,6 +3,8 @@ package consumer
 import (
 	"sort"
 	"sync"
+
+	"github.com/mailgun/kafka-pixy/consumer/multiplexer"
 )
 
 // topicConsumerGear represents a set of actors that a consumer group maintains
@@ -18,25 +20,25 @@ type topicConsumerGear struct {
 }
 
 type muxInputActor interface {
-	muxInput
-	stop()
+	multiplexer.In
+	Stop()
 }
 
 type muxActor interface {
-	stop()
+	Stop()
 }
 
 type spawnInputFn func(topic string, partition int32) muxInputActor
 
-type spawnMuxFn func(output muxOutput, inputs []muxInput) muxActor
+type spawnMuxFn func(output multiplexer.Out, inputs []multiplexer.In) muxActor
 
 // newTopicConsumerGear makes a new `topicConsumerGear`.
 func newTopicConsumerGear(spawnInputFn spawnInputFn) *topicConsumerGear {
 	return &topicConsumerGear{
 		inputs:       make(map[int32]muxInputActor),
 		spawnInputFn: spawnInputFn,
-		spawnMuxFn: func(output muxOutput, inputs []muxInput) muxActor {
-			return spawnMultiplexer(output.(*topicConsumer).actorID, output, inputs)
+		spawnMuxFn: func(output multiplexer.Out, inputs []multiplexer.In) muxActor {
+			return multiplexer.Spawn(output.(*topicConsumer).actorID, output, inputs)
 		},
 	}
 }
@@ -62,7 +64,7 @@ func (tcg *topicConsumerGear) muxInputs(tc *topicConsumer, assigned []int32) {
 
 	if tcg.tc != tc {
 		if tcg.multiplexer != nil {
-			tcg.multiplexer.stop()
+			tcg.multiplexer.Stop()
 			tcg.multiplexer = nil
 		}
 		tcg.tc = tc
@@ -73,7 +75,7 @@ func (tcg *topicConsumerGear) muxInputs(tc *topicConsumer, assigned []int32) {
 			wg.Add(1)
 			go func(input muxInputActor) {
 				defer wg.Done()
-				input.stop()
+				input.Stop()
 			}(input)
 			delete(tcg.inputs, partition)
 		}
@@ -84,13 +86,13 @@ func (tcg *topicConsumerGear) muxInputs(tc *topicConsumer, assigned []int32) {
 	for partition, input := range tcg.inputs {
 		if !hasPartition(partition, assigned) {
 			if tcg.multiplexer != nil {
-				tcg.multiplexer.stop()
+				tcg.multiplexer.Stop()
 				tcg.multiplexer = nil
 			}
 			wg.Add(1)
 			go func(input muxInputActor) {
 				defer wg.Done()
-				input.stop()
+				input.Stop()
 			}(input)
 			delete(tcg.inputs, partition)
 		}
@@ -100,7 +102,7 @@ func (tcg *topicConsumerGear) muxInputs(tc *topicConsumer, assigned []int32) {
 	for _, partition := range assigned {
 		if _, ok := tcg.inputs[partition]; !ok {
 			if tcg.multiplexer != nil {
-				tcg.multiplexer.stop()
+				tcg.multiplexer.Stop()
 				tcg.multiplexer = nil
 			}
 			input := tcg.spawnInputFn(tc.topic, partition)
@@ -123,13 +125,13 @@ func (tcg *topicConsumerGear) muxInputsAsync(wg *sync.WaitGroup, tc *topicConsum
 
 // sortedInputs given a partition->input map returns a slice of all the inputs
 // from the map sorted in ascending order of partition ids.
-func sortedInputs(inputs map[int32]muxInputActor) []muxInput {
+func sortedInputs(inputs map[int32]muxInputActor) []multiplexer.In {
 	partitions := make([]int32, 0, len(inputs))
 	for p := range inputs {
 		partitions = append(partitions, p)
 	}
 	sort.Sort(Int32Slice(partitions))
-	sorted := make([]muxInput, 0, len(inputs))
+	sorted := make([]multiplexer.In, 0, len(inputs))
 	for _, p := range partitions {
 		sorted = append(sorted, inputs[p])
 	}

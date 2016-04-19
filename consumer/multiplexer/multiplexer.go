@@ -1,4 +1,4 @@
-package consumer
+package multiplexer
 
 import (
 	"reflect"
@@ -9,29 +9,33 @@ import (
 	"github.com/mailgun/kafka-pixy/none"
 )
 
-// multiplexer pulls messages fetched by exclusive consumers and offers them
+// T pulls messages fetched by exclusive consumers and offers them
 // one by one to the topic consumer choosing wisely between different exclusive
 // consumers to ensure that none of them is neglected.
-type multiplexer struct {
+type T struct {
 	actorID      *actor.ID
-	inputs       []muxInput
-	output       muxOutput
+	inputs       []In
+	output       Out
 	lastInputIdx int
 	stopCh       chan none.T
 	wg           sync.WaitGroup
 }
 
-type muxInput interface {
-	messages() <-chan *consumermsg.ConsumerMessage
-	acks() chan<- *consumermsg.ConsumerMessage
+// In defines an interface of multiplexer input.
+type In interface {
+	Messages() <-chan *consumermsg.ConsumerMessage
+	Acks() chan<- *consumermsg.ConsumerMessage
 }
 
-type muxOutput interface {
-	messages() chan<- *consumermsg.ConsumerMessage
+// Out defines an interface of multiplexer output.
+type Out interface {
+	Messages() chan<- *consumermsg.ConsumerMessage
 }
 
-func spawnMultiplexer(parentActorID *actor.ID, output muxOutput, inputs []muxInput) *multiplexer {
-	m := &multiplexer{
+// Spawns starts a multiplexer instance that selects messages from the
+// specified inputs based on their lag and forwards them to the output.
+func Spawn(parentActorID *actor.ID, output Out, inputs []In) *T {
+	m := &T{
 		actorID: parentActorID.NewChild("mux"),
 		inputs:  inputs,
 		output:  output,
@@ -41,7 +45,7 @@ func spawnMultiplexer(parentActorID *actor.ID, output muxOutput, inputs []muxInp
 	return m
 }
 
-func (m *multiplexer) run() {
+func (m *T) run() {
 	inputCount := len(m.inputs)
 	// Prepare a list of reflective select cases that is used when there are no
 	// messages available from any of the inputs and we need to wait on all
@@ -49,7 +53,7 @@ func (m *multiplexer) run() {
 	// it is only used in a corner case.
 	selectCases := make([]reflect.SelectCase, inputCount+1)
 	for i, ec := range m.inputs {
-		selectCases[i] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(ec.messages())}
+		selectCases[i] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(ec.Messages())}
 	}
 	selectCases[inputCount] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(m.stopCh)}
 
@@ -64,7 +68,7 @@ func (m *multiplexer) run() {
 				continue
 			}
 			select {
-			case msg := <-m.inputs[i].messages():
+			case msg := <-m.inputs[i].Messages():
 				nextMessages[i] = msg
 				isAtLeastOneAvailable = true
 			default:
@@ -87,14 +91,14 @@ func (m *multiplexer) run() {
 		select {
 		case <-m.stopCh:
 			return
-		case m.output.messages() <- nextMessages[inputIdx]:
-			m.inputs[inputIdx].acks() <- nextMessages[inputIdx]
+		case m.output.Messages() <- nextMessages[inputIdx]:
+			m.inputs[inputIdx].Acks() <- nextMessages[inputIdx]
 			nextMessages[inputIdx] = nil
 		}
 	}
 }
 
-func (m *multiplexer) stop() {
+func (m *T) Stop() {
 	close(m.stopCh)
 	m.wg.Wait()
 }

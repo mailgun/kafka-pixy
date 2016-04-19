@@ -3,6 +3,7 @@ package consumer
 import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/consumer/consumermsg"
+	"github.com/mailgun/kafka-pixy/consumer/multiplexer"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	. "gopkg.in/check.v1"
 )
@@ -26,11 +27,11 @@ func (s *TopicConsumerGearSuite) SetUpTest(c *C) {
 }
 
 func (s *TopicConsumerGearSuite) TestSortedInputs(c *C) {
-	c.Assert([]muxInput{}, DeepEquals,
+	c.Assert([]multiplexer.In{}, DeepEquals,
 		sortedInputs(map[int32]muxInputActor{}))
-	c.Assert([]muxInput{in(1)}, DeepEquals,
+	c.Assert([]multiplexer.In{in(1)}, DeepEquals,
 		sortedInputs(map[int32]muxInputActor{1: in(1)}))
-	c.Assert([]muxInput{in(1), in(2), in(3), in(4), in(5)}, DeepEquals,
+	c.Assert([]multiplexer.In{in(1), in(2), in(3), in(4), in(5)}, DeepEquals,
 		sortedInputs(map[int32]muxInputActor{
 			1: in(1), 2: in(2), 3: in(3), 4: in(4), 5: in(5)}))
 }
@@ -229,7 +230,7 @@ type mockMux struct {
 	s *TopicConsumerGearSuite
 }
 
-func (s *TopicConsumerGearSuite) spawnMultiplexer(output muxOutput, inputs []muxInput) muxActor {
+func (s *TopicConsumerGearSuite) spawnMultiplexer(output multiplexer.Out, inputs []multiplexer.In) muxActor {
 	partitions := make([]int32, len(inputs))
 	for i, in := range inputs {
 		in := in.(*mockMuxInputActor)
@@ -240,7 +241,7 @@ func (s *TopicConsumerGearSuite) spawnMultiplexer(output muxOutput, inputs []mux
 	return &mockMux{s: s}
 }
 
-func (m *mockMux) stop() {
+func (m *mockMux) Stop() {
 	m.s.muxWiringSequence = append(m.s.muxWiringSequence, muxStopped)
 }
 
@@ -257,15 +258,15 @@ func (s *TopicConsumerGearSuite) spawnInput(topic string, partition int32) muxIn
 	return input
 }
 
-func (m *mockMuxInputActor) messages() <-chan *consumermsg.ConsumerMessage {
+func (m *mockMuxInputActor) Messages() <-chan *consumermsg.ConsumerMessage {
 	return nil
 }
 
-func (m *mockMuxInputActor) acks() chan<- *consumermsg.ConsumerMessage {
+func (m *mockMuxInputActor) Acks() chan<- *consumermsg.ConsumerMessage {
 	return nil
 }
 
-func (m *mockMuxInputActor) stop() {
+func (m *mockMuxInputActor) Stop() {
 	delete(m.s.spawnedPartitions, m.partition)
 }
 

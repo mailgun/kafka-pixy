@@ -167,7 +167,8 @@ func (gc *groupConsumer) newTopicConsumer(topic string) *topicConsumer {
 	}
 }
 
-func (tc *topicConsumer) messages() chan<- *consumermsg.ConsumerMessage {
+// implements `multiplexer.Out`
+func (tc *topicConsumer) Messages() chan<- *consumermsg.ConsumerMessage {
 	return tc.messagesCh
 }
 
@@ -262,11 +263,13 @@ func (gc *groupConsumer) spawnExclusiveConsumer(topic string, partition int32) *
 	return ec
 }
 
-func (ec *exclusiveConsumer) messages() <-chan *consumermsg.ConsumerMessage {
+// implements `multiplexer.In`
+func (ec *exclusiveConsumer) Messages() <-chan *consumermsg.ConsumerMessage {
 	return ec.messagesCh
 }
 
-func (ec *exclusiveConsumer) acks() chan<- *consumermsg.ConsumerMessage {
+// implements `multiplexer.In`
+func (ec *exclusiveConsumer) Acks() chan<- *consumermsg.ConsumerMessage {
 	return ec.acksCh
 }
 
@@ -368,7 +371,7 @@ done:
 	}
 }
 
-func (ec *exclusiveConsumer) stop() {
+func (ec *exclusiveConsumer) Stop() {
 	close(ec.stoppingCh)
 	ec.wg.Wait()
 }
