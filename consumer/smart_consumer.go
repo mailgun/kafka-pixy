@@ -8,8 +8,8 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
 	"github.com/mailgun/kafka-pixy/none"
-	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/log"
 	"github.com/wvanbergen/kazoo-go"
 )

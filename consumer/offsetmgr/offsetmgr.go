@@ -8,7 +8,7 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
-	"github.com/mailgun/kafka-pixy/mapper"
+	"github.com/mailgun/kafka-pixy/consumer/mapper"
 	"github.com/mailgun/log"
 )
 
