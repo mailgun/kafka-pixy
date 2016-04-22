@@ -46,7 +46,7 @@ func Spawn(actorID *ID, wg *sync.WaitGroup, f func()) {
 		log.Infof("<%s> started", actorID)
 		defer func() {
 			if p := recover(); p != nil {
-				log.Errorf("<%s> paniced: %v, stack=%s", p, debug.Stack())
+				log.Errorf("<%s> paniced: %v, stack=%s", actorID, p, debug.Stack())
 				panic(p)
 			}
 			log.Infof("<%s> stopped", actorID)
