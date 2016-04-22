@@ -9,6 +9,7 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/consumer/groupmember"
 	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
@@ -27,7 +28,7 @@ type groupConsumer struct {
 	dumbConsumer            Consumer
 	offsetMgrFactory        offsetmgr.Factory
 	kazooConn               *kazoo.Kazoo
-	registry                *groupRegistrator
+	groupMember             *groupmember.T
 	topicConsumerGears      map[string]*topicConsumerGear
 	topicConsumerLifespanCh chan *topicConsumer
 	stoppingCh              chan none.T
@@ -79,14 +80,14 @@ func (gc *groupConsumer) start(stoppedCh chan<- dispatchTier) {
 			// Must never happen.
 			panic(ErrSetup(fmt.Errorf("failed to create sarama.Consumer: err=(%v)", err)))
 		}
-		gc.registry = spawnGroupRegistrator(gc.group, gc.cfg.ClientID, gc.cfg, gc.kazooConn)
+		gc.groupMember = groupmember.Spawn(gc.group, gc.cfg.ClientID, gc.cfg, gc.kazooConn)
 		var manageWg sync.WaitGroup
 		actor.Spawn(gc.managerActorID, &manageWg, gc.runManager)
 		gc.dispatcher.start()
 		// Wait for a stop signal and shutdown gracefully when one is received.
 		<-gc.stoppingCh
 		gc.dispatcher.stop()
-		gc.registry.stop()
+		gc.groupMember.Stop()
 		manageWg.Wait()
 		gc.dumbConsumer.Close()
 	})
@@ -132,12 +133,12 @@ func (gc *groupConsumer) runManager() {
 				topicConsumers[tc.topic] = tc
 			}
 			topics = listTopics(topicConsumers)
-			nilOrRegistryTopicsCh = gc.registry.topics()
+			nilOrRegistryTopicsCh = gc.groupMember.Topics()
 			continue
 		case nilOrRegistryTopicsCh <- topics:
 			nilOrRegistryTopicsCh = nil
 			continue
-		case subscriptions, ok = <-gc.registry.membershipChanges():
+		case subscriptions, ok = <-gc.groupMember.Subscriptions():
 			if !ok {
 				goto done
 			}
@@ -226,19 +227,19 @@ func (gc *groupConsumer) spawnTopicInput(topic string, partition int32) muxInput
 
 // resolvePartitions given topic subscriptions of all consumer group members,
 // resolves what topic partitions are assigned to the specified group member.
-func (gc *groupConsumer) resolvePartitions(membersToTopics map[string][]string) (
+func (gc *groupConsumer) resolvePartitions(subscriptions map[string][]string) (
 	assignedPartitions map[string][]int32, err error,
 ) {
 	// Convert members->topics to topic->members map.
 	topicsToMembers := make(map[string][]string)
-	for groupMemberID, topics := range membersToTopics {
+	for groupMemberID, topics := range subscriptions {
 		for _, topic := range topics {
 			topicsToMembers[topic] = append(topicsToMembers[topic], groupMemberID)
 		}
 	}
 	// Create a set of topics this consumer group member subscribed to.
 	subscribedTopics := make(map[string]bool)
-	for _, topic := range membersToTopics[gc.cfg.ClientID] {
+	for _, topic := range subscriptions[gc.cfg.ClientID] {
 		subscribedTopics[topic] = true
 	}
 	// Resolve new partition assignments for all subscribed topics.

@@ -9,6 +9,7 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer/consumermsg"
+	"github.com/mailgun/kafka-pixy/consumer/groupmember"
 	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
@@ -237,7 +238,7 @@ type exclusiveConsumer struct {
 	topic            string
 	partition        int32
 	dumbConsumer     Consumer
-	registry         *groupRegistrator
+	groupMember      *groupmember.T
 	offsetMgrFactory offsetmgr.Factory
 	messagesCh       chan *consumermsg.ConsumerMessage
 	acksCh           chan *consumermsg.ConsumerMessage
@@ -253,7 +254,7 @@ func (gc *groupConsumer) spawnExclusiveConsumer(topic string, partition int32) *
 		topic:            topic,
 		partition:        partition,
 		dumbConsumer:     gc.dumbConsumer,
-		registry:         gc.registry,
+		groupMember:      gc.groupMember,
 		offsetMgrFactory: gc.offsetMgrFactory,
 		messagesCh:       make(chan *consumermsg.ConsumerMessage),
 		acksCh:           make(chan *consumermsg.ConsumerMessage),
@@ -274,7 +275,7 @@ func (ec *exclusiveConsumer) Acks() chan<- *consumermsg.ConsumerMessage {
 }
 
 func (ec *exclusiveConsumer) run() {
-	defer ec.registry.claimPartition(ec.actorID, ec.topic, ec.partition, ec.stoppingCh)()
+	defer ec.groupMember.ClaimPartition(ec.actorID, ec.topic, ec.partition, ec.stoppingCh)()
 
 	om, err := ec.offsetMgrFactory.NewOffsetManager(ec.group, ec.topic, ec.partition)
 	if err != nil {
