@@ -47,10 +47,10 @@ func (s *OffsetMgrSuite) TestInitialOffset(c *C) {
 	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
 	c.Assert(err, IsNil)
-	f := NewFactory(client)
+	f := SpawnFactory(client)
 
 	// When
-	om, err := f.NewOffsetManager("group-1", "topic-1", 8)
+	om, err := f.SpawnOffsetManager("group-1", "topic-1", 8)
 	c.Assert(err, IsNil)
 
 	// Then
@@ -80,10 +80,10 @@ func (s *OffsetMgrSuite) TestInitialNoCoordinator(c *C) {
 	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
 	c.Assert(err, IsNil)
-	f := NewFactory(client)
+	f := SpawnFactory(client)
 
 	// When
-	om, err := f.NewOffsetManager("group-1", "topic-1", 8)
+	om, err := f.SpawnOffsetManager("group-1", "topic-1", 8)
 	c.Assert(err, IsNil)
 
 	// Then
@@ -115,10 +115,10 @@ func (s *OffsetMgrSuite) TestInitialFetchError(c *C) {
 	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
 	c.Assert(err, IsNil)
-	f := NewFactory(client)
+	f := SpawnFactory(client)
 
 	// When
-	om, err := f.NewOffsetManager("group-1", "topic-1", 7)
+	om, err := f.SpawnOffsetManager("group-1", "topic-1", 7)
 	c.Assert(err, IsNil)
 
 	// Then
@@ -154,8 +154,8 @@ func (s *OffsetMgrSuite) TestCommitError(c *C) {
 	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
 	c.Assert(err, IsNil)
 
-	f := NewFactory(client)
-	om, err := f.NewOffsetManager("group-1", "topic-1", 7)
+	f := SpawnFactory(client)
+	om, err := f.SpawnOffsetManager("group-1", "topic-1", 7)
 	c.Assert(err, IsNil)
 
 	// When
@@ -199,9 +199,9 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
 	c.Assert(err, IsNil)
-	f := NewFactory(client)
+	f := SpawnFactory(client)
 	c.Assert(err, IsNil)
-	om, err := f.NewOffsetManager("group-1", "topic-1", 7)
+	om, err := f.SpawnOffsetManager("group-1", "topic-1", 7)
 	c.Assert(err, IsNil)
 
 	// When: a partition offset manager is closed while there is a pending commit.
@@ -294,10 +294,10 @@ func (s *OffsetMgrSuite) TestCommitDifferentGroups(c *C) {
 	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
 	c.Assert(err, IsNil)
-	f := NewFactory(client)
-	om1, err := f.NewOffsetManager("group-1", "topic-1", 7)
+	f := SpawnFactory(client)
+	om1, err := f.SpawnOffsetManager("group-1", "topic-1", 7)
 	c.Assert(err, IsNil)
-	om2, err := f.NewOffsetManager("group-2", "topic-1", 7)
+	om2, err := f.SpawnOffsetManager("group-2", "topic-1", 7)
 	c.Assert(err, IsNil)
 
 	// When
@@ -342,12 +342,12 @@ func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
 	c.Assert(err, IsNil)
-	f := NewFactory(client)
-	om1, err := f.NewOffsetManager("group-1", "topic-1", 7)
+	f := SpawnFactory(client)
+	om1, err := f.SpawnOffsetManager("group-1", "topic-1", 7)
 	c.Assert(err, IsNil)
-	om2, err := f.NewOffsetManager("group-1", "topic-1", 8)
+	om2, err := f.SpawnOffsetManager("group-1", "topic-1", 8)
 	c.Assert(err, IsNil)
-	om3, err := f.NewOffsetManager("group-2", "topic-1", 7)
+	om3, err := f.SpawnOffsetManager("group-2", "topic-1", 7)
 	c.Assert(err, IsNil)
 	om1.SubmitOffset(1001, "bar1")
 	om2.SubmitOffset(2001, "bar2")
@@ -404,8 +404,8 @@ func (s *OffsetMgrSuite) TestCommittedChannel(c *C) {
 	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
 	c.Assert(err, IsNil)
-	f := NewFactory(client)
-	om, err := f.NewOffsetManager("group-1", "topic-1", 7)
+	f := SpawnFactory(client)
+	om, err := f.SpawnOffsetManager("group-1", "topic-1", 7)
 	c.Assert(err, IsNil)
 
 	// When
@@ -450,8 +450,8 @@ func (s *OffsetMgrSuite) TestConnectionRestored(c *C) {
 	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
 	c.Assert(err, IsNil)
-	f := NewFactory(client)
-	om, err := f.NewOffsetManager("group-1", "topic-1", 7)
+	f := SpawnFactory(client)
+	om, err := f.SpawnOffsetManager("group-1", "topic-1", 7)
 	c.Assert(err, IsNil)
 
 	log.Infof("    GIVEN 1")
@@ -485,7 +485,7 @@ func (s *OffsetMgrSuite) TestConnectionRestored(c *C) {
 	log.Infof("    WHEN")
 	// Create a partition offset manager for the same topic partition as before.
 	// It will be assigned the broken connection to broker2.
-	om, err = f.NewOffsetManager("group-1", "topic-1", 7)
+	om, err = f.SpawnOffsetManager("group-1", "topic-1", 7)
 	c.Assert(err, IsNil)
 
 	log.Infof("    THEN")

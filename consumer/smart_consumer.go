@@ -60,7 +60,7 @@ func Spawn(cfg *config.T) (*T, error) {
 	if err != nil {
 		return nil, ErrSetup(fmt.Errorf("failed to create sarama.Client: err=(%v)", err))
 	}
-	offsetMgrFactory := offsetmgr.NewFactory(kafkaClient)
+	offsetMgrFactory := offsetmgr.SpawnFactory(kafkaClient)
 
 	kazooCfg := kazoo.NewConfig()
 	kazooCfg.Chroot = cfg.ZooKeeper.Chroot
@@ -277,7 +277,7 @@ func (ec *exclusiveConsumer) Acks() chan<- *consumermsg.ConsumerMessage {
 func (ec *exclusiveConsumer) run() {
 	defer ec.groupMember.ClaimPartition(ec.actorID, ec.topic, ec.partition, ec.stoppingCh)()
 
-	om, err := ec.offsetMgrFactory.NewOffsetManager(ec.group, ec.topic, ec.partition)
+	om, err := ec.offsetMgrFactory.SpawnOffsetManager(ec.group, ec.topic, ec.partition)
 	if err != nil {
 		// Must never happen.
 		log.Errorf("<%s> failed to spawn offset manager: err=(%s)", ec.actorID, err)

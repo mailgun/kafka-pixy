@@ -28,7 +28,7 @@ type Factory interface {
 	// It returns an error if given group/topic/partition already has a not stopped
 	// OffsetManager instance. After an old offset manager instance is stopped a
 	// new one can be started.
-	NewOffsetManager(group, topic string, partition int32) (T, error)
+	SpawnOffsetManager(group, topic string, partition int32) (T, error)
 
 	// Stop waits for the spawned offset managers to stop and then terminates. Note
 	// that all spawned offset managers has to be explicitly stopped by calling
@@ -90,8 +90,8 @@ type OffsetCommitError struct {
 var ErrNoCoordinator = errors.New("failed to resolve coordinator")
 var ErrRequestTimeout = errors.New("request timeout")
 
-// NewFactory creates a new offset manager factory from the given client.
-func NewFactory(client sarama.Client) Factory {
+// SpawnFactory creates a new offset manager factory from the given client.
+func SpawnFactory(client sarama.Client) Factory {
 	f := &factory{
 		actorNamespace: actor.RootID.NewChild("offsetMgr"),
 		client:         client,
@@ -120,7 +120,7 @@ type groupTopicPartition struct {
 }
 
 // implements `Factory`
-func (f *factory) NewOffsetManager(group, topic string, partition int32) (T, error) {
+func (f *factory) SpawnOffsetManager(group, topic string, partition int32) (T, error) {
 	gtp := groupTopicPartition{group, topic, partition}
 
 	f.childrenLock.Lock()

@@ -142,14 +142,14 @@ func (kh *T) PutMessages(prefix, topic string, keys map[string]int) map[string][
 }
 
 func (kh *T) ResetOffsets(group, topic string) {
-	omf := offsetmgr.NewFactory(kh.client)
+	omf := offsetmgr.SpawnFactory(kh.client)
 	defer omf.Stop()
 	partitions, err := kh.client.Partitions(topic)
 	kh.c.Assert(err, IsNil)
 	for _, p := range partitions {
 		offset, err := kh.client.GetOffset(topic, p, sarama.OffsetNewest)
 		kh.c.Assert(err, IsNil)
-		om, err := omf.NewOffsetManager(group, topic, p)
+		om, err := omf.SpawnOffsetManager(group, topic, p)
 		kh.c.Assert(err, IsNil)
 		om.SubmitOffset(offset, "dummy")
 		log.Infof("Set initial offset %s/%s/%d=%d", group, topic, p, offset)

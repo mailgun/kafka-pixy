@@ -47,9 +47,9 @@ func (s *SmartConsumerSuite) TestInitialOffsetTooLarge(c *C) {
 	newestOffsets := s.kh.GetNewestOffsets("test.1")
 	log.Infof("*** test.1 offsets: oldest=%v, newest=%v", oldestOffsets, newestOffsets)
 
-	omf := offsetmgr.NewFactory(s.kh.Client())
+	omf := offsetmgr.SpawnFactory(s.kh.Client())
 	defer omf.Stop()
-	om, err := omf.NewOffsetManager("group-1", "test.1", 0)
+	om, err := omf.SpawnOffsetManager("group-1", "test.1", 0)
 	c.Assert(err, IsNil)
 	om.SubmitOffset(newestOffsets[0]+100, "")
 	om.Stop()

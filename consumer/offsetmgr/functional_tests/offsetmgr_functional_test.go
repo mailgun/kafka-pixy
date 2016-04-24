@@ -32,8 +32,8 @@ func (s *OffsetMgrFuncSuite) TestLatestOffsetSaved(c *C) {
 	config := sarama.NewConfig()
 	client, err := sarama.NewClient(testhelpers.KafkaPeers, config)
 	c.Assert(err, IsNil)
-	f := offsetmgr.NewFactory(client)
-	om0_1, err := f.NewOffsetManager("test", "test.4", 0)
+	f := offsetmgr.SpawnFactory(client)
+	om0_1, err := f.SpawnOffsetManager("test", "test.4", 0)
 	c.Assert(err, IsNil)
 
 	// When: several offsets are committed.
@@ -43,7 +43,7 @@ func (s *OffsetMgrFuncSuite) TestLatestOffsetSaved(c *C) {
 
 	// Then: last committed request is the one that becomes effective.
 	om0_1.Stop()
-	om0_2, err := f.NewOffsetManager("test", "test.4", 0)
+	om0_2, err := f.SpawnOffsetManager("test", "test.4", 0)
 	c.Assert(err, IsNil)
 
 	fo := <-om0_2.InitialOffset()
