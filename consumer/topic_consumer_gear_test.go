@@ -1,7 +1,9 @@
 package consumer
 
 import (
-	"github.com/mailgun/kafka-pixy/context"
+	"github.com/mailgun/kafka-pixy/actor"
+	"github.com/mailgun/kafka-pixy/consumer/consumermsg"
+	"github.com/mailgun/kafka-pixy/consumer/multiplexer"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	. "gopkg.in/check.v1"
 )
@@ -25,17 +27,17 @@ func (s *TopicConsumerGearSuite) SetUpTest(c *C) {
 }
 
 func (s *TopicConsumerGearSuite) TestSortedInputs(c *C) {
-	c.Assert([]muxInput{}, DeepEquals,
+	c.Assert([]multiplexer.In{}, DeepEquals,
 		sortedInputs(map[int32]muxInputActor{}))
-	c.Assert([]muxInput{in(1)}, DeepEquals,
+	c.Assert([]multiplexer.In{in(1)}, DeepEquals,
 		sortedInputs(map[int32]muxInputActor{1: in(1)}))
-	c.Assert([]muxInput{in(1), in(2), in(3), in(4), in(5)}, DeepEquals,
+	c.Assert([]multiplexer.In{in(1), in(2), in(3), in(4), in(5)}, DeepEquals,
 		sortedInputs(map[int32]muxInputActor{
 			1: in(1), 2: in(2), 3: in(3), 4: in(4), 5: in(5)}))
 }
 
 func (s *TopicConsumerGearSuite) TestInitial(c *C) {
-	tc := &topicConsumer{contextID: context.RootID.NewChild("test")}
+	tc := &topicConsumer{actorID: actor.RootID.NewChild("test")}
 	tcg := newTopicConsumerGear(s.spawnInput)
 	tcg.spawnMuxFn = s.spawnMultiplexer
 	c.Assert(s.spawnedPartitions, DeepEquals, map[int32]bool{})
@@ -53,7 +55,7 @@ func (s *TopicConsumerGearSuite) TestInitial(c *C) {
 }
 
 func (s *TopicConsumerGearSuite) TestPartitionsAdd(c *C) {
-	tc := &topicConsumer{contextID: context.RootID.NewChild("test")}
+	tc := &topicConsumer{actorID: actor.RootID.NewChild("test")}
 	tcg := newTopicConsumerGear(s.spawnInput)
 	tcg.spawnMuxFn = s.spawnMultiplexer
 	tcg.muxInputs(tc, []int32{2, 3, 4})
@@ -71,7 +73,7 @@ func (s *TopicConsumerGearSuite) TestPartitionsAdd(c *C) {
 }
 
 func (s *TopicConsumerGearSuite) TestPartitionsRemove(c *C) {
-	tc := &topicConsumer{contextID: context.RootID.NewChild("test")}
+	tc := &topicConsumer{actorID: actor.RootID.NewChild("test")}
 	tcg := newTopicConsumerGear(s.spawnInput)
 	tcg.spawnMuxFn = s.spawnMultiplexer
 	tcg.muxInputs(tc, []int32{2, 3, 4})
@@ -89,7 +91,7 @@ func (s *TopicConsumerGearSuite) TestPartitionsRemove(c *C) {
 }
 
 func (s *TopicConsumerGearSuite) TestPartitionsAddRemove(c *C) {
-	tc := &topicConsumer{contextID: context.RootID.NewChild("test")}
+	tc := &topicConsumer{actorID: actor.RootID.NewChild("test")}
 	tcg := newTopicConsumerGear(s.spawnInput)
 	tcg.spawnMuxFn = s.spawnMultiplexer
 	tcg.muxInputs(tc, []int32{2, 3, 4})
@@ -109,7 +111,7 @@ func (s *TopicConsumerGearSuite) TestPartitionsAddRemove(c *C) {
 // If muxInputs called with the same set of partitions and topic consumer as
 // before, then such call is silently ignored.
 func (s *TopicConsumerGearSuite) TestPartitionsSame(c *C) {
-	tc := &topicConsumer{contextID: context.RootID.NewChild("test")}
+	tc := &topicConsumer{actorID: actor.RootID.NewChild("test")}
 	tcg := newTopicConsumerGear(s.spawnInput)
 	tcg.spawnMuxFn = s.spawnMultiplexer
 	tcg.muxInputs(tc, []int32{2, 3, 4})
@@ -125,7 +127,7 @@ func (s *TopicConsumerGearSuite) TestPartitionsSame(c *C) {
 }
 
 func (s *TopicConsumerGearSuite) TestPartitionsNone(c *C) {
-	tc := &topicConsumer{contextID: context.RootID.NewChild("test")}
+	tc := &topicConsumer{actorID: actor.RootID.NewChild("test")}
 	tcg := newTopicConsumerGear(s.spawnInput)
 	tcg.spawnMuxFn = s.spawnMultiplexer
 	tcg.muxInputs(tc, []int32{2, 3, 4})
@@ -143,7 +145,7 @@ func (s *TopicConsumerGearSuite) TestPartitionsNone(c *C) {
 }
 
 func (s *TopicConsumerGearSuite) TestPartitionsNil(c *C) {
-	tc := &topicConsumer{contextID: context.RootID.NewChild("test")}
+	tc := &topicConsumer{actorID: actor.RootID.NewChild("test")}
 	tcg := newTopicConsumerGear(s.spawnInput)
 	tcg.spawnMuxFn = s.spawnMultiplexer
 	tcg.muxInputs(tc, []int32{2, 3, 4})
@@ -163,8 +165,8 @@ func (s *TopicConsumerGearSuite) TestPartitionsNil(c *C) {
 // If it is only topic consumer that is changed then the multiplexer is
 // restarted anyway.
 func (s *TopicConsumerGearSuite) TestTopicConsumerChanged(c *C) {
-	tc1 := &topicConsumer{contextID: context.RootID.NewChild("test")}
-	tc2 := &topicConsumer{contextID: context.RootID.NewChild("test")}
+	tc1 := &topicConsumer{actorID: actor.RootID.NewChild("test")}
+	tc2 := &topicConsumer{actorID: actor.RootID.NewChild("test")}
 	tcg := newTopicConsumerGear(s.spawnInput)
 	tcg.spawnMuxFn = s.spawnMultiplexer
 	tcg.muxInputs(tc1, []int32{2, 3, 4})
@@ -185,7 +187,7 @@ func (s *TopicConsumerGearSuite) TestTopicConsumerChanged(c *C) {
 // If it is only topic consumer that is changed then the multiplexer is
 // restarted anyway.
 func (s *TopicConsumerGearSuite) TestTopicConsumerNil(c *C) {
-	tc := &topicConsumer{contextID: context.RootID.NewChild("test")}
+	tc := &topicConsumer{actorID: actor.RootID.NewChild("test")}
 	tcg := newTopicConsumerGear(s.spawnInput)
 	tcg.spawnMuxFn = s.spawnMultiplexer
 	tcg.muxInputs(tc, []int32{2, 3, 4})
@@ -203,7 +205,7 @@ func (s *TopicConsumerGearSuite) TestTopicConsumerNil(c *C) {
 }
 
 func (s *TopicConsumerGearSuite) TestStop(c *C) {
-	tc := &topicConsumer{contextID: context.RootID.NewChild("test")}
+	tc := &topicConsumer{actorID: actor.RootID.NewChild("test")}
 	tcg := newTopicConsumerGear(s.spawnInput)
 	tcg.spawnMuxFn = s.spawnMultiplexer
 	tcg.muxInputs(tc, []int32{2, 3, 4})
@@ -228,7 +230,7 @@ type mockMux struct {
 	s *TopicConsumerGearSuite
 }
 
-func (s *TopicConsumerGearSuite) spawnMultiplexer(output muxOutput, inputs []muxInput) muxActor {
+func (s *TopicConsumerGearSuite) spawnMultiplexer(output multiplexer.Out, inputs []multiplexer.In) muxActor {
 	partitions := make([]int32, len(inputs))
 	for i, in := range inputs {
 		in := in.(*mockMuxInputActor)
@@ -239,7 +241,7 @@ func (s *TopicConsumerGearSuite) spawnMultiplexer(output muxOutput, inputs []mux
 	return &mockMux{s: s}
 }
 
-func (m *mockMux) stop() {
+func (m *mockMux) Stop() {
 	m.s.muxWiringSequence = append(m.s.muxWiringSequence, muxStopped)
 }
 
@@ -256,15 +258,15 @@ func (s *TopicConsumerGearSuite) spawnInput(topic string, partition int32) muxIn
 	return input
 }
 
-func (m *mockMuxInputActor) messages() <-chan *ConsumerMessage {
+func (m *mockMuxInputActor) Messages() <-chan *consumermsg.ConsumerMessage {
 	return nil
 }
 
-func (m *mockMuxInputActor) acks() chan<- *ConsumerMessage {
+func (m *mockMuxInputActor) Acks() chan<- *consumermsg.ConsumerMessage {
 	return nil
 }
 
-func (m *mockMuxInputActor) stop() {
+func (m *mockMuxInputActor) Stop() {
 	delete(m.s.spawnedPartitions, m.partition)
 }
 

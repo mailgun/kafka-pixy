@@ -5,7 +5,8 @@ import (
 	"sync"
 
 	"github.com/Shopify/sarama"
-	"github.com/mailgun/kafka-pixy/context"
+	"github.com/mailgun/kafka-pixy/actor"
+	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
 )
 
@@ -24,7 +25,7 @@ import (
 // executor is stopped only after all partition workers that used to be assigned
 // to it have either been stopped or assigned another broker executor.
 type T struct {
-	baseCID          *context.ID
+	actorID          *actor.ID
 	resolver         Resolver
 	workerSpawnedCh  chan Worker
 	workerStoppedCh  chan Worker
@@ -32,7 +33,7 @@ type T struct {
 	assignments      map[Worker]Executor
 	references       map[Executor]int
 	connections      map[*sarama.Broker]Executor
-	stopCh           chan none
+	stopCh           chan none.T
 	wg               sync.WaitGroup
 }
 
@@ -68,9 +69,9 @@ type Executor interface {
 }
 
 // Spawn creates a mapper instance and starts its internal goroutines.
-func Spawn(cid *context.ID, resolver Resolver) *T {
+func Spawn(parentActorID *actor.ID, resolver Resolver) *T {
 	m := &T{
-		baseCID:          cid,
+		actorID:          parentActorID.NewChild("mapper"),
 		resolver:         resolver,
 		workerSpawnedCh:  make(chan Worker),
 		workerStoppedCh:  make(chan Worker),
@@ -78,9 +79,9 @@ func Spawn(cid *context.ID, resolver Resolver) *T {
 		assignments:      make(map[Worker]Executor),
 		references:       make(map[Executor]int),
 		connections:      make(map[*sarama.Broker]Executor),
-		stopCh:           make(chan none),
+		stopCh:           make(chan none.T),
 	}
-	spawn(&m.wg, m.watch4Changes)
+	actor.Spawn(m.actorID, &m.wg, m.run)
 	return m
 }
 
@@ -101,25 +102,25 @@ func (m *T) Stop() {
 	m.wg.Wait()
 }
 
-type mappingChange struct {
-	spawned  map[Worker]none
-	outdated map[Worker]none
-	stopped  map[Worker]none
+type mappingChanges struct {
+	spawned  map[Worker]none.T
+	outdated map[Worker]none.T
+	stopped  map[Worker]none.T
 }
 
-func (m *T) newMappingChange() *mappingChange {
-	return &mappingChange{
-		spawned:  make(map[Worker]none),
-		outdated: make(map[Worker]none),
-		stopped:  make(map[Worker]none),
+func (m *T) newMappingChanges() *mappingChanges {
+	return &mappingChanges{
+		spawned:  make(map[Worker]none.T),
+		outdated: make(map[Worker]none.T),
+		stopped:  make(map[Worker]none.T),
 	}
 }
 
-func (mc *mappingChange) isEmtpy() bool {
+func (mc *mappingChanges) isEmtpy() bool {
 	return len(mc.spawned) == 0 && len(mc.outdated) == 0 && len(mc.stopped) == 0
 }
 
-func (mc *mappingChange) String() string {
+func (mc *mappingChanges) String() string {
 	return fmt.Sprintf("{created=%d, outdated=%d, closed=%d}",
 		len(mc.spawned), len(mc.outdated), len(mc.stopped))
 }
@@ -128,24 +129,21 @@ func (mc *mappingChange) String() string {
 // a mappingChange object and triggers reassignments, making sure to run only
 // one at a time. When signaled to stop it only quits when all children have
 // closed.
-func (m *T) watch4Changes() {
-	cid := m.baseCID.NewChild("watch4Changes")
-	defer cid.LogScope()()
-
-	change := m.newMappingChange()
-	redispatchDoneCh := make(chan none, 1)
-	var nilOrRedispatchDoneCh <-chan none
+func (m *T) run() {
+	changes := m.newMappingChanges()
+	redispatchDoneCh := make(chan none.T, 1)
+	var nilOrRedispatchDoneCh <-chan none.T
 	stop := false
 	for {
 		select {
 		case pw := <-m.workerSpawnedCh:
-			change.spawned[pw] = nothing
+			changes.spawned[pw] = none.V
 
 		case pw := <-m.workerStoppedCh:
-			change.stopped[pw] = nothing
+			changes.stopped[pw] = none.V
 
 		case pw := <-m.workerReassignCh:
-			change.outdated[pw] = nothing
+			changes.outdated[pw] = none.V
 
 		case <-nilOrRedispatchDoneCh:
 			nilOrRedispatchDoneCh = nil
@@ -155,10 +153,14 @@ func (m *T) watch4Changes() {
 		}
 		// If redispatch is required and there is none running at the moment
 		// then spawn a redispatch goroutine.
-		if !change.isEmtpy() && nilOrRedispatchDoneCh == nil {
-			log.Infof("<%s> reassign: change=%s", cid, change)
-			go m.reassign(cid, change, redispatchDoneCh)
-			change = m.newMappingChange()
+		if !changes.isEmtpy() && nilOrRedispatchDoneCh == nil {
+			log.Infof("<%s> reassign: change=%s", m.actorID, changes)
+			reassignActorID := m.actorID.NewChild("reassign")
+			changesForReassign := changes
+			actor.Spawn(reassignActorID, nil, func() {
+				m.reassign(reassignActorID, changesForReassign, redispatchDoneCh)
+			})
+			changes = m.newMappingChanges()
 			nilOrRedispatchDoneCh = redispatchDoneCh
 		}
 		// Do not leave this loop until all workers are closed.
@@ -169,10 +171,8 @@ func (m *T) watch4Changes() {
 }
 
 // reassign updates partition-to-broker assignments using the external resolver.
-func (m *T) reassign(parentGid *context.ID, change *mappingChange, doneCh chan none) {
-	cid := parentGid.NewChild("reassign")
-	defer cid.LogScope(change)()
-	defer func() { doneCh <- nothing }()
+func (m *T) reassign(actorID *actor.ID, change *mappingChanges, doneCh chan none.T) {
+	defer func() { doneCh <- none.V }()
 
 	// Travers through stopped workers and dereference brokers assigned to them.
 	for pw := range change.stopped {
@@ -181,7 +181,7 @@ func (m *T) reassign(parentGid *context.ID, change *mappingChange, doneCh chan n
 		delete(change.spawned, pw)
 		if be != nil {
 			m.references[be] = m.references[be] - 1
-			log.Infof("<%s> unassign %s -> %s (ref=%d)", cid, pw, be, m.references[be])
+			log.Infof("<%s> unassign %s -> %s (ref=%d)", actorID, pw, be, m.references[be])
 		}
 	}
 	// Weed out partition workers that have already been closed.
@@ -192,10 +192,10 @@ func (m *T) reassign(parentGid *context.ID, change *mappingChange, doneCh chan n
 	}
 	// Run resolution for the created and outdated partition workers.
 	for pw := range change.spawned {
-		m.resolveBroker(cid, pw)
+		m.resolveBroker(actorID, pw)
 	}
 	for pw := range change.outdated {
-		m.resolveBroker(cid, pw)
+		m.resolveBroker(actorID, pw)
 	}
 	// All broker assignments have been propagated to partition workers, so
 	// it is safe to close broker executors that are not used anymore.
@@ -203,7 +203,7 @@ func (m *T) reassign(parentGid *context.ID, change *mappingChange, doneCh chan n
 		if referenceCount != 0 {
 			continue
 		}
-		log.Infof("<%s> decomission %s", cid, be)
+		log.Infof("<%s> decomission %s", actorID, be)
 		be.Stop()
 		delete(m.references, be)
 		if m.connections[be.BrokerConn()] == be {
@@ -214,17 +214,17 @@ func (m *T) reassign(parentGid *context.ID, change *mappingChange, doneCh chan n
 
 // resolveBroker queries the Kafka cluster for a new partition leader and
 // assigns it to the specified partition consumer.
-func (m *T) resolveBroker(cid *context.ID, pw Worker) {
+func (m *T) resolveBroker(actorID *actor.ID, pw Worker) {
 	var newBrokerExecutor Executor
 	brokerConn, err := m.resolver.ResolveBroker(pw)
 	if err != nil {
-		log.Infof("<%s> failed to resolve broker: pw=%s, err=(%s)", cid, pw, err)
+		log.Infof("<%s> failed to resolve broker: pw=%s, err=(%s)", actorID, pw, err)
 	} else {
 		if brokerConn != nil {
 			newBrokerExecutor = m.connections[brokerConn]
 			if newBrokerExecutor == nil && brokerConn != nil {
 				newBrokerExecutor = m.resolver.SpawnExecutor(brokerConn)
-				log.Infof("<%s> spawned %s", cid, newBrokerExecutor)
+				log.Infof("<%s> spawned %s", actorID, newBrokerExecutor)
 				m.connections[brokerConn] = newBrokerExecutor
 			}
 		}
@@ -241,13 +241,13 @@ func (m *T) resolveBroker(cid *context.ID, pw Worker) {
 	if oldBrokerExecutor != nil {
 		m.references[oldBrokerExecutor] = m.references[oldBrokerExecutor] - 1
 		log.Infof("<%s> unassign %s -> %s (ref=%d)",
-			cid, pw, oldBrokerExecutor, m.references[oldBrokerExecutor])
+			actorID, pw, oldBrokerExecutor, m.references[oldBrokerExecutor])
 	}
 	if newBrokerExecutor == nil {
-		log.Infof("<%s> assign %s -> <nil>", cid, pw)
+		log.Infof("<%s> assign %s -> <nil>", actorID, pw)
 		return
 	}
 	m.references[newBrokerExecutor] = m.references[newBrokerExecutor] + 1
 	log.Infof("<%s> assign %s -> %s (ref=%d)",
-		cid, pw, newBrokerExecutor, m.references[newBrokerExecutor])
+		actorID, pw, newBrokerExecutor, m.references[newBrokerExecutor])
 }

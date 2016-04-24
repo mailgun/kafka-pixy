@@ -1,67 +1,23 @@
 package consumer
 
 import (
-	"fmt"
-	"math"
-	"testing"
 	"time"
 
 	"github.com/Shopify/sarama"
+	"github.com/mailgun/kafka-pixy/testhelpers"
+	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
+	. "gopkg.in/check.v1"
 )
 
-func TestFuncConsumerOffsetOutOfRange(t *testing.T) {
-	setupFunctionalTest(t)
-	defer teardownFunctionalTest(t)
-
-	consumer, err := NewConsumer(kafkaBrokers, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if _, _, err := consumer.ConsumePartition("test.1", 0, -10); err != sarama.ErrOffsetOutOfRange {
-		t.Error("Expected ErrOffsetOutOfRange, got:", err)
-	}
-
-	if _, _, err := consumer.ConsumePartition("test.1", 0, math.MaxInt64); err != sarama.ErrOffsetOutOfRange {
-		t.Error("Expected ErrOffsetOutOfRange, got:", err)
-	}
-
-	safeClose(t, consumer)
+type PartitionConsumerFuncSuite struct {
+	kh *kafkahelper.T
 }
 
-func TestConsumerHighWaterMarkOffset(t *testing.T) {
-	setupFunctionalTest(t)
-	defer teardownFunctionalTest(t)
+var _ = Suite(&PartitionConsumerFuncSuite{})
 
-	p, err := sarama.NewSyncProducer(kafkaBrokers, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer safeClose(t, p)
-
-	_, offset, err := p.SendMessage(&sarama.ProducerMessage{Topic: "test.1", Value: sarama.StringEncoder("Test")})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	c, err := NewConsumer(kafkaBrokers, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer safeClose(t, c)
-
-	pc, _, err := c.ConsumePartition("test.1", 0, sarama.OffsetOldest)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	<-pc.Messages()
-
-	if hwmo := pc.HighWaterMarkOffset(); hwmo != offset+1 {
-		t.Logf("Last produced offset %d; high water mark should be one higher but found %d.", offset, hwmo)
-	}
-
-	safeClose(t, pc)
+func (s *PartitionConsumerFuncSuite) SetUpSuite(c *C) {
+	testhelpers.InitLogging(c)
+	s.kh = kafkahelper.New(c)
 }
 
 // BrokerConsumer used to be implemented so that if the message channel of one
@@ -73,14 +29,11 @@ func TestConsumerHighWaterMarkOffset(t *testing.T) {
 //
 // IMPORTANT: The topic/key of the two sets of the generated messages had been
 // selected so that both sets end up in partitions that has the same leader.
-func TestConsumerPartitionConsumerSlacker(t *testing.T) {
-	setupFunctionalTest(t)
-	defer teardownFunctionalTest(t)
-
+func (s *PartitionConsumerFuncSuite) TestSlacker(c *C) {
 	// {topic: "test.1", key: "foo"} and {topic: "test.4": key: "bar"} have
 	// the same broker #9093 as a leader.
-	startOffsetA := generateTestMessages(t, "test.1", sarama.StringEncoder("foo"), 11)
-	startOffsetB := generateTestMessages(t, "test.4", sarama.StringEncoder("bar"), 1000)
+	producedTest1 := s.kh.PutMessages("slacker", "test.1", map[string]int{"foo": 11})
+	producedTest4 := s.kh.PutMessages("slacker", "test.4", map[string]int{"bar": 1000})
 
 	config := sarama.NewConfig()
 	// The channel buffer size is selected to be one short of the number of
@@ -88,21 +41,17 @@ func TestConsumerPartitionConsumerSlacker(t *testing.T) {
 	// (buffer size + 1)th message to the respective PartitionConsumer message
 	// channel will block, given that nobody is reading from the channel.
 	config.ChannelBufferSize = 10
-	c, err := NewConsumer(kafkaBrokers, config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer safeClose(t, c)
+	f, err := NewConsumer(testhelpers.KafkaPeers, config)
+	c.Assert(err, IsNil)
+	defer f.Close()
 
-	pcA, _, err := c.ConsumePartition("test.1", 0, startOffsetA)
-	if err != nil {
-		t.Fatal(err)
-	}
+	pcA, _, err := f.ConsumePartition("test.1", 0, producedTest1["foo"][0].Offset)
+	c.Assert(err, IsNil)
+	defer pcA.Close()
 
-	pcB, _, err := c.ConsumePartition("test.4", 2, startOffsetB)
-	if err != nil {
-		t.Fatal(err)
-	}
+	pcB, _, err := f.ConsumePartition("test.4", 2, producedTest4["bar"][0].Offset)
+	c.Assert(err, IsNil)
+	defer pcB.Close()
 
 	timeoutCh := time.After(1 * time.Second)
 	for i := 0; i < 1000; i++ {
@@ -131,34 +80,7 @@ func TestConsumerPartitionConsumerSlacker(t *testing.T) {
 					break drainLoop
 				}
 			}
-			t.Fatalf("Failed to read all messages from pcB within 1 seconds: read=%v", i)
+			c.Errorf("Failed to read all messages from pcB within 1 seconds: read=%v", i)
 		}
 	}
-	safeClose(t, pcA)
-	safeClose(t, pcB)
-}
-
-func generateTestMessages(t *testing.T, topic string, key sarama.Encoder, count int) int64 {
-	p, err := sarama.NewSyncProducer(kafkaBrokers, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer safeClose(t, p)
-
-	startOffset := int64(-42)
-	for i := 0; i < count; i++ {
-		_, offset, err := p.SendMessage(
-			&sarama.ProducerMessage{
-				Topic: topic,
-				Key:   key,
-				Value: sarama.StringEncoder(fmt.Sprintf("Test%v", i))})
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if startOffset == int64(-42) {
-			startOffset = offset
-		}
-	}
-	return startOffset
 }

@@ -11,9 +11,9 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/gorilla/mux"
+	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/admin"
 	"github.com/mailgun/kafka-pixy/consumer"
-	"github.com/mailgun/kafka-pixy/context"
 	"github.com/mailgun/kafka-pixy/prettyfmt"
 	"github.com/mailgun/kafka-pixy/producer"
 	"github.com/mailgun/log"
@@ -40,6 +40,7 @@ var (
 )
 
 type T struct {
+	actorID    *actor.ID
 	addr       string
 	listener   net.Listener
 	httpServer *manners.GracefulServer
@@ -68,6 +69,7 @@ func New(network, addr string, producer *producer.T, consumer *consumer.T, admin
 	router := mux.NewRouter()
 	httpServer := manners.NewWithServer(&http.Server{Handler: router})
 	as := &T{
+		actorID:    actor.RootID.NewChild(fmt.Sprintf("API@%s", addr)),
 		addr:       addr,
 		listener:   manners.NewListener(listener),
 		httpServer: httpServer,
@@ -93,14 +95,12 @@ func New(network, addr string, producer *producer.T, consumer *consumer.T, admin
 // Starts triggers asynchronous HTTP server start. If it fails then the error
 // will be sent down to `HTTPAPIServer.ErrorCh()`.
 func (as *T) Start() {
-	go func() {
-		hid := context.RootID.NewChild(fmt.Sprintf("API@%s", as.addr))
-		defer hid.LogScope()()
+	actor.Spawn(as.actorID, nil, func() {
 		defer close(as.errorCh)
 		if err := as.httpServer.Serve(as.listener); err != nil {
 			as.errorCh <- fmt.Errorf("HTTP API listener failed, err=(%s)", err)
 		}
-	}()
+	})
 }
 
 // ErrorCh returns an output channel that HTTP server running in another

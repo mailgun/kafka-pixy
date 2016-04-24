@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Shopify/sarama"
+	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/samuel/go-zookeeper/zk"
 )
@@ -106,9 +107,8 @@ func (a *T) GetGroupOffsets(group, topic string) ([]PartitionOffset, error) {
 			reqNewest.AddBlock(topic, p.partition, sarama.OffsetNewest, 1)
 			reqOldest.AddBlock(topic, p.partition, sarama.OffsetOldest, 1)
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		actorID := actor.RootID.NewChild("adminOffsetFetcher")
+		actor.Spawn(actorID, &wg, func() {
 			resOldest, err := broker.GetAvailableOffsets(&reqOldest)
 			if err != nil {
 				errorsCh <- NewErrQuery(err, "failed to fetch oldest offset: broker=%v", broker.ID())
@@ -134,7 +134,7 @@ func (a *T) GetGroupOffsets(group, topic string) ([]PartitionOffset, error) {
 				offsets[xp.index].Begin = begin
 				offsets[xp.index].End = end
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	// If we failed to get offset range for at least one of the partitions then

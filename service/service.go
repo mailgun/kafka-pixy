@@ -4,16 +4,17 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/admin"
 	"github.com/mailgun/kafka-pixy/apiserver"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer"
-	"github.com/mailgun/kafka-pixy/context"
 	"github.com/mailgun/kafka-pixy/producer"
 	"github.com/mailgun/log"
 )
 
 type T struct {
+	actorID    *actor.ID
 	producer   *producer.T
 	consumer   *consumer.T
 	admin      *admin.T
@@ -50,6 +51,7 @@ func Spawn(cfg *config.T) (*T, error) {
 		}
 	}
 	s := &T{
+		actorID:    actor.RootID.NewChild("service"),
 		producer:   producer,
 		consumer:   consumer,
 		admin:      admin,
@@ -57,7 +59,7 @@ func Spawn(cfg *config.T) (*T, error) {
 		unixServer: unixServer,
 		quitCh:     make(chan struct{}),
 	}
-	spawn(&s.wg, s.supervisor)
+	actor.Spawn(s.actorID, &s.wg, s.run)
 	return s, nil
 }
 
@@ -67,8 +69,7 @@ func (s *T) Stop() {
 }
 
 // supervisor takes care of the service graceful shutdown.
-func (s *T) supervisor() {
-	defer context.RootID.NewChild("supervisor").LogScope()()
+func (s *T) run() {
 	var unixServerErrorCh <-chan error
 
 	s.tcpServer.Start()
@@ -105,18 +106,8 @@ func (s *T) supervisor() {
 	// There are no more requests in flight at this point so it is safe to stop
 	// all Kafka clients.
 	var wg sync.WaitGroup
-	spawn(&wg, s.producer.Stop)
-	spawn(&wg, s.consumer.Stop)
-	spawn(&wg, s.admin.Stop)
+	actor.Spawn(s.actorID.NewChild("producerStopper"), &wg, s.producer.Stop)
+	actor.Spawn(s.actorID.NewChild("consumerStopper"), &wg, s.consumer.Stop)
+	actor.Spawn(s.actorID.NewChild("adminStopper"), &wg, s.admin.Stop)
 	wg.Wait()
-}
-
-// spawn starts function `f` as a goroutine making it a member of the `wg`
-// wait group.
-func spawn(wg *sync.WaitGroup, f func()) {
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		f()
-	}()
 }

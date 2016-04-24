@@ -1,5 +1,9 @@
 # Changelog
 
+#### Version TBD (TBD)
+
+* [#56](https://github.com/mailgun/kafka-pixy/issues/56) Invalid stored offset makes consumer panic
+
 #### Version 0.10.1 (2015-12-21)
 
 * [#49](https://github.com/mailgun/kafka-pixy/pull/49) Topic consumption stops while ownership retained.

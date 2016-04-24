@@ -97,7 +97,7 @@ func (s *ServiceSuite) TestInvalidKafkaPeers(c *C) {
 func (s *ServiceSuite) TestProduce(c *C) {
 	// Given
 	svc, _ := Spawn(s.cfg)
-	offsetsBefore := s.kh.GetOffsets("test.4")
+	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 
 	// When
 	for i := 0; i < 10; i++ {
@@ -113,7 +113,7 @@ func (s *ServiceSuite) TestProduce(c *C) {
 			"text/plain", strings.NewReader(strconv.Itoa(i)))
 	}
 	svc.Stop() // Have to stop before getOffsets
-	offsetsAfter := s.kh.GetOffsets("test.4")
+	offsetsAfter := s.kh.GetNewestOffsets("test.4")
 
 	// Then
 	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0]+20)
@@ -128,7 +128,7 @@ func (s *ServiceSuite) TestProduce(c *C) {
 func (s *ServiceSuite) TestProduceNilKey(c *C) {
 	// Given
 	svc, _ := Spawn(s.cfg)
-	offsetsBefore := s.kh.GetOffsets("test.4")
+	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 
 	// When
 	for i := 0; i < 100; i++ {
@@ -136,7 +136,7 @@ func (s *ServiceSuite) TestProduceNilKey(c *C) {
 			"text/plain", strings.NewReader(strconv.Itoa(i)))
 	}
 	svc.Stop() // Have to stop before getOffsets
-	offsetsAfter := s.kh.GetOffsets("test.4")
+	offsetsAfter := s.kh.GetNewestOffsets("test.4")
 
 	// Then
 	delta0 := offsetsAfter[0] - offsetsBefore[0]
@@ -151,7 +151,7 @@ func (s *ServiceSuite) TestProduceNilKey(c *C) {
 // submitted to a particular partition determined by the empty key hash.
 func (s *ServiceSuite) TestProduceEmptyKey(c *C) {
 	svc, _ := Spawn(s.cfg)
-	offsetsBefore := s.kh.GetOffsets("test.4")
+	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 
 	// When
 	for i := 0; i < 10; i++ {
@@ -159,7 +159,7 @@ func (s *ServiceSuite) TestProduceEmptyKey(c *C) {
 			"text/plain", strings.NewReader(strconv.Itoa(i)))
 	}
 	svc.Stop() // Have to stop before getOffsets
-	offsetsAfter := s.kh.GetOffsets("test.4")
+	offsetsAfter := s.kh.GetNewestOffsets("test.4")
 
 	// Then
 	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0])
@@ -171,7 +171,7 @@ func (s *ServiceSuite) TestProduceEmptyKey(c *C) {
 // Utf8 messages are submitted without a problem.
 func (s *ServiceSuite) TestUtf8Message(c *C) {
 	svc, _ := Spawn(s.cfg)
-	offsetsBefore := s.kh.GetOffsets("test.4")
+	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 
 	// When
 	s.unixClient.Post("http://_/topics/test.4/messages?key=foo",
@@ -179,7 +179,7 @@ func (s *ServiceSuite) TestUtf8Message(c *C) {
 	svc.Stop() // Have to stop before getOffsets
 
 	// Then
-	offsetsAfter := s.kh.GetOffsets("test.4")
+	offsetsAfter := s.kh.GetNewestOffsets("test.4")
 	msgs := s.kh.GetMessages("test.4", offsetsBefore, offsetsAfter)
 	c.Assert(msgs, DeepEquals,
 		[][]string{[]string(nil), {"Превед Медвед"}, []string(nil), []string(nil)})
@@ -202,7 +202,7 @@ func (s *ServiceSuite) TestTCPDoesNotWork(c *C) {
 
 // API is served on a TCP socket if it is explicitly configured.
 func (s *ServiceSuite) TestBothAPI(c *C) {
-	offsetsBefore := s.kh.GetOffsets("test.4")
+	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 	s.cfg.TCPAddr = "127.0.0.1:55501"
 	svc, err := Spawn(s.cfg)
 	c.Assert(err, IsNil)
@@ -217,7 +217,7 @@ func (s *ServiceSuite) TestBothAPI(c *C) {
 	svc.Stop() // Have to stop before getOffsets
 	c.Assert(err1, IsNil)
 	c.Assert(err2, IsNil)
-	offsetsAfter := s.kh.GetOffsets("test.4")
+	offsetsAfter := s.kh.GetNewestOffsets("test.4")
 	msgs := s.kh.GetMessages("test.4", offsetsBefore, offsetsAfter)
 	c.Assert(msgs, DeepEquals,
 		[][]string{[]string(nil), {"Превед", "Kitty"}, []string(nil), []string(nil)})
@@ -242,7 +242,7 @@ func (s *ServiceSuite) TestStoppedServerCall(c *C) {
 // Messages that have maximum possible size indeed go through. Note that we
 // assume that the broker's limit is the same as the producer's one or higher.
 func (s *ServiceSuite) TestLargestMessage(c *C) {
-	offsetsBefore := s.kh.GetOffsets("test.4")
+	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 	maxMsgSize := sarama.NewConfig().Producer.MaxMessageBytes - ProdMsgMetadataSize([]byte("foo"))
 	msg := GenMessage(maxMsgSize)
 	s.cfg.TCPAddr = "127.0.0.1:55501"
@@ -255,7 +255,7 @@ func (s *ServiceSuite) TestLargestMessage(c *C) {
 	// Then
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
 	c.Assert(ParseJSONBody(c, r), DeepEquals, map[string]interface{}{})
-	offsetsAfter := s.kh.GetOffsets("test.4")
+	offsetsAfter := s.kh.GetNewestOffsets("test.4")
 	messages := s.kh.GetMessages("test.4", offsetsBefore, offsetsAfter)
 	readMsg := messages[1][0]
 	c.Assert(readMsg, Equals, msg)
@@ -265,7 +265,7 @@ func (s *ServiceSuite) TestLargestMessage(c *C) {
 // dropped. Note that we assume that the broker's limit is the same as the
 // producer's one or higher.
 func (s *ServiceSuite) TestMessageTooLarge(c *C) {
-	offsetsBefore := s.kh.GetOffsets("test.4")
+	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 	maxMsgSize := sarama.NewConfig().Producer.MaxMessageBytes - ProdMsgMetadataSize([]byte("foo")) + 1
 	msg := GenMessage(maxMsgSize)
 	s.cfg.TCPAddr = "127.0.0.1:55501"
@@ -278,20 +278,20 @@ func (s *ServiceSuite) TestMessageTooLarge(c *C) {
 	// Then
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
 	c.Assert(ParseJSONBody(c, r), DeepEquals, map[string]interface{}{})
-	offsetsAfter := s.kh.GetOffsets("test.4")
+	offsetsAfter := s.kh.GetNewestOffsets("test.4")
 	c.Assert(offsetsAfter, DeepEquals, offsetsBefore)
 }
 
 func (s *ServiceSuite) TestSyncProduce(c *C) {
 	// Given
 	svc, _ := Spawn(s.cfg)
-	offsetsBefore := s.kh.GetOffsets("test.4")
+	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 
 	// When
 	r, err := s.unixClient.Post("http://_/topics/test.4/messages?key=1&sync",
 		"text/plain", strings.NewReader("Foo"))
 	svc.Stop() // Have to stop before getOffsets
-	offsetsAfter := s.kh.GetOffsets("test.4")
+	offsetsAfter := s.kh.GetNewestOffsets("test.4")
 
 	// Then
 	c.Assert(err, IsNil)

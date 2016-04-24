@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/Shopify/sarama"
-	"github.com/mailgun/kafka-pixy/offsetmgr"
+	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	. "gopkg.in/check.v1"
 )
@@ -19,9 +19,13 @@ type OffsetMgrFuncSuite struct {
 
 var _ = Suite(&OffsetMgrFuncSuite{})
 
+func (s *OffsetMgrFuncSuite) SetUpSuite(c *C) {
+	testhelpers.InitLogging(c)
+}
+
 // The latest committed offset saved by one partition manager instance is
 // returned by another as the initial commit.
-func (s *OffsetMgrFuncSuite) TestFuncOffsetManager(c *C) {
+func (s *OffsetMgrFuncSuite) TestLatestOffsetSaved(c *C) {
 	// Given
 	newOffset := time.Now().Unix()
 

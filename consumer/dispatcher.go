@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
-	"github.com/mailgun/kafka-pixy/context"
 	"github.com/mailgun/log"
 )
 
@@ -17,7 +17,7 @@ import (
 // When a down stream dispatch tier is created it is cached in case more
 // requests resolving to it will come in the nearest future.
 type dispatcher struct {
-	contextID         *context.ID
+	actorID           *actor.ID
 	cfg               *config.T
 	factory           dispatchTierFactory
 	requestsCh        chan consumeRequest
@@ -63,9 +63,9 @@ type expiringDispatchTier struct {
 	expired   bool
 }
 
-func newDispatcher(baseCID *context.ID, factory dispatchTierFactory, cfg *config.T) *dispatcher {
+func newDispatcher(parentActorID *actor.ID, factory dispatchTierFactory, cfg *config.T) *dispatcher {
 	d := &dispatcher{
-		contextID:         baseCID.NewChild("dispatcher"),
+		actorID:           parentActorID.NewChild("dispatcher"),
 		cfg:               cfg,
 		factory:           factory,
 		requestsCh:        make(chan consumeRequest, cfg.Consumer.ChannelBufferSize),
@@ -77,7 +77,7 @@ func newDispatcher(baseCID *context.ID, factory dispatchTierFactory, cfg *config
 }
 
 func (d *dispatcher) start() {
-	spawn(&d.wg, d.run)
+	actor.Spawn(d.actorID, &d.wg, d.run)
 }
 
 func (d *dispatcher) stop() {
@@ -92,7 +92,6 @@ func (d *dispatcher) requests() chan<- consumeRequest {
 // run receives consume requests from the `requests()` channel and dispatches
 // them to downstream tiers based on request dispatch key.
 func (d *dispatcher) run() {
-	defer d.contextID.LogScope()()
 	for {
 		select {
 		case req, ok := <-d.requestsCh:
@@ -174,7 +173,7 @@ func (d *dispatcher) resolveTier(req consumeRequest) dispatchTier {
 // asynchronous stop. When the tier is stopped it will notify about that via the
 // `stoppedChildrenCh` channel.
 func (d *dispatcher) handleExpired(dt dispatchTier) {
-	log.Infof("<%s> child expired: %s", d.contextID, dt)
+	log.Infof("<%s> child expired: %s", d.actorID, dt)
 	edt := d.children[dt.key()]
 	if edt == nil || edt.instance != dt || edt.expired {
 		return
@@ -187,7 +186,7 @@ func (d *dispatcher) handleExpired(dt dispatchTier) {
 // started and takes over the tier's spot among the downstream dispatch tiers,
 // otherwise the tier is deleted.
 func (d *dispatcher) handleStopped(dt dispatchTier) dispatchTier {
-	log.Infof("<%s> child stopped: %s", d.contextID, dt)
+	log.Infof("<%s> child stopped: %s", d.actorID, dt)
 	edt := d.children[dt.key()]
 	if edt == nil {
 		return nil
@@ -197,7 +196,7 @@ func (d *dispatcher) handleStopped(dt dispatchTier) dispatchTier {
 		delete(d.children, dt.key())
 		return nil
 	}
-	log.Infof("<%s> starting successor: %s", d.contextID, successor)
+	log.Infof("<%s> starting successor: %s", d.actorID, successor)
 	edt.expired = false
 	edt.instance = successor
 	edt.successor = nil

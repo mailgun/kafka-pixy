@@ -3,40 +3,20 @@ package consumer
 import (
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/Shopify/sarama"
-	"github.com/mailgun/kafka-pixy/context"
-	"github.com/mailgun/kafka-pixy/mapper"
+	"github.com/mailgun/kafka-pixy/actor"
+	"github.com/mailgun/kafka-pixy/consumer/consumermsg"
+	"github.com/mailgun/kafka-pixy/consumer/mapper"
+	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
 )
-
-// ConsumerMessage encapsulates a Kafka message returned by the consumer.
-type ConsumerMessage struct {
-	Key, Value    []byte
-	Topic         string
-	Partition     int32
-	Offset        int64
-	HighWaterMark int64
-}
-
-// ConsumerError is what is provided to the user when an error occurs.
-// It wraps an error and includes the topic and partition.
-type ConsumerError struct {
-	Topic     string
-	Partition int32
-	Err       error
-}
-
-func (ce ConsumerError) Error() string {
-	return fmt.Sprintf("kafka: error while consuming %s/%d: %s", ce.Topic, ce.Partition, ce.Err)
-}
 
 // ConsumerErrors is a type that wraps a batch of errors and implements the Error interface.
 // It can be returned from the PartitionConsumer's Close methods to avoid the need to manually drain errors
 // when stopping.
-type ConsumerErrors []*ConsumerError
+type ConsumerErrors []*consumermsg.ConsumerError
 
 func (ce ConsumerErrors) Error() string {
 	return fmt.Sprintf("kafka: %d errors while consuming", len(ce))
@@ -45,14 +25,17 @@ func (ce ConsumerErrors) Error() string {
 // Consumer manages PartitionConsumers which process Kafka messages from brokers. You MUST call Close()
 // on a consumer to avoid leaks, it will not be garbage-collected automatically when it passes out of
 // scope.
-//
-// Sarama's Consumer type does not currently support automatic consumer group rebalancing and offset tracking,
-// however the https://github.com/wvanbergen/kafka library builds on Sarama to add this support. We plan
-// to properly integrate this functionality at a later date.
 type Consumer interface {
-	// ConsumePartition creates a PartitionConsumer on the given topic/partition with the given offset. It will
-	// return an error if this Consumer is already consuming on the given topic/partition. Offset can be a
-	// literal offset, or OffsetNewest or OffsetOldest
+	// ConsumePartition creates a PartitionConsumer on the given topic/partition
+	// with the given offset. It will return an error if this Consumer is
+	// already consuming on the given topic/partition. Offset can be a
+	// literal offset, or OffsetNewest or OffsetOldest.
+	//
+	// If offset is smaller then the oldest offset then the oldest offset is
+	// returned. If offset is larger then the newest offset then the newest
+	// offset is returned. If offset is either sarama.OffsetNewest or
+	// sarama.OffsetOldest constant, then the actual offset value is returned.
+	// otherwise offset is returned.
 	ConsumePartition(topic string, partition int32, offset int64) (PartitionConsumer, int64, error)
 
 	// Close shuts down the consumer. It must be called after all child PartitionConsumers have already been closed.
@@ -60,13 +43,13 @@ type Consumer interface {
 }
 
 type consumer struct {
-	baseCID      *context.ID
-	config       *sarama.Config
-	client       sarama.Client
-	ownClient    bool
-	children     map[topicPartition]*partitionConsumer
-	childrenLock sync.Mutex
-	mapper       *mapper.T
+	actorNamespace *actor.ID
+	config         *sarama.Config
+	client         sarama.Client
+	ownClient      bool
+	children       map[topicPartition]*partitionConsumer
+	childrenLock   sync.Mutex
+	mapper         *mapper.T
 }
 
 type topicPartition struct {
@@ -97,12 +80,12 @@ func NewConsumerFromClient(client sarama.Client) (Consumer, error) {
 		return nil, sarama.ErrClosedClient
 	}
 	c := &consumer{
-		baseCID:  context.RootID.NewChild("consumer"),
-		client:   client,
-		config:   client.Config(),
-		children: make(map[topicPartition]*partitionConsumer),
+		actorNamespace: actor.RootID.NewChild("partitionConsumer"),
+		client:         client,
+		config:         client.Config(),
+		children:       make(map[topicPartition]*partitionConsumer),
 	}
-	c.mapper = mapper.Spawn(c.baseCID, c)
+	c.mapper = mapper.Spawn(c.actorNamespace, c)
 	return c, nil
 }
 
@@ -152,14 +135,15 @@ func (c *consumer) ResolveBroker(pw mapper.Worker) (*sarama.Broker, error) {
 // implements `mapper.Resolver.Executor()`
 func (c *consumer) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
 	bc := &brokerConsumer{
-		baseCID:         c.baseCID.NewChild(fmt.Sprintf("broker:%d", brokerConn.ID())),
-		config:          c.config,
-		conn:            brokerConn,
-		requestsCh:      make(chan fetchRequest),
-		batchRequestsCh: make(chan []fetchRequest),
+		aggregatorActorID: c.actorNamespace.NewChild(fmt.Sprintf("broker:%d:aggr", brokerConn.ID())),
+		executorActorID:   c.actorNamespace.NewChild(fmt.Sprintf("broker:%d:exec", brokerConn.ID())),
+		config:            c.config,
+		conn:              brokerConn,
+		requestsCh:        make(chan fetchRequest),
+		batchRequestsCh:   make(chan []fetchRequest),
 	}
-	spawn(&bc.wg, bc.batchRequests)
-	spawn(&bc.wg, bc.executeBatches)
+	actor.Spawn(bc.aggregatorActorID, &bc.wg, bc.runAggregator)
+	actor.Spawn(bc.executorActorID, &bc.wg, bc.runExecutor)
 	return bc
 }
 
@@ -181,14 +165,12 @@ func (c *consumer) chooseStartingOffset(topic string, partition int32, offset in
 	}
 
 	switch {
-	case offset == sarama.OffsetNewest:
+	case offset == sarama.OffsetNewest || offset > newestOffset:
 		return newestOffset, nil
-	case offset == sarama.OffsetOldest:
+	case offset == sarama.OffsetOldest || offset < oldestOffset:
 		return oldestOffset, nil
-	case offset >= oldestOffset && offset <= newestOffset:
-		return offset, nil
 	default:
-		return 0, sarama.ErrOffsetOutOfRange
+		return offset, nil
 	}
 }
 
@@ -210,61 +192,55 @@ type PartitionConsumer interface {
 	Close() error
 
 	// Messages returns the read channel for the messages that are returned by the broker.
-	Messages() <-chan *ConsumerMessage
+	Messages() <-chan *consumermsg.ConsumerMessage
 
 	// Errors returns a read channel of errors that occured during consuming, if enabled. By default,
 	// errors are logged and not returned over this channel. If you want to implement any custom error
 	// handling, set your config's Consumer.Return.Errors setting to true, and read from this channel.
-	Errors() <-chan *ConsumerError
-
-	// HighWaterMarkOffset returns the high water mark offset of the partition, i.e. the offset that will
-	// be used for the next message that will be produced. You can use this to determine how far behind
-	// the processing is.
-	HighWaterMarkOffset() int64
+	Errors() <-chan *consumermsg.ConsumerError
 }
 
 // implements `mapper.Worker`.
 type partitionConsumer struct {
+	actorID  *actor.ID
 	consumer *consumer
 	tp       topicPartition
-	baseCID  *context.ID
 
 	assignmentCh chan mapper.Executor
 	initErrorCh  chan error
-	messagesCh   chan *ConsumerMessage
-	errorsCh     chan *ConsumerError
-	closingCh    chan none
-	closedCh     chan none
+	messagesCh   chan *consumermsg.ConsumerMessage
+	errorsCh     chan *consumermsg.ConsumerError
+	closingCh    chan none.T
+	closedCh     chan none.T
 
-	fetchSize           int32
-	offset              int64
-	highWaterMarkOffset int64
-	lag                 int64
+	fetchSize int32
+	offset    int64
+	lag       int64
 }
 
 func (c *consumer) spawnPartitionConsumer(tp topicPartition, offset int64) *partitionConsumer {
-	cp := &partitionConsumer{
+	pc := &partitionConsumer{
+		actorID:      c.actorNamespace.NewChild(fmt.Sprintf("%s:%d", tp.topic, tp.partition)),
 		consumer:     c,
 		tp:           tp,
-		baseCID:      c.baseCID.NewChild(fmt.Sprintf("%s:%d", tp.topic, tp.partition)),
 		assignmentCh: make(chan mapper.Executor, 1),
 		initErrorCh:  make(chan error),
-		messagesCh:   make(chan *ConsumerMessage, c.config.ChannelBufferSize),
-		errorsCh:     make(chan *ConsumerError, c.config.ChannelBufferSize),
-		closingCh:    make(chan none, 1),
-		closedCh:     make(chan none),
+		messagesCh:   make(chan *consumermsg.ConsumerMessage, c.config.ChannelBufferSize),
+		errorsCh:     make(chan *consumermsg.ConsumerError, c.config.ChannelBufferSize),
+		closingCh:    make(chan none.T, 1),
+		closedCh:     make(chan none.T),
 		offset:       offset,
 		fetchSize:    c.config.Consumer.Fetch.Default,
 	}
-	go cp.pullMessages()
-	return cp
+	actor.Spawn(pc.actorID, nil, pc.run)
+	return pc
 }
 
-func (pc *partitionConsumer) Messages() <-chan *ConsumerMessage {
+func (pc *partitionConsumer) Messages() <-chan *consumermsg.ConsumerMessage {
 	return pc.messagesCh
 }
 
-func (pc *partitionConsumer) Errors() <-chan *ConsumerError {
+func (pc *partitionConsumer) Errors() <-chan *consumermsg.ConsumerError {
 	return pc.errorsCh
 }
 
@@ -289,10 +265,6 @@ func (pc *partitionConsumer) Close() error {
 	return nil
 }
 
-func (pc *partitionConsumer) HighWaterMarkOffset() int64 {
-	return atomic.LoadInt64(&pc.highWaterMarkOffset)
-}
-
 // implements `mapper.Worker`.
 func (pc *partitionConsumer) Assignment() chan<- mapper.Executor {
 	return pc.assignmentCh
@@ -302,19 +274,17 @@ func (pc *partitionConsumer) Assignment() chan<- mapper.Executor {
 // redispatch goroutine; parses broker fetch responses and pushes parsed
 // `ConsumerMessages` to the message channel. It tries to keep the message
 // channel buffer full making fetch requests to the assigned broker as needed.
-func (pc *partitionConsumer) pullMessages() {
-	cid := pc.baseCID.NewChild("pullMessages")
-	defer cid.LogScope()()
+func (pc *partitionConsumer) run() {
 	var (
 		assignedFetchRequestCh    chan<- fetchRequest
 		nilOrFetchRequestsCh      chan<- fetchRequest
 		fetchResultCh             = make(chan fetchResult, 1)
 		nilOrFetchResultsCh       <-chan fetchResult
-		nilOrMessagesCh           chan<- *ConsumerMessage
+		nilOrMessagesCh           chan<- *consumermsg.ConsumerMessage
 		nilOrReassignRetryTimerCh <-chan time.Time
-		fetchedMessages           []*ConsumerMessage
+		fetchedMessages           []*consumermsg.ConsumerMessage
 		err                       error
-		currMessage               *ConsumerMessage
+		currMessage               *consumermsg.ConsumerMessage
 		currMessageIdx            int
 		lastReassignTime          time.Time
 	)
@@ -322,11 +292,11 @@ func (pc *partitionConsumer) pullMessages() {
 		assignedFetchRequestCh = nil
 		now := time.Now().UTC()
 		if now.Sub(lastReassignTime) > pc.consumer.config.Consumer.Retry.Backoff {
-			log.Infof("<%s> trigger reassign: reason=(%s)", cid, reason)
+			log.Infof("<%s> trigger reassign: reason=(%s)", pc.actorID, reason)
 			lastReassignTime = now
 			pc.consumer.mapper.WorkerReassign() <- pc
 		} else {
-			log.Infof("<%s> schedule reassign: reason=(%s)", cid, reason)
+			log.Infof("<%s> schedule reassign: reason=(%s)", pc.actorID, reason)
 		}
 		nilOrReassignRetryTimerCh = time.After(pc.consumer.config.Consumer.Retry.Backoff)
 	}
@@ -334,7 +304,7 @@ pullMessagesLoop:
 	for {
 		select {
 		case bw := <-pc.assignmentCh:
-			log.Infof("<%s> assigned %s", cid, bw)
+			log.Infof("<%s> assigned %s", pc.actorID, bw)
 			if bw == nil {
 				triggerOrScheduleReassign("no broker assigned")
 				continue pullMessagesLoop
@@ -356,8 +326,8 @@ pullMessagesLoop:
 
 		case result := <-nilOrFetchResultsCh:
 			nilOrFetchResultsCh = nil
-			if fetchedMessages, err = pc.parseFetchResult(cid, result); err != nil {
-				log.Infof("<%s> fetch failed: err=%s", cid, err)
+			if fetchedMessages, err = pc.parseFetchResult(pc.actorID, result); err != nil {
+				log.Infof("<%s> fetch failed: err=%s", pc.actorID, err)
 				pc.reportError(err)
 				if err == sarama.ErrOffsetOutOfRange {
 					// There's no point in retrying this it will just fail the
@@ -390,7 +360,7 @@ pullMessagesLoop:
 
 		case <-nilOrReassignRetryTimerCh:
 			pc.consumer.mapper.WorkerReassign() <- pc
-			log.Infof("<%s> reassign triggered by timeout", cid)
+			log.Infof("<%s> reassign triggered by timeout", pc.actorID)
 			nilOrReassignRetryTimerCh = time.After(pc.consumer.config.Consumer.Retry.Backoff)
 
 		case <-pc.closingCh:
@@ -404,7 +374,7 @@ done:
 }
 
 // parseFetchResult parses a fetch response received a broker.
-func (pc *partitionConsumer) parseFetchResult(cid *context.ID, fetchResult fetchResult) ([]*ConsumerMessage, error) {
+func (pc *partitionConsumer) parseFetchResult(cid *actor.ID, fetchResult fetchResult) ([]*consumermsg.ConsumerMessage, error) {
 	if fetchResult.Err != nil {
 		return nil, fetchResult.Err
 	}
@@ -445,15 +415,13 @@ func (pc *partitionConsumer) parseFetchResult(cid *context.ID, fetchResult fetch
 
 	// we got messages, reset our fetch size in case it was increased for a previous request
 	pc.fetchSize = pc.consumer.config.Consumer.Fetch.Default
-	atomic.StoreInt64(&pc.highWaterMarkOffset, block.HighWaterMarkOffset)
-
-	var fetchedMessages []*ConsumerMessage
+	var fetchedMessages []*consumermsg.ConsumerMessage
 	for _, msgBlock := range block.MsgSet.Messages {
 		for _, msg := range msgBlock.Messages() {
 			if msg.Offset < pc.offset {
 				continue
 			}
-			consumerMessage := &ConsumerMessage{
+			consumerMessage := &consumermsg.ConsumerMessage{
 				Topic:         pc.tp.topic,
 				Partition:     pc.tp.partition,
 				Key:           msg.Msg.Key,
@@ -478,7 +446,7 @@ func (pc *partitionConsumer) reportError(err error) {
 	if !pc.consumer.config.Consumer.Return.Errors {
 		return
 	}
-	ce := &ConsumerError{
+	ce := &consumermsg.ConsumerError{
 		Topic:     pc.tp.topic,
 		Partition: pc.tp.partition,
 		Err:       err,
@@ -490,7 +458,7 @@ func (pc *partitionConsumer) reportError(err error) {
 }
 
 func (pc *partitionConsumer) String() string {
-	return pc.baseCID.String()
+	return pc.actorID.String()
 }
 
 // brokerConsumer maintains a connection with a particular Kafka broker. It
@@ -500,12 +468,13 @@ func (pc *partitionConsumer) String() string {
 //
 // implements `mapper.Executor`.
 type brokerConsumer struct {
-	baseCID         *context.ID
-	config          *sarama.Config
-	conn            *sarama.Broker
-	requestsCh      chan fetchRequest
-	batchRequestsCh chan []fetchRequest
-	wg              sync.WaitGroup
+	aggregatorActorID *actor.ID
+	executorActorID   *actor.ID
+	config            *sarama.Config
+	conn              *sarama.Broker
+	requestsCh        chan fetchRequest
+	batchRequestsCh   chan []fetchRequest
+	wg                sync.WaitGroup
 }
 
 type fetchRequest struct {
@@ -533,12 +502,10 @@ func (bc *brokerConsumer) Stop() {
 	bc.wg.Wait()
 }
 
-// batchRequests collects fetch requests from partition consumers into batches
+// runAggregator collects fetch requests from partition consumers into batches
 // while the request executor goroutine is busy processing the previous batch.
 // As soon as the executor is done, a new batch is handed over to it.
-func (bc *brokerConsumer) batchRequests() {
-	cid := bc.baseCID.NewChild("batchRequests")
-	defer cid.LogScope()()
+func (bc *brokerConsumer) runAggregator() {
 	defer close(bc.batchRequestsCh)
 
 	var nilOrBatchRequestCh chan<- []fetchRequest
@@ -559,11 +526,8 @@ func (bc *brokerConsumer) batchRequests() {
 	}
 }
 
-// executeBatches executes fetch request received from partition consumers.
-func (bc *brokerConsumer) executeBatches() {
-	cid := bc.baseCID.NewChild("executeBatches")
-	defer cid.LogScope()()
-
+// runExecutor executes fetch request received from partition consumers.
+func (bc *brokerConsumer) runExecutor() {
 	var lastErr error
 	var lastErrTime time.Time
 	for fetchRequests := range bc.batchRequestsCh {
@@ -588,7 +552,7 @@ func (bc *brokerConsumer) executeBatches() {
 		if lastErr != nil {
 			lastErrTime = time.Now().UTC()
 			bc.conn.Close()
-			log.Infof("<%s> connection reset: err=(%s)", cid, lastErr)
+			log.Infof("<%s> connection reset: err=(%s)", bc.executorActorID, lastErr)
 		}
 		// Fan the response out to the partition consumers.
 		for _, fr := range fetchRequests {
@@ -601,5 +565,5 @@ func (bc *brokerConsumer) String() string {
 	if bc == nil {
 		return "<nil>"
 	}
-	return bc.baseCID.String()
+	return bc.aggregatorActorID.String()
 }

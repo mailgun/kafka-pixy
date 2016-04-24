@@ -54,12 +54,12 @@ func (s *ProducerSuite) TestStartAndStop(c *C) {
 func (s *ProducerSuite) TestProduce(c *C) {
 	// Given
 	p, _ := Spawn(s.cfg)
-	offsetsBefore := s.kh.GetOffsets("test.4")
+	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 	// When
 	_, err := p.Produce("test.4", sarama.StringEncoder("1"), sarama.StringEncoder("Foo"))
 	// Then
 	c.Assert(err, IsNil)
-	offsetsAfter := s.kh.GetOffsets("test.4")
+	offsetsAfter := s.kh.GetNewestOffsets("test.4")
 	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0]+1)
 	// Cleanup
 	p.Stop()
@@ -81,7 +81,7 @@ func (s *ProducerSuite) TestProduceInvalidTopic(c *C) {
 func (s *ProducerSuite) TestAsyncProduce(c *C) {
 	// Given
 	p, _ := Spawn(s.cfg)
-	offsetsBefore := s.kh.GetOffsets("test.4")
+	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 	// When
 	for i := 0; i < 10; i++ {
 		p.AsyncProduce("test.4", sarama.StringEncoder("1"), sarama.StringEncoder(strconv.Itoa(i)))
@@ -91,7 +91,7 @@ func (s *ProducerSuite) TestAsyncProduce(c *C) {
 		p.AsyncProduce("test.4", sarama.StringEncoder("5"), sarama.StringEncoder(strconv.Itoa(i)))
 	}
 	p.Stop()
-	offsetsAfter := s.kh.GetOffsets("test.4")
+	offsetsAfter := s.kh.GetNewestOffsets("test.4")
 	// Then
 	c.Assert(s.failedMessages(), DeepEquals, []string{})
 	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0]+20)
@@ -106,13 +106,13 @@ func (s *ProducerSuite) TestAsyncProduce(c *C) {
 func (s *ProducerSuite) TestAsyncProduceNilKey(c *C) {
 	// Given
 	p, _ := Spawn(s.cfg)
-	offsetsBefore := s.kh.GetOffsets("test.4")
+	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 	// When
 	for i := 0; i < 100; i++ {
 		p.AsyncProduce("test.4", nil, sarama.StringEncoder(strconv.Itoa(i)))
 	}
 	p.Stop()
-	offsetsAfter := s.kh.GetOffsets("test.4")
+	offsetsAfter := s.kh.GetNewestOffsets("test.4")
 	// Then
 	c.Assert(s.failedMessages(), DeepEquals, []string{})
 	delta0 := offsetsAfter[0] - offsetsBefore[0]
@@ -129,14 +129,14 @@ func (s *ProducerSuite) TestTooSmallShutdownTimeout(c *C) {
 	// Given
 	s.cfg.Producer.ShutdownTimeout = 0
 	p, _ := Spawn(s.cfg)
-	offsetsBefore := s.kh.GetOffsets("test.4")
+	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 	// When
 	for i := 0; i < 100; i++ {
 		v := sarama.StringEncoder(strconv.Itoa(i))
 		p.AsyncProduce("test.4", v, v)
 	}
 	p.Stop()
-	offsetsAfter := s.kh.GetOffsets("test.4")
+	offsetsAfter := s.kh.GetNewestOffsets("test.4")
 	// Then
 	c.Assert(s.failedMessages(), DeepEquals, []string{})
 	delta := int64(0)
@@ -151,13 +151,13 @@ func (s *ProducerSuite) TestTooSmallShutdownTimeout(c *C) {
 func (s *ProducerSuite) TestAsyncProduceEmptyKey(c *C) {
 	// Given
 	p, _ := Spawn(s.cfg)
-	offsetsBefore := s.kh.GetOffsets("test.4")
+	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 	// When
 	for i := 0; i < 10; i++ {
 		p.AsyncProduce("test.4", sarama.StringEncoder(""), sarama.StringEncoder(strconv.Itoa(i)))
 	}
 	p.Stop()
-	offsetsAfter := s.kh.GetOffsets("test.4")
+	offsetsAfter := s.kh.GetNewestOffsets("test.4")
 	// Then
 	c.Assert(s.failedMessages(), DeepEquals, []string{})
 	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0])

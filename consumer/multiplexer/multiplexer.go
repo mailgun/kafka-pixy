@@ -1,46 +1,51 @@
-package consumer
+package multiplexer
 
 import (
 	"reflect"
 	"sync"
 
-	"github.com/mailgun/kafka-pixy/context"
+	"github.com/mailgun/kafka-pixy/actor"
+	"github.com/mailgun/kafka-pixy/consumer/consumermsg"
+	"github.com/mailgun/kafka-pixy/none"
 )
 
-// multiplexer pulls messages fetched by exclusive consumers and offers them
+// T pulls messages fetched by exclusive consumers and offers them
 // one by one to the topic consumer choosing wisely between different exclusive
 // consumers to ensure that none of them is neglected.
-type multiplexer struct {
-	contextID    *context.ID
-	inputs       []muxInput
-	output       muxOutput
+type T struct {
+	actorID      *actor.ID
+	inputs       []In
+	output       Out
 	lastInputIdx int
-	stopCh       chan none
+	stopCh       chan none.T
 	wg           sync.WaitGroup
 }
 
-type muxInput interface {
-	messages() <-chan *ConsumerMessage
-	acks() chan<- *ConsumerMessage
+// In defines an interface of multiplexer input.
+type In interface {
+	Messages() <-chan *consumermsg.ConsumerMessage
+	Acks() chan<- *consumermsg.ConsumerMessage
 }
 
-type muxOutput interface {
-	messages() chan<- *ConsumerMessage
+// Out defines an interface of multiplexer output.
+type Out interface {
+	Messages() chan<- *consumermsg.ConsumerMessage
 }
 
-func spawnMultiplexer(baseCID *context.ID, output muxOutput, inputs []muxInput) *multiplexer {
-	m := &multiplexer{
-		contextID: baseCID.NewChild("mux"),
-		inputs:    inputs,
-		output:    output,
-		stopCh:    make(chan none),
+// Spawns starts a multiplexer instance that selects messages from the
+// specified inputs based on their lag and forwards them to the output.
+func Spawn(parentActorID *actor.ID, output Out, inputs []In) *T {
+	m := &T{
+		actorID: parentActorID.NewChild("mux"),
+		inputs:  inputs,
+		output:  output,
+		stopCh:  make(chan none.T),
 	}
-	spawn(&m.wg, m.run)
+	actor.Spawn(m.actorID, &m.wg, m.run)
 	return m
 }
 
-func (m *multiplexer) run() {
-	defer m.contextID.LogScope()()
+func (m *T) run() {
 	inputCount := len(m.inputs)
 	// Prepare a list of reflective select cases that is used when there are no
 	// messages available from any of the inputs and we need to wait on all
@@ -48,11 +53,11 @@ func (m *multiplexer) run() {
 	// it is only used in a corner case.
 	selectCases := make([]reflect.SelectCase, inputCount+1)
 	for i, ec := range m.inputs {
-		selectCases[i] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(ec.messages())}
+		selectCases[i] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(ec.Messages())}
 	}
 	selectCases[inputCount] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(m.stopCh)}
 
-	nextMessages := make([]*ConsumerMessage, inputCount)
+	nextMessages := make([]*consumermsg.ConsumerMessage, inputCount)
 	inputIdx := -1
 	for {
 		// Collect next messages from all inputs.
@@ -63,7 +68,7 @@ func (m *multiplexer) run() {
 				continue
 			}
 			select {
-			case msg := <-m.inputs[i].messages():
+			case msg := <-m.inputs[i].Messages():
 				nextMessages[i] = msg
 				isAtLeastOneAvailable = true
 			default:
@@ -78,7 +83,7 @@ func (m *multiplexer) run() {
 			if !ok {
 				return
 			}
-			nextMessages[selected] = value.Interface().(*ConsumerMessage)
+			nextMessages[selected] = value.Interface().(*consumermsg.ConsumerMessage)
 		}
 		// At this point there is at least one next message available.
 		inputIdx = selectInput(inputIdx, nextMessages)
@@ -86,14 +91,14 @@ func (m *multiplexer) run() {
 		select {
 		case <-m.stopCh:
 			return
-		case m.output.messages() <- nextMessages[inputIdx]:
-			m.inputs[inputIdx].acks() <- nextMessages[inputIdx]
+		case m.output.Messages() <- nextMessages[inputIdx]:
+			m.inputs[inputIdx].Acks() <- nextMessages[inputIdx]
 			nextMessages[inputIdx] = nil
 		}
 	}
 }
 
-func (m *multiplexer) stop() {
+func (m *T) Stop() {
 	close(m.stopCh)
 	m.wg.Wait()
 }
@@ -101,7 +106,7 @@ func (m *multiplexer) stop() {
 // selectInput picks an input that should be multiplexed next. It prefers the
 // inputs with the largest lag. If there is more then one input with the largest
 // lag then it picks the one that index is following the lastInputIdx.
-func selectInput(lastInputIdx int, inputMessages []*ConsumerMessage) int {
+func selectInput(lastInputIdx int, inputMessages []*consumermsg.ConsumerMessage) int {
 	maxLag, maxLagIdx, maxLagCount := findMaxLag(inputMessages)
 	if maxLagCount == 1 {
 		return maxLagIdx
@@ -125,7 +130,7 @@ func selectInput(lastInputIdx int, inputMessages []*ConsumerMessage) int {
 // returns the value of the max lag among them, along with the index of the
 // first message with the max lag value and the total count of messages that
 // have max lag.
-func findMaxLag(inputMessages []*ConsumerMessage) (maxLag int64, maxLagIdx, maxLagCount int) {
+func findMaxLag(inputMessages []*consumermsg.ConsumerMessage) (maxLag int64, maxLagIdx, maxLagCount int) {
 	maxLag = -1
 	maxLagIdx = -1
 	for i, msg := range inputMessages {

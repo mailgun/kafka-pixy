@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/Shopify/sarama"
+	"github.com/mailgun/kafka-pixy/consumer/consumermsg"
+	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
 	"github.com/mailgun/log"
@@ -35,6 +37,38 @@ func (s *SmartConsumerSuite) SetUpTest(c *C) {
 
 func (s *SmartConsumerSuite) TearDownSuite(c *C) {
 	s.kh.Close()
+}
+
+// If initial offset stored in Kafka is greater then the newest offset for a
+// partition, then the first message consumed from the partition is the next one
+// posted to it.
+func (s *SmartConsumerSuite) TestInitialOffsetTooLarge(c *C) {
+	oldestOffsets := s.kh.GetOldestOffsets("test.1")
+	newestOffsets := s.kh.GetNewestOffsets("test.1")
+	log.Infof("*** test.1 offsets: oldest=%v, newest=%v", oldestOffsets, newestOffsets)
+
+	omf := offsetmgr.NewFactory(s.kh.Client())
+	defer omf.Stop()
+	om, err := omf.NewOffsetManager("group-1", "test.1", 0)
+	c.Assert(err, IsNil)
+	om.SubmitOffset(newestOffsets[0]+100, "")
+	om.Stop()
+
+	sc, err := Spawn(testhelpers.NewTestConfig("group-1"))
+	c.Assert(err, IsNil)
+
+	// When
+	_, err = sc.Consume("group-1", "test.1")
+
+	// Then
+	c.Assert(err, FitsTypeOf, ErrRequestTimeout(fmt.Errorf("")))
+
+	produced := s.kh.PutMessages("offset-too-large", "test.1", map[string]int{"key": 1})
+	consumed := s.consume(c, sc, "group-1", "test.1", 1)
+	c.Assert(consumed["key"][0].Offset, Equals, newestOffsets[0])
+	assertMsg(c, consumed["key"][0], produced["key"][0])
+
+	sc.Stop()
 }
 
 // If a topic has only one partition then the consumer will retrieve messages
@@ -261,7 +295,7 @@ func (s *SmartConsumerSuite) TestRebalanceOnLeave(c *C) {
 	log.Infof("*** GIVEN 1")
 	// Consume the first message to make the consumer join the group and
 	// subscribe to the topic.
-	consumed := make([]map[string][]*ConsumerMessage, 3)
+	consumed := make([]map[string][]*consumermsg.ConsumerMessage, 3)
 	for i := 0; i < 3; i++ {
 		consumed[i] = s.consume(c, consumers[i], "group-1", "test.4", 1)
 	}
@@ -396,14 +430,16 @@ func (s *SmartConsumerSuite) TestBufferOverflowError(c *C) {
 	var overflowErrorCount int32
 	var wg sync.WaitGroup
 	for i := 0; i < 3; i++ {
-		spawn(&wg, func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			for i := 0; i < 10; i++ {
 				_, err := sc.Consume("group-1", "test.1")
 				if _, ok := err.(ErrBufferOverflow); ok {
 					atomic.AddInt32(&overflowErrorCount, 1)
 				}
 			}
-		})
+		}()
 	}
 	wg.Wait()
 
@@ -447,7 +483,7 @@ func (s *SmartConsumerSuite) TestRequestDuringTimeout(c *C) {
 				c.Errorf("Expected err to be nil or ErrRequestTimeout, got: %v", err)
 			}
 			log.Infof("*** consumed: in=%s, by=%s, topic=%s, partition=%d, offset=%d, message=%s",
-				time.Now().Sub(begin), sc.baseCID.String(), consMsg.Topic, consMsg.Partition, consMsg.Offset, consMsg.Value)
+				time.Now().Sub(begin), sc.actorNamespace.String(), consMsg.Topic, consMsg.Partition, consMsg.Offset, consMsg.Value)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
@@ -538,23 +574,23 @@ func (s *SmartConsumerSuite) TestNewGroup(c *C) {
 	sc.Stop()
 }
 
-func assertMsg(c *C, consMsg *ConsumerMessage, prodMsg *sarama.ProducerMessage) {
+func assertMsg(c *C, consMsg *consumermsg.ConsumerMessage, prodMsg *sarama.ProducerMessage) {
 	c.Assert(sarama.StringEncoder(consMsg.Value), Equals, prodMsg.Value)
 	c.Assert(consMsg.Offset, Equals, prodMsg.Offset)
 }
 
-func (s *SmartConsumerSuite) compareMsg(consMsg *ConsumerMessage, prodMsg *sarama.ProducerMessage) bool {
+func (s *SmartConsumerSuite) compareMsg(consMsg *consumermsg.ConsumerMessage, prodMsg *sarama.ProducerMessage) bool {
 	return sarama.StringEncoder(consMsg.Value) == prodMsg.Value.(sarama.Encoder) && consMsg.Offset == prodMsg.Offset
 }
 
 const consumeAll = -1
 
 func (s *SmartConsumerSuite) consume(c *C, sc *T, group, topic string, count int,
-	extend ...map[string][]*ConsumerMessage) map[string][]*ConsumerMessage {
+	extend ...map[string][]*consumermsg.ConsumerMessage) map[string][]*consumermsg.ConsumerMessage {
 
-	var consumed map[string][]*ConsumerMessage
+	var consumed map[string][]*consumermsg.ConsumerMessage
 	if len(extend) == 0 {
-		consumed = make(map[string][]*ConsumerMessage)
+		consumed = make(map[string][]*consumermsg.ConsumerMessage)
 	} else {
 		consumed = extend[0]
 	}
@@ -573,9 +609,9 @@ func (s *SmartConsumerSuite) consume(c *C, sc *T, group, topic string, count int
 	return consumed
 }
 
-func logConsumed(sc *T, consMsg *ConsumerMessage) {
+func logConsumed(sc *T, consMsg *consumermsg.ConsumerMessage) {
 	log.Infof("*** consumed: by=%s, topic=%s, partition=%d, offset=%d, message=%s",
-		sc.baseCID.String(), consMsg.Topic, consMsg.Partition, consMsg.Offset, consMsg.Value)
+		sc.actorNamespace.String(), consMsg.Topic, consMsg.Partition, consMsg.Offset, consMsg.Value)
 }
 
 func drainFirstFetched(sc *T) {
