@@ -56,6 +56,7 @@ func (s *SmartConsumerSuite) TestInitialOffsetTooLarge(c *C) {
 
 	sc, err := Spawn(testhelpers.NewTestConfig("group-1"))
 	c.Assert(err, IsNil)
+	defer sc.Stop()
 
 	// When
 	_, err = sc.Consume("group-1", "test.1")
@@ -67,8 +68,6 @@ func (s *SmartConsumerSuite) TestInitialOffsetTooLarge(c *C) {
 	consumed := s.consume(c, sc, "group-1", "test.1", 1)
 	c.Assert(consumed["key"][0].Offset, Equals, newestOffsets[0])
 	assertMsg(c, consumed["key"][0], produced["key"][0])
-
-	sc.Stop()
 }
 
 // If a topic has only one partition then the consumer will retrieve messages
@@ -80,12 +79,11 @@ func (s *SmartConsumerSuite) TestSinglePartitionTopic(c *C) {
 
 	sc, err := Spawn(testhelpers.NewTestConfig("consumer-1"))
 	c.Assert(err, IsNil)
+	defer sc.Stop()
 
 	// When/Then
 	consumed := s.consume(c, sc, "group-1", "test.1", 1)
 	assertMsg(c, consumed[""][0], produced[""][0])
-
-	sc.Stop()
 }
 
 // If we stop one consumer and start another, the new one picks up where the
@@ -108,12 +106,12 @@ func (s *SmartConsumerSuite) TestSequentialConsume(c *C) {
 	sc1.Stop()
 	sc2, err := Spawn(cfg)
 	c.Assert(err, IsNil)
+	defer sc2.Stop()
 
 	// Then: the second message is consumed.
 	log.Infof("*** THEN")
 	consumed = s.consume(c, sc2, "group-1", "test.1", 1, consumed)
 	assertMsg(c, consumed[""][2], produced[""][2])
-	sc2.Stop()
 }
 
 // If we consume from a topic that has several partitions then partitions are
@@ -126,6 +124,7 @@ func (s *SmartConsumerSuite) TestMultiplePartitions(c *C) {
 	log.Infof("*** GIVEN 1")
 	sc, err := Spawn(testhelpers.NewTestConfig("consumer-1"))
 	c.Assert(err, IsNil)
+	defer sc.Stop()
 
 	// When: exactly one half of all produced events is consumed.
 	log.Infof("*** WHEN")
@@ -140,8 +139,6 @@ func (s *SmartConsumerSuite) TestMultiplePartitions(c *C) {
 	if len(consumed["A"]) < 25 || len(consumed["A"]) > 75 {
 		c.Errorf("Consumption disbalance: consumed[A]=%d, consumed[B]=%d", len(consumed["A"]), len(consumed["B"]))
 	}
-
-	sc.Stop()
 }
 
 // Different topics can be consumed at the same time.
@@ -155,6 +152,7 @@ func (s *SmartConsumerSuite) TestMultipleTopics(c *C) {
 	log.Infof("*** GIVEN 1")
 	sc, err := Spawn(testhelpers.NewTestConfig("consumer-1"))
 	c.Assert(err, IsNil)
+	defer sc.Stop()
 
 	// When
 	log.Infof("*** WHEN")
@@ -167,8 +165,6 @@ func (s *SmartConsumerSuite) TestMultipleTopics(c *C) {
 	assertMsg(c, consumed["A"][0], produced1["A"][0])
 	assertMsg(c, consumed["B"][0], produced4["B"][0])
 	assertMsg(c, consumed["C"][0], produced4["C"][0])
-
-	sc.Stop()
 }
 
 // If the same topic is consumed by different consumer groups, then consumption
@@ -182,6 +178,7 @@ func (s *SmartConsumerSuite) TestMultipleGroups(c *C) {
 	log.Infof("*** GIVEN 1")
 	sc, err := Spawn(testhelpers.NewTestConfig("consumer-1"))
 	c.Assert(err, IsNil)
+	defer sc.Stop()
 
 	// When
 	log.Infof("*** WHEN")
@@ -193,8 +190,6 @@ func (s *SmartConsumerSuite) TestMultipleGroups(c *C) {
 	// Then: both groups consumed the same events
 	log.Infof("*** THEN")
 	c.Assert(consumed1, DeepEquals, consumed2)
-
-	sc.Stop()
 }
 
 // When there are more consumers in a group then partitions in a topic then
@@ -206,6 +201,7 @@ func (s *SmartConsumerSuite) TestTooFewPartitions(c *C) {
 
 	sc1, err := Spawn(testhelpers.NewTestConfig("consumer-1"))
 	c.Assert(err, IsNil)
+	defer sc1.Stop()
 	log.Infof("*** GIVEN 1")
 	// Consume first message to make `consumer-1` subscribe for `test.1`
 	consumed := s.consume(c, sc1, "group-1", "test.1", 2)
@@ -215,6 +211,7 @@ func (s *SmartConsumerSuite) TestTooFewPartitions(c *C) {
 	log.Infof("*** WHEN")
 	sc2, err := Spawn(testhelpers.NewTestConfig("consumer-2"))
 	c.Assert(err, IsNil)
+	defer sc2.Stop()
 	_, err = sc2.Consume("group-1", "test.1")
 
 	// Then: `consumer-2` request times out, when `consumer-1` requests keep
@@ -225,9 +222,6 @@ func (s *SmartConsumerSuite) TestTooFewPartitions(c *C) {
 	}
 	s.consume(c, sc1, "group-1", "test.1", 1, consumed)
 	assertMsg(c, consumed[""][1], produced[""][1])
-
-	sc1.Stop()
-	sc2.Stop()
 }
 
 // When a new consumer joins a group the partitions get evenly redistributed
@@ -239,6 +233,7 @@ func (s *SmartConsumerSuite) TestRebalanceOnJoin(c *C) {
 
 	sc1, err := Spawn(testhelpers.NewTestConfig("consumer-1"))
 	c.Assert(err, IsNil)
+	defer sc1.Stop()
 
 	// Consume the first message to make the consumer join the group and
 	// subscribe to the topic.
@@ -259,6 +254,7 @@ func (s *SmartConsumerSuite) TestRebalanceOnJoin(c *C) {
 	log.Infof("*** WHEN")
 	sc2, err := Spawn(testhelpers.NewTestConfig("consumer-2"))
 	c.Assert(err, IsNil)
+	defer sc2.Stop()
 
 	// Then:
 	log.Infof("*** THEN")
@@ -274,9 +270,6 @@ func (s *SmartConsumerSuite) TestRebalanceOnJoin(c *C) {
 	c.Assert(len(consumed1["B"])+len(consumed2["B"]), Equals, 10)
 	// `consumer-2` started consumer from where `consumer-1` left off.
 	c.Assert(consumed2["B"][0].Offset, Equals, consumed1["B"][len(consumed1["B"])-1].Offset+1)
-
-	sc2.Stop()
-	sc1.Stop()
 }
 
 // When a consumer leaves a group the partitions get evenly redistributed
@@ -292,6 +285,9 @@ func (s *SmartConsumerSuite) TestRebalanceOnLeave(c *C) {
 		consumers[i], err = Spawn(testhelpers.NewTestConfig(fmt.Sprintf("consumer-%d", i)))
 		c.Assert(err, IsNil)
 	}
+	defer consumers[0].Stop()
+	defer consumers[1].Stop()
+
 	log.Infof("*** GIVEN 1")
 	// Consume the first message to make the consumer join the group and
 	// subscribe to the topic.
@@ -348,9 +344,6 @@ func (s *SmartConsumerSuite) TestRebalanceOnLeave(c *C) {
 	consumedBy1 := s.consume(c, consumers[1], "group-1", "test.4", leftToBeConsumedBy1)
 	c.Assert(len(consumedBy1["B"]), Equals, 10-consumedSoFar["B"])
 	c.Assert(consumedBy1["B"][0].Offset, Equals, lastConsumedFromBby2.Offset+1)
-
-	consumers[0].Stop()
-	consumers[1].Stop()
 }
 
 // When a consumer registration times out the partitions that used to be
@@ -362,11 +355,13 @@ func (s *SmartConsumerSuite) TestRebalanceOnTimeout(c *C) {
 
 	sc1, err := Spawn(testhelpers.NewTestConfig("consumer-1"))
 	c.Assert(err, IsNil)
+	defer sc1.Stop()
 
 	cfg2 := testhelpers.NewTestConfig("consumer-2")
 	cfg2.Consumer.RegistrationTimeout = 300 * time.Millisecond
 	sc2, err := Spawn(cfg2)
 	c.Assert(err, IsNil)
+	defer sc2.Stop()
 
 	// Consume the first message to make the consumers join the group and
 	// subscribe to the topic.
@@ -409,9 +404,6 @@ func (s *SmartConsumerSuite) TestRebalanceOnTimeout(c *C) {
 	c.Assert(len(consumed1["B"]), Equals, 5)
 	c.Assert(len(consumed2["A"]), Equals, 0)
 	c.Assert(len(consumed2["B"]), Equals, 5)
-
-	sc2.Stop()
-	sc1.Stop()
 }
 
 // A `ErrConsumerBufferOverflow` error can be returned if internal buffers are
@@ -425,6 +417,7 @@ func (s *SmartConsumerSuite) TestBufferOverflowError(c *C) {
 	cfg.Consumer.ChannelBufferSize = 1
 	sc, err := Spawn(cfg)
 	c.Assert(err, IsNil)
+	defer sc.Stop()
 
 	// When
 	var overflowErrorCount int32
@@ -446,8 +439,6 @@ func (s *SmartConsumerSuite) TestBufferOverflowError(c *C) {
 	// Then
 	c.Assert(overflowErrorCount, Not(Equals), 0)
 	log.Infof("*** overflow was hit %d times", overflowErrorCount)
-
-	sc.Stop()
 }
 
 // This test makes an attempt to exercise the code path where a message is
@@ -471,6 +462,7 @@ func (s *SmartConsumerSuite) TestRequestDuringTimeout(c *C) {
 	cfg.Consumer.ChannelBufferSize = 1
 	sc, err := Spawn(cfg)
 	c.Assert(err, IsNil)
+	defer sc.Stop()
 
 	// When/Then
 	for i := 0; i < 10; i++ {
@@ -487,8 +479,6 @@ func (s *SmartConsumerSuite) TestRequestDuringTimeout(c *C) {
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-
-	sc.Stop()
 }
 
 // If an attempt is made to consume from a topic that does not exist then the
@@ -499,6 +489,7 @@ func (s *SmartConsumerSuite) TestInvalidTopic(c *C) {
 	cfg.Consumer.LongPollingTimeout = 1 * time.Second
 	sc, err := Spawn(cfg)
 	c.Assert(err, IsNil)
+	defer sc.Stop()
 
 	// When
 	consMsg, err := sc.Consume("group-1", "no-such-topic")
@@ -508,8 +499,6 @@ func (s *SmartConsumerSuite) TestInvalidTopic(c *C) {
 		c.Errorf("ErrConsumerRequestTimeout is expected")
 	}
 	c.Assert(consMsg, IsNil)
-
-	sc.Stop()
 }
 
 // A topic that has a lot of partitions can be consumed.
@@ -520,6 +509,7 @@ func (s *SmartConsumerSuite) TestLotsOfPartitions(c *C) {
 	cfg := testhelpers.NewTestConfig("consumer-1")
 	sc, err := Spawn(cfg)
 	c.Assert(err, IsNil)
+	defer sc.Stop()
 
 	// Consume should stop by timeout and nothing should be consumed.
 	msg, err := sc.Consume("group-1", "test.64")
@@ -537,7 +527,6 @@ func (s *SmartConsumerSuite) TestLotsOfPartitions(c *C) {
 	c.Assert(7, Equals, len(consumed["A"]))
 	c.Assert(13, Equals, len(consumed["B"]))
 	c.Assert(169, Equals, len(consumed["C"]))
-	sc.Stop()
 }
 
 // When a topic is consumed by a consumer group for the first time, its head
@@ -568,10 +557,10 @@ func (s *SmartConsumerSuite) TestNewGroup(c *C) {
 	produced := s.kh.PutMessages("rand", "test.1", map[string]int{"A2": 1})
 	sc, err = Spawn(cfg)
 	c.Assert(err, IsNil)
+	defer sc.Stop()
 	msg, err = sc.Consume(group, "test.1")
 	c.Assert(err, IsNil)
 	assertMsg(c, msg, produced["A2"][0])
-	sc.Stop()
 }
 
 func assertMsg(c *C, consMsg *consumermsg.ConsumerMessage, prodMsg *sarama.ProducerMessage) {
