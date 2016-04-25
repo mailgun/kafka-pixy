@@ -40,3 +40,12 @@ func (s *IDSuite) TestNewChild(c *C) {
 	id9 := id6.NewChild("bar")
 	c.Assert("/foo[1]/bar[2]", Equals, fmt.Sprintf("%s", id9))
 }
+
+func (s *IDSuite) TestNewChildEmpty(c *C) {
+	id := RootID.NewChild("foo").NewChild("bar")
+	c.Assert(id.NewChild(), Equals, id)
+}
+
+func (s *IDSuite) TestNewChildComplex(c *C) {
+	c.Assert(RootID.NewChild("foo", 0, []string{"d"}, nil, "bar").String(), Equals, "/foo_0_[d]_<nil>_bar[0]")
+}

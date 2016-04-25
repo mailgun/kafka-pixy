@@ -28,7 +28,7 @@ type Factory interface {
 	// It returns an error if given group/topic/partition already has a not stopped
 	// OffsetManager instance. After an old offset manager instance is stopped a
 	// new one can be started.
-	SpawnOffsetManager(group, topic string, partition int32) (T, error)
+	SpawnOffsetManager(namespace *actor.ID, group, topic string, partition int32) (T, error)
 
 	// Stop waits for the spawned offset managers to stop and then terminates. Note
 	// that all spawned offset managers has to be explicitly stopped by calling
@@ -91,26 +91,26 @@ var ErrNoCoordinator = errors.New("failed to resolve coordinator")
 var ErrRequestTimeout = errors.New("request timeout")
 
 // SpawnFactory creates a new offset manager factory from the given client.
-func SpawnFactory(client sarama.Client) Factory {
+func SpawnFactory(namespace *actor.ID, client sarama.Client) Factory {
 	f := &factory{
-		actorNamespace: actor.RootID.NewChild("offsetMgr"),
-		client:         client,
-		config:         client.Config(),
-		children:       make(map[groupTopicPartition]*offsetManager),
+		namespace: namespace.NewChild("offset_mgr_f"),
+		client:    client,
+		config:    client.Config(),
+		children:  make(map[groupTopicPartition]*offsetManager),
 	}
-	f.mapper = mapper.Spawn(f.actorNamespace, f)
+	f.mapper = mapper.Spawn(f.namespace, f)
 	return f
 }
 
 // implements `Factory`
 // implements `mapper.Resolver`
 type factory struct {
-	actorNamespace *actor.ID
-	client         sarama.Client
-	config         *sarama.Config
-	mapper         *mapper.T
-	children       map[groupTopicPartition]*offsetManager
-	childrenLock   sync.Mutex
+	namespace    *actor.ID
+	client       sarama.Client
+	config       *sarama.Config
+	mapper       *mapper.T
+	children     map[groupTopicPartition]*offsetManager
+	childrenLock sync.Mutex
 }
 
 type groupTopicPartition struct {
@@ -120,15 +120,15 @@ type groupTopicPartition struct {
 }
 
 // implements `Factory`
-func (f *factory) SpawnOffsetManager(group, topic string, partition int32) (T, error) {
+func (f *factory) SpawnOffsetManager(namespace *actor.ID, group, topic string, partition int32) (T, error) {
 	gtp := groupTopicPartition{group, topic, partition}
 
 	f.childrenLock.Lock()
 	defer f.childrenLock.Unlock()
 	if _, ok := f.children[gtp]; ok {
-		return nil, sarama.ConfigurationError("That topic/partition is already being managed")
+		return nil, sarama.ConfigurationError("This group/topic/partition is already being managed")
 	}
-	om := f.spawnOffsetManager(gtp)
+	om := f.spawnOffsetManager(namespace, gtp)
 	f.mapper.WorkerSpawned() <- om
 	f.children[gtp] = om
 	return om, nil
@@ -151,8 +151,8 @@ func (f *factory) ResolveBroker(pw mapper.Worker) (*sarama.Broker, error) {
 // implements `mapper.Resolver`.
 func (f *factory) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
 	be := &brokerExecutor{
-		aggregatorActorID:  f.actorNamespace.NewChild(fmt.Sprintf("broker:%d:aggr", brokerConn.ID())),
-		executorActorID:    f.actorNamespace.NewChild(fmt.Sprintf("broker:%d:exec", brokerConn.ID())),
+		aggregatorActorID:  f.namespace.NewChild(fmt.Sprintf("broker_%d_aggr", brokerConn.ID())),
+		executorActorID:    f.namespace.NewChild(fmt.Sprintf("broker_%d_exec", brokerConn.ID())),
 		config:             f.config,
 		conn:               brokerConn,
 		submittedOffsetsCh: make(chan submittedOffset),
@@ -163,9 +163,9 @@ func (f *factory) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
 	return be
 }
 
-func (f *factory) spawnOffsetManager(gtp groupTopicPartition) *offsetManager {
+func (f *factory) spawnOffsetManager(namespace *actor.ID, gtp groupTopicPartition) *offsetManager {
 	om := &offsetManager{
-		actorID:            f.actorNamespace.NewChild(fmt.Sprintf("%s:%s:%d", gtp.group, gtp.topic, gtp.partition)),
+		actorID:            namespace.NewChild("offset_mgr"),
 		f:                  f,
 		gtp:                gtp,
 		initialOffsetCh:    make(chan DecoratedOffset, 1),

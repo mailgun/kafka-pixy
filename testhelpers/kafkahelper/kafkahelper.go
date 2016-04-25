@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Shopify/sarama"
+	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/log"
@@ -14,6 +15,7 @@ import (
 )
 
 type T struct {
+	ns       *actor.ID
 	c        *C
 	client   sarama.Client
 	producer sarama.AsyncProducer
@@ -21,7 +23,7 @@ type T struct {
 }
 
 func New(c *C) *T {
-	kh := &T{c: c}
+	kh := &T{ns: actor.RootID.NewChild("kafka_helper"), c: c}
 	cfg := sarama.NewConfig()
 	cfg.Producer.Return.Successes = true
 	cfg.Producer.Return.Errors = true
@@ -142,14 +144,14 @@ func (kh *T) PutMessages(prefix, topic string, keys map[string]int) map[string][
 }
 
 func (kh *T) ResetOffsets(group, topic string) {
-	omf := offsetmgr.SpawnFactory(kh.client)
+	omf := offsetmgr.SpawnFactory(kh.ns, kh.client)
 	defer omf.Stop()
 	partitions, err := kh.client.Partitions(topic)
 	kh.c.Assert(err, IsNil)
 	for _, p := range partitions {
 		offset, err := kh.client.GetOffset(topic, p, sarama.OffsetNewest)
 		kh.c.Assert(err, IsNil)
-		om, err := omf.SpawnOffsetManager(group, topic, p)
+		om, err := omf.SpawnOffsetManager(kh.ns, group, topic, p)
 		kh.c.Assert(err, IsNil)
 		om.SubmitOffset(offset, "dummy")
 		log.Infof("Set initial offset %s/%s/%d=%d", group, topic, p, offset)

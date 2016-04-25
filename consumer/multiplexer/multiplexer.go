@@ -34,9 +34,9 @@ type Out interface {
 
 // Spawns starts a multiplexer instance that selects messages from the
 // specified inputs based on their lag and forwards them to the output.
-func Spawn(parentActorID *actor.ID, output Out, inputs []In) *T {
+func Spawn(namespace *actor.ID, output Out, inputs []In) *T {
 	m := &T{
-		actorID: parentActorID.NewChild("mux"),
+		actorID: namespace.NewChild("mux"),
 		inputs:  inputs,
 		output:  output,
 		stopCh:  make(chan none.T),

@@ -1,6 +1,7 @@
 package actor
 
 import (
+	"bytes"
 	"fmt"
 	"runtime/debug"
 	"sync"
@@ -18,7 +19,20 @@ type ID struct {
 var RootID = &ID{}
 
 // NewChild creates a child id.
-func (id *ID) NewChild(name string) *ID {
+func (id *ID) NewChild(nameParts ...interface{}) *ID {
+	if len(nameParts) == 0 {
+		return id
+	}
+
+	var buf bytes.Buffer
+	for i, p := range nameParts {
+		if i != 0 {
+			buf.WriteString("_")
+		}
+		buf.WriteString(fmt.Sprintf("%v", p))
+	}
+	name := buf.String()
+
 	id.childrenLock.Lock()
 	if id.childrenCounters == nil {
 		id.childrenCounters = make(map[string]int32)

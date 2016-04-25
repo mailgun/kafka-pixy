@@ -40,7 +40,7 @@ type groupConsumer struct {
 }
 
 func (sc *T) newConsumerGroup(group string) *groupConsumer {
-	supervisorActorID := sc.actorNamespace.NewChild(group)
+	supervisorActorID := sc.namespace.NewChild(fmt.Sprintf("G:%s", group))
 	gc := &groupConsumer{
 		supervisorActorID:       supervisorActorID,
 		managerActorID:          supervisorActorID.NewChild("manager"),
@@ -75,12 +75,12 @@ func (gc *groupConsumer) start(stoppedCh chan<- dispatchTier) {
 	actor.Spawn(gc.supervisorActorID, &gc.wg, func() {
 		defer func() { stoppedCh <- gc }()
 		var err error
-		gc.dumbConsumer, err = NewConsumerFromClient(gc.kafkaClient)
+		gc.dumbConsumer, err = NewConsumerFromClient(gc.supervisorActorID, gc.kafkaClient)
 		if err != nil {
 			// Must never happen.
 			panic(ErrSetup(fmt.Errorf("failed to create sarama.Consumer: err=(%v)", err)))
 		}
-		gc.groupMember = groupmember.Spawn(gc.group, gc.cfg.ClientID, gc.cfg, gc.kazooConn)
+		gc.groupMember = groupmember.Spawn(gc.supervisorActorID, gc.group, gc.cfg.ClientID, gc.cfg, gc.kazooConn)
 		var manageWg sync.WaitGroup
 		actor.Spawn(gc.managerActorID, &manageWg, gc.runManager)
 		gc.dispatcher.start()
@@ -222,7 +222,7 @@ func (gc *groupConsumer) runBalancer(actorID *actor.ID, topicConsumers map[strin
 }
 
 func (gc *groupConsumer) spawnTopicInput(topic string, partition int32) muxInputActor {
-	return gc.spawnExclusiveConsumer(topic, partition)
+	return gc.spawnExclusiveConsumer(gc.supervisorActorID, topic, partition)
 }
 
 // resolvePartitions given topic subscriptions of all consumer group members,

@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
@@ -15,6 +16,7 @@ func Test(t *testing.T) {
 }
 
 type AdminSuite struct {
+	ns  *actor.ID
 	cfg *config.T
 	kh  *kafkahelper.T
 }
@@ -32,6 +34,10 @@ func (s *AdminSuite) SetUpSuite(c *C) {
 
 func (s *AdminSuite) TearDownSuite(c *C) {
 	s.kh.Close()
+}
+
+func (s *AdminSuite) SetUpTest(c *C) {
+	s.ns = actor.RootID.NewChild("T")
 }
 
 // The end offset of partition ranges is properly reflects the number of

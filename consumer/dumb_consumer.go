@@ -36,20 +36,20 @@ type Consumer interface {
 	// offset is returned. If offset is either sarama.OffsetNewest or
 	// sarama.OffsetOldest constant, then the actual offset value is returned.
 	// otherwise offset is returned.
-	ConsumePartition(topic string, partition int32, offset int64) (PartitionConsumer, int64, error)
+	ConsumePartition(namespace *actor.ID, topic string, partition int32, offset int64) (PartitionConsumer, int64, error)
 
 	// Close shuts down the consumer. It must be called after all child PartitionConsumers have already been closed.
 	Close() error
 }
 
 type consumer struct {
-	actorNamespace *actor.ID
-	config         *sarama.Config
-	client         sarama.Client
-	ownClient      bool
-	children       map[topicPartition]*partitionConsumer
-	childrenLock   sync.Mutex
-	mapper         *mapper.T
+	namespace    *actor.ID
+	config       *sarama.Config
+	client       sarama.Client
+	ownClient    bool
+	children     map[topicPartition]*partitionConsumer
+	childrenLock sync.Mutex
+	mapper       *mapper.T
 }
 
 type topicPartition struct {
@@ -58,13 +58,13 @@ type topicPartition struct {
 }
 
 // NewConsumer creates a new consumer using the given broker addresses and configuration.
-func NewConsumer(addrs []string, config *sarama.Config) (Consumer, error) {
+func NewConsumer(namespace *actor.ID, addrs []string, config *sarama.Config) (Consumer, error) {
 	client, err := sarama.NewClient(addrs, config)
 	if err != nil {
 		return nil, err
 	}
 
-	c, err := NewConsumerFromClient(client)
+	c, err := NewConsumerFromClient(namespace, client)
 	if err != nil {
 		return nil, err
 	}
@@ -74,18 +74,18 @@ func NewConsumer(addrs []string, config *sarama.Config) (Consumer, error) {
 
 // NewConsumerFromClient creates a new consumer using the given client. It is still
 // necessary to call Close() on the underlying client when shutting down this consumer.
-func NewConsumerFromClient(client sarama.Client) (Consumer, error) {
+func NewConsumerFromClient(namespace *actor.ID, client sarama.Client) (Consumer, error) {
 	// Check that we are not dealing with a closed Client before processing any other arguments
 	if client.Closed() {
 		return nil, sarama.ErrClosedClient
 	}
 	c := &consumer{
-		actorNamespace: actor.RootID.NewChild("partitionConsumer"),
-		client:         client,
-		config:         client.Config(),
-		children:       make(map[topicPartition]*partitionConsumer),
+		namespace: namespace.NewChild("partition_csm_f"),
+		client:    client,
+		config:    client.Config(),
+		children:  make(map[topicPartition]*partitionConsumer),
 	}
-	c.mapper = mapper.Spawn(c.actorNamespace, c)
+	c.mapper = mapper.Spawn(c.namespace, c)
 	return c, nil
 }
 
@@ -104,7 +104,7 @@ func (c *consumer) Close() error {
 	return nil
 }
 
-func (c *consumer) ConsumePartition(topic string, partition int32, offset int64) (PartitionConsumer, int64, error) {
+func (c *consumer) ConsumePartition(namespace *actor.ID, topic string, partition int32, offset int64) (PartitionConsumer, int64, error) {
 	concreteOffset, err := c.chooseStartingOffset(topic, partition, offset)
 	if err != nil {
 		return nil, sarama.OffsetNewest, err
@@ -117,7 +117,7 @@ func (c *consumer) ConsumePartition(topic string, partition int32, offset int64)
 	if _, ok := c.children[tp]; ok {
 		return nil, sarama.OffsetNewest, sarama.ConfigurationError("That topic/partition is already being consumed")
 	}
-	pc := c.spawnPartitionConsumer(tp, concreteOffset)
+	pc := c.spawnPartitionConsumer(namespace, tp, concreteOffset)
 	c.mapper.WorkerSpawned() <- pc
 	c.children[tp] = pc
 	return pc, concreteOffset, nil
@@ -135,8 +135,8 @@ func (c *consumer) ResolveBroker(pw mapper.Worker) (*sarama.Broker, error) {
 // implements `mapper.Resolver.Executor()`
 func (c *consumer) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
 	bc := &brokerConsumer{
-		aggregatorActorID: c.actorNamespace.NewChild(fmt.Sprintf("broker:%d:aggr", brokerConn.ID())),
-		executorActorID:   c.actorNamespace.NewChild(fmt.Sprintf("broker:%d:exec", brokerConn.ID())),
+		aggregatorActorID: c.namespace.NewChild(fmt.Sprintf("broker_%d_aggr", brokerConn.ID())),
+		executorActorID:   c.namespace.NewChild(fmt.Sprintf("broker_%d_exec", brokerConn.ID())),
 		config:            c.config,
 		conn:              brokerConn,
 		requestsCh:        make(chan fetchRequest),
@@ -218,9 +218,9 @@ type partitionConsumer struct {
 	lag       int64
 }
 
-func (c *consumer) spawnPartitionConsumer(tp topicPartition, offset int64) *partitionConsumer {
+func (c *consumer) spawnPartitionConsumer(namespace *actor.ID, tp topicPartition, offset int64) *partitionConsumer {
 	pc := &partitionConsumer{
-		actorID:      c.actorNamespace.NewChild(fmt.Sprintf("%s:%d", tp.topic, tp.partition)),
+		actorID:      namespace.NewChild("partition_csm"),
 		consumer:     c,
 		tp:           tp,
 		assignmentCh: make(chan mapper.Executor, 1),

@@ -63,9 +63,9 @@ type expiringDispatchTier struct {
 	expired   bool
 }
 
-func newDispatcher(parentActorID *actor.ID, factory dispatchTierFactory, cfg *config.T) *dispatcher {
+func newDispatcher(namespace *actor.ID, factory dispatchTierFactory, cfg *config.T) *dispatcher {
 	d := &dispatcher{
-		actorID:           parentActorID.NewChild("dispatcher"),
+		actorID:           namespace.NewChild("dispatcher"),
 		cfg:               cfg,
 		factory:           factory,
 		requestsCh:        make(chan consumeRequest, cfg.Consumer.ChannelBufferSize),

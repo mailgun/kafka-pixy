@@ -38,7 +38,7 @@ var (
 // unsubscribes from the topic, likewise if a consumer group has not seen any
 // requests for that period then the consumer deregisters from the group.
 type T struct {
-	actorNamespace   *actor.ID
+	namespace        *actor.ID
 	cfg              *config.T
 	dispatcher       *dispatcher
 	kafkaClient      sarama.Client
@@ -48,7 +48,7 @@ type T struct {
 
 // Spawn creates a consumer instance with the specified configuration and
 // starts all its goroutines.
-func Spawn(cfg *config.T) (*T, error) {
+func Spawn(namespace *actor.ID, cfg *config.T) (*T, error) {
 	saramaCfg := sarama.NewConfig()
 	saramaCfg.ClientID = cfg.ClientID
 	saramaCfg.ChannelBufferSize = cfg.Consumer.ChannelBufferSize
@@ -56,11 +56,13 @@ func Spawn(cfg *config.T) (*T, error) {
 	saramaCfg.Consumer.Retry.Backoff = cfg.Consumer.BackOffTimeout
 	saramaCfg.Consumer.Fetch.Default = 1024 * 1024
 
+	namespace = namespace.NewChild("consumer")
+
 	kafkaClient, err := sarama.NewClient(cfg.Kafka.SeedPeers, saramaCfg)
 	if err != nil {
 		return nil, ErrSetup(fmt.Errorf("failed to create sarama.Client: err=(%v)", err))
 	}
-	offsetMgrFactory := offsetmgr.SpawnFactory(kafkaClient)
+	offsetMgrFactory := offsetmgr.SpawnFactory(namespace, kafkaClient)
 
 	kazooCfg := kazoo.NewConfig()
 	kazooCfg.Chroot = cfg.ZooKeeper.Chroot
@@ -77,13 +79,13 @@ func Spawn(cfg *config.T) (*T, error) {
 	}
 
 	sc := &T{
-		actorNamespace:   actor.RootID.NewChild("consumer"),
+		namespace:        namespace,
 		cfg:              cfg,
 		kafkaClient:      kafkaClient,
 		offsetMgrFactory: offsetMgrFactory,
 		kazooConn:        kazooConn,
 	}
-	sc.dispatcher = newDispatcher(sc.actorNamespace, sc, sc.cfg)
+	sc.dispatcher = newDispatcher(sc.namespace, sc, sc.cfg)
 	sc.dispatcher.start()
 	return sc, nil
 }
@@ -126,7 +128,7 @@ type consumeResult struct {
 }
 
 func (sc *T) String() string {
-	return sc.actorNamespace.String()
+	return sc.namespace.String()
 }
 
 func (sc *T) dispatchKey(req consumeRequest) string {
@@ -157,7 +159,7 @@ type topicConsumer struct {
 
 func (gc *groupConsumer) newTopicConsumer(topic string) *topicConsumer {
 	return &topicConsumer{
-		actorID:       gc.supervisorActorID.NewChild(topic),
+		actorID:       gc.supervisorActorID.NewChild(fmt.Sprintf("T:%s", topic)),
 		cfg:           gc.cfg,
 		gc:            gc,
 		group:         gc.group,
@@ -246,9 +248,9 @@ type exclusiveConsumer struct {
 	wg               sync.WaitGroup
 }
 
-func (gc *groupConsumer) spawnExclusiveConsumer(topic string, partition int32) *exclusiveConsumer {
+func (gc *groupConsumer) spawnExclusiveConsumer(namespace *actor.ID, topic string, partition int32) *exclusiveConsumer {
 	ec := &exclusiveConsumer{
-		actorID:          gc.supervisorActorID.NewChild(fmt.Sprintf("%s:%d", topic, partition)),
+		actorID:          namespace.NewChild(fmt.Sprintf("P:%s_%d", topic, partition)),
 		cfg:              gc.cfg,
 		group:            gc.group,
 		topic:            topic,
@@ -277,7 +279,7 @@ func (ec *exclusiveConsumer) Acks() chan<- *consumermsg.ConsumerMessage {
 func (ec *exclusiveConsumer) run() {
 	defer ec.groupMember.ClaimPartition(ec.actorID, ec.topic, ec.partition, ec.stoppingCh)()
 
-	om, err := ec.offsetMgrFactory.SpawnOffsetManager(ec.group, ec.topic, ec.partition)
+	om, err := ec.offsetMgrFactory.SpawnOffsetManager(ec.actorID, ec.group, ec.topic, ec.partition)
 	if err != nil {
 		// Must never happen.
 		log.Errorf("<%s> failed to spawn offset manager: err=(%s)", ec.actorID, err)
@@ -293,7 +295,7 @@ func (ec *exclusiveConsumer) run() {
 		return
 	}
 
-	pc, concreteOffset, err := ec.dumbConsumer.ConsumePartition(ec.topic, ec.partition, initialOffset.Offset)
+	pc, concreteOffset, err := ec.dumbConsumer.ConsumePartition(ec.actorID, ec.topic, ec.partition, initialOffset.Offset)
 	if err != nil {
 		// Must never happen.
 		log.Errorf("<%s> failed to start partition consumer: offset=%d, err=(%s)", ec.actorID, initialOffset.Offset, err)

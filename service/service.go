@@ -29,7 +29,7 @@ func Spawn(cfg *config.T) (*T, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to spawn producer, err=(%s)", err)
 	}
-	consumer, err := consumer.Spawn(cfg)
+	consumer, err := consumer.Spawn(actor.RootID, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to spawn consumer, err=(%s)", err)
 	}

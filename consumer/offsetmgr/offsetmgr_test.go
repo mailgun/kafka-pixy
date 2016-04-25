@@ -18,12 +18,18 @@ func Test(t *testing.T) {
 	TestingT(t)
 }
 
-type OffsetMgrSuite struct{}
+type OffsetMgrSuite struct {
+	ns *actor.ID
+}
 
 var _ = Suite(&OffsetMgrSuite{})
 
 func (s *OffsetMgrSuite) SetUpSuite(c *C) {
 	testhelpers.InitLogging(c)
+}
+
+func (s *OffsetMgrSuite) SetUpTest(c *C) {
+	s.ns = actor.RootID.NewChild("T")
 }
 
 // When a partition consumer is created, then an initial offset is sent down
@@ -36,21 +42,21 @@ func (s *OffsetMgrSuite) TestInitialOffset(c *C) {
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
 		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("group-1", broker1),
+			SetCoordinator("g1", broker1),
 		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
-			SetOffset("group-1", "topic-1", 7, 1000, "foo", sarama.ErrNoError).
-			SetOffset("group-1", "topic-1", 8, 2000, "bar", sarama.ErrNoError).
-			SetOffset("group-1", "topic-2", 9, 3000, "bazz", sarama.ErrNoError),
+			SetOffset("g1", "t1", 7, 1000, "foo", sarama.ErrNoError).
+			SetOffset("g1", "t1", 8, 2000, "bar", sarama.ErrNoError).
+			SetOffset("g1", "t2", 9, 3000, "bazz", sarama.ErrNoError),
 	})
 
 	cfg := sarama.NewConfig()
 	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
 	c.Assert(err, IsNil)
-	f := SpawnFactory(client)
+	f := SpawnFactory(s.ns.NewChild(), client)
 
 	// When
-	om, err := f.SpawnOffsetManager("group-1", "topic-1", 8)
+	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 8), "g1", "t1", 8)
 	c.Assert(err, IsNil)
 
 	// Then
@@ -71,7 +77,7 @@ func (s *OffsetMgrSuite) TestInitialNoCoordinator(c *C) {
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
 		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetError("group-1", sarama.ErrOffsetsLoadInProgress),
+			SetError("g1", sarama.ErrOffsetsLoadInProgress),
 	})
 
 	cfg := sarama.NewConfig()
@@ -80,15 +86,15 @@ func (s *OffsetMgrSuite) TestInitialNoCoordinator(c *C) {
 	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
 	c.Assert(err, IsNil)
-	f := SpawnFactory(client)
+	f := SpawnFactory(s.ns.NewChild(), client)
 
 	// When
-	om, err := f.SpawnOffsetManager("group-1", "topic-1", 8)
+	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 8), "g1", "t1", 8)
 	c.Assert(err, IsNil)
 
 	// Then
 	oce := <-om.Errors()
-	c.Assert(oce, DeepEquals, &OffsetCommitError{"group-1", "topic-1", 8, ErrNoCoordinator})
+	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 8, ErrNoCoordinator})
 
 	om.Stop()
 	f.Stop()
@@ -104,9 +110,9 @@ func (s *OffsetMgrSuite) TestInitialFetchError(c *C) {
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
 		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("group-1", broker1),
+			SetCoordinator("g1", broker1),
 		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
-			SetOffset("group-1", "topic-1", 7, 0, "", sarama.ErrNotLeaderForPartition),
+			SetOffset("g1", "t1", 7, 0, "", sarama.ErrNotLeaderForPartition),
 	})
 
 	cfg := sarama.NewConfig()
@@ -115,15 +121,15 @@ func (s *OffsetMgrSuite) TestInitialFetchError(c *C) {
 	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
 	c.Assert(err, IsNil)
-	f := SpawnFactory(client)
+	f := SpawnFactory(s.ns.NewChild(), client)
 
 	// When
-	om, err := f.SpawnOffsetManager("group-1", "topic-1", 7)
+	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
 
 	// Then
 	oce := <-om.Errors()
-	c.Assert(oce, DeepEquals, &OffsetCommitError{"group-1", "topic-1", 7, sarama.ErrNotLeaderForPartition})
+	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 7, sarama.ErrNotLeaderForPartition})
 
 	om.Stop()
 	f.Stop()
@@ -140,11 +146,11 @@ func (s *OffsetMgrSuite) TestCommitError(c *C) {
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
 		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("group-1", broker1),
+			SetCoordinator("g1", broker1),
 		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
-			SetOffset("group-1", "topic-1", 7, 1234, "foo", sarama.ErrNoError),
+			SetOffset("g1", "t1", 7, 1234, "foo", sarama.ErrNoError),
 		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
-			SetError("group-1", "topic-1", 7, sarama.ErrNotLeaderForPartition),
+			SetError("g1", "t1", 7, sarama.ErrNotLeaderForPartition),
 	})
 
 	cfg := sarama.NewConfig()
@@ -154,8 +160,8 @@ func (s *OffsetMgrSuite) TestCommitError(c *C) {
 	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
 	c.Assert(err, IsNil)
 
-	f := SpawnFactory(client)
-	om, err := f.SpawnOffsetManager("group-1", "topic-1", 7)
+	f := SpawnFactory(s.ns.NewChild(), client)
+	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
 
 	// When
@@ -165,17 +171,17 @@ func (s *OffsetMgrSuite) TestCommitError(c *C) {
 
 	// Then
 	oce := <-om.Errors()
-	c.Assert(oce, DeepEquals, &OffsetCommitError{"group-1", "topic-1", 7, sarama.ErrNotLeaderForPartition})
+	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 7, sarama.ErrNotLeaderForPartition})
 
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("group-1", broker1),
+			SetCoordinator("g1", broker1),
 		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
-			SetError("group-1", "topic-1", 7, sarama.ErrNoError),
+			SetError("g1", "t1", 7, sarama.ErrNoError),
 	})
 
 	wg.Wait()
-	committedOffset := lastCommittedOffset(broker1, "group-1", "topic-1", 7)
+	committedOffset := lastCommittedOffset(broker1, "g1", "t1", 7)
 	c.Assert(committedOffset, DeepEquals, DecoratedOffset{1000, "foo"})
 	f.Stop()
 }
@@ -199,9 +205,9 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
 	c.Assert(err, IsNil)
-	f := SpawnFactory(client)
+	f := SpawnFactory(s.ns.NewChild(), client)
 	c.Assert(err, IsNil)
-	om, err := f.SpawnOffsetManager("group-1", "topic-1", 7)
+	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
 
 	// When: a partition offset manager is closed while there is a pending commit.
@@ -214,49 +220,49 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 	// STAGE 1: Requests for coordinator time out.
 	log.Infof("    STAGE 1")
 	oce := <-om.Errors()
-	c.Assert(oce, DeepEquals, &OffsetCommitError{"group-1", "topic-1", 7, ErrNoCoordinator})
+	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 7, ErrNoCoordinator})
 
 	// STAGE 2: Requests for initial offset return errors
 	log.Infof("    STAGE 2")
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("group-1", broker1),
+			SetCoordinator("g1", broker1),
 		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
-			SetOffset("group-1", "topic-1", 7, 0, "", sarama.ErrNotLeaderForPartition),
+			SetOffset("g1", "t1", 7, 0, "", sarama.ErrNotLeaderForPartition),
 	})
 	for oce = range om.Errors() {
-		if !reflect.DeepEqual(oce, &OffsetCommitError{"group-1", "topic-1", 7, ErrNoCoordinator}) {
+		if !reflect.DeepEqual(oce, &OffsetCommitError{"g1", "t1", 7, ErrNoCoordinator}) {
 			break
 		}
 	}
-	c.Assert(oce, DeepEquals, &OffsetCommitError{"group-1", "topic-1", 7, sarama.ErrNotLeaderForPartition})
+	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 7, sarama.ErrNotLeaderForPartition})
 
 	// STAGE 3: Offset commit requests fail
 	log.Infof("    STAGE 3")
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("group-1", broker1),
+			SetCoordinator("g1", broker1),
 		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
-			SetOffset("group-1", "topic-1", 7, 1234, "foo", sarama.ErrNoError),
+			SetOffset("g1", "t1", 7, 1234, "foo", sarama.ErrNoError),
 		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
-			SetError("group-1", "topic-1", 7, sarama.ErrOffsetMetadataTooLarge),
+			SetError("g1", "t1", 7, sarama.ErrOffsetMetadataTooLarge),
 	})
 	for oce = range om.Errors() {
-		if !reflect.DeepEqual(oce, &OffsetCommitError{"group-1", "topic-1", 7, sarama.ErrNotLeaderForPartition}) {
+		if !reflect.DeepEqual(oce, &OffsetCommitError{"g1", "t1", 7, sarama.ErrNotLeaderForPartition}) {
 			break
 		}
 	}
-	c.Assert(oce, DeepEquals, &OffsetCommitError{"group-1", "topic-1", 7, sarama.ErrOffsetMetadataTooLarge})
+	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 7, sarama.ErrOffsetMetadataTooLarge})
 
 	// STAGE 4: Finally everything is fine
 	log.Infof("    STAGE 4")
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("group-1", broker1),
+			SetCoordinator("g1", broker1),
 		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
-			SetOffset("group-1", "topic-1", 7, 0, "", sarama.ErrNoError),
+			SetOffset("g1", "t1", 7, 0, "", sarama.ErrNoError),
 		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
-			SetError("group-1", "topic-1", 7, sarama.ErrNoError),
+			SetError("g1", "t1", 7, sarama.ErrNoError),
 	})
 	// The errors channel is closed when the partition offset manager has
 	// terminated.
@@ -264,7 +270,7 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 		log.Infof("Drain error: %v", oce)
 	}
 
-	committedOffset := lastCommittedOffset(broker1, "group-1", "topic-1", 7)
+	committedOffset := lastCommittedOffset(broker1, "g1", "t1", 7)
 	c.Assert(committedOffset, DeepEquals, DecoratedOffset{1001, "foo"})
 	f.Stop()
 }
@@ -280,24 +286,24 @@ func (s *OffsetMgrSuite) TestCommitDifferentGroups(c *C) {
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
 		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("group-1", broker1).
-			SetCoordinator("group-2", broker1),
+			SetCoordinator("g1", broker1).
+			SetCoordinator("g2", broker1),
 		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
-			SetOffset("group-1", "topic-1", 7, 1000, "foo", sarama.ErrNoError).
-			SetOffset("group-2", "topic-1", 7, 2000, "bar", sarama.ErrNoError),
+			SetOffset("g1", "t1", 7, 1000, "foo", sarama.ErrNoError).
+			SetOffset("g2", "t1", 7, 2000, "bar", sarama.ErrNoError),
 		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
-			SetError("group-1", "topic-1", 7, sarama.ErrNoError).
-			SetError("group-2", "topic-1", 7, sarama.ErrNoError),
+			SetError("g1", "t1", 7, sarama.ErrNoError).
+			SetError("g2", "t1", 7, sarama.ErrNoError),
 	})
 
 	cfg := sarama.NewConfig()
 	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
 	c.Assert(err, IsNil)
-	f := SpawnFactory(client)
-	om1, err := f.SpawnOffsetManager("group-1", "topic-1", 7)
+	f := SpawnFactory(s.ns.NewChild(), client)
+	om1, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
-	om2, err := f.SpawnOffsetManager("group-2", "topic-1", 7)
+	om2, err := f.SpawnOffsetManager(s.ns.NewChild("g2", "t1", 7), "g2", "t1", 7)
 	c.Assert(err, IsNil)
 
 	// When
@@ -311,9 +317,9 @@ func (s *OffsetMgrSuite) TestCommitDifferentGroups(c *C) {
 	om2.Stop()
 
 	// Then
-	committedOffset1 := lastCommittedOffset(broker1, "group-1", "topic-1", 7)
+	committedOffset1 := lastCommittedOffset(broker1, "g1", "t1", 7)
 	c.Assert(committedOffset1, DeepEquals, DecoratedOffset{1017, "foo3"})
-	committedOffset2 := lastCommittedOffset(broker1, "group-2", "topic-1", 7)
+	committedOffset2 := lastCommittedOffset(broker1, "g2", "t1", 7)
 	c.Assert(committedOffset2, DeepEquals, DecoratedOffset{2019, "bar3"})
 	f.Stop()
 }
@@ -327,12 +333,12 @@ func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
 		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("group-1", broker1).
-			SetCoordinator("group-2", broker1),
+			SetCoordinator("g1", broker1).
+			SetCoordinator("g2", broker1),
 		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
-			SetOffset("group-1", "topic-1", 7, 1000, "foo1", sarama.ErrNoError).
-			SetOffset("group-1", "topic-1", 8, 2000, "foo2", sarama.ErrNoError).
-			SetOffset("group-2", "topic-1", 7, 3000, "foo3", sarama.ErrNoError),
+			SetOffset("g1", "t1", 7, 1000, "foo1", sarama.ErrNoError).
+			SetOffset("g1", "t1", 8, 2000, "foo2", sarama.ErrNoError).
+			SetOffset("g2", "t1", 7, 3000, "foo3", sarama.ErrNoError),
 	})
 
 	cfg := sarama.NewConfig()
@@ -342,12 +348,12 @@ func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
 	c.Assert(err, IsNil)
-	f := SpawnFactory(client)
-	om1, err := f.SpawnOffsetManager("group-1", "topic-1", 7)
+	f := SpawnFactory(s.ns.NewChild(), client)
+	om1, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
-	om2, err := f.SpawnOffsetManager("group-1", "topic-1", 8)
+	om2, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 8), "g1", "t1", 8)
 	c.Assert(err, IsNil)
-	om3, err := f.SpawnOffsetManager("group-2", "topic-1", 7)
+	om3, err := f.SpawnOffsetManager(s.ns.NewChild("g2", "t1", 7), "g2", "t1", 7)
 	c.Assert(err, IsNil)
 	om1.SubmitOffset(1001, "bar1")
 	om2.SubmitOffset(2001, "bar2")
@@ -363,23 +369,23 @@ func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 	log.Infof("*** Network recovering...")
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("group-1", broker1).
-			SetCoordinator("group-2", broker1),
+			SetCoordinator("g1", broker1).
+			SetCoordinator("g2", broker1),
 		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
-			SetError("group-1", "topic-1", 7, sarama.ErrNoError).
-			SetError("group-1", "topic-1", 8, sarama.ErrNoError).
-			SetError("group-2", "topic-1", 7, sarama.ErrNoError),
+			SetError("g1", "t1", 7, sarama.ErrNoError).
+			SetError("g1", "t1", 8, sarama.ErrNoError).
+			SetError("g2", "t1", 7, sarama.ErrNoError),
 	})
 	om1.Stop()
 	om2.Stop()
 	om3.Stop()
 
 	// Then: offset managers are able to commit offsets and terminate.
-	committedOffset1 := lastCommittedOffset(broker1, "group-1", "topic-1", 7)
+	committedOffset1 := lastCommittedOffset(broker1, "g1", "t1", 7)
 	c.Assert(committedOffset1, DeepEquals, DecoratedOffset{1001, "bar1"})
-	committedOffset2 := lastCommittedOffset(broker1, "group-1", "topic-1", 8)
+	committedOffset2 := lastCommittedOffset(broker1, "g1", "t1", 8)
 	c.Assert(committedOffset2, DeepEquals, DecoratedOffset{2001, "bar2"})
-	committedOffset3 := lastCommittedOffset(broker1, "group-2", "topic-1", 7)
+	committedOffset3 := lastCommittedOffset(broker1, "g2", "t1", 7)
 	c.Assert(committedOffset3, DeepEquals, DecoratedOffset{3001, "bar3"})
 	f.Stop()
 }
@@ -393,19 +399,19 @@ func (s *OffsetMgrSuite) TestCommittedChannel(c *C) {
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
 		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("group-1", broker1),
+			SetCoordinator("g1", broker1),
 		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
-			SetOffset("group-1", "topic-1", 7, 1000, "foo1", sarama.ErrNoError),
+			SetOffset("g1", "t1", 7, 1000, "foo1", sarama.ErrNoError),
 		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
-			SetError("group-1", "topic-1", 7, sarama.ErrNoError),
+			SetError("g1", "t1", 7, sarama.ErrNoError),
 	})
 
 	cfg := sarama.NewConfig()
 	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
 	c.Assert(err, IsNil)
-	f := SpawnFactory(client)
-	om, err := f.SpawnOffsetManager("group-1", "topic-1", 7)
+	f := SpawnFactory(s.ns.NewChild(), client)
+	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
 
 	// When
@@ -440,7 +446,7 @@ func (s *OffsetMgrSuite) TestConnectionRestored(c *C) {
 			SetBroker(broker1.Addr(), broker1.BrokerID()).
 			SetBroker(broker2.Addr(), broker2.BrokerID()),
 		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("group-1", broker2),
+			SetCoordinator("g1", broker2),
 	})
 
 	cfg := sarama.NewConfig()
@@ -450,8 +456,8 @@ func (s *OffsetMgrSuite) TestConnectionRestored(c *C) {
 	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
 	c.Assert(err, IsNil)
-	f := SpawnFactory(client)
-	om, err := f.SpawnOffsetManager("group-1", "topic-1", 7)
+	f := SpawnFactory(s.ns.NewChild(), client)
+	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
 
 	log.Infof("    GIVEN 1")
@@ -477,15 +483,15 @@ func (s *OffsetMgrSuite) TestConnectionRestored(c *C) {
 	broker2_2 := sarama.NewMockBrokerAddr(c, broker2.BrokerID(), broker2.Addr())
 	broker2_2.SetHandlerByMap(map[string]sarama.MockResponse{
 		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
-			SetOffset("group-1", "topic-1", 7, 1000, "foo", sarama.ErrNoError),
+			SetOffset("g1", "t1", 7, 1000, "foo", sarama.ErrNoError),
 		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
-			SetError("group-1", "topic-1", 7, sarama.ErrNoError),
+			SetError("g1", "t1", 7, sarama.ErrNoError),
 	})
 
 	log.Infof("    WHEN")
 	// Create a partition offset manager for the same topic partition as before.
 	// It will be assigned the broken connection to broker2.
-	om, err = f.SpawnOffsetManager("group-1", "topic-1", 7)
+	om, err = f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
 
 	log.Infof("    THEN")
