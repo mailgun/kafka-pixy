@@ -14,6 +14,7 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/admin"
 	"github.com/mailgun/kafka-pixy/consumer"
+	"github.com/mailgun/kafka-pixy/consumer/consumermsg"
 	"github.com/mailgun/kafka-pixy/prettyfmt"
 	"github.com/mailgun/kafka-pixy/producer"
 	"github.com/mailgun/log"
@@ -192,9 +193,9 @@ func (as *T) handleConsume(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var status int
 		switch err.(type) {
-		case consumer.ErrRequestTimeout:
+		case consumermsg.ErrRequestTimeout:
 			status = http.StatusRequestTimeout
-		case consumer.ErrBufferOverflow:
+		case consumermsg.ErrBufferOverflow:
 			status = 429 // StatusTooManyRequests
 		default:
 			status = http.StatusInternalServerError

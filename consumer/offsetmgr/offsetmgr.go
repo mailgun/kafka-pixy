@@ -2,7 +2,6 @@ package offsetmgr
 
 import (
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -151,15 +150,15 @@ func (f *factory) ResolveBroker(pw mapper.Worker) (*sarama.Broker, error) {
 // implements `mapper.Resolver`.
 func (f *factory) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
 	be := &brokerExecutor{
-		aggregatorActorID:  f.namespace.NewChild(fmt.Sprintf("broker_%d_aggr", brokerConn.ID())),
-		executorActorID:    f.namespace.NewChild(fmt.Sprintf("broker_%d_exec", brokerConn.ID())),
+		aggrActorID:        f.namespace.NewChild("broker", brokerConn.ID(), "aggr"),
+		execActorID:        f.namespace.NewChild("broker", brokerConn.ID(), "exec"),
 		config:             f.config,
 		conn:               brokerConn,
 		submittedOffsetsCh: make(chan submittedOffset),
 		offsetBatches:      make(chan map[string]map[groupTopicPartition]submittedOffset),
 	}
-	actor.Spawn(be.aggregatorActorID, &be.wg, be.runAggregator)
-	actor.Spawn(be.executorActorID, &be.wg, be.runExecutor)
+	actor.Spawn(be.aggrActorID, &be.wg, be.runAggregator)
+	actor.Spawn(be.execActorID, &be.wg, be.runExecutor)
 	return be
 }
 
@@ -223,11 +222,12 @@ func (om *offsetManager) Errors() <-chan *OffsetCommitError {
 
 // implements `T`.
 func (om *offsetManager) Stop() {
-	om.f.childrenLock.Lock()
 	close(om.submittedOffsetsCh)
+	om.wg.Wait()
+
+	om.f.childrenLock.Lock()
 	delete(om.f.children, om.gtp)
 	om.f.childrenLock.Unlock()
-	om.wg.Wait()
 	om.f.mapper.WorkerStopped() <- om
 }
 
@@ -414,8 +414,8 @@ type commitResult struct {
 //
 // implements `mapper.Executor`.
 type brokerExecutor struct {
-	aggregatorActorID  *actor.ID
-	executorActorID    *actor.ID
+	aggrActorID        *actor.ID
+	execActorID        *actor.ID
 	config             *sarama.Config
 	conn               *sarama.Broker
 	submittedOffsetsCh chan submittedOffset
@@ -495,7 +495,7 @@ offsetCommitLoop:
 				if lastErr != nil {
 					lastErrTime = time.Now().UTC()
 					be.conn.Close()
-					log.Infof("<%s> connection reset: err=(%v)", be.executorActorID, lastErr)
+					log.Infof("<%s> connection reset: err=(%v)", be.execActorID, lastErr)
 					continue offsetCommitLoop
 				}
 				// Fan the response out to the partition offset managers.
@@ -511,5 +511,5 @@ func (be *brokerExecutor) String() string {
 	if be == nil {
 		return "<nil>"
 	}
-	return be.aggregatorActorID.String()
+	return be.aggrActorID.String()
 }

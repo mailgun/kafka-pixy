@@ -1,4 +1,4 @@
-package consumer
+package partitioncsm
 
 import (
 	"time"
@@ -51,17 +51,19 @@ func (s *PartitionConsumerFuncSuite) TestSlacker(c *C) {
 	// (buffer size + 1)th message to the respective PartitionConsumer message
 	// channel will block, given that nobody is reading from the channel.
 	config.ChannelBufferSize = 10
-	f, err := NewConsumer(s.ns, testhelpers.KafkaPeers, config)
+	client, _ := sarama.NewClient(testhelpers.KafkaPeers, config)
+	defer client.Close()
+	f, err := SpawnFactory(s.ns, client)
 	c.Assert(err, IsNil)
-	defer f.Close()
+	defer f.Stop()
 
-	pcA, _, err := f.ConsumePartition(s.ns.NewChild("test.1", 0), "test.1", 0, producedTest1["foo"][0].Offset)
+	pcA, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("test.1", 0), "test.1", 0, producedTest1["foo"][0].Offset)
 	c.Assert(err, IsNil)
-	defer pcA.Close()
+	defer pcA.Stop()
 
-	pcB, _, err := f.ConsumePartition(s.ns.NewChild("test.4", 2), "test.4", 2, producedTest4["bar"][0].Offset)
+	pcB, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("test.4", 2), "test.4", 2, producedTest4["bar"][0].Offset)
 	c.Assert(err, IsNil)
-	defer pcB.Close()
+	defer pcB.Stop()
 
 	timeoutCh := time.After(1 * time.Second)
 	for i := 0; i < 1000; i++ {
@@ -71,9 +73,9 @@ func (s *PartitionConsumerFuncSuite) TestSlacker(c *C) {
 		case <-timeoutCh:
 			// Both queues should be drained in parallel, otherwise the old
 			// BrokerConsumer implementation would get into a deadlock here.
-			go pcA.Close()
+			go pcA.Stop()
 			messagesA := pcA.Messages()
-			go pcB.Close()
+			go pcB.Stop()
 			messagesB := pcB.Messages()
 		drainLoop:
 			for messagesA != nil || messagesB != nil {

@@ -12,6 +12,7 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer/dispatcher"
 	"github.com/mailgun/kafka-pixy/consumer/groupmember"
 	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
+	"github.com/mailgun/kafka-pixy/consumer/partitioncsm"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
 	"github.com/wvanbergen/kazoo-go"
@@ -224,33 +225,33 @@ func (tc *topicConsumer) String() string {
 // message is pulled from the `messages()` channel, it is considered to be
 // consumed and its offset is committed.
 type exclusiveConsumer struct {
-	actorID          *actor.ID
-	cfg              *config.T
-	group            string
-	topic            string
-	partition        int32
-	dumbConsumer     Consumer
-	groupMember      *groupmember.T
-	offsetMgrFactory offsetmgr.Factory
-	messagesCh       chan *consumermsg.ConsumerMessage
-	acksCh           chan *consumermsg.ConsumerMessage
-	stoppingCh       chan none.T
-	wg               sync.WaitGroup
+	actorID             *actor.ID
+	cfg                 *config.T
+	group               string
+	topic               string
+	partition           int32
+	groupMember         *groupmember.T
+	partitionCsmFactory partitioncsm.Factory
+	offsetMgrFactory    offsetmgr.Factory
+	messagesCh          chan *consumermsg.ConsumerMessage
+	acksCh              chan *consumermsg.ConsumerMessage
+	stoppingCh          chan none.T
+	wg                  sync.WaitGroup
 }
 
 func (gc *groupConsumer) spawnExclusiveConsumer(namespace *actor.ID, topic string, partition int32) *exclusiveConsumer {
 	ec := &exclusiveConsumer{
-		actorID:          namespace.NewChild(fmt.Sprintf("P:%s_%d", topic, partition)),
-		cfg:              gc.cfg,
-		group:            gc.group,
-		topic:            topic,
-		partition:        partition,
-		dumbConsumer:     gc.dumbConsumer,
-		groupMember:      gc.groupMember,
-		offsetMgrFactory: gc.offsetMgrFactory,
-		messagesCh:       make(chan *consumermsg.ConsumerMessage),
-		acksCh:           make(chan *consumermsg.ConsumerMessage),
-		stoppingCh:       make(chan none.T),
+		actorID:             namespace.NewChild(fmt.Sprintf("P:%s_%d", topic, partition)),
+		cfg:                 gc.cfg,
+		group:               gc.group,
+		topic:               topic,
+		partition:           partition,
+		partitionCsmFactory: gc.partitionCsmFactory,
+		groupMember:         gc.groupMember,
+		offsetMgrFactory:    gc.offsetMgrFactory,
+		messagesCh:          make(chan *consumermsg.ConsumerMessage),
+		acksCh:              make(chan *consumermsg.ConsumerMessage),
+		stoppingCh:          make(chan none.T),
 	}
 	actor.Spawn(ec.actorID, &ec.wg, ec.run)
 	return ec
@@ -285,13 +286,13 @@ func (ec *exclusiveConsumer) run() {
 		return
 	}
 
-	pc, concreteOffset, err := ec.dumbConsumer.ConsumePartition(ec.actorID, ec.topic, ec.partition, initialOffset.Offset)
+	pc, concreteOffset, err := ec.partitionCsmFactory.SpawnPartitionConsumer(ec.actorID, ec.topic, ec.partition, initialOffset.Offset)
 	if err != nil {
 		// Must never happen.
 		log.Errorf("<%s> failed to start partition consumer: offset=%d, err=(%s)", ec.actorID, initialOffset.Offset, err)
 		return
 	}
-	defer pc.Close()
+	defer pc.Stop()
 	if initialOffset.Offset != concreteOffset {
 		log.Errorf("<%s> invalid initial offset: stored=%d, adjusted=%d",
 			ec.actorID, initialOffset.Offset, concreteOffset)

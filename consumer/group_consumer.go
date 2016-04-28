@@ -13,6 +13,7 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer/dispatcher"
 	"github.com/mailgun/kafka-pixy/consumer/groupmember"
 	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
+	"github.com/mailgun/kafka-pixy/consumer/partitioncsm"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
 	"github.com/wvanbergen/kazoo-go"
@@ -27,7 +28,7 @@ type groupConsumer struct {
 	group                   string
 	dispatcher              *dispatcher.T
 	kafkaClient             sarama.Client
-	dumbConsumer            Consumer
+	partitionCsmFactory     partitioncsm.Factory
 	offsetMgrFactory        offsetmgr.Factory
 	kazooConn               *kazoo.Kazoo
 	groupMember             *groupmember.T
@@ -84,7 +85,7 @@ func (gc *groupConsumer) Start(stoppedCh chan<- dispatcher.Tier) {
 	actor.Spawn(gc.supervisorActorID, &gc.wg, func() {
 		defer func() { stoppedCh <- gc }()
 		var err error
-		gc.dumbConsumer, err = NewConsumerFromClient(gc.supervisorActorID, gc.kafkaClient)
+		gc.partitionCsmFactory, err = partitioncsm.SpawnFactory(gc.supervisorActorID, gc.kafkaClient)
 		if err != nil {
 			// Must never happen.
 			panic(consumermsg.ErrSetup(fmt.Errorf("failed to create sarama.Consumer: err=(%v)", err)))
@@ -98,7 +99,8 @@ func (gc *groupConsumer) Start(stoppedCh chan<- dispatcher.Tier) {
 		gc.dispatcher.Stop()
 		gc.groupMember.Stop()
 		manageWg.Wait()
-		gc.dumbConsumer.Close()
+		log.Infof("<%s> ^^^", gc.supervisorActorID)
+		gc.partitionCsmFactory.Stop()
 	})
 }
 
@@ -170,10 +172,10 @@ func (gc *groupConsumer) runManager() {
 			for topic, tc := range topicConsumers {
 				topicConsumerCopy[topic] = tc
 			}
-			balancerActorID := gc.managerActorID.NewChild("balancer")
+			rebalancerActorID := gc.managerActorID.NewChild("rebalancer")
 			subscriptions := subscriptions
-			actor.Spawn(balancerActorID, nil, func() {
-				gc.runBalancer(balancerActorID, topicConsumerCopy, subscriptions, rebalanceResultCh)
+			actor.Spawn(rebalancerActorID, nil, func() {
+				gc.runRebalancer(rebalancerActorID, topicConsumerCopy, subscriptions, rebalanceResultCh)
 			})
 			shouldRebalance, canRebalance = false, false
 		}
@@ -182,15 +184,15 @@ done:
 	var wg sync.WaitGroup
 	for _, tcg := range gc.topicConsumerGears {
 		wg.Add(1)
-		go func() {
+		go func(tcg *topicConsumerGear) {
 			defer wg.Done()
 			tcg.stop()
-		}()
+		}(tcg)
 	}
 	wg.Wait()
 }
 
-func (gc *groupConsumer) runBalancer(actorID *actor.ID, topicConsumers map[string]*topicConsumer,
+func (gc *groupConsumer) runRebalancer(actorID *actor.ID, topicConsumers map[string]*topicConsumer,
 	subscriptions map[string][]string, rebalanceResultCh chan<- error,
 ) {
 	assignedPartitions, err := gc.resolvePartitions(subscriptions)

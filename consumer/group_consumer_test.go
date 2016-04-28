@@ -99,6 +99,8 @@ func (s *GroupConsumerSuite) TestResolvePartitions(c *C) {
 			"b": {"t1", "t2", "t3"},
 			"c": {"t1", "t2", "t4", "t5"},
 			"d": {"t1", "t4"},
+			"e": {},
+			"f": nil,
 		})
 
 	// Then
