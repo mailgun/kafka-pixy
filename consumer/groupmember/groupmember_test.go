@@ -164,13 +164,10 @@ func (s *GroupRegistratorSuite) TestSubscribeToNothing(c *C) {
 	gm1.Topics() <- []string{}
 
 	// Then
+	c.Assert(<-gm1.Subscriptions(), DeepEquals,
+		map[string][]string{"m1": nil, "m2": {"foo"}})
 	c.Assert(<-gm2.Subscriptions(), DeepEquals,
-		map[string][]string{"m2": {"foo"}})
-	select {
-	case update := <-gm1.Subscriptions():
-		c.Errorf("Unexpected update: %v", update)
-	case <-time.After(300 * time.Millisecond):
-	}
+		map[string][]string{"m1": nil, "m2": {"foo"}})
 }
 
 // To unsubscribe from all topics nil value can be sent.
@@ -193,13 +190,10 @@ func (s *GroupRegistratorSuite) TestSubscribeToNil(c *C) {
 	gm1.Topics() <- nil
 
 	// Then
+	c.Assert(<-gm1.Subscriptions(), DeepEquals,
+		map[string][]string{"m1": nil, "m2": {"foo"}})
 	c.Assert(<-gm2.Subscriptions(), DeepEquals,
-		map[string][]string{"m2": {"foo"}})
-	select {
-	case update := <-gm1.Subscriptions():
-		c.Errorf("Unexpected update: %v", update)
-	case <-time.After(300 * time.Millisecond):
-	}
+		map[string][]string{"m1": nil, "m2": {"foo"}})
 }
 
 // When several different registrator instances subscribe to the same group,

@@ -113,11 +113,11 @@ func (gm *T) run() {
 	}
 
 	defer func() {
-		err := gm.submitTopics(nil)
-		for err != nil {
-			log.Errorf("<%s> failed to create a group znode: err=(%s)", gm.actorID, err)
+		err := gm.groupMemberZNode.Deregister()
+		if err != nil && err != kazoo.ErrInstanceNotRegistered {
+			log.Errorf("<%s> failed to deregister: err=(%s)", gm.actorID, err)
 			<-time.After(gm.cfg.Consumer.BackOffTimeout)
-			err = gm.submitTopics(nil)
+			err = gm.groupMemberZNode.Deregister()
 		}
 	}()
 
@@ -142,7 +142,7 @@ func (gm *T) run() {
 			gm.subscriptions = pendingSubscriptions
 		case <-nilOrGroupUpdatedCh:
 			nilOrGroupUpdatedCh = nil
-			shouldFetchMembers = (gm.topics != nil)
+			shouldFetchMembers = true
 		case <-nilOrTimeoutCh:
 		case <-gm.stopCh:
 			return
@@ -156,7 +156,7 @@ func (gm *T) run() {
 			}
 			log.Infof("<%s> submitted: topics=%v", gm.actorID, pendingTopics)
 			shouldSubmitTopics = false
-			shouldFetchMembers = (gm.topics != nil)
+			shouldFetchMembers = true
 		}
 
 		if shouldFetchMembers {
@@ -182,10 +182,12 @@ func (gm *T) run() {
 				nilOrTimeoutCh = time.After(gm.cfg.Consumer.BackOffTimeout)
 				continue
 			}
-			log.Infof("<%s> fetched subscriptions: %v", gm.actorID, pendingSubscriptions)
 			shouldFetchSubscriptions = false
+			log.Infof("<%s> fetched subscriptions: %v", gm.actorID, pendingSubscriptions)
 			if subscriptionsEqual(pendingSubscriptions, gm.subscriptions) {
-				log.Infof("<%s> redundent group update ignored: %v", gm.actorID, pendingSubscriptions)
+				nilOrSubscriptionsCh = nil
+				pendingSubscriptions = nil
+				log.Infof("<%s> redundent group update ignored: %v", gm.actorID, gm.subscriptions)
 				continue
 			}
 			nilOrSubscriptionsCh = gm.subscriptionsCh
@@ -225,11 +227,9 @@ func (gm *T) submitTopics(topics []string) error {
 		}
 	}
 	gm.topics = nil
-	if topics != nil {
-		err := gm.groupMemberZNode.Register(topics)
-		for err != nil {
-			return fmt.Errorf("failed to register: err=(%s)", err)
-		}
+	err := gm.groupMemberZNode.Register(topics)
+	for err != nil {
+		return fmt.Errorf("failed to register: err=(%s)", err)
 	}
 	gm.topics = topics
 	return nil
