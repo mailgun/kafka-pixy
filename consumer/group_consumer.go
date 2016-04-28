@@ -9,6 +9,8 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/consumer/consumermsg"
+	"github.com/mailgun/kafka-pixy/consumer/dispatcher"
 	"github.com/mailgun/kafka-pixy/consumer/groupmember"
 	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
 	"github.com/mailgun/kafka-pixy/none"
@@ -23,7 +25,7 @@ type groupConsumer struct {
 	managerActorID          *actor.ID
 	cfg                     *config.T
 	group                   string
-	dispatcher              *dispatcher
+	dispatcher              *dispatcher.T
 	kafkaClient             sarama.Client
 	dumbConsumer            Consumer
 	offsetMgrFactory        offsetmgr.Factory
@@ -55,7 +57,7 @@ func (sc *T) newConsumerGroup(group string) *groupConsumer {
 
 		fetchTopicPartitionsFn: sc.kafkaClient.Partitions,
 	}
-	gc.dispatcher = newDispatcher(gc.supervisorActorID, gc, sc.cfg)
+	gc.dispatcher = dispatcher.New(gc.supervisorActorID, gc, sc.cfg)
 	return gc
 }
 
@@ -67,46 +69,52 @@ func (gc *groupConsumer) topicConsumerLifespan() chan<- *topicConsumer {
 	return gc.topicConsumerLifespanCh
 }
 
-func (gc *groupConsumer) key() string {
+// implements `dispatcher.Tier`.
+func (gc *groupConsumer) Key() string {
 	return gc.group
 }
 
-func (gc *groupConsumer) start(stoppedCh chan<- dispatchTier) {
+// implements `dispatcher.Tier`.
+func (gc *groupConsumer) Requests() chan<- dispatcher.Request {
+	return gc.dispatcher.Requests()
+}
+
+// implements `dispatcher.Tier`.
+func (gc *groupConsumer) Start(stoppedCh chan<- dispatcher.Tier) {
 	actor.Spawn(gc.supervisorActorID, &gc.wg, func() {
 		defer func() { stoppedCh <- gc }()
 		var err error
 		gc.dumbConsumer, err = NewConsumerFromClient(gc.supervisorActorID, gc.kafkaClient)
 		if err != nil {
 			// Must never happen.
-			panic(ErrSetup(fmt.Errorf("failed to create sarama.Consumer: err=(%v)", err)))
+			panic(consumermsg.ErrSetup(fmt.Errorf("failed to create sarama.Consumer: err=(%v)", err)))
 		}
 		gc.groupMember = groupmember.Spawn(gc.supervisorActorID, gc.group, gc.cfg.ClientID, gc.cfg, gc.kazooConn)
 		var manageWg sync.WaitGroup
 		actor.Spawn(gc.managerActorID, &manageWg, gc.runManager)
-		gc.dispatcher.start()
+		gc.dispatcher.Start()
 		// Wait for a stop signal and shutdown gracefully when one is received.
 		<-gc.stoppingCh
-		gc.dispatcher.stop()
+		gc.dispatcher.Stop()
 		gc.groupMember.Stop()
 		manageWg.Wait()
 		gc.dumbConsumer.Close()
 	})
 }
 
-func (gc *groupConsumer) requests() chan<- consumeRequest {
-	return gc.dispatcher.requests()
-}
-
-func (gc *groupConsumer) stop() {
+// implements `dispatcher.Tier`.
+func (gc *groupConsumer) Stop() {
 	close(gc.stoppingCh)
 	gc.wg.Wait()
 }
 
-func (gc *groupConsumer) dispatchKey(req consumeRequest) string {
-	return req.topic
+// implements `dispatcher.Factory`.
+func (gc *groupConsumer) KeyOf(req dispatcher.Request) string {
+	return req.Topic
 }
 
-func (gc *groupConsumer) newDispatchTier(key string) dispatchTier {
+// implements `dispatcher.Factory`.
+func (gc *groupConsumer) NewTier(key string) dispatcher.Tier {
 	tc := gc.newTopicConsumer(key)
 	return tc
 }

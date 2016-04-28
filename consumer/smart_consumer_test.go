@@ -65,7 +65,7 @@ func (s *SmartConsumerSuite) TestInitialOffsetTooLarge(c *C) {
 	_, err = sc.Consume("g1", "test.1")
 
 	// Then
-	c.Assert(err, FitsTypeOf, ErrRequestTimeout(fmt.Errorf("")))
+	c.Assert(err, FitsTypeOf, consumermsg.ErrRequestTimeout(fmt.Errorf("")))
 
 	produced := s.kh.PutMessages("offset-too-large", "test.1", map[string]int{"key": 1})
 	consumed := s.consume(c, sc, "g1", "test.1", 1)
@@ -220,7 +220,7 @@ func (s *SmartConsumerSuite) TestTooFewPartitions(c *C) {
 	// Then: `consumer-2` request times out, when `consumer-1` requests keep
 	// return messages.
 	log.Infof("*** THEN")
-	if _, ok := err.(ErrRequestTimeout); !ok {
+	if _, ok := err.(consumermsg.ErrRequestTimeout); !ok {
 		c.Errorf("Expected ErrConsumerRequestTimeout, got %s", err)
 	}
 	s.consume(c, sc1, "g1", "test.1", 1, consumed)
@@ -431,7 +431,7 @@ func (s *SmartConsumerSuite) TestBufferOverflowError(c *C) {
 			defer wg.Done()
 			for i := 0; i < 10; i++ {
 				_, err := sc.Consume("g1", "test.1")
-				if _, ok := err.(ErrBufferOverflow); ok {
+				if _, ok := err.(consumermsg.ErrBufferOverflow); ok {
 					atomic.AddInt32(&overflowErrorCount, 1)
 				}
 			}
@@ -473,7 +473,7 @@ func (s *SmartConsumerSuite) TestRequestDuringTimeout(c *C) {
 			begin := time.Now()
 			log.Infof("*** consuming...")
 			consMsg, err := sc.Consume("g1", "test.4")
-			_, ok := err.(ErrRequestTimeout)
+			_, ok := err.(consumermsg.ErrRequestTimeout)
 			if err != nil && !ok {
 				c.Errorf("Expected err to be nil or ErrRequestTimeout, got: %v", err)
 			}
@@ -498,7 +498,7 @@ func (s *SmartConsumerSuite) TestInvalidTopic(c *C) {
 	consMsg, err := sc.Consume("g1", "no-such-topic")
 
 	// Then
-	if _, ok := err.(ErrRequestTimeout); !ok {
+	if _, ok := err.(consumermsg.ErrRequestTimeout); !ok {
 		c.Errorf("ErrConsumerRequestTimeout is expected")
 	}
 	c.Assert(consMsg, IsNil)
@@ -516,7 +516,7 @@ func (s *SmartConsumerSuite) TestLotsOfPartitions(c *C) {
 
 	// Consume should stop by timeout and nothing should be consumed.
 	msg, err := sc.Consume("g1", "test.64")
-	if _, ok := err.(ErrRequestTimeout); !ok {
+	if _, ok := err.(consumermsg.ErrRequestTimeout); !ok {
 		c.Fatalf("Unexpected message consumed: %v", msg)
 	}
 	s.kh.PutMessages("lots", "test.64", map[string]int{"A": 7, "B": 13, "C": 169})
@@ -548,7 +548,7 @@ func (s *SmartConsumerSuite) TestNewGroup(c *C) {
 	// The very first consumption of a group is terminated by timeout because
 	// the default offset is the topic head.
 	msg, err := sc.Consume(group, "test.1")
-	if _, ok := err.(ErrRequestTimeout); !ok {
+	if _, ok := err.(consumermsg.ErrRequestTimeout); !ok {
 		c.Fatalf("Unexpected message consumed: %v", msg)
 	}
 
@@ -588,7 +588,7 @@ func (s *SmartConsumerSuite) consume(c *C, sc *T, group, topic string, count int
 	}
 	for i := 0; i != count; i++ {
 		consMsg, err := sc.Consume(group, topic)
-		if _, ok := err.(ErrRequestTimeout); ok {
+		if _, ok := err.(consumermsg.ErrRequestTimeout); ok {
 			if count == consumeAll {
 				return consumed
 			}

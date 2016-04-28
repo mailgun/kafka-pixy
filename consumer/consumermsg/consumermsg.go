@@ -22,3 +22,9 @@ type ConsumerError struct {
 func (ce ConsumerError) Error() string {
 	return fmt.Sprintf("kafka: error while consuming %s/%d: %s", ce.Topic, ce.Partition, ce.Err)
 }
+
+type (
+	ErrSetup          error
+	ErrBufferOverflow error
+	ErrRequestTimeout error
+)
