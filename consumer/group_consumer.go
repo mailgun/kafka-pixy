@@ -9,8 +9,12 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/consumer/consumermsg"
+	"github.com/mailgun/kafka-pixy/consumer/dispatcher"
 	"github.com/mailgun/kafka-pixy/consumer/groupmember"
+	"github.com/mailgun/kafka-pixy/consumer/multiplexer"
 	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
+	"github.com/mailgun/kafka-pixy/consumer/partitioncsm"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
 	"github.com/wvanbergen/kazoo-go"
@@ -23,13 +27,13 @@ type groupConsumer struct {
 	managerActorID          *actor.ID
 	cfg                     *config.T
 	group                   string
-	dispatcher              *dispatcher
+	dispatcher              *dispatcher.T
 	kafkaClient             sarama.Client
-	dumbConsumer            Consumer
+	partitionCsmFactory     partitioncsm.Factory
 	offsetMgrFactory        offsetmgr.Factory
 	kazooConn               *kazoo.Kazoo
 	groupMember             *groupmember.T
-	topicConsumerGears      map[string]*topicConsumerGear
+	multiplexers            map[string]*multiplexer.T
 	topicConsumerLifespanCh chan *topicConsumer
 	stoppingCh              chan none.T
 	wg                      sync.WaitGroup
@@ -40,7 +44,7 @@ type groupConsumer struct {
 }
 
 func (sc *T) newConsumerGroup(group string) *groupConsumer {
-	supervisorActorID := sc.actorNamespace.NewChild(group)
+	supervisorActorID := sc.namespace.NewChild(fmt.Sprintf("G:%s", group))
 	gc := &groupConsumer{
 		supervisorActorID:       supervisorActorID,
 		managerActorID:          supervisorActorID.NewChild("manager"),
@@ -49,13 +53,13 @@ func (sc *T) newConsumerGroup(group string) *groupConsumer {
 		kafkaClient:             sc.kafkaClient,
 		offsetMgrFactory:        sc.offsetMgrFactory,
 		kazooConn:               sc.kazooConn,
-		topicConsumerGears:      make(map[string]*topicConsumerGear),
+		multiplexers:            make(map[string]*multiplexer.T),
 		topicConsumerLifespanCh: make(chan *topicConsumer),
 		stoppingCh:              make(chan none.T),
 
 		fetchTopicPartitionsFn: sc.kafkaClient.Partitions,
 	}
-	gc.dispatcher = newDispatcher(gc.supervisorActorID, gc, sc.cfg)
+	gc.dispatcher = dispatcher.New(gc.supervisorActorID, gc, sc.cfg)
 	return gc
 }
 
@@ -67,46 +71,53 @@ func (gc *groupConsumer) topicConsumerLifespan() chan<- *topicConsumer {
 	return gc.topicConsumerLifespanCh
 }
 
-func (gc *groupConsumer) key() string {
+// implements `dispatcher.Tier`.
+func (gc *groupConsumer) Key() string {
 	return gc.group
 }
 
-func (gc *groupConsumer) start(stoppedCh chan<- dispatchTier) {
+// implements `dispatcher.Tier`.
+func (gc *groupConsumer) Requests() chan<- dispatcher.Request {
+	return gc.dispatcher.Requests()
+}
+
+// implements `dispatcher.Tier`.
+func (gc *groupConsumer) Start(stoppedCh chan<- dispatcher.Tier) {
 	actor.Spawn(gc.supervisorActorID, &gc.wg, func() {
 		defer func() { stoppedCh <- gc }()
 		var err error
-		gc.dumbConsumer, err = NewConsumerFromClient(gc.kafkaClient)
+		gc.partitionCsmFactory, err = partitioncsm.SpawnFactory(gc.supervisorActorID, gc.kafkaClient)
 		if err != nil {
 			// Must never happen.
-			panic(ErrSetup(fmt.Errorf("failed to create sarama.Consumer: err=(%v)", err)))
+			panic(consumermsg.ErrSetup(fmt.Errorf("failed to create sarama.Consumer: err=(%v)", err)))
 		}
-		gc.groupMember = groupmember.Spawn(gc.group, gc.cfg.ClientID, gc.cfg, gc.kazooConn)
+		gc.groupMember = groupmember.Spawn(gc.supervisorActorID, gc.group, gc.cfg.ClientID, gc.cfg, gc.kazooConn)
 		var manageWg sync.WaitGroup
 		actor.Spawn(gc.managerActorID, &manageWg, gc.runManager)
-		gc.dispatcher.start()
+		gc.dispatcher.Start()
 		// Wait for a stop signal and shutdown gracefully when one is received.
 		<-gc.stoppingCh
-		gc.dispatcher.stop()
+		gc.dispatcher.Stop()
 		gc.groupMember.Stop()
 		manageWg.Wait()
-		gc.dumbConsumer.Close()
+		log.Infof("<%s> ^^^", gc.supervisorActorID)
+		gc.partitionCsmFactory.Stop()
 	})
 }
 
-func (gc *groupConsumer) requests() chan<- consumeRequest {
-	return gc.dispatcher.requests()
-}
-
-func (gc *groupConsumer) stop() {
+// implements `dispatcher.Tier`.
+func (gc *groupConsumer) Stop() {
 	close(gc.stoppingCh)
 	gc.wg.Wait()
 }
 
-func (gc *groupConsumer) dispatchKey(req consumeRequest) string {
-	return req.topic
+// implements `dispatcher.Factory`.
+func (gc *groupConsumer) KeyOf(req dispatcher.Request) string {
+	return req.Topic
 }
 
-func (gc *groupConsumer) newDispatchTier(key string) dispatchTier {
+// implements `dispatcher.Factory`.
+func (gc *groupConsumer) NewTier(key string) dispatcher.Tier {
 	tc := gc.newTopicConsumer(key)
 	return tc
 }
@@ -162,27 +173,27 @@ func (gc *groupConsumer) runManager() {
 			for topic, tc := range topicConsumers {
 				topicConsumerCopy[topic] = tc
 			}
-			balancerActorID := gc.managerActorID.NewChild("balancer")
+			rebalancerActorID := gc.managerActorID.NewChild("rebalancer")
 			subscriptions := subscriptions
-			actor.Spawn(balancerActorID, nil, func() {
-				gc.runBalancer(balancerActorID, topicConsumerCopy, subscriptions, rebalanceResultCh)
+			actor.Spawn(rebalancerActorID, nil, func() {
+				gc.runRebalancer(rebalancerActorID, topicConsumerCopy, subscriptions, rebalanceResultCh)
 			})
 			shouldRebalance, canRebalance = false, false
 		}
 	}
 done:
 	var wg sync.WaitGroup
-	for _, tcg := range gc.topicConsumerGears {
+	for _, mux := range gc.multiplexers {
 		wg.Add(1)
-		go func() {
+		go func(mux *multiplexer.T) {
 			defer wg.Done()
-			tcg.stop()
-		}()
+			mux.Stop()
+		}(mux)
 	}
 	wg.Wait()
 }
 
-func (gc *groupConsumer) runBalancer(actorID *actor.ID, topicConsumers map[string]*topicConsumer,
+func (gc *groupConsumer) runRebalancer(actorID *actor.ID, topicConsumers map[string]*topicConsumer,
 	subscriptions map[string][]string, rebalanceResultCh chan<- error,
 ) {
 	assignedPartitions, err := gc.resolvePartitions(subscriptions)
@@ -195,25 +206,29 @@ func (gc *groupConsumer) runBalancer(actorID *actor.ID, topicConsumers map[strin
 	// Stop consuming partitions that are no longer assigned to this group
 	// and start consuming newly assigned partitions for topics that has been
 	// consumed already.
-	for topic, tcg := range gc.topicConsumerGears {
-		tcg.muxInputsAsync(&wg, topicConsumers[topic], assignedPartitions[topic])
+	for topic, tcg := range gc.multiplexers {
+		gc.rewireMuxAsync(&wg, tcg, topicConsumers[topic], assignedPartitions[topic])
 	}
 	// Start consuming partitions for topics that has not been consumed before.
 	for topic, assignedTopicPartitions := range assignedPartitions {
 		tc := topicConsumers[topic]
-		tcg := gc.topicConsumerGears[topic]
-		if tc == nil || tcg != nil {
+		mux := gc.multiplexers[topic]
+		if tc == nil || mux != nil {
 			continue
 		}
-		tcg = newTopicConsumerGear(gc.spawnTopicInput)
-		tcg.muxInputsAsync(&wg, tc, assignedTopicPartitions)
-		gc.topicConsumerGears[topic] = tcg
+		topic := topic
+		spawnInF := func(partition int32) multiplexer.In {
+			return gc.spawnExclusiveConsumer(gc.supervisorActorID, topic, partition)
+		}
+		mux = multiplexer.New(gc.supervisorActorID, spawnInF)
+		gc.rewireMuxAsync(&wg, mux, tc, assignedTopicPartitions)
+		gc.multiplexers[topic] = mux
 	}
 	wg.Wait()
 	// Clean up gears for topics that do not have assigned partitions anymore.
-	for topic, tcg := range gc.topicConsumerGears {
-		if tcg.isIdle() {
-			delete(gc.topicConsumerGears, topic)
+	for topic, mux := range gc.multiplexers {
+		if !mux.IsRunning() {
+			delete(gc.multiplexers, topic)
 		}
 	}
 	// Notify the caller that rebalancing has completed successfully.
@@ -221,8 +236,11 @@ func (gc *groupConsumer) runBalancer(actorID *actor.ID, topicConsumers map[strin
 	return
 }
 
-func (gc *groupConsumer) spawnTopicInput(topic string, partition int32) muxInputActor {
-	return gc.spawnExclusiveConsumer(topic, partition)
+// muxInputsAsync calls muxInputs in another goroutine.
+func (gc *groupConsumer) rewireMuxAsync(wg *sync.WaitGroup, mux *multiplexer.T, tc *topicConsumer, assigned []int32) {
+	actor.Spawn(gc.supervisorActorID.NewChild("rewire", tc.topic), wg, func() {
+		mux.WireUp(tc, assigned)
+	})
 }
 
 // resolvePartitions given topic subscriptions of all consumer group members,

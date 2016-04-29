@@ -1,17 +1,24 @@
-package consumer
+package partitioncsm
 
 import (
-	"io"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/Shopify/sarama"
+	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/log"
 	. "gopkg.in/check.v1"
 )
 
-type PartitionConsumerSuite struct{}
+func Test(t *testing.T) {
+	TestingT(t)
+}
+
+type PartitionConsumerSuite struct {
+	ns *actor.ID
+}
 
 var (
 	_       = Suite(&PartitionConsumerSuite{})
@@ -22,11 +29,16 @@ func (s *PartitionConsumerSuite) SetUpSuite(c *C) {
 	testhelpers.InitLogging(c)
 }
 
+func (s *PartitionConsumerSuite) SetUpTest(c *C) {
+	s.ns = actor.RootID.NewChild("T")
+}
+
 // If a particular offset is provided then messages are consumed starting from
 // that offset.
 func (s *PartitionConsumerSuite) TestOffsetManual(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 0)
+	defer broker0.Close()
 
 	mockFetchResponse := sarama.NewMockFetchResponse(c, 1)
 	for i := 0; i < 10; i++ {
@@ -43,27 +55,28 @@ func (s *PartitionConsumerSuite) TestOffsetManual(c *C) {
 		"FetchRequest": mockFetchResponse,
 	})
 
-	// When
-	master, err := NewConsumer([]string{broker0.Addr()}, nil)
-	c.Assert(err, IsNil)
+	client, _ := sarama.NewClient([]string{broker0.Addr()}, nil)
+	defer client.Close()
 
-	consumer, concreteOffset, err := master.ConsumePartition("my_topic", 0, 1234)
+	// When
+	f, err := SpawnFactory(s.ns, client)
+	c.Assert(err, IsNil)
+	defer f.Stop()
+
+	pc, concreteOffset, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, 1234)
+	defer pc.Stop()
 	c.Assert(err, IsNil)
 	c.Assert(concreteOffset, Equals, int64(1234))
 
 	// Then: messages starting from offset 1234 are consumed.
 	for i := 0; i < 10; i++ {
 		select {
-		case message := <-consumer.Messages():
+		case message := <-pc.Messages():
 			c.Assert(message.Offset, Equals, int64(i+1234))
-		case err := <-consumer.Errors():
+		case err := <-pc.Errors():
 			c.Error(err)
 		}
 	}
-
-	safeClose(c, consumer)
-	safeClose(c, master)
-	broker0.Close()
 }
 
 // If `sarama.OffsetNewest` is passed as the initial offset then the first consumed
@@ -72,6 +85,7 @@ func (s *PartitionConsumerSuite) TestOffsetManual(c *C) {
 func (s *PartitionConsumerSuite) TestOffsetNewest(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 0)
+	defer broker0.Close()
 	broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker0.Addr(), broker0.BrokerID()).
@@ -86,28 +100,29 @@ func (s *PartitionConsumerSuite) TestOffsetNewest(c *C) {
 			SetHighWaterMark("my_topic", 0, 14),
 	})
 
-	f, err := NewConsumer([]string{broker0.Addr()}, nil)
+	client, _ := sarama.NewClient([]string{broker0.Addr()}, nil)
+	defer client.Close()
+	f, err := SpawnFactory(s.ns, client)
 	c.Assert(err, IsNil)
+	defer f.Stop()
 
 	// When
-	pc, concreteOffset, err := f.ConsumePartition("my_topic", 0, sarama.OffsetNewest)
+	pc, concreteOffset, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetNewest)
 	c.Assert(err, IsNil)
+	defer pc.Stop()
 	c.Assert(concreteOffset, Equals, int64(10))
 
 	// Then
 	msg := <-pc.Messages()
 	c.Assert(msg.Offset, Equals, int64(10))
 	c.Assert(msg.HighWaterMark, Equals, int64(14))
-
-	safeClose(c, pc)
-	safeClose(c, f)
-	broker0.Close()
 }
 
 // It is possible to close a partition consumer and create the same anew.
 func (s *PartitionConsumerSuite) TestRecreate(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 0)
+	defer broker0.Close()
 	broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker0.Addr(), broker0.BrokerID()).
@@ -119,30 +134,31 @@ func (s *PartitionConsumerSuite) TestRecreate(c *C) {
 			SetMessage("my_topic", 0, 10, testMsg),
 	})
 
-	f, err := NewConsumer([]string{broker0.Addr()}, nil)
+	client, _ := sarama.NewClient([]string{broker0.Addr()}, nil)
+	defer client.Close()
+	f, err := SpawnFactory(s.ns, client)
 	c.Assert(err, IsNil)
+	defer f.Stop()
 
-	pc, _, err := f.ConsumePartition("my_topic", 0, 10)
+	pc, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, 10)
 	c.Assert(err, IsNil)
 	c.Assert((<-pc.Messages()).Offset, Equals, int64(10))
 
 	// When
-	safeClose(c, pc)
-	pc, _, err = f.ConsumePartition("my_topic", 0, 10)
+	pc.Stop()
+	pc, _, err = f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, 10)
 	c.Assert(err, IsNil)
+	defer pc.Stop()
 
 	// Then
 	c.Assert((<-pc.Messages()).Offset, Equals, int64(10))
-
-	safeClose(c, pc)
-	safeClose(c, f)
-	broker0.Close()
 }
 
 // An attempt to consume the same partition twice should fail.
 func (s *PartitionConsumerSuite) TestDuplicate(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 0)
+	defer broker0.Close()
 	broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker0.Addr(), broker0.BrokerID()).
@@ -155,23 +171,23 @@ func (s *PartitionConsumerSuite) TestDuplicate(c *C) {
 
 	config := sarama.NewConfig()
 	config.ChannelBufferSize = 0
-	f, err := NewConsumer([]string{broker0.Addr()}, config)
+	client, _ := sarama.NewClient([]string{broker0.Addr()}, config)
+	defer client.Close()
+	f, err := SpawnFactory(s.ns, client)
 	c.Assert(err, IsNil)
+	defer f.Stop()
 
-	pc1, _, err := f.ConsumePartition("my_topic", 0, 0)
+	pc1, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, 0)
 	c.Assert(err, IsNil)
+	defer pc1.Stop()
 
 	// When
-	pc2, _, err := f.ConsumePartition("my_topic", 0, 0)
+	pc2, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, 0)
 
 	// Then
 	if pc2 != nil || err != sarama.ConfigurationError("That topic/partition is already being consumed") {
 		c.Error("A partition cannot be consumed twice at the same time")
 	}
-
-	safeClose(c, pc1)
-	safeClose(c, f)
-	broker0.Close()
 }
 
 // If consumer fails to refresh metadata it keeps retrying with frequency
@@ -179,6 +195,7 @@ func (s *PartitionConsumerSuite) TestDuplicate(c *C) {
 func (s *PartitionConsumerSuite) TestLeaderRefreshError(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 100)
+	defer broker0.Close()
 
 	// Stage 1: my_topic/0 served by broker0
 	log.Infof("    STAGE 1")
@@ -199,11 +216,15 @@ func (s *PartitionConsumerSuite) TestLeaderRefreshError(c *C) {
 	config.Consumer.Retry.Backoff = 200 * time.Millisecond
 	config.Consumer.Return.Errors = true
 	config.Metadata.Retry.Max = 0
-	f, err := NewConsumer([]string{broker0.Addr()}, config)
+	client, _ := sarama.NewClient([]string{broker0.Addr()}, config)
+	defer client.Close()
+	f, err := SpawnFactory(s.ns, client)
 	c.Assert(err, IsNil)
+	defer f.Stop()
 
-	pc, _, err := f.ConsumePartition("my_topic", 0, sarama.OffsetOldest)
+	pc, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
 	c.Assert(err, IsNil)
+	defer pc.Stop()
 	c.Assert((<-pc.Messages()).Offset, Equals, int64(123))
 
 	// Stage 2: broker0 says that it is no longer the leader for my_topic/0,
@@ -227,6 +248,7 @@ func (s *PartitionConsumerSuite) TestLeaderRefreshError(c *C) {
 	log.Infof("    STAGE 3")
 
 	broker1 := sarama.NewMockBroker(c, 101)
+	defer broker1.Close()
 
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"FetchRequest": sarama.NewMockFetchResponse(c, 1).
@@ -240,34 +262,30 @@ func (s *PartitionConsumerSuite) TestLeaderRefreshError(c *C) {
 	})
 
 	c.Assert((<-pc.Messages()).Offset, Equals, int64(124))
-
-	safeClose(c, pc)
-	safeClose(c, f)
-	broker1.Close()
-	broker0.Close()
 }
 
 func (s *PartitionConsumerSuite) TestInvalidTopic(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 100)
+	defer broker0.Close()
 	broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker0.Addr(), broker0.BrokerID()),
 	})
 
-	f, err := NewConsumer([]string{broker0.Addr()}, nil)
+	client, _ := sarama.NewClient([]string{broker0.Addr()}, nil)
+	defer client.Close()
+	f, err := SpawnFactory(s.ns, client)
 	c.Assert(err, IsNil)
+	defer f.Stop()
 
 	// When
-	pc, _, err := f.ConsumePartition("my_topic", 0, sarama.OffsetOldest)
+	pc, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
 
 	// Then
 	if pc != nil || err != sarama.ErrUnknownTopicOrPartition {
 		c.Errorf("Should fail with, err=%v", err)
 	}
-
-	safeClose(c, f)
-	broker0.Close()
 }
 
 // Nothing bad happens if a partition consumer that has no leader assigned at
@@ -275,6 +293,7 @@ func (s *PartitionConsumerSuite) TestInvalidTopic(c *C) {
 func (s *PartitionConsumerSuite) TestClosePartitionWithoutLeader(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 100)
+	defer broker0.Close()
 	broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker0.Addr(), broker0.BrokerID()).
@@ -291,11 +310,15 @@ func (s *PartitionConsumerSuite) TestClosePartitionWithoutLeader(c *C) {
 	config.Consumer.Retry.Backoff = 100 * time.Millisecond
 	config.Consumer.Return.Errors = true
 	config.Metadata.Retry.Max = 0
-	f, err := NewConsumer([]string{broker0.Addr()}, config)
+	client, _ := sarama.NewClient([]string{broker0.Addr()}, config)
+	defer client.Close()
+	f, err := SpawnFactory(s.ns, client)
 	c.Assert(err, IsNil)
+	defer f.Stop()
 
-	pc, _, err := f.ConsumePartition("my_topic", 0, sarama.OffsetOldest)
+	pc, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
 	c.Assert(err, IsNil)
+	defer pc.Stop()
 	c.Assert((<-pc.Messages()).Offset, Equals, int64(123))
 
 	// broker0 says that it is no longer the leader for my_topic/0, but the
@@ -312,10 +335,7 @@ func (s *PartitionConsumerSuite) TestClosePartitionWithoutLeader(c *C) {
 		c.Errorf("Unexpected error: %v", consErr.Err)
 	}
 
-	// Then: the partition consumer can be closed without any problem.
-	safeClose(c, pc)
-	safeClose(c, f)
-	broker0.Close()
+	// Then: the partition consumer can be stopped without any problem.
 }
 
 // If the initial offset passed on partition consumer creation is out of the
@@ -324,6 +344,7 @@ func (s *PartitionConsumerSuite) TestClosePartitionWithoutLeader(c *C) {
 func (s *PartitionConsumerSuite) TestShutsDownOutOfRange(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 0)
+	defer broker0.Close()
 	fetchResponse := new(sarama.FetchResponse)
 	fetchResponse.AddError("my_topic", 0, sarama.ErrOffsetOutOfRange)
 	broker0.SetHandlerByMap(map[string]sarama.MockResponse{
@@ -336,20 +357,21 @@ func (s *PartitionConsumerSuite) TestShutsDownOutOfRange(c *C) {
 		"FetchRequest": sarama.NewMockWrapper(fetchResponse),
 	})
 
-	f, err := NewConsumer([]string{broker0.Addr()}, nil)
+	client, _ := sarama.NewClient([]string{broker0.Addr()}, nil)
+	defer client.Close()
+	f, err := SpawnFactory(s.ns, client)
 	c.Assert(err, IsNil)
+	defer f.Stop()
 
 	// When
-	pc, _, err := f.ConsumePartition("my_topic", 0, 101)
+	pc, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, 101)
 	c.Assert(err, IsNil)
+	defer pc.Stop()
 
 	// Then: consumer should shut down closing its messages and errors channels.
 	if _, ok := <-pc.Messages(); ok {
 		c.Error("Expected the consumer to shut down")
 	}
-	safeClose(c, pc)
-	safeClose(c, f)
-	broker0.Close()
 }
 
 // If a fetch response contains messages with offsets that are smaller then
@@ -357,6 +379,7 @@ func (s *PartitionConsumerSuite) TestShutsDownOutOfRange(c *C) {
 func (s *PartitionConsumerSuite) TestExtraOffsets(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 0)
+	defer broker0.Close()
 	fetchResponse1 := &sarama.FetchResponse{}
 	fetchResponse1.AddMessage("my_topic", 0, nil, testMsg, 1)
 	fetchResponse1.AddMessage("my_topic", 0, nil, testMsg, 2)
@@ -374,21 +397,21 @@ func (s *PartitionConsumerSuite) TestExtraOffsets(c *C) {
 		"FetchRequest": sarama.NewMockSequence(fetchResponse1, fetchResponse2),
 	})
 
-	f, err := NewConsumer([]string{broker0.Addr()}, nil)
+	client, _ := sarama.NewClient([]string{broker0.Addr()}, nil)
+	defer client.Close()
+	f, err := SpawnFactory(s.ns, client)
 	c.Assert(err, IsNil)
+	defer f.Stop()
 
 	// When
-	pc, _, err := f.ConsumePartition("my_topic", 0, 3)
+	pc, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, 3)
 	c.Assert(err, IsNil)
+	defer pc.Stop()
 
 	// Then: messages with offsets 1 and 2 are not returned even though they
 	// are present in the response.
 	c.Assert((<-pc.Messages()).Offset, Equals, int64(3))
 	c.Assert((<-pc.Messages()).Offset, Equals, int64(4))
-
-	safeClose(c, pc)
-	safeClose(c, f)
-	broker0.Close()
 }
 
 // It is fine if offsets of fetched messages are not sequential (although
@@ -396,6 +419,7 @@ func (s *PartitionConsumerSuite) TestExtraOffsets(c *C) {
 func (s *PartitionConsumerSuite) TestNonSequentialOffsets(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 0)
+	defer broker0.Close()
 	fetchResponse1 := &sarama.FetchResponse{}
 	fetchResponse1.AddMessage("my_topic", 0, nil, testMsg, 5)
 	fetchResponse1.AddMessage("my_topic", 0, nil, testMsg, 7)
@@ -412,22 +436,22 @@ func (s *PartitionConsumerSuite) TestNonSequentialOffsets(c *C) {
 		"FetchRequest": sarama.NewMockSequence(fetchResponse1, fetchResponse2),
 	})
 
-	master, err := NewConsumer([]string{broker0.Addr()}, nil)
+	client, _ := sarama.NewClient([]string{broker0.Addr()}, nil)
+	defer client.Close()
+	f, err := SpawnFactory(s.ns, client)
 	c.Assert(err, IsNil)
+	defer f.Stop()
 
 	// When
-	pc, _, err := master.ConsumePartition("my_topic", 0, 3)
+	pc, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, 3)
 	c.Assert(err, IsNil)
+	defer pc.Stop()
 
 	// Then: messages with offsets 1 and 2 are not returned even though they
 	// are present in the response.
 	c.Assert((<-pc.Messages()).Offset, Equals, int64(5))
 	c.Assert((<-pc.Messages()).Offset, Equals, int64(7))
 	c.Assert((<-pc.Messages()).Offset, Equals, int64(11))
-
-	safeClose(c, pc)
-	safeClose(c, master)
-	broker0.Close()
 }
 
 // If leadership for a partition is changing then consumer resolves the new
@@ -435,8 +459,11 @@ func (s *PartitionConsumerSuite) TestNonSequentialOffsets(c *C) {
 func (s *PartitionConsumerSuite) TestRebalancingMultiplePartitions(c *C) {
 	// initial setup
 	seedBroker := sarama.NewMockBroker(c, 10)
+	defer seedBroker.Close()
 	leader0 := sarama.NewMockBroker(c, 0)
+	defer leader0.Close()
 	leader1 := sarama.NewMockBroker(c, 1)
+	defer leader1.Close()
 
 	seedBroker.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
@@ -463,30 +490,33 @@ func (s *PartitionConsumerSuite) TestRebalancingMultiplePartitions(c *C) {
 	// launch test goroutines
 	config := sarama.NewConfig()
 	config.Consumer.Retry.Backoff = 50 * time.Millisecond
-	f, err := NewConsumer([]string{seedBroker.Addr()}, config)
+	client, _ := sarama.NewClient([]string{seedBroker.Addr()}, config)
+	defer client.Close()
+	f, err := SpawnFactory(s.ns, client)
 	c.Assert(err, IsNil)
+	defer f.Stop()
 
 	// we expect to end up (eventually) consuming exactly ten messages on each partition
 	var wg sync.WaitGroup
 	for i := int32(0); i < 2; i++ {
-		pc, _, err := f.ConsumePartition("my_topic", i, 0)
+		pc, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", i), "my_topic", i, 0)
 		c.Assert(err, IsNil)
 
-		go func(pc PartitionConsumer) {
+		go func(pc T) {
 			for err := range pc.Errors() {
 				c.Error(err)
 			}
 		}(pc)
 
 		wg.Add(1)
-		go func(partition int32, pc PartitionConsumer) {
+		go func(partition int32, pc T) {
+			defer wg.Done()
+			defer pc.Stop()
 			for i := 0; i < 10; i++ {
 				message := <-pc.Messages()
 				c.Assert(message.Offset, Equals, int64(i), Commentf("Incorrect message offset!", i, partition, message.Offset))
 				c.Assert(message.Partition, Equals, partition, Commentf("Incorrect message partition!"))
 			}
-			safeClose(c, pc)
-			wg.Done()
 		}(i, pc)
 	}
 
@@ -572,10 +602,6 @@ func (s *PartitionConsumerSuite) TestRebalancingMultiplePartitions(c *C) {
 	})
 
 	wg.Wait()
-	safeClose(c, f)
-	leader1.Close()
-	leader0.Close()
-	seedBroker.Close()
 }
 
 // When two partitions have the same broker as the leader, if one partition
@@ -584,6 +610,7 @@ func (s *PartitionConsumerSuite) TestRebalancingMultiplePartitions(c *C) {
 func (s *PartitionConsumerSuite) TestInterleavedClose(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 0)
+	defer broker0.Close()
 	broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker0.Addr(), broker0.BrokerID()).
@@ -603,30 +630,31 @@ func (s *PartitionConsumerSuite) TestInterleavedClose(c *C) {
 
 	config := sarama.NewConfig()
 	config.ChannelBufferSize = 0
-	f, err := NewConsumer([]string{broker0.Addr()}, config)
+	client, _ := sarama.NewClient([]string{broker0.Addr()}, config)
+	defer client.Close()
+	f, err := SpawnFactory(s.ns, client)
 	c.Assert(err, IsNil)
+	defer f.Stop()
 
-	pc0, _, err := f.ConsumePartition("my_topic", 0, 1000)
+	pc0, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, 1000)
 	c.Assert(err, IsNil)
+	defer pc0.Stop()
 
-	pc1, _, err := f.ConsumePartition("my_topic", 1, 2000)
+	pc1, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 1), "my_topic", 1, 2000)
 	c.Assert(err, IsNil)
+	defer pc1.Stop()
 
 	// When/Then: we can read from partition 0 even if nobody reads from partition 1
 	c.Assert((<-pc0.Messages()).Offset, Equals, int64(1000))
 	c.Assert((<-pc0.Messages()).Offset, Equals, int64(1001))
 	c.Assert((<-pc0.Messages()).Offset, Equals, int64(1002))
-
-	safeClose(c, pc1)
-	safeClose(c, pc0)
-	safeClose(c, f)
-	broker0.Close()
 }
 
 func (s *PartitionConsumerSuite) TestBounceWithReferenceOpen(c *C) {
 	broker0 := sarama.NewMockBroker(c, 0)
 	broker0Addr := broker0.Addr()
 	broker1 := sarama.NewMockBroker(c, 1)
+	defer broker1.Close()
 
 	mockMetadataResponse := sarama.NewMockMetadataResponse(c).
 		SetBroker(broker0.Addr(), broker0.BrokerID()).
@@ -660,14 +688,19 @@ func (s *PartitionConsumerSuite) TestBounceWithReferenceOpen(c *C) {
 	config.Consumer.Return.Errors = true
 	config.Consumer.Retry.Backoff = 100 * time.Millisecond
 	config.ChannelBufferSize = 1
-	f, err := NewConsumer([]string{broker1.Addr()}, config)
+	client, _ := sarama.NewClient([]string{broker1.Addr()}, config)
+	defer client.Close()
+	f, err := SpawnFactory(s.ns, client)
 	c.Assert(err, IsNil)
+	defer f.Stop()
 
-	pc0, _, err := f.ConsumePartition("my_topic", 0, 1000)
+	pc0, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, 1000)
 	c.Assert(err, IsNil)
+	defer pc0.Stop()
 
-	pc1, _, err := f.ConsumePartition("my_topic", 1, 2000)
+	pc1, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 1), "my_topic", 1, 2000)
 	c.Assert(err, IsNil)
+	defer pc1.Stop()
 
 	// read messages from both partition to make sure that both brokers operate
 	// normally.
@@ -687,6 +720,7 @@ func (s *PartitionConsumerSuite) TestBounceWithReferenceOpen(c *C) {
 
 	// Bring broker0 back to service.
 	broker0 = sarama.NewMockBrokerAddr(c, 0, broker0Addr)
+	defer broker0.Close()
 	broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"FetchRequest": mockFetchResponse,
 	})
@@ -704,17 +738,12 @@ func (s *PartitionConsumerSuite) TestBounceWithReferenceOpen(c *C) {
 	default:
 		c.Errorf("Partition consumer should have detected broker restart")
 	}
-
-	safeClose(c, pc1)
-	safeClose(c, pc0)
-	safeClose(c, f)
-	broker0.Close()
-	broker1.Close()
 }
 
 func (s *PartitionConsumerSuite) TestOffsetOutOfRange(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 2)
+	defer broker0.Close()
 	broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker0.Addr(), broker0.BrokerID()).
@@ -724,56 +753,20 @@ func (s *PartitionConsumerSuite) TestOffsetOutOfRange(c *C) {
 			SetOffset("my_topic", 0, sarama.OffsetOldest, 1000),
 	})
 
-	f, err := NewConsumer([]string{broker0.Addr()}, nil)
+	client, _ := sarama.NewClient([]string{broker0.Addr()}, nil)
+	defer client.Close()
+	f, err := SpawnFactory(s.ns, client)
 	c.Assert(err, IsNil)
+	defer f.Stop()
 
 	// When/Then
-	pc, offset, err := f.ConsumePartition("my_topic", 0, 0)
+	pc, offset, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, 0)
 	c.Assert(err, IsNil)
 	c.Assert(offset, Equals, int64(1000))
-	safeClose(c, pc)
+	pc.Stop()
 
-	pc, offset, err = f.ConsumePartition("my_topic", 0, 3456)
+	pc, offset, err = f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, 3456)
 	c.Assert(err, IsNil)
 	c.Assert(offset, Equals, int64(2000))
-	safeClose(c, pc)
-
-	safeClose(c, f)
-	broker0.Close()
-}
-
-// When a master consumer is closed all kittens gets killed.
-func (s *PartitionConsumerSuite) TestClose(c *C) {
-	// Given
-	broker0 := sarama.NewMockBroker(c, 0)
-	defer broker0.Close()
-
-	broker0.SetHandlerByMap(map[string]sarama.MockResponse{
-		"MetadataRequest": sarama.NewMockMetadataResponse(c).
-			SetBroker(broker0.Addr(), broker0.BrokerID()).
-			SetLeader("my_topic", 0, broker0.BrokerID()),
-		"OffsetRequest": sarama.NewMockOffsetResponse(c).
-			SetOffset("my_topic", 0, sarama.OffsetNewest, 100).
-			SetOffset("my_topic", 0, sarama.OffsetOldest, 1),
-	})
-
-	config := sarama.NewConfig()
-	config.Net.ReadTimeout = 500 * time.Millisecond
-	f, err := NewConsumer([]string{broker0.Addr()}, config)
-	c.Assert(err, IsNil)
-
-	// The mock broker is configured not to reply to FetchRequest's. That will
-	// make some internal goroutine block for `Config.Net.ReadTimeout`.
-	_, _, _ = f.ConsumePartition("my_topic", 0, sarama.OffsetNewest)
-
-	// When/Then: close the consumer while an internal broker consumer is
-	// waiting for a response.
-	safeClose(c, f)
-}
-
-func safeClose(t sarama.TestReporter, c io.Closer) {
-	err := c.Close()
-	if err != nil {
-		t.Error(err)
-	}
+	pc.Stop()
 }

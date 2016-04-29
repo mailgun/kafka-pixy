@@ -19,8 +19,8 @@ import (
 // generates notifications of such changes.
 type T struct {
 	actorID          *actor.ID
+	cfg              *config.T
 	group            string
-	config           *config.T
 	groupZNode       *kazoo.Consumergroup
 	groupMemberZNode *kazoo.ConsumergroupInstance
 	topics           []string
@@ -33,13 +33,13 @@ type T struct {
 
 // Spawn creates a consumer group member instance and starts its background
 // goroutines.
-func Spawn(group, memberID string, config *config.T, kazooConn *kazoo.Kazoo) *T {
+func Spawn(namespace *actor.ID, group, memberID string, cfg *config.T, kazooConn *kazoo.Kazoo) *T {
 	groupZNode := kazooConn.Consumergroup(group)
 	groupMemberZNode := groupZNode.Instance(memberID)
 	gm := &T{
-		actorID:          actor.RootID.NewChild(fmt.Sprintf("groupMember:%s", group)),
+		actorID:          namespace.NewChild("member"),
+		cfg:              cfg,
 		group:            group,
-		config:           config,
 		groupZNode:       groupZNode,
 		groupMemberZNode: groupMemberZNode,
 		topicsCh:         make(chan []string),
@@ -72,7 +72,7 @@ func (gm *T) ClaimPartition(actorID *actor.ID, topic string, partition int32, ca
 	for err != nil {
 		log.Errorf("<%s> failed to claim partition: err=(%s)", gm.actorID, err)
 		select {
-		case <-time.After(gm.config.Consumer.BackOffTimeout):
+		case <-time.After(gm.cfg.Consumer.BackOffTimeout):
 		case <-cancelCh:
 			return func() {}
 		}
@@ -83,7 +83,7 @@ func (gm *T) ClaimPartition(actorID *actor.ID, topic string, partition int32, ca
 		err := gm.groupMemberZNode.ReleasePartition(topic, partition)
 		for err != nil && err != kazoo.ErrPartitionNotClaimed {
 			log.Errorf("<%s> failed to release partition: err=(%s)", gm.actorID, err)
-			<-time.After(gm.config.Consumer.BackOffTimeout)
+			<-time.After(gm.cfg.Consumer.BackOffTimeout)
 			err = gm.groupMemberZNode.ReleasePartition(topic, partition)
 		}
 		log.Infof("<%s> partition released", actorID)
@@ -105,7 +105,7 @@ func (gm *T) run() {
 	for err != nil {
 		log.Errorf("<%s> failed to create a group znode: err=(%s)", gm.actorID, err)
 		select {
-		case <-time.After(gm.config.Consumer.BackOffTimeout):
+		case <-time.After(gm.cfg.Consumer.BackOffTimeout):
 		case <-gm.stopCh:
 			return
 		}
@@ -113,11 +113,11 @@ func (gm *T) run() {
 	}
 
 	defer func() {
-		err := gm.submitTopics(nil)
-		for err != nil {
-			log.Errorf("<%s> failed to create a group znode: err=(%s)", gm.actorID, err)
-			<-time.After(gm.config.Consumer.BackOffTimeout)
-			err = gm.submitTopics(nil)
+		err := gm.groupMemberZNode.Deregister()
+		if err != nil && err != kazoo.ErrInstanceNotRegistered {
+			log.Errorf("<%s> failed to deregister: err=(%s)", gm.actorID, err)
+			<-time.After(gm.cfg.Consumer.BackOffTimeout)
+			err = gm.groupMemberZNode.Deregister()
 		}
 	}()
 
@@ -142,7 +142,7 @@ func (gm *T) run() {
 			gm.subscriptions = pendingSubscriptions
 		case <-nilOrGroupUpdatedCh:
 			nilOrGroupUpdatedCh = nil
-			shouldFetchMembers = (gm.topics != nil)
+			shouldFetchMembers = true
 		case <-nilOrTimeoutCh:
 		case <-gm.stopCh:
 			return
@@ -151,19 +151,19 @@ func (gm *T) run() {
 		if shouldSubmitTopics {
 			if err = gm.submitTopics(pendingTopics); err != nil {
 				log.Errorf("<%s> failed to submit topics: err=(%s)", gm.actorID, err)
-				nilOrTimeoutCh = time.After(gm.config.Consumer.BackOffTimeout)
+				nilOrTimeoutCh = time.After(gm.cfg.Consumer.BackOffTimeout)
 				continue
 			}
 			log.Infof("<%s> submitted: topics=%v", gm.actorID, pendingTopics)
 			shouldSubmitTopics = false
-			shouldFetchMembers = (gm.topics != nil)
+			shouldFetchMembers = true
 		}
 
 		if shouldFetchMembers {
 			members, nilOrGroupUpdatedCh, err = gm.groupZNode.WatchInstances()
 			if err != nil {
 				log.Errorf("<%s> failed to watch members: err=(%s)", gm.actorID, err)
-				nilOrTimeoutCh = time.After(gm.config.Consumer.BackOffTimeout)
+				nilOrTimeoutCh = time.After(gm.cfg.Consumer.BackOffTimeout)
 				continue
 			}
 			shouldFetchMembers = false
@@ -171,7 +171,7 @@ func (gm *T) run() {
 			// To avoid unnecessary rebalancing in case of a deregister/register
 			// sequences that happen when a member updates its topic subscriptions,
 			// we delay subscription fetching.
-			nilOrTimeoutCh = time.After(gm.config.Consumer.RebalanceDelay)
+			nilOrTimeoutCh = time.After(gm.cfg.Consumer.RebalanceDelay)
 			continue
 		}
 
@@ -179,13 +179,15 @@ func (gm *T) run() {
 			pendingSubscriptions, err = gm.fetchSubscriptions(members)
 			if err != nil {
 				log.Errorf("<%s> failed to fetch subscriptions: err=(%s)", gm.actorID, err)
-				nilOrTimeoutCh = time.After(gm.config.Consumer.BackOffTimeout)
+				nilOrTimeoutCh = time.After(gm.cfg.Consumer.BackOffTimeout)
 				continue
 			}
-			log.Infof("<%s> fetched subscriptions: %v", gm.actorID, pendingSubscriptions)
 			shouldFetchSubscriptions = false
+			log.Infof("<%s> fetched subscriptions: %v", gm.actorID, pendingSubscriptions)
 			if subscriptionsEqual(pendingSubscriptions, gm.subscriptions) {
-				log.Infof("<%s> redundent group update ignored: %v", gm.actorID, pendingSubscriptions)
+				nilOrSubscriptionsCh = nil
+				pendingSubscriptions = nil
+				log.Infof("<%s> redundent group update ignored: %v", gm.actorID, gm.subscriptions)
 				continue
 			}
 			nilOrSubscriptionsCh = gm.subscriptionsCh
@@ -225,11 +227,9 @@ func (gm *T) submitTopics(topics []string) error {
 		}
 	}
 	gm.topics = nil
-	if topics != nil {
-		err := gm.groupMemberZNode.Register(topics)
-		for err != nil {
-			return fmt.Errorf("failed to register: err=(%s)", err)
-		}
+	err := gm.groupMemberZNode.Register(topics)
+	for err != nil {
+		return fmt.Errorf("failed to register: err=(%s)", err)
 	}
 	gm.topics = topics
 	return nil

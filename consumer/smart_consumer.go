@@ -9,17 +9,13 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer/consumermsg"
+	"github.com/mailgun/kafka-pixy/consumer/dispatcher"
 	"github.com/mailgun/kafka-pixy/consumer/groupmember"
 	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
+	"github.com/mailgun/kafka-pixy/consumer/partitioncsm"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
 	"github.com/wvanbergen/kazoo-go"
-)
-
-type (
-	ErrSetup          error
-	ErrBufferOverflow error
-	ErrRequestTimeout error
 )
 
 var (
@@ -38,17 +34,18 @@ var (
 // unsubscribes from the topic, likewise if a consumer group has not seen any
 // requests for that period then the consumer deregisters from the group.
 type T struct {
-	actorNamespace   *actor.ID
+	namespace        *actor.ID
 	cfg              *config.T
-	dispatcher       *dispatcher
+	dispatcher       *dispatcher.T
 	kafkaClient      sarama.Client
 	offsetMgrFactory offsetmgr.Factory
-	kazooConn        *kazoo.Kazoo
+
+	kazooConn *kazoo.Kazoo
 }
 
 // Spawn creates a consumer instance with the specified configuration and
 // starts all its goroutines.
-func Spawn(cfg *config.T) (*T, error) {
+func Spawn(namespace *actor.ID, cfg *config.T) (*T, error) {
 	saramaCfg := sarama.NewConfig()
 	saramaCfg.ClientID = cfg.ClientID
 	saramaCfg.ChannelBufferSize = cfg.Consumer.ChannelBufferSize
@@ -56,11 +53,13 @@ func Spawn(cfg *config.T) (*T, error) {
 	saramaCfg.Consumer.Retry.Backoff = cfg.Consumer.BackOffTimeout
 	saramaCfg.Consumer.Fetch.Default = 1024 * 1024
 
+	namespace = namespace.NewChild("consumer")
+
 	kafkaClient, err := sarama.NewClient(cfg.Kafka.SeedPeers, saramaCfg)
 	if err != nil {
-		return nil, ErrSetup(fmt.Errorf("failed to create sarama.Client: err=(%v)", err))
+		return nil, consumermsg.ErrSetup(fmt.Errorf("failed to create sarama.Client: err=(%v)", err))
 	}
-	offsetMgrFactory := offsetmgr.NewFactory(kafkaClient)
+	offsetMgrFactory := offsetmgr.SpawnFactory(namespace, kafkaClient)
 
 	kazooCfg := kazoo.NewConfig()
 	kazooCfg.Chroot = cfg.ZooKeeper.Chroot
@@ -73,18 +72,18 @@ func Spawn(cfg *config.T) (*T, error) {
 
 	kazooConn, err := kazoo.NewKazoo(cfg.ZooKeeper.SeedPeers, kazooCfg)
 	if err != nil {
-		return nil, ErrSetup(fmt.Errorf("failed to create kazoo.Kazoo: err=(%v)", err))
+		return nil, consumermsg.ErrSetup(fmt.Errorf("failed to create kazoo.Kazoo: err=(%v)", err))
 	}
 
 	sc := &T{
-		actorNamespace:   actor.RootID.NewChild("consumer"),
+		namespace:        namespace,
 		cfg:              cfg,
 		kafkaClient:      kafkaClient,
 		offsetMgrFactory: offsetMgrFactory,
 		kazooConn:        kazooConn,
 	}
-	sc.dispatcher = newDispatcher(sc.actorNamespace, sc, sc.cfg)
-	sc.dispatcher.start()
+	sc.dispatcher = dispatcher.New(sc.namespace, sc, sc.cfg)
+	sc.dispatcher.Start()
 	return sc, nil
 }
 
@@ -92,7 +91,7 @@ func Spawn(cfg *config.T) (*T, error) {
 // all of them are stopped. It is guaranteed that all last consumed offsets of
 // all consumer groups/topics are committed to Kafka before SmartConsumer stops.
 func (sc *T) Stop() {
-	sc.dispatcher.stop()
+	sc.dispatcher.Stop()
 }
 
 // Consume consumes a message from the specified topic on behalf of the
@@ -107,33 +106,23 @@ func (sc *T) Stop() {
 // are messages available for consumption. In that case the user should back
 // off a bit and then repeat the request.
 func (sc *T) Consume(group, topic string) (*consumermsg.ConsumerMessage, error) {
-	replyCh := make(chan consumeResult, 1)
-	sc.dispatcher.requests() <- consumeRequest{time.Now().UTC(), group, topic, replyCh}
+	replyCh := make(chan dispatcher.Response, 1)
+	sc.dispatcher.Requests() <- dispatcher.Request{time.Now().UTC(), group, topic, replyCh}
 	result := <-replyCh
 	return result.Msg, result.Err
 }
 
-type consumeRequest struct {
-	timestamp time.Time
-	group     string
-	topic     string
-	replyCh   chan<- consumeResult
-}
-
-type consumeResult struct {
-	Msg *consumermsg.ConsumerMessage
-	Err error
-}
-
 func (sc *T) String() string {
-	return sc.actorNamespace.String()
+	return sc.namespace.String()
 }
 
-func (sc *T) dispatchKey(req consumeRequest) string {
-	return req.group
+// implements `dispatcher.Factory`.
+func (sc *T) KeyOf(req dispatcher.Request) string {
+	return req.Group
 }
 
-func (sc *T) newDispatchTier(key string) dispatchTier {
+// implements `dispatcher.Factory`.
+func (sc *T) NewTier(key string) dispatcher.Tier {
 	return sc.newConsumerGroup(key)
 }
 
@@ -150,20 +139,20 @@ type topicConsumer struct {
 	group         string
 	topic         string
 	assignmentsCh chan []int32
-	requestsCh    chan consumeRequest
+	requestsCh    chan dispatcher.Request
 	messagesCh    chan *consumermsg.ConsumerMessage
 	wg            sync.WaitGroup
 }
 
 func (gc *groupConsumer) newTopicConsumer(topic string) *topicConsumer {
 	return &topicConsumer{
-		actorID:       gc.supervisorActorID.NewChild(topic),
+		actorID:       gc.supervisorActorID.NewChild(fmt.Sprintf("T:%s", topic)),
 		cfg:           gc.cfg,
 		gc:            gc,
 		group:         gc.group,
 		topic:         topic,
 		assignmentsCh: make(chan []int32),
-		requestsCh:    make(chan consumeRequest, gc.cfg.Consumer.ChannelBufferSize),
+		requestsCh:    make(chan dispatcher.Request, gc.cfg.Consumer.ChannelBufferSize),
 		messagesCh:    make(chan *consumermsg.ConsumerMessage),
 	}
 }
@@ -173,22 +162,26 @@ func (tc *topicConsumer) Messages() chan<- *consumermsg.ConsumerMessage {
 	return tc.messagesCh
 }
 
-func (tc *topicConsumer) key() string {
+// implements `dispatcher.Tier`.
+func (tc *topicConsumer) Key() string {
 	return tc.topic
 }
 
-func (tc *topicConsumer) requests() chan<- consumeRequest {
+// implements `dispatcher.Tier`.
+func (tc *topicConsumer) Requests() chan<- dispatcher.Request {
 	return tc.requestsCh
 }
 
-func (tc *topicConsumer) start(stoppedCh chan<- dispatchTier) {
+// implements `dispatcher.Tier`.
+func (tc *topicConsumer) Start(stoppedCh chan<- dispatcher.Tier) {
 	actor.Spawn(tc.actorID, &tc.wg, func() {
 		defer func() { stoppedCh <- tc }()
 		tc.run()
 	})
 }
 
-func (tc *topicConsumer) stop() {
+// implements `dispatcher.Tier`.
+func (tc *topicConsumer) Stop() {
 	close(tc.requestsCh)
 	tc.wg.Wait()
 }
@@ -199,25 +192,25 @@ func (tc *topicConsumer) run() {
 		tc.gc.topicConsumerLifespan() <- tc
 	}()
 
-	timeoutErr := ErrRequestTimeout(fmt.Errorf("long polling timeout"))
-	timeoutResult := consumeResult{Err: timeoutErr}
+	timeoutErr := consumermsg.ErrRequestTimeout(fmt.Errorf("long polling timeout"))
+	timeoutResult := dispatcher.Response{Err: timeoutErr}
 	for consumeReq := range tc.requestsCh {
-		requestAge := time.Now().UTC().Sub(consumeReq.timestamp)
+		requestAge := time.Now().UTC().Sub(consumeReq.Timestamp)
 		ttl := tc.cfg.Consumer.LongPollingTimeout - requestAge
 		// The request has been waiting in the buffer for too long. If we
 		// reply with a fetched message, then there is a good chance that the
 		// client won't receive it due to the client HTTP timeout. Therefore
 		// we reject the request to avoid message loss.
 		if ttl <= 0 {
-			consumeReq.replyCh <- timeoutResult
+			consumeReq.ResponseCh <- timeoutResult
 			continue
 		}
 
 		select {
 		case msg := <-tc.messagesCh:
-			consumeReq.replyCh <- consumeResult{Msg: msg}
+			consumeReq.ResponseCh <- dispatcher.Response{Msg: msg}
 		case <-time.After(ttl):
-			consumeReq.replyCh <- timeoutResult
+			consumeReq.ResponseCh <- timeoutResult
 		}
 	}
 }
@@ -232,33 +225,33 @@ func (tc *topicConsumer) String() string {
 // message is pulled from the `messages()` channel, it is considered to be
 // consumed and its offset is committed.
 type exclusiveConsumer struct {
-	actorID          *actor.ID
-	cfg              *config.T
-	group            string
-	topic            string
-	partition        int32
-	dumbConsumer     Consumer
-	groupMember      *groupmember.T
-	offsetMgrFactory offsetmgr.Factory
-	messagesCh       chan *consumermsg.ConsumerMessage
-	acksCh           chan *consumermsg.ConsumerMessage
-	stoppingCh       chan none.T
-	wg               sync.WaitGroup
+	actorID             *actor.ID
+	cfg                 *config.T
+	group               string
+	topic               string
+	partition           int32
+	groupMember         *groupmember.T
+	partitionCsmFactory partitioncsm.Factory
+	offsetMgrFactory    offsetmgr.Factory
+	messagesCh          chan *consumermsg.ConsumerMessage
+	acksCh              chan *consumermsg.ConsumerMessage
+	stoppingCh          chan none.T
+	wg                  sync.WaitGroup
 }
 
-func (gc *groupConsumer) spawnExclusiveConsumer(topic string, partition int32) *exclusiveConsumer {
+func (gc *groupConsumer) spawnExclusiveConsumer(namespace *actor.ID, topic string, partition int32) *exclusiveConsumer {
 	ec := &exclusiveConsumer{
-		actorID:          gc.supervisorActorID.NewChild(fmt.Sprintf("%s:%d", topic, partition)),
-		cfg:              gc.cfg,
-		group:            gc.group,
-		topic:            topic,
-		partition:        partition,
-		dumbConsumer:     gc.dumbConsumer,
-		groupMember:      gc.groupMember,
-		offsetMgrFactory: gc.offsetMgrFactory,
-		messagesCh:       make(chan *consumermsg.ConsumerMessage),
-		acksCh:           make(chan *consumermsg.ConsumerMessage),
-		stoppingCh:       make(chan none.T),
+		actorID:             namespace.NewChild(fmt.Sprintf("P:%s_%d", topic, partition)),
+		cfg:                 gc.cfg,
+		group:               gc.group,
+		topic:               topic,
+		partition:           partition,
+		partitionCsmFactory: gc.partitionCsmFactory,
+		groupMember:         gc.groupMember,
+		offsetMgrFactory:    gc.offsetMgrFactory,
+		messagesCh:          make(chan *consumermsg.ConsumerMessage),
+		acksCh:              make(chan *consumermsg.ConsumerMessage),
+		stoppingCh:          make(chan none.T),
 	}
 	actor.Spawn(ec.actorID, &ec.wg, ec.run)
 	return ec
@@ -277,7 +270,7 @@ func (ec *exclusiveConsumer) Acks() chan<- *consumermsg.ConsumerMessage {
 func (ec *exclusiveConsumer) run() {
 	defer ec.groupMember.ClaimPartition(ec.actorID, ec.topic, ec.partition, ec.stoppingCh)()
 
-	om, err := ec.offsetMgrFactory.NewOffsetManager(ec.group, ec.topic, ec.partition)
+	om, err := ec.offsetMgrFactory.SpawnOffsetManager(ec.actorID, ec.group, ec.topic, ec.partition)
 	if err != nil {
 		// Must never happen.
 		log.Errorf("<%s> failed to spawn offset manager: err=(%s)", ec.actorID, err)
@@ -293,13 +286,13 @@ func (ec *exclusiveConsumer) run() {
 		return
 	}
 
-	pc, concreteOffset, err := ec.dumbConsumer.ConsumePartition(ec.topic, ec.partition, initialOffset.Offset)
+	pc, concreteOffset, err := ec.partitionCsmFactory.SpawnPartitionConsumer(ec.actorID, ec.topic, ec.partition, initialOffset.Offset)
 	if err != nil {
 		// Must never happen.
 		log.Errorf("<%s> failed to start partition consumer: offset=%d, err=(%s)", ec.actorID, initialOffset.Offset, err)
 		return
 	}
-	defer pc.Close()
+	defer pc.Stop()
 	if initialOffset.Offset != concreteOffset {
 		log.Errorf("<%s> invalid initial offset: stored=%d, adjusted=%d",
 			ec.actorID, initialOffset.Offset, concreteOffset)

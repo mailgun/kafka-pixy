@@ -69,9 +69,9 @@ type Executor interface {
 }
 
 // Spawn creates a mapper instance and starts its internal goroutines.
-func Spawn(parentActorID *actor.ID, resolver Resolver) *T {
+func Spawn(namespace *actor.ID, resolver Resolver) *T {
 	m := &T{
-		actorID:          parentActorID.NewChild("mapper"),
+		actorID:          namespace.NewChild("mapper"),
 		resolver:         resolver,
 		workerSpawnedCh:  make(chan Worker),
 		workerStoppedCh:  make(chan Worker),

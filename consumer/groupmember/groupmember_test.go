@@ -18,18 +18,23 @@ func Test(t *testing.T) {
 }
 
 type GroupRegistratorSuite struct {
-	cid       *actor.ID
-	kazooConn *kazoo.Kazoo
+	ns             *actor.ID
+	claimerActorID *actor.ID
+	kazooConn      *kazoo.Kazoo
 }
 
 var _ = Suite(&GroupRegistratorSuite{})
 
 func (s *GroupRegistratorSuite) SetUpSuite(c *C) {
 	testhelpers.InitLogging(c)
-	s.cid = actor.RootID.NewChild("gm-test")
 	var err error
 	s.kazooConn, err = kazoo.NewKazoo(testhelpers.ZookeeperPeers, kazoo.NewConfig())
 	c.Assert(err, IsNil)
+}
+
+func (s *GroupRegistratorSuite) SetUpTest(c *C) {
+	s.ns = actor.RootID.NewChild("T")
+	s.claimerActorID = s.ns.NewChild("claimer")
 }
 
 func (s *GroupRegistratorSuite) TestNormalizeTopics(c *C) {
@@ -74,7 +79,7 @@ func (s *GroupRegistratorSuite) TestSimpleSubscribe(c *C) {
 	// Given
 	cfg := config.Default()
 	cfg.Consumer.RebalanceDelay = 200 * time.Millisecond
-	gm := Spawn("gm_test", "m1", cfg, s.kazooConn)
+	gm := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm.Stop()
 
 	// When
@@ -92,7 +97,7 @@ func (s *GroupRegistratorSuite) TestSubscribeSequence(c *C) {
 	// Given
 	cfg := config.Default()
 	cfg.Consumer.RebalanceDelay = 200 * time.Millisecond
-	gm := Spawn("gm_test", "m1", cfg, s.kazooConn)
+	gm := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm.Stop()
 	gm.Topics() <- []string{"foo", "bar"}
 
@@ -111,11 +116,11 @@ func (s *GroupRegistratorSuite) TestReSubscribe(c *C) {
 	cfg := config.Default()
 	cfg.Consumer.RebalanceDelay = 100 * time.Millisecond
 
-	gm1 := Spawn("gm_test", "m1", cfg, s.kazooConn)
+	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm1.Stop()
 	gm1.Topics() <- []string{"foo", "bar"}
 
-	gm2 := Spawn("gm_test", "m2", cfg, s.kazooConn)
+	gm2 := Spawn(s.ns.NewChild("m2"), "g1", "m2", cfg, s.kazooConn)
 	defer gm2.Stop()
 	gm2.Topics() <- []string{"bazz", "bar"}
 
@@ -144,9 +149,9 @@ func (s *GroupRegistratorSuite) TestSubscribeToNothing(c *C) {
 	// Given
 	cfg := config.Default()
 	cfg.Consumer.RebalanceDelay = 100 * time.Millisecond
-	gm1 := Spawn("gm_test", "m1", cfg, s.kazooConn)
+	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm1.Stop()
-	gm2 := Spawn("gm_test", "m2", cfg, s.kazooConn)
+	gm2 := Spawn(s.ns.NewChild("m2"), "g1", "m2", cfg, s.kazooConn)
 	defer gm2.Stop()
 	gm1.Topics() <- []string{"foo", "bar"}
 	gm2.Topics() <- []string{"foo"}
@@ -159,13 +164,10 @@ func (s *GroupRegistratorSuite) TestSubscribeToNothing(c *C) {
 	gm1.Topics() <- []string{}
 
 	// Then
+	c.Assert(<-gm1.Subscriptions(), DeepEquals,
+		map[string][]string{"m1": nil, "m2": {"foo"}})
 	c.Assert(<-gm2.Subscriptions(), DeepEquals,
-		map[string][]string{"m2": {"foo"}})
-	select {
-	case update := <-gm1.Subscriptions():
-		c.Errorf("Unexpected update: %v", update)
-	case <-time.After(300 * time.Millisecond):
-	}
+		map[string][]string{"m1": nil, "m2": {"foo"}})
 }
 
 // To unsubscribe from all topics nil value can be sent.
@@ -173,9 +175,9 @@ func (s *GroupRegistratorSuite) TestSubscribeToNil(c *C) {
 	// Given
 	cfg := config.Default()
 	cfg.Consumer.RebalanceDelay = 100 * time.Millisecond
-	gm1 := Spawn("gm_test", "m1", cfg, s.kazooConn)
+	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm1.Stop()
-	gm2 := Spawn("gm_test", "m2", cfg, s.kazooConn)
+	gm2 := Spawn(s.ns.NewChild("m2"), "g1", "m2", cfg, s.kazooConn)
 	defer gm2.Stop()
 	gm1.Topics() <- []string{"foo", "bar"}
 	gm2.Topics() <- []string{"foo"}
@@ -188,13 +190,10 @@ func (s *GroupRegistratorSuite) TestSubscribeToNil(c *C) {
 	gm1.Topics() <- nil
 
 	// Then
+	c.Assert(<-gm1.Subscriptions(), DeepEquals,
+		map[string][]string{"m1": nil, "m2": {"foo"}})
 	c.Assert(<-gm2.Subscriptions(), DeepEquals,
-		map[string][]string{"m2": {"foo"}})
-	select {
-	case update := <-gm1.Subscriptions():
-		c.Errorf("Unexpected update: %v", update)
-	case <-time.After(300 * time.Millisecond):
-	}
+		map[string][]string{"m1": nil, "m2": {"foo"}})
 }
 
 // When several different registrator instances subscribe to the same group,
@@ -204,11 +203,11 @@ func (s *GroupRegistratorSuite) TestMembershipChanges(c *C) {
 	// Given
 	cfg := config.Default()
 	cfg.Consumer.RebalanceDelay = 200 * time.Millisecond
-	gm1 := Spawn("gm_test", "m1", cfg, s.kazooConn)
+	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm1.Stop()
-	gm2 := Spawn("gm_test", "m2", cfg, s.kazooConn)
+	gm2 := Spawn(s.ns.NewChild("m2"), "g1", "m2", cfg, s.kazooConn)
 	defer gm2.Stop()
-	gm3 := Spawn("gm_test", "m3", cfg, s.kazooConn)
+	gm3 := Spawn(s.ns.NewChild("m3"), "g1", "m3", cfg, s.kazooConn)
 	defer gm3.Stop()
 
 	// When
@@ -234,9 +233,9 @@ func (s *GroupRegistratorSuite) TestRedundantUpdateIgnored(c *C) {
 	// Given
 	cfg := config.Default()
 	cfg.Consumer.RebalanceDelay = 200 * time.Millisecond
-	gm1 := Spawn("gm_test", "m1", cfg, s.kazooConn)
+	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm1.Stop()
-	gm2 := Spawn("gm_test", "m2", cfg, s.kazooConn)
+	gm2 := Spawn(s.ns.NewChild("m2"), "g1", "m2", cfg, s.kazooConn)
 	defer gm2.Stop()
 
 	gm1.Topics() <- []string{"foo", "bar"}
@@ -263,7 +262,7 @@ func (s *GroupRegistratorSuite) TestRedundantUpdateIgnored(c *C) {
 func (s *GroupRegistratorSuite) TestClaimPartition(c *C) {
 	// Given
 	cfg := config.Default()
-	gm := Spawn("gm_test", "m1", cfg, s.kazooConn)
+	gm := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm.Stop()
 	cancelCh := make(chan none.T)
 
@@ -272,7 +271,7 @@ func (s *GroupRegistratorSuite) TestClaimPartition(c *C) {
 	c.Assert(owner, Equals, "")
 
 	// When
-	claim1 := gm.ClaimPartition(s.cid, "foo", 1, cancelCh)
+	claim1 := gm.ClaimPartition(s.claimerActorID, "foo", 1, cancelCh)
 	defer claim1()
 
 	// Then
@@ -286,18 +285,18 @@ func (s *GroupRegistratorSuite) TestClaimPartition(c *C) {
 func (s *GroupRegistratorSuite) TestClaimPartitionClaimed(c *C) {
 	// Given
 	cfg := config.Default()
-	gm1 := Spawn("gm_test", "m1", cfg, s.kazooConn)
+	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm1.Stop()
-	gm2 := Spawn("gm_test", "m2", cfg, s.kazooConn)
+	gm2 := Spawn(s.ns.NewChild("m2"), "g1", "m2", cfg, s.kazooConn)
 	defer gm2.Stop()
 	cancelCh := make(chan none.T)
 	close(cancelCh) // there will be no retries
 
-	claim1 := gm1.ClaimPartition(s.cid, "foo", 1, cancelCh)
+	claim1 := gm1.ClaimPartition(s.claimerActorID, "foo", 1, cancelCh)
 	defer claim1()
 
 	// When
-	claim2 := gm2.ClaimPartition(s.cid, "foo", 1, cancelCh)
+	claim2 := gm2.ClaimPartition(s.claimerActorID, "foo", 1, cancelCh)
 	defer claim2()
 
 	// Then
@@ -310,14 +309,14 @@ func (s *GroupRegistratorSuite) TestClaimPartitionClaimed(c *C) {
 func (s *GroupRegistratorSuite) TestClaimPartitionTwice(c *C) {
 	// Given
 	cfg := config.Default()
-	gm := Spawn("gm_test", "m1", cfg, s.kazooConn)
+	gm := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm.Stop()
 	cancelCh := make(chan none.T)
 
 	// When
-	claim1 := gm.ClaimPartition(s.cid, "foo", 1, cancelCh)
+	claim1 := gm.ClaimPartition(s.claimerActorID, "foo", 1, cancelCh)
 	defer claim1()
-	claim2 := gm.ClaimPartition(s.cid, "foo", 1, cancelCh)
+	claim2 := gm.ClaimPartition(s.claimerActorID, "foo", 1, cancelCh)
 	defer claim2()
 
 	// Then
@@ -331,11 +330,11 @@ func (s *GroupRegistratorSuite) TestClaimPartitionTwice(c *C) {
 func (s *GroupRegistratorSuite) TestReleasePartition(c *C) {
 	// Given
 	cfg := config.Default()
-	gm := Spawn("gm_test", "m1", cfg, s.kazooConn)
+	gm := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm.Stop()
 	cancelCh := make(chan none.T)
-	claim1 := gm.ClaimPartition(s.cid, "foo", 1, cancelCh)
-	claim2 := gm.ClaimPartition(s.cid, "foo", 1, cancelCh)
+	claim1 := gm.ClaimPartition(s.claimerActorID, "foo", 1, cancelCh)
+	claim2 := gm.ClaimPartition(s.claimerActorID, "foo", 1, cancelCh)
 
 	// When
 	claim2() // the second claim is revoked here but it could have been any.
@@ -353,20 +352,20 @@ func (s *GroupRegistratorSuite) TestReleasePartition(c *C) {
 func (s *GroupRegistratorSuite) TestClaimPartitionParallel(c *C) {
 	// Given
 	cfg := config.Default()
-	gm1 := Spawn("gm_test", "m1", cfg, s.kazooConn)
+	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm1.Stop()
-	gm2 := Spawn("gm_test", "m2", cfg, s.kazooConn)
+	gm2 := Spawn(s.ns.NewChild("m2"), "g1", "m2", cfg, s.kazooConn)
 	defer gm2.Stop()
 	cancelCh := make(chan none.T)
 
-	claim1 := gm1.ClaimPartition(s.cid, "foo", 1, cancelCh)
+	claim1 := gm1.ClaimPartition(s.claimerActorID, "foo", 1, cancelCh)
 	go func() {
 		time.Sleep(300 * time.Millisecond)
 		claim1()
 	}()
 
 	// When: block here until m1 releases the claim over foo/1.
-	claim2 := gm2.ClaimPartition(s.cid, "foo", 1, cancelCh)
+	claim2 := gm2.ClaimPartition(s.claimerActorID, "foo", 1, cancelCh)
 	defer claim2()
 
 	// Then: the partition is claimed by m2.
@@ -380,15 +379,15 @@ func (s *GroupRegistratorSuite) TestClaimPartitionParallel(c *C) {
 func (s *GroupRegistratorSuite) TestClaimPartitionCanceled(c *C) {
 	// Given
 	cfg := config.Default()
-	gm1 := Spawn("gm_test", "m1", cfg, s.kazooConn)
+	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm1.Stop()
-	gm2 := Spawn("gm_test", "m2", cfg, s.kazooConn)
+	gm2 := Spawn(s.ns.NewChild("m2"), "g1", "m2", cfg, s.kazooConn)
 	defer gm2.Stop()
 	cancelCh1 := make(chan none.T)
 	cancelCh2 := make(chan none.T)
 	wg := &sync.WaitGroup{}
 
-	claim1 := gm1.ClaimPartition(s.cid, "foo", 1, cancelCh1)
+	claim1 := gm1.ClaimPartition(s.claimerActorID, "foo", 1, cancelCh1)
 	wg.Add(1)
 	go func() {
 		wg.Done()
@@ -405,7 +404,7 @@ func (s *GroupRegistratorSuite) TestClaimPartitionCanceled(c *C) {
 	}()
 
 	// When
-	claim2 := gm2.ClaimPartition(s.cid, "foo", 1, cancelCh2)
+	claim2 := gm2.ClaimPartition(s.claimerActorID, "foo", 1, cancelCh2)
 	defer claim2()
 
 	// Then: the partition is still claimed by m1.
