@@ -12,6 +12,7 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer/consumermsg"
 	"github.com/mailgun/kafka-pixy/consumer/dispatcher"
 	"github.com/mailgun/kafka-pixy/consumer/groupmember"
+	"github.com/mailgun/kafka-pixy/consumer/multiplexer"
 	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
 	"github.com/mailgun/kafka-pixy/consumer/partitioncsm"
 	"github.com/mailgun/kafka-pixy/none"
@@ -32,7 +33,7 @@ type groupConsumer struct {
 	offsetMgrFactory        offsetmgr.Factory
 	kazooConn               *kazoo.Kazoo
 	groupMember             *groupmember.T
-	topicConsumerGears      map[string]*topicConsumerGear
+	multiplexers            map[string]*multiplexer.T
 	topicConsumerLifespanCh chan *topicConsumer
 	stoppingCh              chan none.T
 	wg                      sync.WaitGroup
@@ -52,7 +53,7 @@ func (sc *T) newConsumerGroup(group string) *groupConsumer {
 		kafkaClient:             sc.kafkaClient,
 		offsetMgrFactory:        sc.offsetMgrFactory,
 		kazooConn:               sc.kazooConn,
-		topicConsumerGears:      make(map[string]*topicConsumerGear),
+		multiplexers:            make(map[string]*multiplexer.T),
 		topicConsumerLifespanCh: make(chan *topicConsumer),
 		stoppingCh:              make(chan none.T),
 
@@ -182,12 +183,12 @@ func (gc *groupConsumer) runManager() {
 	}
 done:
 	var wg sync.WaitGroup
-	for _, tcg := range gc.topicConsumerGears {
+	for _, mux := range gc.multiplexers {
 		wg.Add(1)
-		go func(tcg *topicConsumerGear) {
+		go func(mux *multiplexer.T) {
 			defer wg.Done()
-			tcg.stop()
-		}(tcg)
+			mux.Stop()
+		}(mux)
 	}
 	wg.Wait()
 }
@@ -205,25 +206,29 @@ func (gc *groupConsumer) runRebalancer(actorID *actor.ID, topicConsumers map[str
 	// Stop consuming partitions that are no longer assigned to this group
 	// and start consuming newly assigned partitions for topics that has been
 	// consumed already.
-	for topic, tcg := range gc.topicConsumerGears {
-		tcg.muxInputsAsync(&wg, topicConsumers[topic], assignedPartitions[topic])
+	for topic, tcg := range gc.multiplexers {
+		gc.rewireMuxAsync(&wg, tcg, topicConsumers[topic], assignedPartitions[topic])
 	}
 	// Start consuming partitions for topics that has not been consumed before.
 	for topic, assignedTopicPartitions := range assignedPartitions {
 		tc := topicConsumers[topic]
-		tcg := gc.topicConsumerGears[topic]
-		if tc == nil || tcg != nil {
+		mux := gc.multiplexers[topic]
+		if tc == nil || mux != nil {
 			continue
 		}
-		tcg = newTopicConsumerGear(gc.spawnTopicInput)
-		tcg.muxInputsAsync(&wg, tc, assignedTopicPartitions)
-		gc.topicConsumerGears[topic] = tcg
+		topic := topic
+		spawnInF := func(partition int32) multiplexer.In {
+			return gc.spawnExclusiveConsumer(gc.supervisorActorID, topic, partition)
+		}
+		mux = multiplexer.New(gc.supervisorActorID, spawnInF)
+		gc.rewireMuxAsync(&wg, mux, tc, assignedTopicPartitions)
+		gc.multiplexers[topic] = mux
 	}
 	wg.Wait()
 	// Clean up gears for topics that do not have assigned partitions anymore.
-	for topic, tcg := range gc.topicConsumerGears {
-		if tcg.isIdle() {
-			delete(gc.topicConsumerGears, topic)
+	for topic, mux := range gc.multiplexers {
+		if !mux.IsRunning() {
+			delete(gc.multiplexers, topic)
 		}
 	}
 	// Notify the caller that rebalancing has completed successfully.
@@ -231,8 +236,11 @@ func (gc *groupConsumer) runRebalancer(actorID *actor.ID, topicConsumers map[str
 	return
 }
 
-func (gc *groupConsumer) spawnTopicInput(topic string, partition int32) muxInputActor {
-	return gc.spawnExclusiveConsumer(gc.supervisorActorID, topic, partition)
+// muxInputsAsync calls muxInputs in another goroutine.
+func (gc *groupConsumer) rewireMuxAsync(wg *sync.WaitGroup, mux *multiplexer.T, tc *topicConsumer, assigned []int32) {
+	actor.Spawn(gc.supervisorActorID.NewChild("rewire", tc.topic), wg, func() {
+		mux.WireUp(tc, assigned)
+	})
 }
 
 // resolvePartitions given topic subscriptions of all consumer group members,

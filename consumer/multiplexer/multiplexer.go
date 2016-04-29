@@ -2,6 +2,7 @@ package multiplexer
 
 import (
 	"reflect"
+	"sort"
 	"sync"
 
 	"github.com/mailgun/kafka-pixy/actor"
@@ -9,67 +10,160 @@ import (
 	"github.com/mailgun/kafka-pixy/none"
 )
 
-// T pulls messages fetched by exclusive consumers and offers them
-// one by one to the topic consumer choosing wisely between different exclusive
-// consumers to ensure that none of them is neglected.
+// T fetches messages from inputs and multiplexes them to the output, giving
+// preferences to inputs with higher lag. Multiplexes assumes ownership over
+// inputs in the sense that it decides when an new input instance needs to
+// started, or the old one stopped.
 type T struct {
-	actorID      *actor.ID
-	inputs       []In
-	output       Out
-	lastInputIdx int
-	stopCh       chan none.T
-	wg           sync.WaitGroup
+	actorID   *actor.ID
+	spawnInF  SpawnInF
+	inputs    map[int32]*fetchedInput
+	output    Out
+	isRunning bool
+	stopCh    chan none.T
+	wg        sync.WaitGroup
 }
 
-// In defines an interface of multiplexer input.
+// In defines an interface of a multiplexer input.
 type In interface {
+	// Messages returns channel that multiplexer receives messages from.
 	Messages() <-chan *consumermsg.ConsumerMessage
+
+	// Acks returns a channel that multiplexer sends a message that was pulled
+	// from the `Messages()` channel of this input after the message has been
+	// send to the output.
 	Acks() chan<- *consumermsg.ConsumerMessage
+
+	// Stop signals the input to stop and blocks waiting for its goroutines to
+	// complete.
+	Stop()
 }
 
 // Out defines an interface of multiplexer output.
 type Out interface {
+	// Messages returns channel that multiplexer sends messages to.
 	Messages() chan<- *consumermsg.ConsumerMessage
 }
 
-// Spawns starts a multiplexer instance that selects messages from the
-// specified inputs based on their lag and forwards them to the output.
-func Spawn(namespace *actor.ID, output Out, inputs []In) *T {
-	m := &T{
-		actorID: namespace.NewChild("mux"),
-		inputs:  inputs,
-		output:  output,
-		stopCh:  make(chan none.T),
+// SpawnInF is a function type that is used by multiplexer to spawn inputs for
+// assigned partitions during rewiring.
+type SpawnInF func(partition int32) In
+
+// New creates a new multiplexer instance.
+func New(namespace *actor.ID, spawnInF SpawnInF) *T {
+	return &T{
+		actorID:  namespace.NewChild("mux"),
+		inputs:   make(map[int32]*fetchedInput),
+		spawnInF: spawnInF,
+		stopCh:   make(chan none.T),
 	}
+}
+
+// input represents a multiplexer input along with a message to be fetched from
+// that input next.
+type fetchedInput struct {
+	in      In
+	nextMsg *consumermsg.ConsumerMessage
+}
+
+// IsRunning returns `true` if multiplexer is running pumping events from the
+// inputs to the output.
+func (m *T) IsRunning() bool {
+	return m.isRunning
+}
+
+// WireUp ensures that inputs of all assigned partitions are spawned and
+// multiplexed to the specified output. It stops inputs for partitions that are
+// no longer assigned, spawns inputs for newly assigned partitions, and
+// restarts the multiplexer, if either output or any of inputs has changed.
+func (m *T) WireUp(output Out, assigned []int32) {
+	var wg sync.WaitGroup
+
+	if m.output != output {
+		m.stopIfRunning()
+		m.output = output
+	}
+
+	if output == nil {
+		for partition, input := range m.inputs {
+			wg.Add(1)
+			go func(input *fetchedInput) {
+				defer wg.Done()
+				input.in.Stop()
+			}(input)
+			delete(m.inputs, partition)
+		}
+		wg.Wait()
+		return
+	}
+
+	for partition, input := range m.inputs {
+		if !hasPartition(partition, assigned) {
+			m.stopIfRunning()
+			wg.Add(1)
+			go func(input *fetchedInput) {
+				defer wg.Done()
+				input.in.Stop()
+			}(input)
+			delete(m.inputs, partition)
+		}
+	}
+	wg.Wait()
+
+	for _, partition := range assigned {
+		if _, ok := m.inputs[partition]; !ok {
+			m.stopIfRunning()
+			m.inputs[partition] = &fetchedInput{m.spawnInF(partition), nil}
+		}
+	}
+	if !m.IsRunning() && len(m.inputs) > 0 {
+		m.start()
+	}
+}
+
+// Stop synchronously stops the multiplexer.
+func (m *T) Stop() {
+	m.WireUp(nil, nil)
+}
+
+func (m *T) start() {
 	actor.Spawn(m.actorID, &m.wg, m.run)
-	return m
+	m.isRunning = true
+}
+
+func (m *T) stopIfRunning() {
+	if m.isRunning {
+		m.stopCh <- none.V
+		m.wg.Wait()
+		m.isRunning = false
+	}
 }
 
 func (m *T) run() {
-	inputCount := len(m.inputs)
+	sortedIns := makeSortedIns(m.inputs)
+	inputCount := len(sortedIns)
 	// Prepare a list of reflective select cases that is used when there are no
 	// messages available from any of the inputs and we need to wait on all
 	// of them for the first message to be fetched. Yes, reflection is slow but
 	// it is only used in a corner case.
 	selectCases := make([]reflect.SelectCase, inputCount+1)
-	for i, ec := range m.inputs {
-		selectCases[i] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(ec.Messages())}
+	for i, input := range sortedIns {
+		selectCases[i] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(input.in.Messages())}
 	}
 	selectCases[inputCount] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(m.stopCh)}
 
-	nextMessages := make([]*consumermsg.ConsumerMessage, inputCount)
 	inputIdx := -1
 	for {
 		// Collect next messages from all inputs.
 		isAtLeastOneAvailable := false
-		for i, msg := range nextMessages {
-			if msg != nil {
+		for _, input := range sortedIns {
+			if input.nextMsg != nil {
 				isAtLeastOneAvailable = true
 				continue
 			}
 			select {
-			case msg := <-m.inputs[i].Messages():
-				nextMessages[i] = msg
+			case msg := <-input.in.Messages():
+				input.nextMsg = msg
 				isAtLeastOneAvailable = true
 			default:
 			}
@@ -77,48 +171,65 @@ func (m *T) run() {
 		// If none of the inputs has a message available, then wait until some
 		// of them does or a stop signal is received.
 		if !isAtLeastOneAvailable {
-			selected, value, ok := reflect.Select(selectCases)
-			// There is no need to check what particular channel is closed, for
-			// only `stopCh` channel is ever gets closed.
-			if !ok {
+			selected, value, _ := reflect.Select(selectCases)
+			// Check if it is a stop signal.
+			if selected == inputCount {
 				return
 			}
-			nextMessages[selected] = value.Interface().(*consumermsg.ConsumerMessage)
+			sortedIns[selected].nextMsg = value.Interface().(*consumermsg.ConsumerMessage)
 		}
 		// At this point there is at least one next message available.
-		inputIdx = selectInput(inputIdx, nextMessages)
-		// wait for read or stop
+		inputIdx = selectInput(inputIdx, sortedIns)
+		// Wait for read or a stop signal.
 		select {
 		case <-m.stopCh:
 			return
-		case m.output.Messages() <- nextMessages[inputIdx]:
-			m.inputs[inputIdx].Acks() <- nextMessages[inputIdx]
-			nextMessages[inputIdx] = nil
+		case m.output.Messages() <- sortedIns[inputIdx].nextMsg:
+			sortedIns[inputIdx].in.Acks() <- sortedIns[inputIdx].nextMsg
+			sortedIns[inputIdx].nextMsg = nil
 		}
 	}
 }
 
-func (m *T) Stop() {
-	close(m.stopCh)
-	m.wg.Wait()
+// makeSortedIns given a partition->input map returns a slice of all the inputs
+// from the map sorted in ascending order of partition ids.
+func makeSortedIns(inputs map[int32]*fetchedInput) []*fetchedInput {
+	partitions := make([]int32, 0, len(inputs))
+	for p := range inputs {
+		partitions = append(partitions, p)
+	}
+	sort.Sort(Int32Slice(partitions))
+	sortedIns := make([]*fetchedInput, len(inputs))
+	for i, p := range partitions {
+		sortedIns[i] = inputs[p]
+	}
+	return sortedIns
+}
+
+func hasPartition(partition int32, partitions []int32) bool {
+	count := len(partitions)
+	if count == 0 {
+		return false
+	}
+	return partitions[0] <= partition && partition <= partitions[count-1]
 }
 
 // selectInput picks an input that should be multiplexed next. It prefers the
 // inputs with the largest lag. If there is more then one input with the largest
 // lag then it picks the one that index is following the lastInputIdx.
-func selectInput(lastInputIdx int, inputMessages []*consumermsg.ConsumerMessage) int {
-	maxLag, maxLagIdx, maxLagCount := findMaxLag(inputMessages)
+func selectInput(lastInputIdx int, sortedIns []*fetchedInput) int {
+	maxLag, maxLagIdx, maxLagCount := findMaxLag(sortedIns)
 	if maxLagCount == 1 {
 		return maxLagIdx
 	}
-	inputCount := len(inputMessages)
+	inputCount := len(sortedIns)
 	for i := 1; i < inputCount; i++ {
 		maxLagIdx = (lastInputIdx + i) % inputCount
-		msg := inputMessages[maxLagIdx]
-		if msg == nil {
+		input := sortedIns[maxLagIdx]
+		if input.nextMsg == nil {
 			continue
 		}
-		inputLag := msg.HighWaterMark - msg.Offset
+		inputLag := input.nextMsg.HighWaterMark - input.nextMsg.Offset
 		if inputLag == maxLag {
 			break
 		}
@@ -130,14 +241,14 @@ func selectInput(lastInputIdx int, inputMessages []*consumermsg.ConsumerMessage)
 // returns the value of the max lag among them, along with the index of the
 // first message with the max lag value and the total count of messages that
 // have max lag.
-func findMaxLag(inputMessages []*consumermsg.ConsumerMessage) (maxLag int64, maxLagIdx, maxLagCount int) {
+func findMaxLag(sortedIns []*fetchedInput) (maxLag int64, maxLagIdx, maxLagCount int) {
 	maxLag = -1
 	maxLagIdx = -1
-	for i, msg := range inputMessages {
-		if msg == nil {
+	for i, input := range sortedIns {
+		if input.nextMsg == nil {
 			continue
 		}
-		inputLag := msg.HighWaterMark - msg.Offset
+		inputLag := input.nextMsg.HighWaterMark - input.nextMsg.Offset
 		if inputLag > maxLag {
 			maxLagIdx = i
 			maxLag = inputLag
@@ -148,3 +259,9 @@ func findMaxLag(inputMessages []*consumermsg.ConsumerMessage) (maxLag int64, max
 	}
 	return maxLag, maxLagIdx, maxLagCount
 }
+
+type Int32Slice []int32
+
+func (p Int32Slice) Len() int           { return len(p) }
+func (p Int32Slice) Less(i, j int) bool { return p[i] < p[j] }
+func (p Int32Slice) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
