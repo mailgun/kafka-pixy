@@ -33,16 +33,19 @@ type Factory interface {
 
 // T fetched messages from a given topic and partition.
 type T interface {
-	// Messages returns the read channel for the messages that are returned by the broker.
+	// Messages returns the read channel for the messages that are fetched from
+	// the topic partition.
 	Messages() <-chan *consumermsg.ConsumerMessage
 
-	// Errors returns a read channel of errors that occured during consuming, if enabled. By default,
-	// errors are logged and not returned over this channel. If you want to implement any custom error
-	// handling, set your config's Consumer.Return.Errors setting to true, and read from this channel.
+	// Errors returns a read channel of errors that occurred during consuming,
+	// if enabled. By default, errors are logged and not returned over this
+	// channel. If you want to implement any custom error handling, set your
+	// config's Consumer.Return.Errors setting to true, and read from this
+	// channel.
 	Errors() <-chan *consumermsg.ConsumerError
 
-	// Stop stops the PartitionConsumer from fetching messages. It must be
-	// called before the factory that created the instance is stopped.
+	// Stop synchronously stops the partition consumer. It must be called
+	// before the factory that created the instance can be stopped.
 	Stop()
 }
 
@@ -61,12 +64,9 @@ type topicPartition struct {
 }
 
 // SpawnFactory creates a new consumer using the given client. It is still
-// necessary to call Close() on the underlying client when shutting down this consumer.
+// necessary to call Stop() on the underlying client after shutting down this
+// factory.
 func SpawnFactory(namespace *actor.ID, client sarama.Client) (Factory, error) {
-	// Check that we are not dealing with a closed Client before processing any other arguments
-	if client.Closed() {
-		return nil, sarama.ErrClosedClient
-	}
 	f := &factory{
 		namespace: namespace.NewChild("partition_csm_f"),
 		client:    client,
