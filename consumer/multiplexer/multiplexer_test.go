@@ -30,11 +30,11 @@ func (s *MultiplexerSuite) SetUpTest(c *C) {
 
 func (s *MultiplexerSuite) TestSortedInputs(c *C) {
 	ins := map[int32]*fetchedInput{
-		1: &fetchedInput{newMockIn(nil), nil},
-		2: &fetchedInput{newMockIn(nil), nil},
-		3: &fetchedInput{newMockIn(nil), nil},
-		4: &fetchedInput{newMockIn(nil), nil},
-		5: &fetchedInput{newMockIn(nil), nil},
+		1: {newMockIn(nil), nil},
+		2: {newMockIn(nil), nil},
+		3: {newMockIn(nil), nil},
+		4: {newMockIn(nil), nil},
+		5: {newMockIn(nil), nil},
 	}
 	c.Assert(makeSortedIns(map[int32]*fetchedInput{}), DeepEquals,
 		[]*fetchedInput{})
