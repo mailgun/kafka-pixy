@@ -100,7 +100,6 @@ func (gc *groupConsumer) Start(stoppedCh chan<- dispatcher.Tier) {
 		gc.dispatcher.Stop()
 		gc.groupMember.Stop()
 		manageWg.Wait()
-		log.Infof("<%s> ^^^", gc.supervisorActorID)
 		gc.partitionCsmFactory.Stop()
 	})
 }

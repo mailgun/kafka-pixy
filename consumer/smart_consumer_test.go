@@ -539,7 +539,6 @@ func (s *SmartConsumerSuite) TestNewGroup(c *C) {
 	// Given
 	group := fmt.Sprintf("group-%d", time.Now().Unix())
 	cfg := testhelpers.NewTestConfig(group)
-	cfg.Consumer.LongPollingTimeout = 500 * time.Millisecond
 	sc, err := Spawn(s.ns, cfg)
 	c.Assert(err, IsNil)
 
