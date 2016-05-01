@@ -12,9 +12,9 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer/consumermsg"
 	"github.com/mailgun/kafka-pixy/consumer/dispatcher"
 	"github.com/mailgun/kafka-pixy/consumer/groupmember"
+	"github.com/mailgun/kafka-pixy/consumer/msgstream"
 	"github.com/mailgun/kafka-pixy/consumer/multiplexer"
 	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
-	"github.com/mailgun/kafka-pixy/consumer/partitioncsm"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
 	"github.com/wvanbergen/kazoo-go"
@@ -29,7 +29,7 @@ type groupConsumer struct {
 	group                   string
 	dispatcher              *dispatcher.T
 	kafkaClient             sarama.Client
-	partitionCsmFactory     partitioncsm.Factory
+	partitionCsmFactory     msgstream.Factory
 	offsetMgrFactory        offsetmgr.Factory
 	kazooConn               *kazoo.Kazoo
 	groupMember             *groupmember.T
@@ -86,7 +86,7 @@ func (gc *groupConsumer) Start(stoppedCh chan<- dispatcher.Tier) {
 	actor.Spawn(gc.supervisorActorID, &gc.wg, func() {
 		defer func() { stoppedCh <- gc }()
 		var err error
-		gc.partitionCsmFactory, err = partitioncsm.SpawnFactory(gc.supervisorActorID, gc.kafkaClient)
+		gc.partitionCsmFactory, err = msgstream.SpawnFactory(gc.supervisorActorID, gc.kafkaClient)
 		if err != nil {
 			// Must never happen.
 			panic(consumermsg.ErrSetup(fmt.Errorf("failed to create sarama.Consumer: err=(%v)", err)))

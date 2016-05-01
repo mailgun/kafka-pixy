@@ -1,4 +1,4 @@
-package partitioncsm
+package msgstream
 
 import (
 	"sync"
@@ -16,26 +16,26 @@ func Test(t *testing.T) {
 	TestingT(t)
 }
 
-type PartitionConsumerSuite struct {
+type MessageStreamSuite struct {
 	ns *actor.ID
 }
 
 var (
-	_       = Suite(&PartitionConsumerSuite{})
+	_       = Suite(&MessageStreamSuite{})
 	testMsg = sarama.StringEncoder("Foo")
 )
 
-func (s *PartitionConsumerSuite) SetUpSuite(c *C) {
+func (s *MessageStreamSuite) SetUpSuite(c *C) {
 	testhelpers.InitLogging(c)
 }
 
-func (s *PartitionConsumerSuite) SetUpTest(c *C) {
+func (s *MessageStreamSuite) SetUpTest(c *C) {
 	s.ns = actor.RootID.NewChild("T")
 }
 
 // If a particular offset is provided then messages are consumed starting from
 // that offset.
-func (s *PartitionConsumerSuite) TestOffsetManual(c *C) {
+func (s *MessageStreamSuite) TestOffsetManual(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 0)
 	defer broker0.Close()
@@ -63,7 +63,7 @@ func (s *PartitionConsumerSuite) TestOffsetManual(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	pc, concreteOffset, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, 1234)
+	pc, concreteOffset, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 1234)
 	defer pc.Stop()
 	c.Assert(err, IsNil)
 	c.Assert(concreteOffset, Equals, int64(1234))
@@ -82,7 +82,7 @@ func (s *PartitionConsumerSuite) TestOffsetManual(c *C) {
 // If `sarama.OffsetNewest` is passed as the initial offset then the first consumed
 // message is indeed corresponds to the offset that broker claims to be the
 // newest in its metadata response.
-func (s *PartitionConsumerSuite) TestOffsetNewest(c *C) {
+func (s *MessageStreamSuite) TestOffsetNewest(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 0)
 	defer broker0.Close()
@@ -107,7 +107,7 @@ func (s *PartitionConsumerSuite) TestOffsetNewest(c *C) {
 	defer f.Stop()
 
 	// When
-	pc, concreteOffset, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetNewest)
+	pc, concreteOffset, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetNewest)
 	c.Assert(err, IsNil)
 	defer pc.Stop()
 	c.Assert(concreteOffset, Equals, int64(10))
@@ -119,7 +119,7 @@ func (s *PartitionConsumerSuite) TestOffsetNewest(c *C) {
 }
 
 // It is possible to close a partition consumer and create the same anew.
-func (s *PartitionConsumerSuite) TestRecreate(c *C) {
+func (s *MessageStreamSuite) TestRecreate(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 0)
 	defer broker0.Close()
@@ -140,13 +140,13 @@ func (s *PartitionConsumerSuite) TestRecreate(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	pc, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, 10)
+	pc, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 10)
 	c.Assert(err, IsNil)
 	c.Assert((<-pc.Messages()).Offset, Equals, int64(10))
 
 	// When
 	pc.Stop()
-	pc, _, err = f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, 10)
+	pc, _, err = f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 10)
 	c.Assert(err, IsNil)
 	defer pc.Stop()
 
@@ -155,7 +155,7 @@ func (s *PartitionConsumerSuite) TestRecreate(c *C) {
 }
 
 // An attempt to consume the same partition twice should fail.
-func (s *PartitionConsumerSuite) TestDuplicate(c *C) {
+func (s *MessageStreamSuite) TestDuplicate(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 0)
 	defer broker0.Close()
@@ -177,12 +177,12 @@ func (s *PartitionConsumerSuite) TestDuplicate(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	pc1, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, 0)
+	pc1, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 0)
 	c.Assert(err, IsNil)
 	defer pc1.Stop()
 
 	// When
-	pc2, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, 0)
+	pc2, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 0)
 
 	// Then
 	if pc2 != nil || err != sarama.ConfigurationError("That topic/partition is already being consumed") {
@@ -192,7 +192,7 @@ func (s *PartitionConsumerSuite) TestDuplicate(c *C) {
 
 // If consumer fails to refresh metadata it keeps retrying with frequency
 // specified by `Config.Consumer.Retry.Backoff`.
-func (s *PartitionConsumerSuite) TestLeaderRefreshError(c *C) {
+func (s *MessageStreamSuite) TestLeaderRefreshError(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 100)
 	defer broker0.Close()
@@ -222,7 +222,7 @@ func (s *PartitionConsumerSuite) TestLeaderRefreshError(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	pc, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
+	pc, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
 	c.Assert(err, IsNil)
 	defer pc.Stop()
 	c.Assert((<-pc.Messages()).Offset, Equals, int64(123))
@@ -264,7 +264,7 @@ func (s *PartitionConsumerSuite) TestLeaderRefreshError(c *C) {
 	c.Assert((<-pc.Messages()).Offset, Equals, int64(124))
 }
 
-func (s *PartitionConsumerSuite) TestInvalidTopic(c *C) {
+func (s *MessageStreamSuite) TestInvalidTopic(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 100)
 	defer broker0.Close()
@@ -280,7 +280,7 @@ func (s *PartitionConsumerSuite) TestInvalidTopic(c *C) {
 	defer f.Stop()
 
 	// When
-	pc, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
+	pc, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
 
 	// Then
 	if pc != nil || err != sarama.ErrUnknownTopicOrPartition {
@@ -290,7 +290,7 @@ func (s *PartitionConsumerSuite) TestInvalidTopic(c *C) {
 
 // Nothing bad happens if a partition consumer that has no leader assigned at
 // the moment is closed.
-func (s *PartitionConsumerSuite) TestClosePartitionWithoutLeader(c *C) {
+func (s *MessageStreamSuite) TestClosePartitionWithoutLeader(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 100)
 	defer broker0.Close()
@@ -316,7 +316,7 @@ func (s *PartitionConsumerSuite) TestClosePartitionWithoutLeader(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	pc, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
+	pc, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
 	c.Assert(err, IsNil)
 	defer pc.Stop()
 	c.Assert((<-pc.Messages()).Offset, Equals, int64(123))
@@ -341,7 +341,7 @@ func (s *PartitionConsumerSuite) TestClosePartitionWithoutLeader(c *C) {
 // If the initial offset passed on partition consumer creation is out of the
 // actual offset range for the partition, then the partition consumer stops
 // immediately closing its output channels.
-func (s *PartitionConsumerSuite) TestShutsDownOutOfRange(c *C) {
+func (s *MessageStreamSuite) TestShutsDownOutOfRange(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 0)
 	defer broker0.Close()
@@ -364,7 +364,7 @@ func (s *PartitionConsumerSuite) TestShutsDownOutOfRange(c *C) {
 	defer f.Stop()
 
 	// When
-	pc, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, 101)
+	pc, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 101)
 	c.Assert(err, IsNil)
 	defer pc.Stop()
 
@@ -376,7 +376,7 @@ func (s *PartitionConsumerSuite) TestShutsDownOutOfRange(c *C) {
 
 // If a fetch response contains messages with offsets that are smaller then
 // requested, then such messages are ignored.
-func (s *PartitionConsumerSuite) TestExtraOffsets(c *C) {
+func (s *MessageStreamSuite) TestExtraOffsets(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 0)
 	defer broker0.Close()
@@ -404,7 +404,7 @@ func (s *PartitionConsumerSuite) TestExtraOffsets(c *C) {
 	defer f.Stop()
 
 	// When
-	pc, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, 3)
+	pc, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 3)
 	c.Assert(err, IsNil)
 	defer pc.Stop()
 
@@ -416,7 +416,7 @@ func (s *PartitionConsumerSuite) TestExtraOffsets(c *C) {
 
 // It is fine if offsets of fetched messages are not sequential (although
 // strictly increasing!).
-func (s *PartitionConsumerSuite) TestNonSequentialOffsets(c *C) {
+func (s *MessageStreamSuite) TestNonSequentialOffsets(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 0)
 	defer broker0.Close()
@@ -443,7 +443,7 @@ func (s *PartitionConsumerSuite) TestNonSequentialOffsets(c *C) {
 	defer f.Stop()
 
 	// When
-	pc, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, 3)
+	pc, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 3)
 	c.Assert(err, IsNil)
 	defer pc.Stop()
 
@@ -456,7 +456,7 @@ func (s *PartitionConsumerSuite) TestNonSequentialOffsets(c *C) {
 
 // If leadership for a partition is changing then consumer resolves the new
 // leader and switches to it.
-func (s *PartitionConsumerSuite) TestRebalancingMultiplePartitions(c *C) {
+func (s *MessageStreamSuite) TestRebalancingMultiplePartitions(c *C) {
 	// initial setup
 	seedBroker := sarama.NewMockBroker(c, 10)
 	defer seedBroker.Close()
@@ -499,7 +499,7 @@ func (s *PartitionConsumerSuite) TestRebalancingMultiplePartitions(c *C) {
 	// we expect to end up (eventually) consuming exactly ten messages on each partition
 	var wg sync.WaitGroup
 	for i := int32(0); i < 2; i++ {
-		pc, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", i), "my_topic", i, 0)
+		pc, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", i), "my_topic", i, 0)
 		c.Assert(err, IsNil)
 
 		go func(pc T) {
@@ -607,7 +607,7 @@ func (s *PartitionConsumerSuite) TestRebalancingMultiplePartitions(c *C) {
 // When two partitions have the same broker as the leader, if one partition
 // consumer channel buffer is full then that does not affect the ability to
 // read messages by the other consumer.
-func (s *PartitionConsumerSuite) TestInterleavedClose(c *C) {
+func (s *MessageStreamSuite) TestInterleavedClose(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 0)
 	defer broker0.Close()
@@ -636,11 +636,11 @@ func (s *PartitionConsumerSuite) TestInterleavedClose(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	pc0, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, 1000)
+	pc0, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 1000)
 	c.Assert(err, IsNil)
 	defer pc0.Stop()
 
-	pc1, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 1), "my_topic", 1, 2000)
+	pc1, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 1), "my_topic", 1, 2000)
 	c.Assert(err, IsNil)
 	defer pc1.Stop()
 
@@ -650,7 +650,7 @@ func (s *PartitionConsumerSuite) TestInterleavedClose(c *C) {
 	c.Assert((<-pc0.Messages()).Offset, Equals, int64(1002))
 }
 
-func (s *PartitionConsumerSuite) TestBounceWithReferenceOpen(c *C) {
+func (s *MessageStreamSuite) TestBounceWithReferenceOpen(c *C) {
 	broker0 := sarama.NewMockBroker(c, 0)
 	broker0Addr := broker0.Addr()
 	broker1 := sarama.NewMockBroker(c, 1)
@@ -694,11 +694,11 @@ func (s *PartitionConsumerSuite) TestBounceWithReferenceOpen(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	pc0, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, 1000)
+	pc0, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 1000)
 	c.Assert(err, IsNil)
 	defer pc0.Stop()
 
-	pc1, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 1), "my_topic", 1, 2000)
+	pc1, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 1), "my_topic", 1, 2000)
 	c.Assert(err, IsNil)
 	defer pc1.Stop()
 
@@ -740,7 +740,7 @@ func (s *PartitionConsumerSuite) TestBounceWithReferenceOpen(c *C) {
 	}
 }
 
-func (s *PartitionConsumerSuite) TestOffsetOutOfRange(c *C) {
+func (s *MessageStreamSuite) TestOffsetOutOfRange(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 2)
 	defer broker0.Close()
@@ -760,12 +760,12 @@ func (s *PartitionConsumerSuite) TestOffsetOutOfRange(c *C) {
 	defer f.Stop()
 
 	// When/Then
-	pc, offset, err := f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, 0)
+	pc, offset, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 0)
 	c.Assert(err, IsNil)
 	c.Assert(offset, Equals, int64(1000))
 	pc.Stop()
 
-	pc, offset, err = f.SpawnPartitionConsumer(s.ns.NewChild("my_topic", 0), "my_topic", 0, 3456)
+	pc, offset, err = f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 3456)
 	c.Assert(err, IsNil)
 	c.Assert(offset, Equals, int64(2000))
 	pc.Stop()

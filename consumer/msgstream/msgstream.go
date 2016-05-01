@@ -1,4 +1,4 @@
-package partitioncsm
+package msgstream
 
 import (
 	"sync"
@@ -12,9 +12,11 @@ import (
 	"github.com/mailgun/log"
 )
 
-// Factory manages PartitionConsumers which fetch messages from brokers.
+// Factory provides API to spawn message streams to that read message from
+// topic partitions. It ensures that there is only on message stream for a
+// particular topic partition at a time.
 type Factory interface {
-	// SpawnPartitionConsumer creates a T instance for the given topic/partition
+	// SpawnMessageStream creates a T instance for the given topic/partition
 	// with the given offset. It will return an error if there is an instance
 	// already consuming from the topic/partition.
 	//
@@ -24,7 +26,7 @@ type Factory interface {
 	// offset is returned. If offset is either sarama.OffsetNewest or
 	// sarama.OffsetOldest constant, then the actual offset value is returned.
 	// otherwise offset is returned.
-	SpawnPartitionConsumer(namespace *actor.ID, topic string, partition int32, offset int64) (T, int64, error)
+	SpawnMessageStream(namespace *actor.ID, topic string, partition int32, offset int64) (T, int64, error)
 
 	// Stop shuts down the consumer. It must be called after all child partition
 	// consumers have already been closed.
@@ -53,7 +55,7 @@ type factory struct {
 	namespace    *actor.ID
 	saramaCfg    *sarama.Config
 	client       sarama.Client
-	children     map[topicPartition]*partitionCsm
+	children     map[topicPartition]*msgStream
 	childrenLock sync.Mutex
 	mapper       *mapper.T
 }
@@ -63,22 +65,22 @@ type topicPartition struct {
 	partition int32
 }
 
-// SpawnFactory creates a new consumer using the given client. It is still
-// necessary to call Stop() on the underlying client after shutting down this
-// factory.
+// SpawnFactory creates a new message stream factory using the given client. It
+// is still necessary to call Stop() on the underlying client after shutting
+// down this factory.
 func SpawnFactory(namespace *actor.ID, client sarama.Client) (Factory, error) {
 	f := &factory{
-		namespace: namespace.NewChild("partition_csm_f"),
+		namespace: namespace.NewChild("msg_stream_f"),
 		client:    client,
 		saramaCfg: client.Config(),
-		children:  make(map[topicPartition]*partitionCsm),
+		children:  make(map[topicPartition]*msgStream),
 	}
 	f.mapper = mapper.Spawn(f.namespace, f)
 	return f, nil
 }
 
 // implements `Factory`.
-func (f *factory) SpawnPartitionConsumer(namespace *actor.ID, topic string, partition int32, offset int64) (T, int64, error) {
+func (f *factory) SpawnMessageStream(namespace *actor.ID, topic string, partition int32, offset int64) (T, int64, error) {
 	concreteOffset, err := f.chooseStartingOffset(topic, partition, offset)
 	if err != nil {
 		return nil, sarama.OffsetNewest, err
@@ -91,10 +93,10 @@ func (f *factory) SpawnPartitionConsumer(namespace *actor.ID, topic string, part
 	if _, ok := f.children[tp]; ok {
 		return nil, sarama.OffsetNewest, sarama.ConfigurationError("That topic/partition is already being consumed")
 	}
-	pc := f.spawnPartitionCsm(namespace, tp, concreteOffset)
-	f.mapper.WorkerSpawned() <- pc
-	f.children[tp] = pc
-	return pc, concreteOffset, nil
+	ms := f.spawnMsgStream(namespace, tp, concreteOffset)
+	f.mapper.WorkerSpawned() <- ms
+	f.children[tp] = ms
+	return ms, concreteOffset, nil
 }
 
 // implements `Factory`.
@@ -104,16 +106,16 @@ func (f *factory) Stop() {
 
 // implements `mapper.Resolver.ResolveBroker()`.
 func (f *factory) ResolveBroker(pw mapper.Worker) (*sarama.Broker, error) {
-	pc := pw.(*partitionCsm)
-	if err := f.client.RefreshMetadata(pc.tp.topic); err != nil {
+	ms := pw.(*msgStream)
+	if err := f.client.RefreshMetadata(ms.tp.topic); err != nil {
 		return nil, err
 	}
-	return f.client.Leader(pc.tp.topic, pc.tp.partition)
+	return f.client.Leader(ms.tp.topic, ms.tp.partition)
 }
 
 // implements `mapper.Resolver.Executor()`
 func (f *factory) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
-	bc := &brokerConsumer{
+	be := &brokerExecutor{
 		aggrActorID:     f.namespace.NewChild("broker", brokerConn.ID(), "aggr"),
 		execActorID:     f.namespace.NewChild("broker", brokerConn.ID(), "exec"),
 		config:          f.saramaCfg,
@@ -121,9 +123,9 @@ func (f *factory) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
 		requestsCh:      make(chan fetchRequest),
 		batchRequestsCh: make(chan []fetchRequest),
 	}
-	actor.Spawn(bc.aggrActorID, &bc.wg, bc.runAggregator)
-	actor.Spawn(bc.execActorID, &bc.wg, bc.runExecutor)
-	return bc
+	actor.Spawn(be.aggrActorID, &be.wg, be.runAggregator)
+	actor.Spawn(be.execActorID, &be.wg, be.runExecutor)
+	return be
 }
 
 // chooseStartingOffset takes an offset value that may be either an actual
@@ -154,7 +156,7 @@ func (f *factory) chooseStartingOffset(topic string, partition int32, offset int
 }
 
 // implements `mapper.Worker`.
-type partitionCsm struct {
+type msgStream struct {
 	actorID      *actor.ID
 	f            *factory
 	tp           topicPartition
@@ -169,9 +171,9 @@ type partitionCsm struct {
 	wg           sync.WaitGroup
 }
 
-func (f *factory) spawnPartitionCsm(namespace *actor.ID, tp topicPartition, offset int64) *partitionCsm {
-	pc := &partitionCsm{
-		actorID:      namespace.NewChild("partition_csm"),
+func (f *factory) spawnMsgStream(namespace *actor.ID, tp topicPartition, offset int64) *msgStream {
+	ms := &msgStream{
+		actorID:      namespace.NewChild("msg_stream"),
 		f:            f,
 		tp:           tp,
 		assignmentCh: make(chan mapper.Executor, 1),
@@ -182,41 +184,41 @@ func (f *factory) spawnPartitionCsm(namespace *actor.ID, tp topicPartition, offs
 		offset:       offset,
 		fetchSize:    f.saramaCfg.Consumer.Fetch.Default,
 	}
-	actor.Spawn(pc.actorID, &pc.wg, pc.run)
-	return pc
+	actor.Spawn(ms.actorID, &ms.wg, ms.run)
+	return ms
 }
 
 // implements `Factory`.
-func (pc *partitionCsm) Messages() <-chan *consumermsg.ConsumerMessage {
-	return pc.messagesCh
+func (ms *msgStream) Messages() <-chan *consumermsg.ConsumerMessage {
+	return ms.messagesCh
 }
 
 // implements `Factory`.
-func (pc *partitionCsm) Errors() <-chan *consumermsg.ConsumerError {
-	return pc.errorsCh
+func (ms *msgStream) Errors() <-chan *consumermsg.ConsumerError {
+	return ms.errorsCh
 }
 
 // implements `Factory`.
-func (pc *partitionCsm) Stop() {
-	close(pc.closingCh)
-	pc.wg.Wait()
+func (ms *msgStream) Stop() {
+	close(ms.closingCh)
+	ms.wg.Wait()
 
-	pc.f.childrenLock.Lock()
-	delete(pc.f.children, pc.tp)
-	pc.f.childrenLock.Unlock()
-	pc.f.mapper.WorkerStopped() <- pc
+	ms.f.childrenLock.Lock()
+	delete(ms.f.children, ms.tp)
+	ms.f.childrenLock.Unlock()
+	ms.f.mapper.WorkerStopped() <- ms
 }
 
 // implements `mapper.Worker`.
-func (pc *partitionCsm) Assignment() chan<- mapper.Executor {
-	return pc.assignmentCh
+func (ms *msgStream) Assignment() chan<- mapper.Executor {
+	return ms.assignmentCh
 }
 
-// pullMessages sends fetched requests to the broker consumer assigned by the
+// pullMessages sends fetched requests to the broker executor assigned by the
 // redispatch goroutine; parses broker fetch responses and pushes parsed
 // `ConsumerMessages` to the message channel. It tries to keep the message
 // channel buffer full making fetch requests to the assigned broker as needed.
-func (pc *partitionCsm) run() {
+func (ms *msgStream) run() {
 	var (
 		assignedFetchRequestCh    chan<- fetchRequest
 		nilOrFetchRequestsCh      chan<- fetchRequest
@@ -233,27 +235,27 @@ func (pc *partitionCsm) run() {
 	triggerOrScheduleReassign := func(reason string) {
 		assignedFetchRequestCh = nil
 		now := time.Now().UTC()
-		if now.Sub(lastReassignTime) > pc.f.saramaCfg.Consumer.Retry.Backoff {
-			log.Infof("<%s> trigger reassign: reason=(%s)", pc.actorID, reason)
+		if now.Sub(lastReassignTime) > ms.f.saramaCfg.Consumer.Retry.Backoff {
+			log.Infof("<%s> trigger reassign: reason=(%s)", ms.actorID, reason)
 			lastReassignTime = now
-			pc.f.mapper.WorkerReassign() <- pc
+			ms.f.mapper.WorkerReassign() <- ms
 		} else {
-			log.Infof("<%s> schedule reassign: reason=(%s)", pc.actorID, reason)
+			log.Infof("<%s> schedule reassign: reason=(%s)", ms.actorID, reason)
 		}
-		nilOrReassignRetryTimerCh = time.After(pc.f.saramaCfg.Consumer.Retry.Backoff)
+		nilOrReassignRetryTimerCh = time.After(ms.f.saramaCfg.Consumer.Retry.Backoff)
 	}
 pullMessagesLoop:
 	for {
 		select {
-		case bw := <-pc.assignmentCh:
-			log.Infof("<%s> assigned %s", pc.actorID, bw)
+		case bw := <-ms.assignmentCh:
+			log.Infof("<%s> assigned %s", ms.actorID, bw)
 			if bw == nil {
 				triggerOrScheduleReassign("no broker assigned")
 				continue pullMessagesLoop
 			}
-			bc := bw.(*brokerConsumer)
+			be := bw.(*brokerExecutor)
 			// A new leader broker has been assigned for the partition.
-			assignedFetchRequestCh = bc.requestsCh
+			assignedFetchRequestCh = be.requestsCh
 			// Cancel the reassign retry timer.
 			nilOrReassignRetryTimerCh = nil
 			// If there is a fetch request pending, then let it complete,
@@ -262,15 +264,15 @@ pullMessagesLoop:
 				nilOrFetchRequestsCh = assignedFetchRequestCh
 			}
 
-		case nilOrFetchRequestsCh <- fetchRequest{pc.tp.topic, pc.tp.partition, pc.offset, pc.fetchSize, pc.lag, fetchResultCh}:
+		case nilOrFetchRequestsCh <- fetchRequest{ms.tp.topic, ms.tp.partition, ms.offset, ms.fetchSize, ms.lag, fetchResultCh}:
 			nilOrFetchRequestsCh = nil
 			nilOrFetchResultsCh = fetchResultCh
 
 		case result := <-nilOrFetchResultsCh:
 			nilOrFetchResultsCh = nil
-			if fetchedMessages, err = pc.parseFetchResult(pc.actorID, result); err != nil {
-				log.Infof("<%s> fetch failed: err=%s", pc.actorID, err)
-				pc.reportError(err)
+			if fetchedMessages, err = ms.parseFetchResult(ms.actorID, result); err != nil {
+				log.Infof("<%s> fetch failed: err=%s", ms.actorID, err)
+				ms.reportError(err)
 				if err == sarama.ErrOffsetOutOfRange {
 					// There's no point in retrying this it will just fail the
 					// same way, therefore is nothing to do but give up.
@@ -287,10 +289,10 @@ pullMessagesLoop:
 			// Some messages have been fetched, start pushing them to the user.
 			currMessageIdx = 0
 			currMessage = fetchedMessages[currMessageIdx]
-			nilOrMessagesCh = pc.messagesCh
+			nilOrMessagesCh = ms.messagesCh
 
 		case nilOrMessagesCh <- currMessage:
-			pc.offset = currMessage.Offset + 1
+			ms.offset = currMessage.Offset + 1
 			currMessageIdx++
 			if currMessageIdx < len(fetchedMessages) {
 				currMessage = fetchedMessages[currMessageIdx]
@@ -301,21 +303,21 @@ pullMessagesLoop:
 			nilOrFetchRequestsCh = assignedFetchRequestCh
 
 		case <-nilOrReassignRetryTimerCh:
-			pc.f.mapper.WorkerReassign() <- pc
-			log.Infof("<%s> reassign triggered by timeout", pc.actorID)
-			nilOrReassignRetryTimerCh = time.After(pc.f.saramaCfg.Consumer.Retry.Backoff)
+			ms.f.mapper.WorkerReassign() <- ms
+			log.Infof("<%s> reassign triggered by timeout", ms.actorID)
+			nilOrReassignRetryTimerCh = time.After(ms.f.saramaCfg.Consumer.Retry.Backoff)
 
-		case <-pc.closingCh:
+		case <-ms.closingCh:
 			goto done
 		}
 	}
 done:
-	close(pc.messagesCh)
-	close(pc.errorsCh)
+	close(ms.messagesCh)
+	close(ms.errorsCh)
 }
 
 // parseFetchResult parses a fetch response received a broker.
-func (pc *partitionCsm) parseFetchResult(cid *actor.ID, fetchResult fetchResult) ([]*consumermsg.ConsumerMessage, error) {
+func (ms *msgStream) parseFetchResult(cid *actor.ID, fetchResult fetchResult) ([]*consumermsg.ConsumerMessage, error) {
 	if fetchResult.Err != nil {
 		return nil, fetchResult.Err
 	}
@@ -325,7 +327,7 @@ func (pc *partitionCsm) parseFetchResult(cid *actor.ID, fetchResult fetchResult)
 		return nil, sarama.ErrIncompleteResponse
 	}
 
-	block := response.GetBlock(pc.tp.topic, pc.tp.partition)
+	block := response.GetBlock(ms.tp.topic, ms.tp.partition)
 	if block == nil {
 		return nil, sarama.ErrIncompleteResponse
 	}
@@ -338,15 +340,15 @@ func (pc *partitionCsm) parseFetchResult(cid *actor.ID, fetchResult fetchResult)
 		// We got no messages. If we got a trailing one then we need to ask for more data.
 		// Otherwise we just poll again and wait for one to be produced...
 		if block.MsgSet.PartialTrailingMessage {
-			if pc.f.saramaCfg.Consumer.Fetch.Max > 0 && pc.fetchSize == pc.f.saramaCfg.Consumer.Fetch.Max {
+			if ms.f.saramaCfg.Consumer.Fetch.Max > 0 && ms.fetchSize == ms.f.saramaCfg.Consumer.Fetch.Max {
 				// we can't ask for more data, we've hit the configured limit
-				log.Infof("<%s> oversized message skipped: offset=%d", cid, pc.offset)
-				pc.reportError(sarama.ErrMessageTooLarge)
-				pc.offset++ // skip this one so we can keep processing future messages
+				log.Infof("<%s> oversized message skipped: offset=%d", cid, ms.offset)
+				ms.reportError(sarama.ErrMessageTooLarge)
+				ms.offset++ // skip this one so we can keep processing future messages
 			} else {
-				pc.fetchSize *= 2
-				if pc.f.saramaCfg.Consumer.Fetch.Max > 0 && pc.fetchSize > pc.f.saramaCfg.Consumer.Fetch.Max {
-					pc.fetchSize = pc.f.saramaCfg.Consumer.Fetch.Max
+				ms.fetchSize *= 2
+				if ms.f.saramaCfg.Consumer.Fetch.Max > 0 && ms.fetchSize > ms.f.saramaCfg.Consumer.Fetch.Max {
+					ms.fetchSize = ms.f.saramaCfg.Consumer.Fetch.Max
 				}
 			}
 		}
@@ -355,23 +357,23 @@ func (pc *partitionCsm) parseFetchResult(cid *actor.ID, fetchResult fetchResult)
 	}
 
 	// we got messages, reset our fetch size in case it was increased for a previous request
-	pc.fetchSize = pc.f.saramaCfg.Consumer.Fetch.Default
+	ms.fetchSize = ms.f.saramaCfg.Consumer.Fetch.Default
 	var fetchedMessages []*consumermsg.ConsumerMessage
 	for _, msgBlock := range block.MsgSet.Messages {
 		for _, msg := range msgBlock.Messages() {
-			if msg.Offset < pc.offset {
+			if msg.Offset < ms.offset {
 				continue
 			}
 			consumerMessage := &consumermsg.ConsumerMessage{
-				Topic:         pc.tp.topic,
-				Partition:     pc.tp.partition,
+				Topic:         ms.tp.topic,
+				Partition:     ms.tp.partition,
 				Key:           msg.Msg.Key,
 				Value:         msg.Msg.Value,
 				Offset:        msg.Offset,
 				HighWaterMark: block.HighWaterMarkOffset,
 			}
 			fetchedMessages = append(fetchedMessages, consumerMessage)
-			pc.lag = block.HighWaterMarkOffset - msg.Offset
+			ms.lag = block.HighWaterMarkOffset - msg.Offset
 		}
 	}
 
@@ -381,34 +383,35 @@ func (pc *partitionCsm) parseFetchResult(cid *actor.ID, fetchResult fetchResult)
 	return fetchedMessages, nil
 }
 
-// reportError sends partition consumer errors to the error channel if the user
-// configured the consumer to do so via `Config.Consumer.Return.Errors`.
-func (pc *partitionCsm) reportError(err error) {
-	if !pc.f.saramaCfg.Consumer.Return.Errors {
+// reportError sends message fetch errors to the error channel if the user
+// configured the message stream to do so via `Config.Consumer.Return.Errors`.
+func (ms *msgStream) reportError(err error) {
+	if !ms.f.saramaCfg.Consumer.Return.Errors {
 		return
 	}
 	ce := &consumermsg.ConsumerError{
-		Topic:     pc.tp.topic,
-		Partition: pc.tp.partition,
+		Topic:     ms.tp.topic,
+		Partition: ms.tp.partition,
 		Err:       err,
 	}
 	select {
-	case pc.errorsCh <- ce:
+	case ms.errorsCh <- ce:
 	default:
 	}
 }
 
-func (pc *partitionCsm) String() string {
-	return pc.actorID.String()
+func (ms *msgStream) String() string {
+	return ms.actorID.String()
 }
 
-// brokerConsumer maintains a connection with a particular Kafka broker. It
-// processes fetch requests from partition consumers and sends responses back.
-// The dispatcher goroutine of the master consumer is responsible for keeping
-// a broker consumer alive it is assigned to at least one partition consumer.
+// brokerExecutor maintains a connection with a particular Kafka broker. It
+// processes fetch requests from message stream instances and sends responses
+// back. The dispatcher goroutine of the message stream factory is responsible
+// for keeping a broker executor alive while it is assigned to at least one
+// message stream instance.
 //
 // implements `mapper.Executor`.
-type brokerConsumer struct {
+type brokerExecutor struct {
 	aggrActorID     *actor.ID
 	execActorID     *actor.ID
 	config          *sarama.Config
@@ -433,32 +436,32 @@ type fetchResult struct {
 }
 
 // implements `mapper.Executor`.
-func (bc *brokerConsumer) BrokerConn() *sarama.Broker {
-	return bc.conn
+func (be *brokerExecutor) BrokerConn() *sarama.Broker {
+	return be.conn
 }
 
 // implements `mapper.Executor`.
-func (bc *brokerConsumer) Stop() {
-	close(bc.requestsCh)
-	bc.wg.Wait()
+func (be *brokerExecutor) Stop() {
+	close(be.requestsCh)
+	be.wg.Wait()
 }
 
-// runAggregator collects fetch requests from partition consumers into batches
+// runAggregator collects fetch requests from message streams into batches
 // while the request executor goroutine is busy processing the previous batch.
 // As soon as the executor is done, a new batch is handed over to it.
-func (bc *brokerConsumer) runAggregator() {
-	defer close(bc.batchRequestsCh)
+func (be *brokerExecutor) runAggregator() {
+	defer close(be.batchRequestsCh)
 
 	var nilOrBatchRequestCh chan<- []fetchRequest
 	var batchRequest []fetchRequest
 	for {
 		select {
-		case fr, ok := <-bc.requestsCh:
+		case fr, ok := <-be.requestsCh:
 			if !ok {
 				return
 			}
 			batchRequest = append(batchRequest, fr)
-			nilOrBatchRequestCh = bc.batchRequestsCh
+			nilOrBatchRequestCh = be.batchRequestsCh
 		case nilOrBatchRequestCh <- batchRequest:
 			batchRequest = nil
 			// Disable batchRequestsCh until we have at least one fetch request.
@@ -467,44 +470,45 @@ func (bc *brokerConsumer) runAggregator() {
 	}
 }
 
-// runExecutor executes fetch request received from partition consumers.
-func (bc *brokerConsumer) runExecutor() {
+// runExecutor executes fetch request aggregated into batches by the aggregator
+// goroutine of the broker executor.
+func (be *brokerExecutor) runExecutor() {
 	var lastErr error
 	var lastErrTime time.Time
-	for fetchRequests := range bc.batchRequestsCh {
+	for fetchRequests := range be.batchRequestsCh {
 		// Reject consume requests for awhile after a connection failure to
 		// allow the Kafka cluster some time to recuperate.
-		if time.Now().UTC().Sub(lastErrTime) < bc.config.Consumer.Retry.Backoff {
+		if time.Now().UTC().Sub(lastErrTime) < be.config.Consumer.Retry.Backoff {
 			for _, fr := range fetchRequests {
 				fr.ReplyToCh <- fetchResult{nil, lastErr}
 			}
 			continue
 		}
-		// Make a batch fetch request for all hungry partition consumers.
+		// Make a batch fetch request for all hungry message streams.
 		req := &sarama.FetchRequest{
-			MinBytes:    bc.config.Consumer.Fetch.Min,
-			MaxWaitTime: int32(bc.config.Consumer.MaxWaitTime / time.Millisecond),
+			MinBytes:    be.config.Consumer.Fetch.Min,
+			MaxWaitTime: int32(be.config.Consumer.MaxWaitTime / time.Millisecond),
 		}
 		for _, fr := range fetchRequests {
 			req.AddBlock(fr.Topic, fr.Partition, fr.Offset, fr.MaxBytes)
 		}
 		var res *sarama.FetchResponse
-		res, lastErr = bc.conn.Fetch(req)
+		res, lastErr = be.conn.Fetch(req)
 		if lastErr != nil {
 			lastErrTime = time.Now().UTC()
-			bc.conn.Close()
-			log.Infof("<%s> connection reset: err=(%s)", bc.execActorID, lastErr)
+			be.conn.Close()
+			log.Infof("<%s> connection reset: err=(%s)", be.execActorID, lastErr)
 		}
-		// Fan the response out to the partition consumers.
+		// Fan the response out to the message streams.
 		for _, fr := range fetchRequests {
 			fr.ReplyToCh <- fetchResult{res, lastErr}
 		}
 	}
 }
 
-func (bc *brokerConsumer) String() string {
-	if bc == nil {
+func (be *brokerExecutor) String() string {
+	if be == nil {
 		return "<nil>"
 	}
-	return bc.aggrActorID.String()
+	return be.aggrActorID.String()
 }

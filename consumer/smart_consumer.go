@@ -11,8 +11,8 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer/consumermsg"
 	"github.com/mailgun/kafka-pixy/consumer/dispatcher"
 	"github.com/mailgun/kafka-pixy/consumer/groupmember"
+	"github.com/mailgun/kafka-pixy/consumer/msgstream"
 	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
-	"github.com/mailgun/kafka-pixy/consumer/partitioncsm"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
 	"github.com/wvanbergen/kazoo-go"
@@ -231,7 +231,7 @@ type exclusiveConsumer struct {
 	topic               string
 	partition           int32
 	groupMember         *groupmember.T
-	partitionCsmFactory partitioncsm.Factory
+	partitionCsmFactory msgstream.Factory
 	offsetMgrFactory    offsetmgr.Factory
 	messagesCh          chan *consumermsg.ConsumerMessage
 	acksCh              chan *consumermsg.ConsumerMessage
@@ -286,13 +286,13 @@ func (ec *exclusiveConsumer) run() {
 		return
 	}
 
-	pc, concreteOffset, err := ec.partitionCsmFactory.SpawnPartitionConsumer(ec.actorID, ec.topic, ec.partition, initialOffset.Offset)
+	ms, concreteOffset, err := ec.partitionCsmFactory.SpawnMessageStream(ec.actorID, ec.topic, ec.partition, initialOffset.Offset)
 	if err != nil {
 		// Must never happen.
-		log.Errorf("<%s> failed to start partition consumer: offset=%d, err=(%s)", ec.actorID, initialOffset.Offset, err)
+		log.Errorf("<%s> failed to start message stream: offset=%d, err=(%s)", ec.actorID, initialOffset.Offset, err)
 		return
 	}
-	defer pc.Stop()
+	defer ms.Stop()
 	if initialOffset.Offset != concreteOffset {
 		log.Errorf("<%s> invalid initial offset: stored=%d, adjusted=%d",
 			ec.actorID, initialOffset.Offset, concreteOffset)
@@ -314,7 +314,7 @@ func (ec *exclusiveConsumer) run() {
 		// partition consumer.
 		for {
 			select {
-			case msg = <-pc.Messages():
+			case msg = <-ms.Messages():
 				// Notify tests when the very first message is fetched.
 				if !firstMessageFetched && firstMessageFetchedCh != nil {
 					firstMessageFetched = true
