@@ -299,7 +299,7 @@ func (s *ConsumerSuite) TestRebalanceOnLeave(c *C) {
 	for i := 0; i < 3; i++ {
 		consumed[i] = s.consume(c, consumers[i], "g1", "test.4", 1)
 	}
-	// consumer[0] can consume the first message from all partitions and
+	// consumer[0] can consume the first message from any partition and
 	// consumer[1] can consume the first message from either `B` or `C`.
 	log.Infof("*** GIVEN 2")
 	if len(consumed[0]["A"]) == 1 {
@@ -344,9 +344,12 @@ func (s *ConsumerSuite) TestRebalanceOnLeave(c *C) {
 			consumedSoFar[key] = consumedSoFar[key] + len(consumedWithKey)
 		}
 	}
-	leftToBeConsumedBy1 := 20 - (consumedSoFar["B"] + consumedSoFar["C"])
-	consumedBy1 := s.consume(c, consumers[1], "g1", "test.4", leftToBeConsumedBy1)
-	c.Assert(len(consumedBy1["B"]), Equals, 10-consumedSoFar["B"])
+	yetToBeConsumedBy1 := (len(produced["B"]) + len(produced["C"])) - (consumedSoFar["B"] + consumedSoFar["C"])
+	log.Infof("*** Consumed so far: %v", consumedSoFar)
+	log.Infof("*** Yet to be consumed by cons[1]: %v", yetToBeConsumedBy1)
+
+	consumedBy1 := s.consume(c, consumers[1], "g1", "test.4", yetToBeConsumedBy1)
+	c.Assert(len(consumedBy1["B"]), Equals, len(produced["B"])-consumedSoFar["B"])
 	c.Assert(consumedBy1["B"][0].Offset, Equals, lastConsumedFromBby2.Offset+1)
 }
 
@@ -355,7 +358,7 @@ func (s *ConsumerSuite) TestRebalanceOnLeave(c *C) {
 func (s *ConsumerSuite) TestRebalanceOnTimeout(c *C) {
 	// Given
 	s.kh.ResetOffsets("g1", "test.4")
-	s.kh.PutMessages("join", "test.4", map[string]int{"A": 10, "B": 10})
+	s.kh.PutMessages("timeout", "test.4", map[string]int{"A": 10, "B": 10})
 
 	sc1, err := Spawn(s.ns, testhelpers.NewTestConfig("consumer-1"))
 	c.Assert(err, IsNil)
