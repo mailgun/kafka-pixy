@@ -1,12 +1,13 @@
 package msgstream
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
-	"github.com/mailgun/kafka-pixy/consumer/consumermsg"
+	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/consumer/mapper"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
@@ -37,18 +38,39 @@ type Factory interface {
 type T interface {
 	// Messages returns the read channel for the messages that are fetched from
 	// the topic partition.
-	Messages() <-chan *consumermsg.ConsumerMessage
+	Messages() <-chan *consumer.Message
 
 	// Errors returns a read channel of errors that occurred during consuming,
 	// if enabled. By default, errors are logged and not returned over this
 	// channel. If you want to implement any custom error handling, set your
 	// config's Consumer.Return.Errors setting to true, and read from this
 	// channel.
-	Errors() <-chan *consumermsg.ConsumerError
+	Errors() <-chan *Err
 
 	// Stop synchronously stops the partition consumer. It must be called
 	// before the factory that created the instance can be stopped.
 	Stop()
+}
+
+// Err is what is provided to the user when an error occurs.
+// It wraps an error and includes the topic and partition.
+type Err struct {
+	Topic     string
+	Partition int32
+	Err       error
+}
+
+func (ce Err) Error() string {
+	return fmt.Sprintf("kafka: error while consuming %s/%d: %s", ce.Topic, ce.Partition, ce.Err)
+}
+
+// ConsumerErrors is a type that wraps a batch of errors and implements the Error interface.
+// It can be returned from the PartitionConsumer's Close methods to avoid the need to manually drain errors
+// when stopping.
+type Errors []*Err
+
+func (ce Errors) Error() string {
+	return fmt.Sprintf("kafka: %d errors while consuming", len(ce))
 }
 
 type factory struct {
@@ -165,8 +187,8 @@ type msgStream struct {
 	lag          int64
 	assignmentCh chan mapper.Executor
 	initErrorCh  chan error
-	messagesCh   chan *consumermsg.ConsumerMessage
-	errorsCh     chan *consumermsg.ConsumerError
+	messagesCh   chan *consumer.Message
+	errorsCh     chan *Err
 	closingCh    chan none.T
 	wg           sync.WaitGroup
 }
@@ -178,8 +200,8 @@ func (f *factory) spawnMsgStream(namespace *actor.ID, tp topicPartition, offset 
 		tp:           tp,
 		assignmentCh: make(chan mapper.Executor, 1),
 		initErrorCh:  make(chan error),
-		messagesCh:   make(chan *consumermsg.ConsumerMessage, f.saramaCfg.ChannelBufferSize),
-		errorsCh:     make(chan *consumermsg.ConsumerError, f.saramaCfg.ChannelBufferSize),
+		messagesCh:   make(chan *consumer.Message, f.saramaCfg.ChannelBufferSize),
+		errorsCh:     make(chan *Err, f.saramaCfg.ChannelBufferSize),
 		closingCh:    make(chan none.T, 1),
 		offset:       offset,
 		fetchSize:    f.saramaCfg.Consumer.Fetch.Default,
@@ -189,12 +211,12 @@ func (f *factory) spawnMsgStream(namespace *actor.ID, tp topicPartition, offset 
 }
 
 // implements `Factory`.
-func (ms *msgStream) Messages() <-chan *consumermsg.ConsumerMessage {
+func (ms *msgStream) Messages() <-chan *consumer.Message {
 	return ms.messagesCh
 }
 
 // implements `Factory`.
-func (ms *msgStream) Errors() <-chan *consumermsg.ConsumerError {
+func (ms *msgStream) Errors() <-chan *Err {
 	return ms.errorsCh
 }
 
@@ -224,11 +246,11 @@ func (ms *msgStream) run() {
 		nilOrFetchRequestsCh      chan<- fetchRequest
 		fetchResultCh             = make(chan fetchResult, 1)
 		nilOrFetchResultsCh       <-chan fetchResult
-		nilOrMessagesCh           chan<- *consumermsg.ConsumerMessage
+		nilOrMessagesCh           chan<- *consumer.Message
 		nilOrReassignRetryTimerCh <-chan time.Time
-		fetchedMessages           []*consumermsg.ConsumerMessage
+		fetchedMessages           []*consumer.Message
 		err                       error
-		currMessage               *consumermsg.ConsumerMessage
+		currMessage               *consumer.Message
 		currMessageIdx            int
 		lastReassignTime          time.Time
 	)
@@ -317,7 +339,7 @@ done:
 }
 
 // parseFetchResult parses a fetch response received a broker.
-func (ms *msgStream) parseFetchResult(cid *actor.ID, fetchResult fetchResult) ([]*consumermsg.ConsumerMessage, error) {
+func (ms *msgStream) parseFetchResult(cid *actor.ID, fetchResult fetchResult) ([]*consumer.Message, error) {
 	if fetchResult.Err != nil {
 		return nil, fetchResult.Err
 	}
@@ -358,13 +380,13 @@ func (ms *msgStream) parseFetchResult(cid *actor.ID, fetchResult fetchResult) ([
 
 	// we got messages, reset our fetch size in case it was increased for a previous request
 	ms.fetchSize = ms.f.saramaCfg.Consumer.Fetch.Default
-	var fetchedMessages []*consumermsg.ConsumerMessage
+	var fetchedMessages []*consumer.Message
 	for _, msgBlock := range block.MsgSet.Messages {
 		for _, msg := range msgBlock.Messages() {
 			if msg.Offset < ms.offset {
 				continue
 			}
-			consumerMessage := &consumermsg.ConsumerMessage{
+			consumerMessage := &consumer.Message{
 				Topic:         ms.tp.topic,
 				Partition:     ms.tp.partition,
 				Key:           msg.Msg.Key,
@@ -389,7 +411,7 @@ func (ms *msgStream) reportError(err error) {
 	if !ms.f.saramaCfg.Consumer.Return.Errors {
 		return
 	}
-	ce := &consumermsg.ConsumerError{
+	ce := &Err{
 		Topic:     ms.tp.topic,
 		Partition: ms.tp.partition,
 		Err:       err,

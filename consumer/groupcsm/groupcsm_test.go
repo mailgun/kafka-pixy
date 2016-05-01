@@ -1,17 +1,31 @@
-package consumer
+package groupcsm
 
 import (
 	"errors"
+	"testing"
+
+	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/testhelpers"
 	. "gopkg.in/check.v1"
 )
 
+func Test(t *testing.T) {
+	TestingT(t)
+}
+
 type GroupConsumerSuite struct {
+	ns *actor.ID
 }
 
 var _ = Suite(&GroupConsumerSuite{})
 
 func (s *GroupConsumerSuite) SetUpSuite(c *C) {
+	testhelpers.InitLogging(c)
+}
+
+func (s *GroupConsumerSuite) SetUpTest(*C) {
+	s.ns = actor.RootID.NewChild("T")
 }
 
 func (s *GroupConsumerSuite) TestAssignTopicPartitions(c *C) {
@@ -79,7 +93,7 @@ func (s *GroupConsumerSuite) TestAssignTopicPartitions(c *C) {
 func (s *GroupConsumerSuite) TestResolvePartitions(c *C) {
 	cfg := config.Default()
 	cfg.ClientID = "c"
-	gc := groupConsumer{
+	gc := T{
 		cfg: cfg,
 		fetchTopicPartitionsFn: func(topic string) ([]int32, error) {
 			return map[string][]int32{
@@ -115,7 +129,7 @@ func (s *GroupConsumerSuite) TestResolvePartitions(c *C) {
 func (s *GroupConsumerSuite) TestResolvePartitionsEmpty(c *C) {
 	cfg := config.Default()
 	cfg.ClientID = "c"
-	gc := groupConsumer{
+	gc := T{
 		cfg: cfg,
 		fetchTopicPartitionsFn: func(topic string) ([]int32, error) {
 			return nil, nil
@@ -133,7 +147,7 @@ func (s *GroupConsumerSuite) TestResolvePartitionsEmpty(c *C) {
 func (s *GroupConsumerSuite) TestResolvePartitionsError(c *C) {
 	cfg := config.Default()
 	cfg.ClientID = "c"
-	gc := groupConsumer{
+	gc := T{
 		cfg: cfg,
 		fetchTopicPartitionsFn: func(topic string) ([]int32, error) {
 			return nil, errors.New("Kaboom!")

@@ -14,9 +14,9 @@ import (
 	"github.com/wvanbergen/kazoo-go"
 )
 
-// GroupMember maintains a consumer group member registration in ZooKeeper,
-// watches for other members to join, leave and update their subscriptions, and
-// generates notifications of such changes.
+// T maintains a consumer group member registration in ZooKeeper, watches for
+// other members to join, leave and update their subscriptions, and generates
+// notifications of such changes.
 type T struct {
 	actorID          *actor.ID
 	cfg              *config.T

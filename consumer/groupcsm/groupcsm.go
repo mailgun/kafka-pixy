@@ -1,4 +1,4 @@
-package consumer
+package groupcsm
 
 import (
 	"fmt"
@@ -9,12 +9,14 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
-	"github.com/mailgun/kafka-pixy/consumer/consumermsg"
+	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/consumer/dispatcher"
 	"github.com/mailgun/kafka-pixy/consumer/groupmember"
 	"github.com/mailgun/kafka-pixy/consumer/msgstream"
 	"github.com/mailgun/kafka-pixy/consumer/multiplexer"
 	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
+	"github.com/mailgun/kafka-pixy/consumer/partitioncsm"
+	"github.com/mailgun/kafka-pixy/consumer/topiccsm"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
 	"github.com/wvanbergen/kazoo-go"
@@ -22,108 +24,109 @@ import (
 
 // groupConsumer manages a fleet of topic consumers and disposes of those that
 // have been inactive for the `Config.Consumer.DisposeAfter` period of time.
-type groupConsumer struct {
-	supervisorActorID       *actor.ID
-	managerActorID          *actor.ID
-	cfg                     *config.T
-	group                   string
-	dispatcher              *dispatcher.T
-	kafkaClient             sarama.Client
-	partitionCsmFactory     msgstream.Factory
-	offsetMgrFactory        offsetmgr.Factory
-	kazooConn               *kazoo.Kazoo
-	groupMember             *groupmember.T
-	multiplexers            map[string]*multiplexer.T
-	topicConsumerLifespanCh chan *topicConsumer
-	stoppingCh              chan none.T
-	wg                      sync.WaitGroup
+//
+// implements `dispatcher.Factory`.
+// implements `dispatcher.Tier`.
+type T struct {
+	supActorID         *actor.ID
+	mgrActorID         *actor.ID
+	cfg                *config.T
+	group              string
+	dispatcher         *dispatcher.T
+	saramaClient       sarama.Client
+	kazooConn          *kazoo.Kazoo
+	msgStreamFactory   msgstream.Factory
+	offsetMgrFactory   offsetmgr.Factory
+	groupMember        *groupmember.T
+	multiplexers       map[string]*multiplexer.T
+	topicCsmLifespanCh chan *topiccsm.T
+	stopCh             chan none.T
+	wg                 sync.WaitGroup
 
 	// Exist just to be overridden in tests with mocks.
 	fetchTopicPartitionsFn func(topic string) ([]int32, error)
-	muxInputsAsyncFn       func()
 }
 
-func (sc *T) newConsumerGroup(group string) *groupConsumer {
-	supervisorActorID := sc.namespace.NewChild(fmt.Sprintf("G:%s", group))
-	gc := &groupConsumer{
-		supervisorActorID:       supervisorActorID,
-		managerActorID:          supervisorActorID.NewChild("manager"),
-		cfg:                     sc.cfg,
-		group:                   group,
-		kafkaClient:             sc.kafkaClient,
-		offsetMgrFactory:        sc.offsetMgrFactory,
-		kazooConn:               sc.kazooConn,
-		multiplexers:            make(map[string]*multiplexer.T),
-		topicConsumerLifespanCh: make(chan *topicConsumer),
-		stoppingCh:              make(chan none.T),
+func New(namespace *actor.ID, group string, cfg *config.T, saramaClient sarama.Client,
+	kazooConn *kazoo.Kazoo, offsetMgrFactory offsetmgr.Factory,
+) *T {
+	supervisorActorID := namespace.NewChild(fmt.Sprintf("G:%s", group))
+	gc := &T{
+		supActorID:         supervisorActorID,
+		mgrActorID:         supervisorActorID.NewChild("manager"),
+		cfg:                cfg,
+		group:              group,
+		saramaClient:       saramaClient,
+		kazooConn:          kazooConn,
+		offsetMgrFactory:   offsetMgrFactory,
+		multiplexers:       make(map[string]*multiplexer.T),
+		topicCsmLifespanCh: make(chan *topiccsm.T),
+		stopCh:             make(chan none.T),
 
-		fetchTopicPartitionsFn: sc.kafkaClient.Partitions,
+		fetchTopicPartitionsFn: saramaClient.Partitions,
 	}
-	gc.dispatcher = dispatcher.New(gc.supervisorActorID, gc, sc.cfg)
+	gc.dispatcher = dispatcher.New(gc.supActorID, gc, cfg)
 	return gc
 }
 
-func (gc *groupConsumer) String() string {
-	return gc.supervisorActorID.String()
-}
-
-func (gc *groupConsumer) topicConsumerLifespan() chan<- *topicConsumer {
-	return gc.topicConsumerLifespanCh
-}
-
-// implements `dispatcher.Tier`.
-func (gc *groupConsumer) Key() string {
-	return gc.group
-}
-
-// implements `dispatcher.Tier`.
-func (gc *groupConsumer) Requests() chan<- dispatcher.Request {
-	return gc.dispatcher.Requests()
-}
-
-// implements `dispatcher.Tier`.
-func (gc *groupConsumer) Start(stoppedCh chan<- dispatcher.Tier) {
-	actor.Spawn(gc.supervisorActorID, &gc.wg, func() {
-		defer func() { stoppedCh <- gc }()
-		var err error
-		gc.partitionCsmFactory, err = msgstream.SpawnFactory(gc.supervisorActorID, gc.kafkaClient)
-		if err != nil {
-			// Must never happen.
-			panic(consumermsg.ErrSetup(fmt.Errorf("failed to create sarama.Consumer: err=(%v)", err)))
-		}
-		gc.groupMember = groupmember.Spawn(gc.supervisorActorID, gc.group, gc.cfg.ClientID, gc.cfg, gc.kazooConn)
-		var manageWg sync.WaitGroup
-		actor.Spawn(gc.managerActorID, &manageWg, gc.runManager)
-		gc.dispatcher.Start()
-		// Wait for a stop signal and shutdown gracefully when one is received.
-		<-gc.stoppingCh
-		gc.dispatcher.Stop()
-		gc.groupMember.Stop()
-		manageWg.Wait()
-		gc.partitionCsmFactory.Stop()
-	})
-}
-
-// implements `dispatcher.Tier`.
-func (gc *groupConsumer) Stop() {
-	close(gc.stoppingCh)
-	gc.wg.Wait()
-}
-
 // implements `dispatcher.Factory`.
-func (gc *groupConsumer) KeyOf(req dispatcher.Request) string {
+func (gc *T) KeyOf(req dispatcher.Request) string {
 	return req.Topic
 }
 
 // implements `dispatcher.Factory`.
-func (gc *groupConsumer) NewTier(key string) dispatcher.Tier {
-	tc := gc.newTopicConsumer(key)
+func (gc *T) NewTier(key string) dispatcher.Tier {
+	tc := topiccsm.New(gc.supActorID, gc.group, key, gc.cfg, gc.topicCsmLifespanCh)
 	return tc
 }
 
-func (gc *groupConsumer) runManager() {
+// implements `dispatcher.Tier`.
+func (gc *T) Key() string {
+	return gc.group
+}
+
+// implements `dispatcher.Tier`.
+func (gc *T) Requests() chan<- dispatcher.Request {
+	return gc.dispatcher.Requests()
+}
+
+// implements `dispatcher.Tier`.
+func (gc *T) Start(stoppedCh chan<- dispatcher.Tier) {
+	actor.Spawn(gc.supActorID, &gc.wg, func() {
+		defer func() { stoppedCh <- gc }()
+		var err error
+		gc.msgStreamFactory, err = msgstream.SpawnFactory(gc.supActorID, gc.saramaClient)
+		if err != nil {
+			// Must never happen.
+			panic(consumer.ErrSetup(fmt.Errorf("failed to create sarama.Consumer: err=(%v)", err)))
+		}
+		gc.groupMember = groupmember.Spawn(gc.supActorID, gc.group, gc.cfg.ClientID, gc.cfg, gc.kazooConn)
+		var manageWg sync.WaitGroup
+		actor.Spawn(gc.mgrActorID, &manageWg, gc.runManager)
+		gc.dispatcher.Start()
+		// Wait for a stop signal and shutdown gracefully when one is received.
+		<-gc.stopCh
+		gc.dispatcher.Stop()
+		gc.groupMember.Stop()
+		manageWg.Wait()
+		gc.msgStreamFactory.Stop()
+	})
+}
+
+// implements `dispatcher.Tier`.
+func (gc *T) Stop() {
+	close(gc.stopCh)
+	gc.wg.Wait()
+}
+
+// String return string ID of this group consumer to be posted in logs.
+func (gc *T) String() string {
+	return gc.supActorID.String()
+}
+
+func (gc *T) runManager() {
 	var (
-		topicConsumers                = make(map[string]*topicConsumer)
+		topicConsumers                = make(map[string]*topiccsm.T)
 		topics                        []string
 		subscriptions                 map[string][]string
 		ok                            = true
@@ -134,13 +137,13 @@ func (gc *groupConsumer) runManager() {
 	)
 	for {
 		select {
-		case tc := <-gc.topicConsumerLifespanCh:
+		case tc := <-gc.topicCsmLifespanCh:
 			// It is assumed that only one topicConsumer can exist for a
 			// particular topic at a time.
-			if topicConsumers[tc.topic] == tc {
-				delete(topicConsumers, tc.topic)
+			if topicConsumers[tc.Topic()] == tc {
+				delete(topicConsumers, tc.Topic())
 			} else {
-				topicConsumers[tc.topic] = tc
+				topicConsumers[tc.Topic()] = tc
 			}
 			topics = listTopics(topicConsumers)
 			nilOrRegistryTopicsCh = gc.groupMember.Topics()
@@ -157,7 +160,7 @@ func (gc *groupConsumer) runManager() {
 		case err := <-rebalanceResultCh:
 			canRebalance = true
 			if err != nil {
-				log.Errorf("<%s> rebalance failed: err=(%s)", gc.managerActorID, err)
+				log.Errorf("<%s> rebalance failed: err=(%s)", gc.mgrActorID, err)
 				nilOrRetryCh = time.After(gc.cfg.Consumer.BackOffTimeout)
 				continue
 			}
@@ -168,11 +171,11 @@ func (gc *groupConsumer) runManager() {
 		if shouldRebalance && canRebalance {
 			// Copy topicConsumers to make sure `rebalance` doesn't see any
 			// changes we make while it is running.
-			topicConsumerCopy := make(map[string]*topicConsumer, len(topicConsumers))
+			topicConsumerCopy := make(map[string]*topiccsm.T, len(topicConsumers))
 			for topic, tc := range topicConsumers {
 				topicConsumerCopy[topic] = tc
 			}
-			rebalancerActorID := gc.managerActorID.NewChild("rebalancer")
+			rebalancerActorID := gc.mgrActorID.NewChild("rebalancer")
 			subscriptions := subscriptions
 			actor.Spawn(rebalancerActorID, nil, func() {
 				gc.runRebalancer(rebalancerActorID, topicConsumerCopy, subscriptions, rebalanceResultCh)
@@ -192,7 +195,7 @@ done:
 	wg.Wait()
 }
 
-func (gc *groupConsumer) runRebalancer(actorID *actor.ID, topicConsumers map[string]*topicConsumer,
+func (gc *T) runRebalancer(actorID *actor.ID, topicConsumers map[string]*topiccsm.T,
 	subscriptions map[string][]string, rebalanceResultCh chan<- error,
 ) {
 	assignedPartitions, err := gc.resolvePartitions(subscriptions)
@@ -217,9 +220,10 @@ func (gc *groupConsumer) runRebalancer(actorID *actor.ID, topicConsumers map[str
 		}
 		topic := topic
 		spawnInF := func(partition int32) multiplexer.In {
-			return gc.spawnExclusiveConsumer(gc.supervisorActorID, topic, partition)
+			return partitioncsm.Spawn(gc.supActorID, gc.group, topic, partition,
+				gc.cfg, gc.groupMember, gc.msgStreamFactory, gc.offsetMgrFactory)
 		}
-		mux = multiplexer.New(gc.supervisorActorID, spawnInF)
+		mux = multiplexer.New(gc.supActorID, spawnInF)
 		gc.rewireMuxAsync(&wg, mux, tc, assignedTopicPartitions)
 		gc.multiplexers[topic] = mux
 	}
@@ -235,17 +239,17 @@ func (gc *groupConsumer) runRebalancer(actorID *actor.ID, topicConsumers map[str
 	return
 }
 
-// muxInputsAsync calls muxInputs in another goroutine.
-func (gc *groupConsumer) rewireMuxAsync(wg *sync.WaitGroup, mux *multiplexer.T, tc *topicConsumer, assigned []int32) {
-	actor.Spawn(gc.supervisorActorID.NewChild("rewire", tc.topic), wg, func() {
+// rewireMuxAsync calls muxInputs in another goroutine.
+func (gc *T) rewireMuxAsync(wg *sync.WaitGroup, mux *multiplexer.T, tc *topiccsm.T, assigned []int32) {
+	actor.Spawn(gc.supActorID.NewChild("rewire", tc.Topic()), wg, func() {
 		mux.WireUp(tc, assigned)
 	})
 }
 
 // resolvePartitions given topic subscriptions of all consumer group members,
 // resolves what topic partitions are assigned to the specified group member.
-func (gc *groupConsumer) resolvePartitions(subscriptions map[string][]string) (
-	assignedPartitions map[string][]int32, err error,
+func (gc *T) resolvePartitions(subscriptions map[string][]string) (
+	map[string][]int32, error,
 ) {
 	// Convert members->topics to topic->members map.
 	topicsToMembers := make(map[string][]string)
@@ -260,7 +264,7 @@ func (gc *groupConsumer) resolvePartitions(subscriptions map[string][]string) (
 		subscribedTopics[topic] = true
 	}
 	// Resolve new partition assignments for all subscribed topics.
-	assignedPartitions = make(map[string][]int32)
+	assignedPartitions := make(map[string][]int32)
 	for topic := range subscribedTopics {
 		topicPartitions, err := gc.fetchTopicPartitionsFn(topic)
 		if err != nil {
@@ -310,7 +314,7 @@ func assignTopicPartitions(partitions []int32, subscribers []string) map[string]
 	return subscribersToPartitions
 }
 
-func listTopics(topicConsumers map[string]*topicConsumer) []string {
+func listTopics(topicConsumers map[string]*topiccsm.T) []string {
 	topics := make([]string, 0, len(topicConsumers))
 	for topic := range topicConsumers {
 		topics = append(topics, topic)

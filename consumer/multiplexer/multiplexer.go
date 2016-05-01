@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/mailgun/kafka-pixy/actor"
-	"github.com/mailgun/kafka-pixy/consumer/consumermsg"
+	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/none"
 )
 
@@ -27,12 +27,12 @@ type T struct {
 // In defines an interface of a multiplexer input.
 type In interface {
 	// Messages returns channel that multiplexer receives messages from.
-	Messages() <-chan *consumermsg.ConsumerMessage
+	Messages() <-chan *consumer.Message
 
 	// Acks returns a channel that multiplexer sends a message that was pulled
 	// from the `Messages()` channel of this input after the message has been
 	// send to the output.
-	Acks() chan<- *consumermsg.ConsumerMessage
+	Acks() chan<- *consumer.Message
 
 	// Stop signals the input to stop and blocks waiting for its goroutines to
 	// complete.
@@ -42,7 +42,7 @@ type In interface {
 // Out defines an interface of multiplexer output.
 type Out interface {
 	// Messages returns channel that multiplexer sends messages to.
-	Messages() chan<- *consumermsg.ConsumerMessage
+	Messages() chan<- *consumer.Message
 }
 
 // SpawnInF is a function type that is used by multiplexer to spawn inputs for
@@ -63,7 +63,7 @@ func New(namespace *actor.ID, spawnInF SpawnInF) *T {
 // that input next.
 type fetchedInput struct {
 	in      In
-	nextMsg *consumermsg.ConsumerMessage
+	nextMsg *consumer.Message
 }
 
 // IsRunning returns `true` if multiplexer is running pumping events from the
@@ -176,7 +176,7 @@ func (m *T) run() {
 			if selected == inputCount {
 				return
 			}
-			sortedIns[selected].nextMsg = value.Interface().(*consumermsg.ConsumerMessage)
+			sortedIns[selected].nextMsg = value.Interface().(*consumer.Message)
 		}
 		// At this point there is at least one next message available.
 		inputIdx = selectInput(inputIdx, sortedIns)

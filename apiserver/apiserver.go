@@ -14,7 +14,6 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/admin"
 	"github.com/mailgun/kafka-pixy/consumer"
-	"github.com/mailgun/kafka-pixy/consumer/consumermsg"
 	"github.com/mailgun/kafka-pixy/prettyfmt"
 	"github.com/mailgun/kafka-pixy/producer"
 	"github.com/mailgun/log"
@@ -45,8 +44,8 @@ type T struct {
 	addr       string
 	listener   net.Listener
 	httpServer *manners.GracefulServer
-	producer   *producer.T
-	consumer   *consumer.T
+	prod       *producer.T
+	cons       consumer.T
 	admin      *admin.T
 	errorCh    chan error
 }
@@ -54,7 +53,7 @@ type T struct {
 // New creates an HTTP server instance that will accept API requests at the
 // specified `network`/`address` and execute them with the specified `producer`,
 // `consumer`, or `admin`, depending on the request type.
-func New(network, addr string, producer *producer.T, consumer *consumer.T, admin *admin.T) (*T, error) {
+func New(network, addr string, prod *producer.T, cons consumer.T, admin *admin.T) (*T, error) {
 	// Start listening on the specified network/address.
 	listener, err := net.Listen(network, addr)
 	if err != nil {
@@ -74,8 +73,8 @@ func New(network, addr string, producer *producer.T, consumer *consumer.T, admin
 		addr:       addr,
 		listener:   manners.NewListener(listener),
 		httpServer: httpServer,
-		producer:   producer,
-		consumer:   consumer,
+		prod:       prod,
+		cons:       cons,
 		admin:      admin,
 		errorCh:    make(chan error, 1),
 	}
@@ -154,12 +153,12 @@ func (as *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 
 	// Asynchronously submit the message to the Kafka cluster.
 	if !isSync {
-		as.producer.AsyncProduce(topic, toEncoderPreservingNil(key), sarama.StringEncoder(message))
+		as.prod.AsyncProduce(topic, toEncoderPreservingNil(key), sarama.StringEncoder(message))
 		respondWithJSON(w, http.StatusOK, EmptyResponse)
 		return
 	}
 
-	prodMsg, err := as.producer.Produce(topic, toEncoderPreservingNil(key), sarama.StringEncoder(message))
+	prodMsg, err := as.prod.Produce(topic, toEncoderPreservingNil(key), sarama.StringEncoder(message))
 	if err != nil {
 		var status int
 		switch err {
@@ -189,13 +188,13 @@ func (as *T) handleConsume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	consMsg, err := as.consumer.Consume(group, topic)
+	consMsg, err := as.cons.Consume(group, topic)
 	if err != nil {
 		var status int
 		switch err.(type) {
-		case consumermsg.ErrRequestTimeout:
+		case consumer.ErrRequestTimeout:
 			status = http.StatusRequestTimeout
-		case consumermsg.ErrBufferOverflow:
+		case consumer.ErrBufferOverflow:
 			status = 429 // StatusTooManyRequests
 		default:
 			status = http.StatusInternalServerError
