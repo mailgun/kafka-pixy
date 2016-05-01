@@ -85,7 +85,11 @@ func (pc *T) run() {
 		log.Errorf("<%s> failed to spawn offset manager: err=(%s)", pc.actorID, err)
 		return
 	}
-	defer om.Stop()
+	defer func() {
+		if om != nil {
+			om.Stop()
+		}
+	}()
 
 	// Wait for the initial offset to be retrieved.
 	var initialOffset offsetmgr.DecoratedOffset
@@ -108,13 +112,12 @@ func (pc *T) run() {
 	}
 	log.Infof("<%s> initialized: offset=%d", pc.actorID, concreteOffset)
 
-	var lastSubmittedOffset, lastCommittedOffset int64
-
 	// Initialize the Kafka offset storage for a group on first consumption.
 	if initialOffset.Offset == sarama.OffsetNewest {
 		om.SubmitOffset(concreteOffset, "")
-		lastSubmittedOffset = concreteOffset
 	}
+	lastSubmittedOffset := concreteOffset
+	lastCommittedOffset := concreteOffset
 
 	firstMessageFetched := false
 	for {
@@ -157,21 +160,20 @@ func (pc *T) run() {
 		}
 	}
 done:
-	if lastCommittedOffset == lastSubmittedOffset {
+	om.Stop()
+	// Drain committed offsets.
+	for committedOffset := range om.CommittedOffsets() {
+		lastCommittedOffset = committedOffset.Offset
+	}
+	// Reset `om` to prevent the deferred panic offset manager cleanup function
+	// from running and calling `Stop()` on the already stopped offset manager.
+	om = nil
+	if lastCommittedOffset != lastSubmittedOffset {
+		log.Errorf("<%s> failed to commit offset: submitted=%d, committed=%d",
+			pc.actorID, lastSubmittedOffset, lastCommittedOffset)
 		return
 	}
-	// It is necessary to wait for the offset of the last consumed message to
-	// be committed to Kafka before releasing ownership over the partition,
-	// otherwise the message can be consumed by the new partition owner again.
-	log.Infof("<%s> waiting for the last offset to be committed: submitted=%d, committed=%d",
-		pc.actorID, lastSubmittedOffset, lastCommittedOffset)
-	for committedOffset := range om.CommittedOffsets() {
-		if committedOffset.Offset == lastSubmittedOffset {
-			return
-		}
-		log.Infof("<%s> waiting for the last offset to be committed: submitted=%d, committed=%d",
-			pc.actorID, lastSubmittedOffset, committedOffset.Offset)
-	}
+	log.Infof("<%s> last committed offset: %d", pc.actorID, lastCommittedOffset)
 }
 
 func (pc *T) Stop() {
