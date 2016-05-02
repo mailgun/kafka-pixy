@@ -431,12 +431,12 @@ func (s *OffsetMgrSuite) TestCommittedChannel(c *C) {
 	f.Stop()
 }
 
-// Test a scenario revealed in production https://github.com/mailgun/kafka-pixy/issues/29
-// the problem was that if a connection to the broker was broker on the Kafka
-// side while a partition manager tried to retrieve an initial commit, the later
-// would never try to reestablish connection and get stuck in an infinite loop
-// of unassign->assign of the same broker over and over again.
-func (s *OffsetMgrSuite) TestConnectionRestored(c *C) {
+// Test for issue https://github.com/mailgun/kafka-pixy/issues/29. The problem
+// was that if a connection to the broker was broken on the Kafka side while a
+// partition manager tried to retrieve an initial commit, the later would never
+// try to reestablish connection and get stuck in an infinite loop of
+// unassign->assign to the same broker over and over again.
+func (s *OffsetMgrSuite) TestBugConnectionRestored(c *C) {
 	broker1 := sarama.NewMockBroker(c, 101)
 	defer broker1.Close()
 	broker2 := sarama.NewMockBroker(c, 102)
@@ -506,6 +506,58 @@ func (s *OffsetMgrSuite) TestConnectionRestored(c *C) {
 	c.Assert(do.Offset, Equals, int64(1000), Commentf("Failed to retrieve initial offset: %s", oce.Err))
 
 	om.Stop()
+	f.Stop()
+}
+
+// Test for issue https://github.com/mailgun/kafka-pixy/issues/62. The problem
+// was that if a stop signal is received while there are two submitted offsets
+// pending, then offset manager would stop as soon as the first one was
+// committed, hereby dropping the second offset.
+func (s *OffsetMgrSuite) TestBugOffsetDroppedOnStop(c *C) {
+	// Given
+	broker1 := sarama.NewMockBroker(c, 101)
+	defer broker1.Close()
+
+	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
+		"MetadataRequest": sarama.NewMockMetadataResponse(c).
+			SetBroker(broker1.Addr(), broker1.BrokerID()),
+		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
+			SetCoordinator("g1", broker1),
+		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
+			SetOffset("g1", "t1", 1, 1000, "", sarama.ErrNoError),
+		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
+			SetError("g1", "t1", 1, sarama.ErrNoError),
+	})
+
+	cfg := sarama.NewConfig()
+	cfg.Consumer.Offsets.CommitInterval = 300 * time.Millisecond
+	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
+	c.Assert(err, IsNil)
+	f := SpawnFactory(s.ns.NewChild(), client)
+	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 1), "g1", "t1", 1)
+	c.Assert(err, IsNil)
+	time.Sleep(100 * time.Millisecond)
+	// Set broker latency to ensure proper test timing.
+	broker1.SetLatency(200 * time.Millisecond)
+
+	// When
+	// 0ms: the first offset is submitted;
+	om.SubmitOffset(1001, "bar1")
+	time.Sleep(400 * time.Millisecond)
+	// 300ms: broker executor sends OffsetCommitRequest to Kafka
+	// 400ms: the second offset is submitted.
+	om.SubmitOffset(1002, "bar2")
+	om.Stop()
+	// 500ms: a first offset commit response received from Kafka. Due to a bug
+	// the offset manager was quiting here, dropping the second commit.
+	// 700ms: a second offset commit response received from Kafka.
+
+	// Then
+	var committedOffsets []DecoratedOffset
+	for committedOffset := range om.CommittedOffsets() {
+		committedOffsets = append(committedOffsets, committedOffset)
+	}
+	c.Assert(committedOffsets, DeepEquals, []DecoratedOffset{{1002, "bar2"}})
 	f.Stop()
 }
 
