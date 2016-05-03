@@ -8,6 +8,7 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
+	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/log"
@@ -143,7 +144,7 @@ func (kh *T) PutMessages(prefix, topic string, keys map[string]int) map[string][
 }
 
 func (kh *T) ResetOffsets(group, topic string) {
-	omf := offsetmgr.SpawnFactory(kh.ns, kh.client)
+	omf := offsetmgr.SpawnFactory(kh.ns, config.Default(), kh.client)
 	defer omf.Stop()
 	partitions, err := kh.client.Partitions(topic)
 	kh.c.Assert(err, IsNil)

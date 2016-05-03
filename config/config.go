@@ -61,6 +61,11 @@ type T struct {
 		// A consumer should wait this long after it gets notification that a
 		// consumer joined/left its consumer group before it should rebalance.
 		RebalanceDelay time.Duration
+		// How frequently to commit updated offsets. Defaults to 0.5s.
+		OffsetsCommitInterval time.Duration
+		// If enabled, any errors that occurred while consuming are returned on
+		// the Errors channel (default disabled).
+		ReturnErrors bool
 	}
 }
 
@@ -76,6 +81,8 @@ func Default() *T {
 	config.Consumer.RegistrationTimeout = 20 * time.Second
 	config.Consumer.BackOffTimeout = 500 * time.Millisecond
 	config.Consumer.RebalanceDelay = 250 * time.Millisecond
+	config.Consumer.OffsetsCommitInterval = 500 * time.Millisecond
+	config.Consumer.ReturnErrors = false
 
 	return config
 }

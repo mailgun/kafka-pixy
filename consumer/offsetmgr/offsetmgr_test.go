@@ -49,11 +49,11 @@ func (s *OffsetMgrSuite) TestInitialOffset(c *C) {
 			SetOffset("g1", "t2", 9, 3000, "bazz", sarama.ErrNoError),
 	})
 
-	cfg := sarama.NewConfig()
-	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
-	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
+	cfg := testhelpers.NewTestConfig("c1")
+	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
+	client, err := sarama.NewClient([]string{broker1.Addr()}, nil)
 	c.Assert(err, IsNil)
-	f := SpawnFactory(s.ns.NewChild(), client)
+	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 
 	// When
 	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 8), "g1", "t1", 8)
@@ -80,13 +80,13 @@ func (s *OffsetMgrSuite) TestInitialNoCoordinator(c *C) {
 			SetError("g1", sarama.ErrOffsetsLoadInProgress),
 	})
 
-	cfg := sarama.NewConfig()
-	cfg.Consumer.Retry.Backoff = 50 * time.Millisecond
-	cfg.Consumer.Return.Errors = true
-	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
-	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
+	cfg := testhelpers.NewTestConfig("c1")
+	cfg.Consumer.BackOffTimeout = 50 * time.Millisecond
+	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
+	cfg.Consumer.ReturnErrors = true
+	client, err := sarama.NewClient([]string{broker1.Addr()}, nil)
 	c.Assert(err, IsNil)
-	f := SpawnFactory(s.ns.NewChild(), client)
+	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 
 	// When
 	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 8), "g1", "t1", 8)
@@ -115,13 +115,13 @@ func (s *OffsetMgrSuite) TestInitialFetchError(c *C) {
 			SetOffset("g1", "t1", 7, 0, "", sarama.ErrNotLeaderForPartition),
 	})
 
-	cfg := sarama.NewConfig()
-	cfg.Consumer.Retry.Backoff = 50 * time.Millisecond
-	cfg.Consumer.Return.Errors = true
-	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
-	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
+	cfg := testhelpers.NewTestConfig("c1")
+	cfg.Consumer.BackOffTimeout = 50 * time.Millisecond
+	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
+	cfg.Consumer.ReturnErrors = true
+	client, err := sarama.NewClient([]string{broker1.Addr()}, nil)
 	c.Assert(err, IsNil)
-	f := SpawnFactory(s.ns.NewChild(), client)
+	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 
 	// When
 	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
@@ -153,14 +153,14 @@ func (s *OffsetMgrSuite) TestCommitError(c *C) {
 			SetError("g1", "t1", 7, sarama.ErrNotLeaderForPartition),
 	})
 
-	cfg := sarama.NewConfig()
-	cfg.Consumer.Retry.Backoff = 1000 * time.Millisecond
-	cfg.Consumer.Return.Errors = true
-	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
-	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
+	cfg := testhelpers.NewTestConfig("c1")
+	cfg.Consumer.BackOffTimeout = 1000 * time.Millisecond
+	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
+	cfg.Consumer.ReturnErrors = true
+	client, err := sarama.NewClient([]string{broker1.Addr()}, nil)
 	c.Assert(err, IsNil)
 
-	f := SpawnFactory(s.ns.NewChild(), client)
+	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
 
@@ -198,14 +198,15 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
 	})
 
-	cfg := sarama.NewConfig()
-	cfg.Net.ReadTimeout = 10 * time.Millisecond
-	cfg.Consumer.Retry.Backoff = 25 * time.Millisecond
-	cfg.Consumer.Return.Errors = true
-	cfg.Consumer.Offsets.CommitInterval = 100 * time.Millisecond
-	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
+	cfg := testhelpers.NewTestConfig("c1")
+	cfg.Consumer.BackOffTimeout = 25 * time.Millisecond
+	cfg.Consumer.OffsetsCommitInterval = 100 * time.Millisecond
+	cfg.Consumer.ReturnErrors = true
+	saramaCfg := sarama.NewConfig()
+	saramaCfg.Net.ReadTimeout = 10 * time.Millisecond
+	client, err := sarama.NewClient([]string{broker1.Addr()}, saramaCfg)
 	c.Assert(err, IsNil)
-	f := SpawnFactory(s.ns.NewChild(), client)
+	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	c.Assert(err, IsNil)
 	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
@@ -296,11 +297,11 @@ func (s *OffsetMgrSuite) TestCommitDifferentGroups(c *C) {
 			SetError("g2", "t1", 7, sarama.ErrNoError),
 	})
 
-	cfg := sarama.NewConfig()
-	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
-	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
+	cfg := testhelpers.NewTestConfig("c1")
+	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
+	client, err := sarama.NewClient([]string{broker1.Addr()}, nil)
 	c.Assert(err, IsNil)
-	f := SpawnFactory(s.ns.NewChild(), client)
+	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	om1, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
 	om2, err := f.SpawnOffsetManager(s.ns.NewChild("g2", "t1", 7), "g2", "t1", 7)
@@ -341,14 +342,15 @@ func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 			SetOffset("g2", "t1", 7, 3000, "foo3", sarama.ErrNoError),
 	})
 
-	cfg := sarama.NewConfig()
-	cfg.Net.ReadTimeout = 50 * time.Millisecond
-	cfg.Consumer.Return.Errors = true
-	cfg.Consumer.Retry.Backoff = 100 * time.Millisecond
-	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
-	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
+	cfg := testhelpers.NewTestConfig("c1")
+	cfg.Consumer.BackOffTimeout = 100 * time.Millisecond
+	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
+	cfg.Consumer.ReturnErrors = true
+	saramaCfg := sarama.NewConfig()
+	saramaCfg.Net.ReadTimeout = 50 * time.Millisecond
+	client, err := sarama.NewClient([]string{broker1.Addr()}, saramaCfg)
 	c.Assert(err, IsNil)
-	f := SpawnFactory(s.ns.NewChild(), client)
+	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	om1, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
 	om2, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 8), "g1", "t1", 8)
@@ -365,7 +367,7 @@ func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 	<-om3.Errors()
 
 	// When
-	time.Sleep(cfg.Consumer.Retry.Backoff * 2)
+	time.Sleep(cfg.Consumer.BackOffTimeout * 2)
 	log.Infof("*** Network recovering...")
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
@@ -406,11 +408,11 @@ func (s *OffsetMgrSuite) TestCommittedChannel(c *C) {
 			SetError("g1", "t1", 7, sarama.ErrNoError),
 	})
 
-	cfg := sarama.NewConfig()
-	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
-	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
+	cfg := testhelpers.NewTestConfig("c1")
+	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
+	client, err := sarama.NewClient([]string{broker1.Addr()}, nil)
 	c.Assert(err, IsNil)
-	f := SpawnFactory(s.ns.NewChild(), client)
+	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
 
@@ -449,14 +451,15 @@ func (s *OffsetMgrSuite) TestBugConnectionRestored(c *C) {
 			SetCoordinator("g1", broker2),
 	})
 
-	cfg := sarama.NewConfig()
-	cfg.Net.ReadTimeout = 100 * time.Millisecond
-	cfg.Consumer.Return.Errors = true
-	cfg.Consumer.Retry.Backoff = 100 * time.Millisecond
-	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
-	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
+	cfg := testhelpers.NewTestConfig("c1")
+	cfg.Consumer.BackOffTimeout = 100 * time.Millisecond
+	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
+	cfg.Consumer.ReturnErrors = true
+	saramaCfg := sarama.NewConfig()
+	saramaCfg.Net.ReadTimeout = 100 * time.Millisecond
+	client, err := sarama.NewClient([]string{broker1.Addr()}, saramaCfg)
 	c.Assert(err, IsNil)
-	f := SpawnFactory(s.ns.NewChild(), client)
+	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
 
@@ -475,7 +478,7 @@ func (s *OffsetMgrSuite) TestBugConnectionRestored(c *C) {
 	// client connection with broker2 from the broker end.
 	om.Stop()
 	broker2.Close()
-	time.Sleep(cfg.Consumer.Retry.Backoff * 2)
+	time.Sleep(cfg.Consumer.BackOffTimeout * 2)
 
 	log.Infof("    GIVEN 3")
 	// Simulate broker restart. Make sure that the new instances listens on the
@@ -529,11 +532,11 @@ func (s *OffsetMgrSuite) TestBugOffsetDroppedOnStop(c *C) {
 			SetError("g1", "t1", 1, sarama.ErrNoError),
 	})
 
-	cfg := sarama.NewConfig()
-	cfg.Consumer.Offsets.CommitInterval = 300 * time.Millisecond
-	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
+	cfg := testhelpers.NewTestConfig("c1")
+	cfg.Consumer.OffsetsCommitInterval = 300 * time.Millisecond
+	client, err := sarama.NewClient([]string{broker1.Addr()}, nil)
 	c.Assert(err, IsNil)
-	f := SpawnFactory(s.ns.NewChild(), client)
+	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 1), "g1", "t1", 1)
 	c.Assert(err, IsNil)
 	time.Sleep(100 * time.Millisecond)

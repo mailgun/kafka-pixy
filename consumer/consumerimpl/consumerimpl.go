@@ -51,7 +51,7 @@ func Spawn(namespace *actor.ID, cfg *config.T) (*t, error) {
 	if err != nil {
 		return nil, consumer.ErrSetup(fmt.Errorf("failed to create sarama.Client: err=(%v)", err))
 	}
-	offsetMgrFactory := offsetmgr.SpawnFactory(namespace, kafkaClient)
+	offsetMgrFactory := offsetmgr.SpawnFactory(namespace, cfg, kafkaClient)
 
 	kazooCfg := kazoo.NewConfig()
 	kazooCfg.Chroot = cfg.ZooKeeper.Chroot

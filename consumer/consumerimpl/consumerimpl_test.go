@@ -9,6 +9,7 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
+	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
 	"github.com/mailgun/kafka-pixy/consumer/partitioncsm"
@@ -51,7 +52,7 @@ func (s *ConsumerSuite) TestInitialOffsetTooLarge(c *C) {
 	newestOffsets := s.kh.GetNewestOffsets("test.1")
 	log.Infof("*** test.1 offsets: oldest=%v, newest=%v", oldestOffsets, newestOffsets)
 
-	omf := offsetmgr.SpawnFactory(s.ns, s.kh.Client())
+	omf := offsetmgr.SpawnFactory(s.ns, config.Default(), s.kh.Client())
 	defer omf.Stop()
 	om, err := omf.SpawnOffsetManager(s.ns, "g1", "test.1", 0)
 	c.Assert(err, IsNil)
