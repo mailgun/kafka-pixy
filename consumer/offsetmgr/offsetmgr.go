@@ -326,7 +326,7 @@ func (om *offsetManager) run() {
 				return
 			}
 		case <-commitTicker.C:
-			isRequestTimeout := time.Now().UTC().Sub(lastSubmitTime) > (om.f.cfg.Consumer.OffsetsCommitInterval << 2)
+			isRequestTimeout := time.Now().UTC().Sub(lastSubmitTime) > (om.f.cfg.Consumer.OffsetsCommitInterval << 1)
 			if isRequestTimeout && !isSameDecoratedOffset(lastSubmitRequest, lastCommittedOffset) {
 				triggerOrScheduleReassign(ErrRequestTimeout, "offset commit failed")
 			}
