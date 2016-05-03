@@ -9,6 +9,7 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/consumer/mapper"
 	"github.com/mailgun/log"
+	"math"
 )
 
 // Factory provides a method to spawn offset manager instances to commit
@@ -244,14 +245,13 @@ func (om *offsetManager) run() {
 	defer close(om.committedOffsetsCh)
 	defer close(om.errorsCh)
 	var (
-		commitResultCh            = make(chan submitResponse, 1)
+		lastSubmitRequest         = submitRequest{offset: math.MinInt64}
+		lastCommittedOffset       = DecoratedOffset{Offset: math.MinInt64}
+		nilOrSubmitRequestsCh     = om.submitRequestsCh
+		submitResponseCh          = make(chan submitResponse, 1)
 		initialOffsetFetched      = false
-		isDirty                   = false
-		isPending                 = false
-		closed                    = false
-		nilOrSubmittedOffsetsCh   = om.submitRequestsCh
+		stopped                   = false
 		commitTicker              = time.NewTicker(om.f.config.Consumer.Offsets.CommitInterval)
-		lastSubmitRequest         submitRequest
 		assignedBrokerRequestsCh  chan<- submitRequest
 		nilOrBrokerRequestsCh     chan<- submitRequest
 		nilOrReassignRetryTimerCh <-chan time.Time
@@ -296,43 +296,37 @@ func (om *offsetManager) run() {
 				close(om.initialOffsetCh)
 				initialOffsetFetched = true
 			}
-			if isDirty {
+			if !isSameDecoratedOffset(lastSubmitRequest, lastCommittedOffset) {
 				nilOrBrokerRequestsCh = assignedBrokerRequestsCh
 			}
-		case so, ok := <-nilOrSubmittedOffsetsCh:
+		case submitReq, ok := <-nilOrSubmitRequestsCh:
 			if !ok {
-				if isDirty || isPending {
-					closed, nilOrSubmittedOffsetsCh = true, nil
-					continue
+				if isSameDecoratedOffset(lastSubmitRequest, lastCommittedOffset) {
+					return
 				}
-				return
+				stopped, nilOrSubmitRequestsCh = true, nil
+				continue
 			}
-			log.Infof("*** received %v", so)
-			lastSubmitRequest = so
-			lastSubmitRequest.resultCh = commitResultCh
-			isDirty = true
+			lastSubmitRequest = submitReq
+			lastSubmitRequest.resultCh = submitResponseCh
 			nilOrBrokerRequestsCh = assignedBrokerRequestsCh
 
 		case nilOrBrokerRequestsCh <- lastSubmitRequest:
 			nilOrBrokerRequestsCh = nil
-			isDirty = false
-			if !isPending {
-				isPending, lastSubmitTime = true, time.Now().UTC()
-			}
-		case cr := <-commitResultCh:
-			isPending = false
-			if err := om.getCommitError(cr.response); err != nil {
-				isDirty = true
+			lastSubmitTime = time.Now().UTC()
+
+		case submitRes := <-submitResponseCh:
+			if err := om.getCommitError(submitRes.response); err != nil {
 				triggerOrScheduleReassign(err, "offset commit failed")
 				continue
 			}
-			om.committedOffsetsCh <- DecoratedOffset{cr.offsetCommit.offset, cr.offsetCommit.metadata}
-			if closed && !isDirty {
+			lastCommittedOffset = DecoratedOffset{submitRes.offsetCommit.offset, submitRes.offsetCommit.metadata}
+			om.committedOffsetsCh <- lastCommittedOffset
+			if stopped && isSameDecoratedOffset(lastSubmitRequest, lastCommittedOffset) {
 				return
 			}
 		case <-commitTicker.C:
-			if isPending && time.Now().UTC().Sub(lastSubmitTime) > brokerRequestTimeout {
-				isDirty, isPending = true, false
+			if time.Now().UTC().Sub(lastSubmitTime) > brokerRequestTimeout && !isSameDecoratedOffset(lastSubmitRequest, lastCommittedOffset) {
 				triggerOrScheduleReassign(ErrRequestTimeout, "offset commit failed")
 			}
 		case <-nilOrReassignRetryTimerCh:
@@ -513,4 +507,8 @@ func (be *brokerExecutor) String() string {
 		return "<nil>"
 	}
 	return be.aggrActorID.String()
+}
+
+func isSameDecoratedOffset(r submitRequest, o DecoratedOffset) bool {
+	return r.offset == o.Offset && r.metadata == o.Metadata
 }

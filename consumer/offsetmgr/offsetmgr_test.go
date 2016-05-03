@@ -202,7 +202,7 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 	cfg.Net.ReadTimeout = 10 * time.Millisecond
 	cfg.Consumer.Retry.Backoff = 25 * time.Millisecond
 	cfg.Consumer.Return.Errors = true
-	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
+	cfg.Consumer.Offsets.CommitInterval = 100 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, cfg)
 	c.Assert(err, IsNil)
 	f := SpawnFactory(s.ns.NewChild(), client)
@@ -220,7 +220,7 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 	// STAGE 1: Requests for coordinator time out.
 	log.Infof("    STAGE 1")
 	oce := <-om.Errors()
-	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 7, ErrNoCoordinator})
+	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 7, ErrRequestTimeout})
 
 	// STAGE 2: Requests for initial offset return errors
 	log.Infof("    STAGE 2")
@@ -231,7 +231,7 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 			SetOffset("g1", "t1", 7, 0, "", sarama.ErrNotLeaderForPartition),
 	})
 	for oce = range om.Errors() {
-		if !reflect.DeepEqual(oce, &OffsetCommitError{"g1", "t1", 7, ErrNoCoordinator}) {
+		if !reflect.DeepEqual(oce, &OffsetCommitError{"g1", "t1", 7, ErrRequestTimeout}) {
 			break
 		}
 	}
@@ -557,7 +557,7 @@ func (s *OffsetMgrSuite) TestBugOffsetDroppedOnStop(c *C) {
 	for committedOffset := range om.CommittedOffsets() {
 		committedOffsets = append(committedOffsets, committedOffset)
 	}
-	c.Assert(committedOffsets, DeepEquals, []DecoratedOffset{{1002, "bar2"}})
+	c.Assert(committedOffsets, DeepEquals, []DecoratedOffset{{1001, "bar1"}, {1002, "bar2"}})
 	f.Stop()
 }
 
