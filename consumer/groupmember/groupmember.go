@@ -67,10 +67,10 @@ func (gm *T) Subscriptions() <-chan map[string][]string {
 // ClaimPartition claims a topic/partition to be consumed by this member of the
 // consumer group. It blocks until either succeeds or canceled by the caller. It
 // returns a function that should be called to release the claim.
-func (gm *T) ClaimPartition(actorID *actor.ID, topic string, partition int32, cancelCh <-chan none.T) func() {
+func (gm *T) ClaimPartition(claimerActorID *actor.ID, topic string, partition int32, cancelCh <-chan none.T) func() {
 	err := gm.groupMemberZNode.ClaimPartition(topic, partition)
 	for err != nil {
-		log.Errorf("<%s> failed to claim partition: err=(%s)", gm.actorID, err)
+		log.Errorf("<%s> failed to claim partition: via=%s, err=(%s)", claimerActorID, gm.actorID, err)
 		select {
 		case <-time.After(gm.cfg.Consumer.BackOffTimeout):
 		case <-cancelCh:
@@ -78,15 +78,15 @@ func (gm *T) ClaimPartition(actorID *actor.ID, topic string, partition int32, ca
 		}
 		err = gm.groupMemberZNode.ClaimPartition(topic, partition)
 	}
-	log.Infof("<%s> partition claimed", actorID)
+	log.Infof("<%s> claimed partition: via=%s", claimerActorID, gm.actorID)
 	return func() {
 		err := gm.groupMemberZNode.ReleasePartition(topic, partition)
 		for err != nil && err != kazoo.ErrPartitionNotClaimed {
-			log.Errorf("<%s> failed to release partition: err=(%s)", gm.actorID, err)
+			log.Errorf("<%s> failed to release partition: via=%s, err=(%s)", claimerActorID, gm.actorID, err)
 			<-time.After(gm.cfg.Consumer.BackOffTimeout)
 			err = gm.groupMemberZNode.ReleasePartition(topic, partition)
 		}
-		log.Infof("<%s> partition released", actorID)
+		log.Infof("<%s> released partition: via=%s", claimerActorID, gm.actorID)
 	}
 }
 
