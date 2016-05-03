@@ -1,7 +1,13 @@
 # Changelog
 
-#### Version 0.11.0 (TBD)
+#### Version 0.11.0 (20016-05-03)
 
+Major overhaul and refactoring of the implementation to make it easier to
+understand how the internal components interact with each other. It is an
+important step before implementation of explicit acknowledgements can be
+started.
+
+During refactoring the following bugs were detected and fixed:
 * [#56](https://github.com/mailgun/kafka-pixy/issues/56) Invalid stored offset makes consumer panic.
 * [#59](https://github.com/mailgun/kafka-pixy/issues/59) Messages are skipped by consumer during rebalancing.
 * [#62](https://github.com/mailgun/kafka-pixy/issues/62) Messages consumed twice during rebalancing.
