@@ -7,7 +7,7 @@ import (
 
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
-	"github.com/mailgun/kafka-pixy/consumer/consumermsg"
+	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/log"
 )
 
@@ -36,7 +36,7 @@ type Request struct {
 }
 
 type Response struct {
-	Msg *consumermsg.ConsumerMessage
+	Msg *consumer.Message
 	Err error
 }
 
@@ -123,7 +123,7 @@ func (d *T) run() {
 			select {
 			case dt.Requests() <- req:
 			default:
-				overflowErr := consumermsg.ErrBufferOverflow(fmt.Errorf("<%s> buffer overflow", dt))
+				overflowErr := consumer.ErrBufferOverflow(fmt.Errorf("<%s> buffer overflow", dt))
 				req.ResponseCh <- Response{Err: overflowErr}
 			}
 

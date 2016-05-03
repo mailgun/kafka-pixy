@@ -8,6 +8,7 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
+	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/log"
@@ -107,12 +108,11 @@ func (kh *T) PutMessages(prefix, topic string, keys map[string]int) map[string][
 	total := 0
 	for key, count := range keys {
 		total += count
-		for i := 0; i < count; i++ {
-			key := key
-			message := fmt.Sprintf("%s:%s:%d", prefix, key, i)
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+		wg.Add(1)
+		go func(key string, count int) {
+			defer wg.Done()
+			for i := 0; i < count; i++ {
+				message := fmt.Sprintf("%s:%s:%d", prefix, key, i)
 				keyEncoder := sarama.StringEncoder(key)
 				msgEncoder := sarama.StringEncoder(message)
 				prodMsg := &sarama.ProducerMessage{
@@ -121,8 +121,8 @@ func (kh *T) PutMessages(prefix, topic string, keys map[string]int) map[string][
 					Value: msgEncoder,
 				}
 				kh.producer.Input() <- prodMsg
-			}()
-		}
+			}
+		}(key, count)
 	}
 	for i := 0; i < total; i++ {
 		select {
@@ -144,7 +144,7 @@ func (kh *T) PutMessages(prefix, topic string, keys map[string]int) map[string][
 }
 
 func (kh *T) ResetOffsets(group, topic string) {
-	omf := offsetmgr.SpawnFactory(kh.ns, kh.client)
+	omf := offsetmgr.SpawnFactory(kh.ns, config.Default(), kh.client)
 	defer omf.Stop()
 	partitions, err := kh.client.Partitions(topic)
 	kh.c.Assert(err, IsNil)

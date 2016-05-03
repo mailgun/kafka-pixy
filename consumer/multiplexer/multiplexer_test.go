@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/mailgun/kafka-pixy/actor"
-	"github.com/mailgun/kafka-pixy/consumer/consumermsg"
+	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	. "gopkg.in/check.v1"
 )
@@ -30,11 +30,11 @@ func (s *MultiplexerSuite) SetUpTest(c *C) {
 
 func (s *MultiplexerSuite) TestSortedInputs(c *C) {
 	ins := map[int32]*fetchedInput{
-		1: &fetchedInput{newMockIn(nil), nil},
-		2: &fetchedInput{newMockIn(nil), nil},
-		3: &fetchedInput{newMockIn(nil), nil},
-		4: &fetchedInput{newMockIn(nil), nil},
-		5: &fetchedInput{newMockIn(nil), nil},
+		1: {newMockIn(nil), nil},
+		2: {newMockIn(nil), nil},
+		3: {newMockIn(nil), nil},
+		4: {newMockIn(nil), nil},
+		5: {newMockIn(nil), nil},
 	}
 	c.Assert(makeSortedIns(map[int32]*fetchedInput{}), DeepEquals,
 		[]*fetchedInput{})
@@ -108,7 +108,7 @@ func (s *MultiplexerSuite) TestSelectInputSameLag(c *C) {
 
 // If there is just one input then it is forwarded to the output.
 func (s *MultiplexerSuite) TestOneInput(c *C) {
-	acksCh := make(chan *consumermsg.ConsumerMessage, 100)
+	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
 		1: newMockIn(acksCh,
 			msg(1001, 1),
@@ -132,7 +132,7 @@ func (s *MultiplexerSuite) TestOneInput(c *C) {
 // If there are several inputs with the same max lag then messages from them
 // are multiplexed in the round robin fashion. Note that messages are acknowledged
 func (s *MultiplexerSuite) TestSameLag(c *C) {
-	acksCh := make(chan *consumermsg.ConsumerMessage, 100)
+	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
 		1: newMockIn(acksCh,
 			msg(1001, 1),
@@ -180,7 +180,7 @@ func (s *MultiplexerSuite) TestSameLag(c *C) {
 
 // Messages with the largest lag among current channel heads is selected.
 func (s *MultiplexerSuite) TestLargeLagPreferred(c *C) {
-	acksCh := make(chan *consumermsg.ConsumerMessage, 100)
+	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
 		1: newMockIn(acksCh,
 			msg(1001, 1),
@@ -215,7 +215,7 @@ func (s *MultiplexerSuite) TestLargeLagPreferred(c *C) {
 // for a message to appear in any of the inputs.
 func (s *MultiplexerSuite) TestNoMessages(c *C) {
 	// Given
-	acksCh := make(chan *consumermsg.ConsumerMessage, 100)
+	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
 		1: newMockIn(acksCh, msg(1001, 1)),
 		2: newMockIn(acksCh),
@@ -242,7 +242,7 @@ func (s *MultiplexerSuite) TestNoMessages(c *C) {
 }
 
 func (s *MultiplexerSuite) TestWireUp(c *C) {
-	acksCh := make(chan *consumermsg.ConsumerMessage, 100)
+	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
 		1: newMockIn(acksCh, msg(1001, 1)),
 		2: newMockIn(acksCh, msg(2001, 1)),
@@ -270,7 +270,7 @@ func (s *MultiplexerSuite) TestWireUp(c *C) {
 }
 
 func (s *MultiplexerSuite) TestWireUpAdd(c *C) {
-	acksCh := make(chan *consumermsg.ConsumerMessage, 100)
+	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
 		1: newMockIn(acksCh, msg(1001, 1)),
 		2: newMockIn(acksCh, msg(2001, 1)),
@@ -300,7 +300,7 @@ func (s *MultiplexerSuite) TestWireUpAdd(c *C) {
 }
 
 func (s *MultiplexerSuite) TestWireUpRemove(c *C) {
-	acksCh := make(chan *consumermsg.ConsumerMessage, 100)
+	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
 		1: newMockIn(acksCh, msg(1001, 1)),
 		2: newMockIn(acksCh, msg(2001, 1)),
@@ -328,7 +328,7 @@ func (s *MultiplexerSuite) TestWireUpRemove(c *C) {
 }
 
 func (s *MultiplexerSuite) TestWireUpAddRemove(c *C) {
-	acksCh := make(chan *consumermsg.ConsumerMessage, 100)
+	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
 		1: newMockIn(acksCh, msg(1001, 1)),
 		2: newMockIn(acksCh, msg(2001, 1)),
@@ -357,7 +357,7 @@ func (s *MultiplexerSuite) TestWireUpAddRemove(c *C) {
 }
 
 func (s *MultiplexerSuite) TestWireUpSame(c *C) {
-	acksCh := make(chan *consumermsg.ConsumerMessage, 100)
+	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
 		1: newMockIn(acksCh, msg(1001, 1)),
 		2: newMockIn(acksCh, msg(2001, 1)),
@@ -386,7 +386,7 @@ func (s *MultiplexerSuite) TestWireUpSame(c *C) {
 }
 
 func (s *MultiplexerSuite) TestWireUpEmpty(c *C) {
-	acksCh := make(chan *consumermsg.ConsumerMessage, 100)
+	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
 		1: newMockIn(acksCh, msg(1001, 1)),
 		2: newMockIn(acksCh, msg(2001, 1)),
@@ -413,7 +413,7 @@ func (s *MultiplexerSuite) TestWireUpEmpty(c *C) {
 }
 
 func (s *MultiplexerSuite) TestWireUpNil(c *C) {
-	acksCh := make(chan *consumermsg.ConsumerMessage, 100)
+	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
 		1: newMockIn(acksCh, msg(1001, 1)),
 		2: newMockIn(acksCh, msg(2001, 1)),
@@ -440,7 +440,7 @@ func (s *MultiplexerSuite) TestWireUpNil(c *C) {
 }
 
 func (s *MultiplexerSuite) TestWireUpOutChanged(c *C) {
-	acksCh := make(chan *consumermsg.ConsumerMessage, 100)
+	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
 		1: newMockIn(acksCh, msg(1001, 1)),
 		2: newMockIn(acksCh, msg(2001, 1)),
@@ -475,7 +475,7 @@ func (s *MultiplexerSuite) TestWireUpOutChanged(c *C) {
 }
 
 func (s *MultiplexerSuite) TestWireUpOutNil(c *C) {
-	acksCh := make(chan *consumermsg.ConsumerMessage, 100)
+	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
 		1: newMockIn(acksCh, msg(1001, 1)),
 		2: newMockIn(acksCh, msg(2001, 1)),
@@ -502,7 +502,7 @@ func (s *MultiplexerSuite) TestWireUpOutNil(c *C) {
 }
 
 func (s *MultiplexerSuite) TestStop(c *C) {
-	acksCh := make(chan *consumermsg.ConsumerMessage, 100)
+	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
 		1: newMockIn(acksCh, msg(1001, 1)),
 		2: newMockIn(acksCh, msg(2001, 1)),
@@ -528,13 +528,13 @@ func (s *MultiplexerSuite) TestStop(c *C) {
 }
 
 type mockIn struct {
-	messagesCh chan *consumermsg.ConsumerMessage
-	acksCh     chan *consumermsg.ConsumerMessage
+	messagesCh chan *consumer.Message
+	acksCh     chan *consumer.Message
 }
 
-func newMockIn(acksCh chan *consumermsg.ConsumerMessage, messages ...*consumermsg.ConsumerMessage) *mockIn {
+func newMockIn(acksCh chan *consumer.Message, messages ...*consumer.Message) *mockIn {
 	mi := mockIn{
-		messagesCh: make(chan *consumermsg.ConsumerMessage, len(messages)),
+		messagesCh: make(chan *consumer.Message, len(messages)),
 		acksCh:     acksCh,
 	}
 	for _, m := range messages {
@@ -544,12 +544,12 @@ func newMockIn(acksCh chan *consumermsg.ConsumerMessage, messages ...*consumerms
 }
 
 // implements `In`
-func (mi *mockIn) Messages() <-chan *consumermsg.ConsumerMessage {
+func (mi *mockIn) Messages() <-chan *consumer.Message {
 	return mi.messagesCh
 }
 
 // implements `In`
-func (mi *mockIn) Acks() chan<- *consumermsg.ConsumerMessage {
+func (mi *mockIn) Acks() chan<- *consumer.Message {
 	return mi.acksCh
 }
 
@@ -558,35 +558,35 @@ func (mi *mockIn) Stop() {
 }
 
 type mockOut struct {
-	messagesCh chan *consumermsg.ConsumerMessage
+	messagesCh chan *consumer.Message
 }
 
 func newMockOut(capacity int) *mockOut {
 	return &mockOut{
-		messagesCh: make(chan *consumermsg.ConsumerMessage, capacity),
+		messagesCh: make(chan *consumer.Message, capacity),
 	}
 }
 
 // implements `Out`
-func (mo *mockOut) Messages() chan<- *consumermsg.ConsumerMessage {
+func (mo *mockOut) Messages() chan<- *consumer.Message {
 	return mo.messagesCh
 }
 
-func msg(offset, lag int64) *consumermsg.ConsumerMessage {
-	return &consumermsg.ConsumerMessage{
+func msg(offset, lag int64) *consumer.Message {
+	return &consumer.Message{
 		Offset:        offset,
 		HighWaterMark: offset + lag,
 	}
 }
 
-func lag(lag int64) *consumermsg.ConsumerMessage {
-	return &consumermsg.ConsumerMessage{
+func lag(lag int64) *consumer.Message {
+	return &consumer.Message{
 		Offset:        0,
 		HighWaterMark: lag,
 	}
 }
 
-func checkMsg(c *C, outCh, acksCh chan *consumermsg.ConsumerMessage, expected *consumermsg.ConsumerMessage) {
+func checkMsg(c *C, outCh, acksCh chan *consumer.Message, expected *consumer.Message) {
 	c.Assert(<-outCh, DeepEquals, expected)
 	c.Assert(<-acksCh, DeepEquals, expected)
 }

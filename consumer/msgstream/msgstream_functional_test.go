@@ -1,4 +1,4 @@
-package partitioncsm
+package msgstream
 
 import (
 	"time"
@@ -10,23 +10,23 @@ import (
 	. "gopkg.in/check.v1"
 )
 
-type PartitionConsumerFuncSuite struct {
+type MessageStreamFuncSuite struct {
 	ns *actor.ID
 	kh *kafkahelper.T
 }
 
-var _ = Suite(&PartitionConsumerFuncSuite{})
+var _ = Suite(&MessageStreamFuncSuite{})
 
-func (s *PartitionConsumerFuncSuite) SetUpSuite(c *C) {
+func (s *MessageStreamFuncSuite) SetUpSuite(c *C) {
 	testhelpers.InitLogging(c)
 	s.kh = kafkahelper.New(c)
 }
 
-func (s *PartitionConsumerFuncSuite) TearDownSuite(c *C) {
+func (s *MessageStreamFuncSuite) TearDownSuite(c *C) {
 	s.kh.Close()
 }
 
-func (s *PartitionConsumerFuncSuite) SetUpTest(c *C) {
+func (s *MessageStreamFuncSuite) SetUpTest(c *C) {
 	s.ns = actor.RootID.NewChild("T")
 }
 
@@ -39,7 +39,7 @@ func (s *PartitionConsumerFuncSuite) SetUpTest(c *C) {
 //
 // IMPORTANT: The topic/key of the two sets of the generated messages had been
 // selected so that both sets end up in partitions that has the same leader.
-func (s *PartitionConsumerFuncSuite) TestSlacker(c *C) {
+func (s *MessageStreamFuncSuite) TestSlacker(c *C) {
 	// {topic: "test.1", key: "foo"} and {topic: "test.4": key: "bar"} have
 	// the same broker #9093 as a leader.
 	producedTest1 := s.kh.PutMessages("slacker", "test.1", map[string]int{"foo": 11})
@@ -57,11 +57,11 @@ func (s *PartitionConsumerFuncSuite) TestSlacker(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	pcA, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("test.1", 0), "test.1", 0, producedTest1["foo"][0].Offset)
+	pcA, _, err := f.SpawnMessageStream(s.ns.NewChild("test.1", 0), "test.1", 0, producedTest1["foo"][0].Offset)
 	c.Assert(err, IsNil)
 	defer pcA.Stop()
 
-	pcB, _, err := f.SpawnPartitionConsumer(s.ns.NewChild("test.4", 2), "test.4", 2, producedTest4["bar"][0].Offset)
+	pcB, _, err := f.SpawnMessageStream(s.ns.NewChild("test.4", 2), "test.4", 2, producedTest4["bar"][0].Offset)
 	c.Assert(err, IsNil)
 	defer pcB.Stop()
 

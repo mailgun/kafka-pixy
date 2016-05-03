@@ -18,9 +18,8 @@ func Test(t *testing.T) {
 }
 
 type GroupRegistratorSuite struct {
-	ns             *actor.ID
-	claimerActorID *actor.ID
-	kazooConn      *kazoo.Kazoo
+	ns        *actor.ID
+	kazooConn *kazoo.Kazoo
 }
 
 var _ = Suite(&GroupRegistratorSuite{})
@@ -34,7 +33,6 @@ func (s *GroupRegistratorSuite) SetUpSuite(c *C) {
 
 func (s *GroupRegistratorSuite) SetUpTest(c *C) {
 	s.ns = actor.RootID.NewChild("T")
-	s.claimerActorID = s.ns.NewChild("claimer")
 }
 
 func (s *GroupRegistratorSuite) TestNormalizeTopics(c *C) {
@@ -271,7 +269,7 @@ func (s *GroupRegistratorSuite) TestClaimPartition(c *C) {
 	c.Assert(owner, Equals, "")
 
 	// When
-	claim1 := gm.ClaimPartition(s.claimerActorID, "foo", 1, cancelCh)
+	claim1 := gm.ClaimPartition(s.ns, "foo", 1, cancelCh)
 	defer claim1()
 
 	// Then
@@ -290,13 +288,15 @@ func (s *GroupRegistratorSuite) TestClaimPartitionClaimed(c *C) {
 	gm2 := Spawn(s.ns.NewChild("m2"), "g1", "m2", cfg, s.kazooConn)
 	defer gm2.Stop()
 	cancelCh := make(chan none.T)
-	close(cancelCh) // there will be no retries
-
-	claim1 := gm1.ClaimPartition(s.claimerActorID, "foo", 1, cancelCh)
+	claim1 := gm1.ClaimPartition(s.ns, "foo", 1, cancelCh)
 	defer claim1()
 
+	// Close cancel channel so that "m2" tries claiming the partition only once,
+	// and gives up after the first failure.
+	close(cancelCh)
+
 	// When
-	claim2 := gm2.ClaimPartition(s.claimerActorID, "foo", 1, cancelCh)
+	claim2 := gm2.ClaimPartition(s.ns, "foo", 1, cancelCh)
 	defer claim2()
 
 	// Then
@@ -314,9 +314,9 @@ func (s *GroupRegistratorSuite) TestClaimPartitionTwice(c *C) {
 	cancelCh := make(chan none.T)
 
 	// When
-	claim1 := gm.ClaimPartition(s.claimerActorID, "foo", 1, cancelCh)
+	claim1 := gm.ClaimPartition(s.ns, "foo", 1, cancelCh)
 	defer claim1()
-	claim2 := gm.ClaimPartition(s.claimerActorID, "foo", 1, cancelCh)
+	claim2 := gm.ClaimPartition(s.ns, "foo", 1, cancelCh)
 	defer claim2()
 
 	// Then
@@ -333,8 +333,8 @@ func (s *GroupRegistratorSuite) TestReleasePartition(c *C) {
 	gm := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm.Stop()
 	cancelCh := make(chan none.T)
-	claim1 := gm.ClaimPartition(s.claimerActorID, "foo", 1, cancelCh)
-	claim2 := gm.ClaimPartition(s.claimerActorID, "foo", 1, cancelCh)
+	claim1 := gm.ClaimPartition(s.ns, "foo", 1, cancelCh)
+	claim2 := gm.ClaimPartition(s.ns, "foo", 1, cancelCh)
 
 	// When
 	claim2() // the second claim is revoked here but it could have been any.
@@ -358,14 +358,14 @@ func (s *GroupRegistratorSuite) TestClaimPartitionParallel(c *C) {
 	defer gm2.Stop()
 	cancelCh := make(chan none.T)
 
-	claim1 := gm1.ClaimPartition(s.claimerActorID, "foo", 1, cancelCh)
+	claim1 := gm1.ClaimPartition(s.ns, "foo", 1, cancelCh)
 	go func() {
 		time.Sleep(300 * time.Millisecond)
 		claim1()
 	}()
 
 	// When: block here until m1 releases the claim over foo/1.
-	claim2 := gm2.ClaimPartition(s.claimerActorID, "foo", 1, cancelCh)
+	claim2 := gm2.ClaimPartition(s.ns, "foo", 1, cancelCh)
 	defer claim2()
 
 	// Then: the partition is claimed by m2.
@@ -387,10 +387,10 @@ func (s *GroupRegistratorSuite) TestClaimPartitionCanceled(c *C) {
 	cancelCh2 := make(chan none.T)
 	wg := &sync.WaitGroup{}
 
-	claim1 := gm1.ClaimPartition(s.claimerActorID, "foo", 1, cancelCh1)
+	claim1 := gm1.ClaimPartition(s.ns, "foo", 1, cancelCh1)
 	wg.Add(1)
 	go func() {
-		wg.Done()
+		defer wg.Done()
 		time.Sleep(300 * time.Millisecond)
 		claim1()
 	}()
@@ -398,13 +398,13 @@ func (s *GroupRegistratorSuite) TestClaimPartitionCanceled(c *C) {
 	// This goroutine will cancel the claim of m2 before, m1 releases the partition.
 	wg.Add(1)
 	go func() {
-		wg.Done()
+		defer wg.Done()
 		time.Sleep(150 * time.Millisecond)
 		close(cancelCh2)
 	}()
 
 	// When
-	claim2 := gm2.ClaimPartition(s.claimerActorID, "foo", 1, cancelCh2)
+	claim2 := gm2.ClaimPartition(s.ns, "foo", 1, cancelCh2)
 	defer claim2()
 
 	// Then: the partition is still claimed by m1.

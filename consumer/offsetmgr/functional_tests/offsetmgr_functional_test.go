@@ -35,10 +35,10 @@ func (s *OffsetMgrFuncSuite) TestLatestOffsetSaved(c *C) {
 	// Given
 	newOffset := time.Now().Unix()
 
-	config := sarama.NewConfig()
-	client, err := sarama.NewClient(testhelpers.KafkaPeers, config)
+	cfg := testhelpers.NewTestConfig("c1")
+	client, err := sarama.NewClient(testhelpers.KafkaPeers, nil)
 	c.Assert(err, IsNil)
-	f := offsetmgr.SpawnFactory(s.ns, client)
+	f := offsetmgr.SpawnFactory(s.ns, cfg, client)
 	om0_1, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "test.4", 0), "g1", "test.4", 0)
 	c.Assert(err, IsNil)
 
