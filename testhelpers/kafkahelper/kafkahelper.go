@@ -26,6 +26,7 @@ type T struct {
 func New(c *C) *T {
 	kh := &T{ns: actor.RootID.NewChild("kafka_helper"), c: c}
 	cfg := sarama.NewConfig()
+	cfg.Producer.Flush.Messages = 1
 	cfg.Producer.Return.Successes = true
 	cfg.Producer.Return.Errors = true
 	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
@@ -148,15 +149,21 @@ func (kh *T) ResetOffsets(group, topic string) {
 	defer omf.Stop()
 	partitions, err := kh.client.Partitions(topic)
 	kh.c.Assert(err, IsNil)
+	var wg sync.WaitGroup
 	for _, p := range partitions {
-		offset, err := kh.client.GetOffset(topic, p, sarama.OffsetNewest)
-		kh.c.Assert(err, IsNil)
-		om, err := omf.SpawnOffsetManager(kh.ns, group, topic, p)
-		kh.c.Assert(err, IsNil)
-		om.SubmitOffset(offset, "dummy")
-		log.Infof("Set initial offset %s/%s/%d=%d", group, topic, p, offset)
-		om.Stop()
+		wg.Add(1)
+		go func(p int32) {
+			defer wg.Done()
+			offset, err := kh.client.GetOffset(topic, p, sarama.OffsetNewest)
+			kh.c.Assert(err, IsNil)
+			om, err := omf.SpawnOffsetManager(kh.ns, group, topic, p)
+			kh.c.Assert(err, IsNil)
+			om.SubmitOffset(offset, "dummy")
+			log.Infof("*** set initial offset %s/%s/%d=%d", group, topic, p, offset)
+			om.Stop()
+		}(p)
 	}
+	wg.Wait()
 }
 
 type messageSlice []*sarama.ProducerMessage

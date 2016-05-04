@@ -478,9 +478,13 @@ func (s *ConsumerSuite) TestRequestDuringTimeout(c *C) {
 			begin := time.Now()
 			log.Infof("*** consuming...")
 			consMsg, err := sc.Consume("g1", "test.4")
-			_, ok := err.(consumer.ErrRequestTimeout)
-			if err != nil && !ok {
-				c.Errorf("Expected err to be nil or ErrRequestTimeout, got: %v", err)
+			if err != nil {
+				if _, ok := err.(consumer.ErrRequestTimeout); !ok {
+					c.Errorf("Expected err to be nil or ErrRequestTimeout, got: %v", err)
+					continue
+				}
+				log.Infof("*** consume timed out")
+				continue
 			}
 			log.Infof("*** consumed: in=%s, by=%s, topic=%s, partition=%d, offset=%d, message=%s",
 				time.Now().Sub(begin), sc.namespace.String(), consMsg.Topic, consMsg.Partition, consMsg.Offset, consMsg.Value)
@@ -542,12 +546,12 @@ func (s *ConsumerSuite) TestLotsOfPartitions(c *C) {
 // consumed.
 func (s *ConsumerSuite) TestNewGroup(c *C) {
 	// Given
-	group := fmt.Sprintf("group-%d", time.Now().Unix())
+	s.kh.PutMessages("rand", "test.1", map[string]int{"A1": 1})
+
+	group := fmt.Sprintf("g%d", time.Now().Unix())
 	cfg := testhelpers.NewTestConfig(group)
 	sc, err := Spawn(s.ns, cfg)
 	c.Assert(err, IsNil)
-
-	s.kh.PutMessages("rand", "test.1", map[string]int{"A1": 1})
 
 	// The very first consumption of a group is terminated by timeout because
 	// the default offset is the topic head.
@@ -568,6 +572,67 @@ func (s *ConsumerSuite) TestNewGroup(c *C) {
 	msg, err = sc.Consume(group, "test.1")
 	c.Assert(err, IsNil)
 	assertMsg(c, msg, produced["A2"][0])
+}
+
+// If a consumer stops consuming one of the topics for more than
+// `Config.Consumer.RegistrationTimeout` then the topic partitions are
+// rebalanced between active consumers, but the consumer keeps consuming
+// messages from other topics.
+func (s *ConsumerSuite) TestTopicTimeout(c *C) {
+	// Given
+	s.kh.ResetOffsets("g1", "test.4")
+	s.kh.PutMessages("expire", "test.1", map[string]int{"A": 10})
+	s.kh.PutMessages("expire", "test.4", map[string]int{"B": 10})
+
+	cfg1 := testhelpers.NewTestConfig("c1")
+	cfg1.Consumer.LongPollingTimeout = 3000 * time.Millisecond
+	cfg1.Consumer.RegistrationTimeout = 10000 * time.Millisecond
+	cons1, err := Spawn(s.ns, cfg1)
+	c.Assert(err, IsNil)
+	defer cons1.Stop()
+
+	cfg2 := testhelpers.NewTestConfig("c2")
+	cfg2.Consumer.LongPollingTimeout = 3000 * time.Millisecond
+	cfg2.Consumer.RegistrationTimeout = 10000 * time.Millisecond
+	cons2, err := Spawn(s.ns, cfg2)
+	c.Assert(err, IsNil)
+	defer cons2.Stop()
+
+	// Consume the first message to make the consumers join the group and
+	// subscribe to the topics.
+	log.Infof("*** GIVEN 1")
+	start := time.Now()
+	consumedTest1ByCons1 := s.consume(c, cons1, "g1", "test.1", 1)
+	c.Assert(len(consumedTest1ByCons1["A"]), Equals, 1)
+	consumedTest4ByCons1 := s.consume(c, cons1, "g1", "test.4", 1)
+	c.Assert(len(consumedTest4ByCons1["B"]), Equals, 1)
+	msg, err := cons2.Consume("g1", "test.1")
+	c.Assert(msg, IsNil)
+	c.Assert(err, FitsTypeOf, consumer.ErrRequestTimeout(fmt.Errorf("")))
+
+	delay := (5000 * time.Millisecond) - time.Now().Sub(start)
+	log.Infof("*** sleeping for %v", delay)
+	time.Sleep(delay)
+
+	log.Infof("*** GIVEN 2:")
+	consumedTest4ByCons1 = s.consume(c, cons1, "g1", "test.4", 1, consumedTest4ByCons1)
+	c.Assert(len(consumedTest4ByCons1["B"]), Equals, 2)
+	msg, err = cons2.Consume("g1", "test.1")
+	c.Assert(msg, IsNil)
+	c.Assert(err, FitsTypeOf, consumer.ErrRequestTimeout(fmt.Errorf("")))
+
+	// When: wait for the cons1 subscription to test.1 topic to expire.
+	log.Infof("*** WHEN")
+	delay = (10100 * time.Millisecond) - time.Now().Sub(start)
+	log.Infof("*** sleeping for %v", delay)
+	time.Sleep(delay)
+
+	// Then: the test.1 only partition is reassigned to cons2.
+	log.Infof("*** THEN")
+	consumedTest1ByCons2 := s.consume(c, cons2, "g1", "test.1", 1)
+	c.Assert(len(consumedTest1ByCons2["A"]), Equals, 1)
+	consumedTest4ByCons1 = s.consume(c, cons1, "g1", "test.4", 1, consumedTest4ByCons1)
+	c.Assert(len(consumedTest4ByCons1["B"]), Equals, 3)
 }
 
 func assertMsg(c *C, consMsg *consumer.Message, prodMsg *sarama.ProducerMessage) {
