@@ -478,9 +478,13 @@ func (s *ConsumerSuite) TestRequestDuringTimeout(c *C) {
 			begin := time.Now()
 			log.Infof("*** consuming...")
 			consMsg, err := sc.Consume("g1", "test.4")
-			_, ok := err.(consumer.ErrRequestTimeout)
-			if err != nil && !ok {
-				c.Errorf("Expected err to be nil or ErrRequestTimeout, got: %v", err)
+			if err != nil {
+				if _, ok := err.(consumer.ErrRequestTimeout); !ok {
+					c.Errorf("Expected err to be nil or ErrRequestTimeout, got: %v", err)
+					continue
+				}
+				log.Infof("*** consume timed out")
+				continue
 			}
 			log.Infof("*** consumed: in=%s, by=%s, topic=%s, partition=%d, offset=%d, message=%s",
 				time.Now().Sub(begin), sc.namespace.String(), consMsg.Topic, consMsg.Partition, consMsg.Offset, consMsg.Value)
