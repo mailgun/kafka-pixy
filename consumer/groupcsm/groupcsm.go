@@ -209,7 +209,7 @@ func (gc *T) runRebalancer(actorID *actor.ID, topicConsumers map[string]*topiccs
 	// and start consuming newly assigned partitions for topics that has been
 	// consumed already.
 	for topic, tcg := range gc.multiplexers {
-		gc.rewireMuxAsync(&wg, tcg, topicConsumers[topic], assignedPartitions[topic])
+		gc.rewireMuxAsync(topic, &wg, tcg, topicConsumers[topic], assignedPartitions[topic])
 	}
 	// Start consuming partitions for topics that has not been consumed before.
 	for topic, assignedTopicPartitions := range assignedPartitions {
@@ -224,7 +224,7 @@ func (gc *T) runRebalancer(actorID *actor.ID, topicConsumers map[string]*topiccs
 				gc.cfg, gc.groupMember, gc.msgStreamFactory, gc.offsetMgrFactory)
 		}
 		mux = multiplexer.New(gc.supActorID, spawnInF)
-		gc.rewireMuxAsync(&wg, mux, tc, assignedTopicPartitions)
+		gc.rewireMuxAsync(topic, &wg, mux, tc, assignedTopicPartitions)
 		gc.multiplexers[topic] = mux
 	}
 	wg.Wait()
@@ -240,8 +240,8 @@ func (gc *T) runRebalancer(actorID *actor.ID, topicConsumers map[string]*topiccs
 }
 
 // rewireMuxAsync calls muxInputs in another goroutine.
-func (gc *T) rewireMuxAsync(wg *sync.WaitGroup, mux *multiplexer.T, tc *topiccsm.T, assigned []int32) {
-	actor.Spawn(gc.supActorID.NewChild("rewire", tc.Topic()), wg, func() {
+func (gc *T) rewireMuxAsync(topic string, wg *sync.WaitGroup, mux *multiplexer.T, tc *topiccsm.T, assigned []int32) {
+	actor.Spawn(gc.supActorID.NewChild("rewire", topic), wg, func() {
 		mux.WireUp(tc, assigned)
 	})
 }

@@ -570,6 +570,67 @@ func (s *ConsumerSuite) TestNewGroup(c *C) {
 	assertMsg(c, msg, produced["A2"][0])
 }
 
+// If a consumer stops consuming one of the topics for more than
+// `Config.Consumer.RegistrationTimeout` then the topic partitions are
+// rebalanced between active consumers, but the consumer keeps consuming
+// messages from other topics.
+func (s *ConsumerSuite) TestTopicTimeout(c *C) {
+	// Given
+	s.kh.ResetOffsets("g1", "test.4")
+	s.kh.PutMessages("expire", "test.1", map[string]int{"A": 10})
+	s.kh.PutMessages("expire", "test.4", map[string]int{"B": 10})
+
+	cfg1 := testhelpers.NewTestConfig("c1")
+	cfg1.Consumer.LongPollingTimeout = 3000 * time.Millisecond
+	cfg1.Consumer.RegistrationTimeout = 10000 * time.Millisecond
+	cons1, err := Spawn(s.ns, cfg1)
+	c.Assert(err, IsNil)
+	defer cons1.Stop()
+
+	cfg2 := testhelpers.NewTestConfig("c2")
+	cfg2.Consumer.LongPollingTimeout = 3000 * time.Millisecond
+	cfg2.Consumer.RegistrationTimeout = 10000 * time.Millisecond
+	cons2, err := Spawn(s.ns, cfg2)
+	c.Assert(err, IsNil)
+	defer cons2.Stop()
+
+	// Consume the first message to make the consumers join the group and
+	// subscribe to the topics.
+	log.Infof("*** GIVEN 1")
+	start := time.Now()
+	consumedTest1ByCons1 := s.consume(c, cons1, "g1", "test.1", 1)
+	c.Assert(len(consumedTest1ByCons1["A"]), Equals, 1)
+	consumedTest4ByCons1 := s.consume(c, cons1, "g1", "test.4", 1)
+	c.Assert(len(consumedTest4ByCons1["B"]), Equals, 1)
+	msg, err := cons2.Consume("g1", "test.1")
+	c.Assert(msg, IsNil)
+	c.Assert(err, FitsTypeOf, consumer.ErrRequestTimeout(fmt.Errorf("")))
+
+	delay := (5000 * time.Millisecond) - time.Now().Sub(start)
+	log.Infof("*** sleeping for %v", delay)
+	time.Sleep(delay)
+
+	log.Infof("*** GIVEN 2:")
+	consumedTest4ByCons1 = s.consume(c, cons1, "g1", "test.4", 1, consumedTest4ByCons1)
+	c.Assert(len(consumedTest4ByCons1["B"]), Equals, 2)
+	msg, err = cons2.Consume("g1", "test.1")
+	c.Assert(msg, IsNil)
+	c.Assert(err, FitsTypeOf, consumer.ErrRequestTimeout(fmt.Errorf("")))
+
+	// When: wait for the cons1 subscription to test.1 topic to expire.
+	log.Infof("*** WHEN")
+	delay = (10100 * time.Millisecond) - time.Now().Sub(start)
+	log.Infof("*** sleeping for %v", delay)
+	time.Sleep(delay)
+
+	// Then: the test.1 only partition is reassigned to cons2.
+	log.Infof("*** THEN")
+	consumedTest1ByCons2 := s.consume(c, cons2, "g1", "test.1", 1)
+	c.Assert(len(consumedTest1ByCons2["A"]), Equals, 1)
+	consumedTest4ByCons1 = s.consume(c, cons1, "g1", "test.4", 1, consumedTest4ByCons1)
+	c.Assert(len(consumedTest4ByCons1["B"]), Equals, 3)
+}
+
 func assertMsg(c *C, consMsg *consumer.Message, prodMsg *sarama.ProducerMessage) {
 	c.Assert(sarama.StringEncoder(consMsg.Value), Equals, prodMsg.Value)
 	c.Assert(consMsg.Offset, Equals, prodMsg.Offset)
