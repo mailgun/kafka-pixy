@@ -542,12 +542,12 @@ func (s *ConsumerSuite) TestLotsOfPartitions(c *C) {
 // consumed.
 func (s *ConsumerSuite) TestNewGroup(c *C) {
 	// Given
-	group := fmt.Sprintf("group-%d", time.Now().Unix())
+	s.kh.PutMessages("rand", "test.1", map[string]int{"A1": 1})
+
+	group := fmt.Sprintf("g%d", time.Now().Unix())
 	cfg := testhelpers.NewTestConfig(group)
 	sc, err := Spawn(s.ns, cfg)
 	c.Assert(err, IsNil)
-
-	s.kh.PutMessages("rand", "test.1", map[string]int{"A1": 1})
 
 	// The very first consumption of a group is terminated by timeout because
 	// the default offset is the topic head.
