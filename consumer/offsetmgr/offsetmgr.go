@@ -258,6 +258,7 @@ func (om *offsetManager) run() {
 		nilOrReassignRetryTimerCh <-chan time.Time
 		lastSubmitTime            time.Time
 		lastReassignTime          time.Time
+		offsetCommitTimeout       = om.f.cfg.Consumer.OffsetsCommitInterval * 3
 	)
 	defer commitTicker.Stop()
 	triggerOrScheduleReassign := func(err error, reason string) {
@@ -326,7 +327,7 @@ func (om *offsetManager) run() {
 				return
 			}
 		case <-commitTicker.C:
-			isRequestTimeout := time.Now().UTC().Sub(lastSubmitTime) > (om.f.cfg.Consumer.OffsetsCommitInterval << 1)
+			isRequestTimeout := time.Now().UTC().Sub(lastSubmitTime) > offsetCommitTimeout
 			if isRequestTimeout && !isSameDecoratedOffset(lastSubmitRequest, lastCommittedOffset) {
 				triggerOrScheduleReassign(ErrRequestTimeout, "offset commit failed")
 			}

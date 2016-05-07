@@ -126,14 +126,17 @@ func (gc *T) String() string {
 
 func (gc *T) runManager() {
 	var (
-		topicConsumers                = make(map[string]*topiccsm.T)
-		topics                        []string
-		subscriptions                 map[string][]string
-		ok                            = true
-		nilOrRetryCh                  <-chan time.Time
-		nilOrRegistryTopicsCh         chan<- []string
-		shouldRebalance, canRebalance = false, true
-		rebalanceResultCh             = make(chan error, 1)
+		topicConsumers        = make(map[string]*topiccsm.T)
+		topics                []string
+		subscriptions         map[string][]string
+		ok                    = true
+		nilOrRetryCh          <-chan time.Time
+		nilOrRegistryTopicsCh chan<- []string
+		rebalancingRequired   = false
+		rebalancingInProgress = false
+		retryScheduled        = false
+		stopped               = false
+		rebalanceResultCh     = make(chan error, 1)
 	)
 	for {
 		select {
@@ -152,35 +155,47 @@ func (gc *T) runManager() {
 			nilOrRegistryTopicsCh = nil
 			continue
 		case subscriptions, ok = <-gc.groupMember.Subscriptions():
-			if !ok {
-				goto done
-			}
 			nilOrRetryCh = nil
-			shouldRebalance = true
-		case err := <-rebalanceResultCh:
-			canRebalance = true
-			if err != nil {
-				log.Errorf("<%s> rebalance failed: err=(%s)", gc.mgrActorID, err)
-				nilOrRetryCh = time.After(gc.cfg.Consumer.BackOffTimeout)
+			if !ok {
+				if !rebalancingInProgress {
+					goto done
+				}
+				stopped = true
 				continue
 			}
+			rebalancingRequired = true
+		case err := <-rebalanceResultCh:
+			rebalancingInProgress = false
+			if err != nil {
+				log.Errorf("<%s> rebalancing failed: err=(%s)", gc.mgrActorID, err)
+				if stopped {
+					goto done
+				}
+				nilOrRetryCh = time.After(gc.cfg.Consumer.BackOffTimeout)
+				retryScheduled = true
+			}
+			if stopped {
+				goto done
+			}
+
 		case <-nilOrRetryCh:
-			shouldRebalance = true
+			retryScheduled = false
 		}
 
-		if shouldRebalance && canRebalance {
+		if rebalancingRequired && !rebalancingInProgress && !retryScheduled {
+			actorID := gc.mgrActorID.NewChild("rebalance")
 			// Copy topicConsumers to make sure `rebalance` doesn't see any
 			// changes we make while it is running.
-			topicConsumerCopy := make(map[string]*topiccsm.T, len(topicConsumers))
+			topicConsumersCopy := make(map[string]*topiccsm.T, len(topicConsumers))
 			for topic, tc := range topicConsumers {
-				topicConsumerCopy[topic] = tc
+				topicConsumersCopy[topic] = tc
 			}
-			rebalancerActorID := gc.mgrActorID.NewChild("rebalancer")
 			subscriptions := subscriptions
-			actor.Spawn(rebalancerActorID, nil, func() {
-				gc.runRebalancer(rebalancerActorID, topicConsumerCopy, subscriptions, rebalanceResultCh)
+			actor.Spawn(actorID, nil, func() {
+				gc.runRebalancing(actorID, topicConsumersCopy, subscriptions, rebalanceResultCh)
 			})
-			shouldRebalance, canRebalance = false, false
+			rebalancingInProgress = true
+			rebalancingRequired = false
 		}
 	}
 done:
@@ -195,7 +210,7 @@ done:
 	wg.Wait()
 }
 
-func (gc *T) runRebalancer(actorID *actor.ID, topicConsumers map[string]*topiccsm.T,
+func (gc *T) runRebalancing(actorID *actor.ID, topicConsumers map[string]*topiccsm.T,
 	subscriptions map[string][]string, rebalanceResultCh chan<- error,
 ) {
 	assignedPartitions, err := gc.resolvePartitions(subscriptions)

@@ -14,6 +14,11 @@ import (
 	"github.com/wvanbergen/kazoo-go"
 )
 
+// It is ok for an attempt to claim a partition to fail, for it might take
+// some time for the current partition owner to release it. So we won't report
+// first several failures to claim a partition as an error.
+const safeClaimRetriesCount = 10
+
 // T maintains a consumer group member registration in ZooKeeper, watches for
 // other members to join, leave and update their subscriptions, and generates
 // notifications of such changes.
@@ -68,9 +73,16 @@ func (gm *T) Subscriptions() <-chan map[string][]string {
 // consumer group. It blocks until either succeeds or canceled by the caller. It
 // returns a function that should be called to release the claim.
 func (gm *T) ClaimPartition(claimerActorID *actor.ID, topic string, partition int32, cancelCh <-chan none.T) func() {
+	beginAt := time.Now()
+	retries := 0
+	logFailureFn := log.Infof
 	err := gm.groupMemberZNode.ClaimPartition(topic, partition)
 	for err != nil {
-		log.Errorf("<%s> failed to claim partition: via=%s, err=(%s)", claimerActorID, gm.actorID, err)
+		if retries++; retries > safeClaimRetriesCount {
+			logFailureFn = log.Errorf
+		}
+		logFailureFn("<%s> failed to claim partition: via=%s, retries=%d, took=%s, err=(%s)",
+			claimerActorID, gm.actorID, retries, millisSince(beginAt), err)
 		select {
 		case <-time.After(gm.cfg.Consumer.BackOffTimeout):
 		case <-cancelCh:
@@ -78,15 +90,24 @@ func (gm *T) ClaimPartition(claimerActorID *actor.ID, topic string, partition in
 		}
 		err = gm.groupMemberZNode.ClaimPartition(topic, partition)
 	}
-	log.Infof("<%s> claimed partition: via=%s", claimerActorID, gm.actorID)
+	log.Infof("<%s> partition claimed: via=%s, retries=%d, took=%s",
+		claimerActorID, gm.actorID, retries, millisSince(beginAt))
 	return func() {
+		beginAt := time.Now()
+		retries := 0
+		logFailureFn := log.Infof
 		err := gm.groupMemberZNode.ReleasePartition(topic, partition)
 		for err != nil && err != kazoo.ErrPartitionNotClaimed {
-			log.Errorf("<%s> failed to release partition: via=%s, err=(%s)", claimerActorID, gm.actorID, err)
+			if retries++; retries > safeClaimRetriesCount {
+				logFailureFn = log.Errorf
+			}
+			logFailureFn("<%s> failed to release partition: via=%s, retries=%d, took=%s, err=(%s)",
+				claimerActorID, gm.actorID, retries, millisSince(beginAt), err)
 			<-time.After(gm.cfg.Consumer.BackOffTimeout)
 			err = gm.groupMemberZNode.ReleasePartition(topic, partition)
 		}
-		log.Infof("<%s> released partition: via=%s", claimerActorID, gm.actorID)
+		log.Infof("<%s> partition released: via=%s, retries=%d, took=%s",
+			claimerActorID, gm.actorID, retries, millisSince(beginAt))
 	}
 }
 
@@ -265,4 +286,8 @@ func subscriptionsEqual(lhs, rhs map[string][]string) bool {
 		}
 	}
 	return true
+}
+
+func millisSince(t time.Time) time.Duration {
+	return time.Now().Sub(t) / time.Millisecond * time.Millisecond
 }
