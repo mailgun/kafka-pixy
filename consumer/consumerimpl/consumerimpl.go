@@ -27,12 +27,13 @@ import (
 // implements `consumer.T`.
 // implements `dispatcher.Factory`.
 type t struct {
-	namespace        *actor.ID
-	cfg              *config.T
-	dispatcher       *dispatcher.T
-	kafkaClient      sarama.Client
-	kazooConn        *kazoo.Kazoo
-	offsetMgrFactory offsetmgr.Factory
+	namespace           *actor.ID
+	cfg                 *config.T
+	dispatcher          *dispatcher.T
+	clientForMsgStreams sarama.Client
+	clientForOffsetMgrs sarama.Client
+	kazooConn           *kazoo.Kazoo
+	offsetMgrFactory    offsetmgr.Factory
 }
 
 // Spawn creates a consumer instance with the specified configuration and
@@ -47,11 +48,14 @@ func Spawn(namespace *actor.ID, cfg *config.T) (*t, error) {
 
 	namespace = namespace.NewChild("cons")
 
-	kafkaClient, err := sarama.NewClient(cfg.Kafka.SeedPeers, saramaCfg)
+	clientForMsgStreams, err := sarama.NewClient(cfg.Kafka.SeedPeers, saramaCfg)
 	if err != nil {
-		return nil, consumer.ErrSetup(fmt.Errorf("failed to create sarama.Client: err=(%v)", err))
+		return nil, consumer.ErrSetup(fmt.Errorf("failed to create Kafka client for message streams: err=(%v)", err))
 	}
-	offsetMgrFactory := offsetmgr.SpawnFactory(namespace, cfg, kafkaClient)
+	clientForOffsetMgrs, err := sarama.NewClient(cfg.Kafka.SeedPeers, saramaCfg)
+	if err != nil {
+		return nil, consumer.ErrSetup(fmt.Errorf("failed to create Kafka client for offset managers: err=(%v)", err))
+	}
 
 	kazooCfg := kazoo.NewConfig()
 	kazooCfg.Chroot = cfg.ZooKeeper.Chroot
@@ -61,18 +65,20 @@ func Spawn(namespace *actor.ID, cfg *config.T) (*t, error) {
 	// a maximum of 20 times the tickTime". The default tickTime is 2 seconds.
 	// See http://zookeeper.apache.org/doc/trunk/zookeeperProgrammers.html#ch_zkSessions
 	kazooCfg.Timeout = 15 * time.Second
-
 	kazooConn, err := kazoo.NewKazoo(cfg.ZooKeeper.SeedPeers, kazooCfg)
 	if err != nil {
 		return nil, consumer.ErrSetup(fmt.Errorf("failed to create kazoo.Kazoo: err=(%v)", err))
 	}
 
+	offsetMgrFactory := offsetmgr.SpawnFactory(namespace, cfg, clientForOffsetMgrs)
+
 	c := &t{
-		namespace:        namespace,
-		cfg:              cfg,
-		kafkaClient:      kafkaClient,
-		offsetMgrFactory: offsetMgrFactory,
-		kazooConn:        kazooConn,
+		namespace:           namespace,
+		cfg:                 cfg,
+		clientForMsgStreams: clientForMsgStreams,
+		clientForOffsetMgrs: clientForOffsetMgrs,
+		offsetMgrFactory:    offsetMgrFactory,
+		kazooConn:           kazooConn,
 	}
 	c.dispatcher = dispatcher.New(c.namespace, c, c.cfg)
 	c.dispatcher.Start()
@@ -80,26 +86,30 @@ func Spawn(namespace *actor.ID, cfg *config.T) (*t, error) {
 }
 
 // implements `consumer.T`
-func (sc *t) Consume(group, topic string) (*consumer.Message, error) {
+func (c *t) Consume(group, topic string) (*consumer.Message, error) {
 	replyCh := make(chan dispatcher.Response, 1)
-	sc.dispatcher.Requests() <- dispatcher.Request{time.Now().UTC(), group, topic, replyCh}
+	c.dispatcher.Requests() <- dispatcher.Request{time.Now().UTC(), group, topic, replyCh}
 	result := <-replyCh
 	return result.Msg, result.Err
 }
 
 // implements `consumer.T`
-func (sc *t) Stop() {
-	sc.dispatcher.Stop()
+func (c *t) Stop() {
+	c.dispatcher.Stop()
+	c.offsetMgrFactory.Stop()
+	c.kazooConn.Close()
+	c.clientForOffsetMgrs.Close()
+	c.clientForMsgStreams.Close()
 }
 
 // implements `dispatcher.Factory`.
-func (sc *t) KeyOf(req dispatcher.Request) string {
+func (c *t) KeyOf(req dispatcher.Request) string {
 	return req.Group
 }
 
 // implements `dispatcher.Factory`.
-func (sc *t) NewTier(key string) dispatcher.Tier {
-	return groupcsm.New(sc.namespace, key, sc.cfg, sc.kafkaClient, sc.kazooConn, sc.offsetMgrFactory)
+func (c *t) NewTier(key string) dispatcher.Tier {
+	return groupcsm.New(c.namespace, key, c.cfg, c.clientForMsgStreams, c.kazooConn, c.offsetMgrFactory)
 }
 
 // String returns a string ID of this instance to be used in logs.
