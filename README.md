@@ -262,7 +262,7 @@ pretty much the same on Mac.
 ### Step 1. Download
 
 ```
-curl -L https://github.com/mailgun/kafka-pixy/releases/download/v0.11.0/kafka-pixy-v0.11.0-linux-amd64.tar.gz | tar xz
+curl -L https://github.com/mailgun/kafka-pixy/releases/download/v0.11.0/kafka-pixy-v0.11.0-1-ge927f15-linux-amd64.tar.gz | tar xz
 ```
 
 ### Step 2. Start
