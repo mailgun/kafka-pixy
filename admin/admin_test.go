@@ -55,11 +55,11 @@ func (s *AdminSuite) TestGetOffsetsAfterProduce(c *C) {
 	s.kh.PutMessages("get_offsets", "test.64", keyToCount)
 
 	// When
-	offsetsAfter, err := a.GetGroupOffsets("foo", "test.64")
+	_, _ = a.GetGroupOffsets("foo", "test.64")
 	// It takes sometime the production result to be reflected in get metadata
 	// output. So the first query sometimes returns unexpected results. So we
 	// make the second request in lame attempt to make this test deterministic.
-	offsetsAfter, err = a.GetGroupOffsets("foo", "test.64")
+	offsetsAfter, err := a.GetGroupOffsets("foo", "test.64")
 	c.Assert(err, IsNil)
 
 	// Then
@@ -98,6 +98,7 @@ func (s *AdminSuite) TestSetOffsetsPartialUpdate(c *C) {
 
 	// Then
 	offsets, err := a.GetGroupOffsets("foo", "test.4")
+	c.Assert(err, IsNil)
 	c.Assert(offsets[0].Offset, Equals, int64(2001))
 	c.Assert(offsets[1].Offset, Equals, int64(1002))
 	c.Assert(offsets[2].Offset, Equals, int64(1003))

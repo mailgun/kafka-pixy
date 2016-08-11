@@ -89,6 +89,7 @@ func New(network, addr string, prod *producer.T, cons consumer.T, admin *admin.T
 		as.handleSetOffsets).Methods("POST")
 	router.HandleFunc(fmt.Sprintf("/topics/{%s}/consumers", paramTopic),
 		as.handleGetTopicConsumers).Methods("GET")
+	router.HandleFunc("/_ping", as.handlePing).Methods("GET")
 	return as, nil
 }
 
@@ -340,7 +341,7 @@ func (as *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
 
 	encodedRes, err := json.MarshalIndent(consumers, "", "  ")
 	if err != nil {
-		log.Errorf("Failed to send HTTP reponse: status=%d, body=%v, reason=%v", http.StatusOK, encodedRes, err)
+		log.Errorf("Failed to send HTTP response: status=%d, body=%v, reason=%v", http.StatusOK, encodedRes, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -349,8 +350,14 @@ func (as *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add(headerContentType, "application/json")
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write(encodedRes); err != nil {
-		log.Errorf("Failed to send HTTP reponse: status=%d, body=%v, reason=%v", http.StatusOK, encodedRes, err)
+		log.Errorf("Failed to send HTTP response: status=%d, body=%v, reason=%v", http.StatusOK, encodedRes, err)
 	}
+}
+
+func (as *T) handlePing(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("pong"))
 }
 
 type produceHTTPResponse struct {
@@ -396,7 +403,7 @@ func getParamBytes(r *http.Request, name string) []byte {
 func respondWithJSON(w http.ResponseWriter, status int, body interface{}) {
 	encodedRes, err := json.MarshalIndent(body, "", "  ")
 	if err != nil {
-		log.Errorf("Failed to send HTTP reponse: status=%d, body=%v, reason=%v", status, body, err)
+		log.Errorf("Failed to send HTTP response: status=%d, body=%v, reason=%v", status, body, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -404,7 +411,7 @@ func respondWithJSON(w http.ResponseWriter, status int, body interface{}) {
 	w.Header().Add(headerContentType, "application/json")
 	w.WriteHeader(status)
 	if _, err := w.Write(encodedRes); err != nil {
-		log.Errorf("Failed to send HTTP reponse: status=%d, body=%v, reason=%v", status, body, err)
+		log.Errorf("Failed to send HTTP response: status=%d, body=%v, reason=%v", status, body, err)
 	}
 }
 

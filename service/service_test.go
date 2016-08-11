@@ -681,12 +681,30 @@ func (s *ServiceSuite) TestGetTopicConsumers(c *C) {
 	})
 }
 
+// Reported partition lags are correct, including those corresponding to -1 and
+// -2 special case offset values.
+func (s *ServiceSuite) TestHealthCheck(c *C) {
+	// Given
+	svc, _ := Spawn(s.cfg)
+	defer svc.Stop()
+
+	// When
+	r, err := s.unixClient.Get("http://_/_ping")
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(r.StatusCode, Equals, http.StatusOK)
+	body, err := ioutil.ReadAll(r.Body)
+	c.Assert(err, IsNil)
+	c.Assert(string(body), Equals, "pong")
+}
+
 func spawnTestService(c *C, port int) *T {
-	config := testhelpers.NewTestConfig(fmt.Sprintf("C%d", port))
-	config.UnixAddr = fmt.Sprintf("%s.%d", config.UnixAddr, port)
-	os.Remove(config.UnixAddr)
-	config.TCPAddr = fmt.Sprintf("127.0.0.1:%d", port)
-	svc, err := Spawn(config)
+	cfg := testhelpers.NewTestConfig(fmt.Sprintf("C%d", port))
+	cfg.UnixAddr = fmt.Sprintf("%s.%d", cfg.UnixAddr, port)
+	os.Remove(cfg.UnixAddr)
+	cfg.TCPAddr = fmt.Sprintf("127.0.0.1:%d", port)
+	svc, err := Spawn(cfg)
 	c.Assert(err, IsNil)
 	return svc
 }
@@ -737,7 +755,7 @@ func NewChunkReader(s string, count int, pause time.Duration) *ChunkReader {
 	}
 }
 
-func (cr *ChunkReader) Read(b []byte) (n int, err error) {
+func (cr *ChunkReader) Read(b []byte) (int, error) {
 	if cr.begin == len(cr.buf) {
 		return 0, io.EOF
 	}
