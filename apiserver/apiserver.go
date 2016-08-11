@@ -89,6 +89,7 @@ func New(network, addr string, prod *producer.T, cons consumer.T, admin *admin.T
 		as.handleSetOffsets).Methods("POST")
 	router.HandleFunc(fmt.Sprintf("/topics/{%s}/consumers", paramTopic),
 		as.handleGetTopicConsumers).Methods("GET")
+	router.HandleFunc("/_ping", as.handlePing).Methods("GET")
 	return as, nil
 }
 
@@ -351,6 +352,12 @@ func (as *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write(encodedRes); err != nil {
 		log.Errorf("Failed to send HTTP response: status=%d, body=%v, reason=%v", http.StatusOK, encodedRes, err)
 	}
+}
+
+func (as *T) handlePing(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("pong"))
 }
 
 type produceHTTPResponse struct {
