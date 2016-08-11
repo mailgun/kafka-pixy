@@ -133,9 +133,11 @@ func (gm *T) run() {
 		err = gm.groupZNode.Create()
 	}
 
+	// Ensure that the member leaves the group in ZooKeeper on stop. We retry
+	// indefinitely here until ZooKeeper confirms that there is no registration.
 	defer func() {
 		err := gm.groupMemberZNode.Deregister()
-		if err != nil && err != kazoo.ErrInstanceNotRegistered {
+		for err != nil && err != kazoo.ErrInstanceNotRegistered {
 			log.Errorf("<%s> failed to deregister: err=(%s)", gm.actorID, err)
 			<-time.After(gm.cfg.Consumer.BackOffTimeout)
 			err = gm.groupMemberZNode.Deregister()
