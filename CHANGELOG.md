@@ -1,6 +1,14 @@
 # Changelog
 
-#### Version 0.11.0 (20016-05-03)
+#### Version 0.11.1 (2016-08-11)
+
+Bug fix release.
+
+* [#64](https://github.com/mailgun/kafka-pixy/issues/64) Panic in group consumer.
+* [#66](https://github.com/mailgun/kafka-pixy/issues/66) Group consumer closed while rebalancing in progress.
+* [#67](https://github.com/mailgun/kafka-pixy/issues/67) Request timeout errors logged by offset manager.
+
+#### Version 0.11.0 (2016-05-03)
 
 Major overhaul and refactoring of the implementation to make it easier to
 understand how the internal components interact with each other. It is an
