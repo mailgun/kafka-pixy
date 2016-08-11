@@ -208,7 +208,7 @@ func (gm *T) run() {
 			if subscriptionsEqual(pendingSubscriptions, gm.subscriptions) {
 				nilOrSubscriptionsCh = nil
 				pendingSubscriptions = nil
-				log.Infof("<%s> redundent group update ignored: %v", gm.actorID, gm.subscriptions)
+				log.Infof("<%s> redundant group update ignored: %v", gm.actorID, gm.subscriptions)
 				continue
 			}
 			nilOrSubscriptionsCh = gm.subscriptionsCh
