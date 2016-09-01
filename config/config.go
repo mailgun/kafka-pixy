@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/Shopify/sarama"
@@ -103,7 +104,9 @@ func newClientID() string {
 		}
 	}
 	timestamp := time.Now().UTC().Format(time.RFC3339)
-	return fmt.Sprintf("pixy_%s_%d_%s", hostname, os.Getpid(), timestamp)
+	// sarama validation regexp for the client ID doesn't allow ':' characters
+	timestamp = strings.Replace(timestamp, ":", ".", -1)
+	return fmt.Sprintf("pixy_%s_%s_%d", hostname, timestamp, os.Getpid())
 }
 
 func getIP() (net.IP, error) {

@@ -44,6 +44,7 @@ type produceResult struct {
 func Spawn(cfg *config.T) (*T, error) {
 	saramaCfg := sarama.NewConfig()
 	saramaCfg.ChannelBufferSize = cfg.Producer.ChannelBufferSize
+	saramaCfg.ClientID = fmt.Sprintf("%s_producer", cfg.ClientID)
 	saramaCfg.Producer.RequiredAcks = sarama.WaitForAll
 	saramaCfg.Producer.Return.Successes = true
 	saramaCfg.Producer.Return.Errors = true
