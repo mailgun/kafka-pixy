@@ -8,8 +8,6 @@ import (
 	"os"
 	"strings"
 	"time"
-
-	"github.com/Shopify/sarama"
 )
 
 type T struct {
@@ -40,9 +38,6 @@ type T struct {
 		// submit buffered messages to Kafka. It should be large enough to avoid
 		// event loss when shutdown is performed during Kafka leader election.
 		ShutdownTimeout time.Duration
-		// DeadMessageCh is a channel to dump undelivered messages into. It is
-		// used in testing only.
-		DeadMessageCh chan<- *sarama.ProducerMessage
 	}
 	Consumer struct {
 		// Size of all buffered channels created by the consumer components.

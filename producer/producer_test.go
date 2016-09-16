@@ -13,9 +13,9 @@ import (
 )
 
 type ProducerSuite struct {
-	cfg           *config.T
-	kh            *kafkahelper.T
-	deadMessageCh chan *sarama.ProducerMessage
+	cfg          *config.T
+	kh           *kafkahelper.T
+	droppedMsgCh chan *sarama.ProducerMessage
 }
 
 func Test(t *testing.T) {
@@ -29,15 +29,13 @@ func (s *ProducerSuite) SetUpSuite(c *C) {
 }
 
 func (s *ProducerSuite) SetUpTest(c *C) {
-	s.deadMessageCh = make(chan *sarama.ProducerMessage, 100)
+	s.droppedMsgCh = make(chan *sarama.ProducerMessage, 100)
 	s.cfg = config.Default()
 	s.cfg.Kafka.SeedPeers = testhelpers.KafkaPeers
-	s.cfg.Producer.DeadMessageCh = s.deadMessageCh
 	s.kh = kafkahelper.New(c)
 }
 
 func (s *ProducerSuite) TearDownTest(c *C) {
-	close(s.deadMessageCh)
 	s.kh.Close()
 }
 
@@ -52,26 +50,30 @@ func (s *ProducerSuite) TestStartAndStop(c *C) {
 }
 
 func (s *ProducerSuite) TestProduce(c *C) {
-	// Given
 	p, _ := Spawn(s.cfg)
 	offsetsBefore := s.kh.GetNewestOffsets("test.4")
+
 	// When
 	_, err := p.Produce("test.4", sarama.StringEncoder("1"), sarama.StringEncoder("Foo"))
+
 	// Then
 	c.Assert(err, IsNil)
 	offsetsAfter := s.kh.GetNewestOffsets("test.4")
 	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0]+1)
+
 	// Cleanup
 	p.Stop()
 }
 
 func (s *ProducerSuite) TestProduceInvalidTopic(c *C) {
-	// Given
 	p, _ := Spawn(s.cfg)
+
 	// When
 	_, err := p.Produce("no-such-topic", sarama.StringEncoder("1"), sarama.StringEncoder("Foo"))
+
 	// Then
 	c.Assert(err, Equals, sarama.ErrUnknownTopicOrPartition)
+
 	// Cleanup
 	p.Stop()
 }
@@ -79,9 +81,10 @@ func (s *ProducerSuite) TestProduceInvalidTopic(c *C) {
 // If `key` is not `nil` then produced messages are deterministically
 // distributed between partitions based on the `key` hash.
 func (s *ProducerSuite) TestAsyncProduce(c *C) {
-	// Given
 	p, _ := Spawn(s.cfg)
+	p.testDroppedMsgCh = s.droppedMsgCh
 	offsetsBefore := s.kh.GetNewestOffsets("test.4")
+
 	// When
 	for i := 0; i < 10; i++ {
 		p.AsyncProduce("test.4", sarama.StringEncoder("1"), sarama.StringEncoder(strconv.Itoa(i)))
@@ -92,6 +95,7 @@ func (s *ProducerSuite) TestAsyncProduce(c *C) {
 	}
 	p.Stop()
 	offsetsAfter := s.kh.GetNewestOffsets("test.4")
+
 	// Then
 	c.Assert(s.failedMessages(), DeepEquals, []string{})
 	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0]+20)
@@ -104,15 +108,17 @@ func (s *ProducerSuite) TestAsyncProduce(c *C) {
 // partition. Therefore a batch of such messages is evenly distributed among
 // all available partitions.
 func (s *ProducerSuite) TestAsyncProduceNilKey(c *C) {
-	// Given
 	p, _ := Spawn(s.cfg)
+	p.testDroppedMsgCh = s.droppedMsgCh
 	offsetsBefore := s.kh.GetNewestOffsets("test.4")
+
 	// When
 	for i := 0; i < 100; i++ {
 		p.AsyncProduce("test.4", nil, sarama.StringEncoder(strconv.Itoa(i)))
 	}
 	p.Stop()
 	offsetsAfter := s.kh.GetNewestOffsets("test.4")
+
 	// Then
 	c.Assert(s.failedMessages(), DeepEquals, []string{})
 	delta0 := offsetsAfter[0] - offsetsBefore[0]
@@ -126,10 +132,11 @@ func (s *ProducerSuite) TestAsyncProduceNilKey(c *C) {
 // client stop due to `ShutdownTimeout == 0`, still none of messages is lost.
 // because none of them are retries. This test is mostly to increase coverage.
 func (s *ProducerSuite) TestTooSmallShutdownTimeout(c *C) {
-	// Given
 	s.cfg.Producer.ShutdownTimeout = 0
 	p, _ := Spawn(s.cfg)
+	p.testDroppedMsgCh = s.droppedMsgCh
 	offsetsBefore := s.kh.GetNewestOffsets("test.4")
+
 	// When
 	for i := 0; i < 100; i++ {
 		v := sarama.StringEncoder(strconv.Itoa(i))
@@ -137,6 +144,7 @@ func (s *ProducerSuite) TestTooSmallShutdownTimeout(c *C) {
 	}
 	p.Stop()
 	offsetsAfter := s.kh.GetNewestOffsets("test.4")
+
 	// Then
 	c.Assert(s.failedMessages(), DeepEquals, []string{})
 	delta := int64(0)
@@ -149,15 +157,17 @@ func (s *ProducerSuite) TestTooSmallShutdownTimeout(c *C) {
 // If `key` of a produced message is empty then it is deterministically
 // submitted to a particular partition determined by the empty key hash.
 func (s *ProducerSuite) TestAsyncProduceEmptyKey(c *C) {
-	// Given
 	p, _ := Spawn(s.cfg)
+	p.testDroppedMsgCh = s.droppedMsgCh
 	offsetsBefore := s.kh.GetNewestOffsets("test.4")
+
 	// When
 	for i := 0; i < 10; i++ {
 		p.AsyncProduce("test.4", sarama.StringEncoder(""), sarama.StringEncoder(strconv.Itoa(i)))
 	}
 	p.Stop()
 	offsetsAfter := s.kh.GetNewestOffsets("test.4")
+
 	// Then
 	c.Assert(s.failedMessages(), DeepEquals, []string{})
 	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0])
@@ -170,7 +180,7 @@ func (s *ProducerSuite) failedMessages() []string {
 	b := []string{}
 	for {
 		select {
-		case prodMsg := <-s.deadMessageCh:
+		case prodMsg := <-s.droppedMsgCh:
 			b = append(b, string(prodMsg.Value.(sarama.StringEncoder)))
 		default:
 			goto done
