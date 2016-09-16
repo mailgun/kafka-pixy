@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"os"
 	"os/signal"
-	"runtime"
 	"strings"
 	"syscall"
 
@@ -54,9 +53,6 @@ func init() {
 }
 
 func main() {
-	// Make go runtime execute in parallel as many goroutines as there are CPUs.
-	runtime.GOMAXPROCS(runtime.NumCPU())
-
 	if err := initLogging(); err != nil {
 		fmt.Printf("Failed to initialize logger: err=(%s)\n", err)
 		os.Exit(1)
