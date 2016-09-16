@@ -82,11 +82,11 @@ func (s *OffsetMgrSuite) TestInitialNoCoordinator(c *C) {
 	cfg := testhelpers.NewTestConfig("c1")
 	cfg.Consumer.BackOffTimeout = 50 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
-	cfg.Consumer.ReturnErrors = true
 	client, err := sarama.NewClient([]string{broker1.Addr()}, nil)
 	c.Assert(err, IsNil)
 	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	defer f.Stop()
+	f.(*factory).testReportErrors = true
 
 	// When
 	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 8), "g1", "t1", 8)
@@ -94,7 +94,7 @@ func (s *OffsetMgrSuite) TestInitialNoCoordinator(c *C) {
 	defer om.Stop()
 
 	// Then
-	oce := <-om.Errors()
+	oce := <-om.(*offsetManager).testErrorsCh
 	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 8, ErrNoCoordinator})
 }
 
@@ -116,11 +116,11 @@ func (s *OffsetMgrSuite) TestInitialFetchError(c *C) {
 	cfg := testhelpers.NewTestConfig("c1")
 	cfg.Consumer.BackOffTimeout = 50 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
-	cfg.Consumer.ReturnErrors = true
 	client, err := sarama.NewClient([]string{broker1.Addr()}, nil)
 	c.Assert(err, IsNil)
 	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	defer f.Stop()
+	f.(*factory).testReportErrors = true
 
 	// When
 	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
@@ -128,7 +128,7 @@ func (s *OffsetMgrSuite) TestInitialFetchError(c *C) {
 	defer om.Stop()
 
 	// Then
-	oce := <-om.Errors()
+	oce := <-om.(*offsetManager).testErrorsCh
 	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 7, sarama.ErrNotLeaderForPartition})
 }
 
@@ -153,12 +153,13 @@ func (s *OffsetMgrSuite) TestCommitError(c *C) {
 	cfg := testhelpers.NewTestConfig("c1")
 	cfg.Consumer.BackOffTimeout = 1000 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
-	cfg.Consumer.ReturnErrors = true
 	client, err := sarama.NewClient([]string{broker1.Addr()}, nil)
 	c.Assert(err, IsNil)
 
 	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	defer f.Stop()
+	f.(*factory).testReportErrors = true
+
 	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
 
@@ -168,7 +169,7 @@ func (s *OffsetMgrSuite) TestCommitError(c *C) {
 	actor.Spawn(actor.RootID.NewChild("stopper"), &wg, om.Stop)
 
 	// Then
-	oce := <-om.Errors()
+	oce := <-om.(*offsetManager).testErrorsCh
 	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 7, sarama.ErrNotLeaderForPartition})
 
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
@@ -208,12 +209,13 @@ func (s *OffsetMgrSuite) TestCommitIncompleteResponse(c *C) {
 	cfg := testhelpers.NewTestConfig("c1")
 	cfg.Consumer.BackOffTimeout = 1000 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
-	cfg.Consumer.ReturnErrors = true
 	client, err := sarama.NewClient([]string{broker1.Addr()}, nil)
 	c.Assert(err, IsNil)
 
 	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	defer f.Stop()
+	f.(*factory).testReportErrors = true
+
 	om1, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 1), "g1", "t1", 1)
 	c.Assert(err, IsNil)
 	om2, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 2), "g1", "t1", 2)
@@ -227,7 +229,7 @@ func (s *OffsetMgrSuite) TestCommitIncompleteResponse(c *C) {
 	actor.Spawn(actor.RootID.NewChild("stopper"), &wg, om2.Stop)
 
 	// Then
-	oce := <-om1.Errors()
+	oce := <-om1.(*offsetManager).testErrorsCh
 	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 1, sarama.ErrIncompleteResponse})
 	c.Assert(<-om2.CommittedOffsets(), Equals, DecoratedOffset{2001, "bar2"})
 
@@ -257,14 +259,14 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 	cfg := testhelpers.NewTestConfig("c1")
 	cfg.Consumer.BackOffTimeout = 25 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 100 * time.Millisecond
-	cfg.Consumer.ReturnErrors = true
 	saramaCfg := sarama.NewConfig()
 	saramaCfg.Net.ReadTimeout = 10 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, saramaCfg)
 	c.Assert(err, IsNil)
 	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	defer f.Stop()
-	c.Assert(err, IsNil)
+	f.(*factory).testReportErrors = true
+
 	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
 
@@ -277,7 +279,7 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 
 	// STAGE 1: Requests for coordinator time out.
 	log.Infof("    STAGE 1")
-	oce := <-om.Errors()
+	oce := <-om.(*offsetManager).testErrorsCh
 	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 7, ErrRequestTimeout})
 
 	// STAGE 2: Requests for initial offset return errors
@@ -288,7 +290,7 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
 			SetOffset("g1", "t1", 7, 0, "", sarama.ErrNotLeaderForPartition),
 	})
-	for oce = range om.Errors() {
+	for oce = range om.(*offsetManager).testErrorsCh {
 		if !reflect.DeepEqual(oce, &OffsetCommitError{"g1", "t1", 7, ErrRequestTimeout}) {
 			break
 		}
@@ -305,7 +307,7 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
 			SetError("g1", "t1", 7, sarama.ErrOffsetMetadataTooLarge),
 	})
-	for oce = range om.Errors() {
+	for oce = range om.(*offsetManager).testErrorsCh {
 		if !reflect.DeepEqual(oce, &OffsetCommitError{"g1", "t1", 7, sarama.ErrNotLeaderForPartition}) {
 			break
 		}
@@ -324,7 +326,7 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 	})
 	// The errors channel is closed when the partition offset manager has
 	// terminated.
-	for oce := range om.Errors() {
+	for oce := range om.(*offsetManager).testErrorsCh {
 		log.Infof("Drain error: %v", oce)
 	}
 
@@ -401,13 +403,14 @@ func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 	cfg := testhelpers.NewTestConfig("c1")
 	cfg.Consumer.BackOffTimeout = 100 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
-	cfg.Consumer.ReturnErrors = true
 	saramaCfg := sarama.NewConfig()
 	saramaCfg.Net.ReadTimeout = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, saramaCfg)
 	c.Assert(err, IsNil)
 	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	defer f.Stop()
+	f.(*factory).testReportErrors = true
+
 	om1, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
 	om2, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 8), "g1", "t1", 8)
@@ -419,9 +422,9 @@ func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 	om3.SubmitOffset(3001, "bar3")
 
 	log.Infof("*** Waiting for errors...")
-	<-om1.Errors()
-	<-om2.Errors()
-	<-om3.Errors()
+	<-om1.(*offsetManager).testErrorsCh
+	<-om2.(*offsetManager).testErrorsCh
+	<-om3.(*offsetManager).testErrorsCh
 
 	// When
 	time.Sleep(cfg.Consumer.BackOffTimeout * 2)
@@ -510,13 +513,14 @@ func (s *OffsetMgrSuite) TestBugConnectionRestored(c *C) {
 	cfg := testhelpers.NewTestConfig("c1")
 	cfg.Consumer.BackOffTimeout = 100 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
-	cfg.Consumer.ReturnErrors = true
 	saramaCfg := sarama.NewConfig()
 	saramaCfg.Net.ReadTimeout = 100 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, saramaCfg)
 	c.Assert(err, IsNil)
 	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	defer f.Stop()
+	f.(*factory).testReportErrors = true
+
 	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
 
@@ -524,7 +528,7 @@ func (s *OffsetMgrSuite) TestBugConnectionRestored(c *C) {
 	// Make sure the partition offset manager established connection with broker2.
 	oce := &OffsetCommitError{}
 	select {
-	case oce = <-om.Errors():
+	case oce = <-om.(*offsetManager).testErrorsCh:
 	case <-time.After(200 * time.Millisecond):
 	}
 	_, ok := oce.Err.(*net.OpError)
@@ -561,7 +565,7 @@ func (s *OffsetMgrSuite) TestBugConnectionRestored(c *C) {
 	var do DecoratedOffset
 	select {
 	case do = <-om.InitialOffset():
-	case oce = <-om.Errors():
+	case oce = <-om.(*offsetManager).testErrorsCh:
 	case <-time.After(200 * time.Millisecond):
 	}
 	c.Assert(do.Offset, Equals, int64(1000), Commentf("Failed to retrieve initial offset: %s", oce.Err))

@@ -64,9 +64,6 @@ type T struct {
 		RebalanceDelay time.Duration
 		// How frequently to commit updated offsets. Defaults to 0.5s.
 		OffsetsCommitInterval time.Duration
-		// If enabled, any errors that occurred while consuming are returned on
-		// the Errors channel (default disabled).
-		ReturnErrors bool
 	}
 }
 
@@ -83,7 +80,6 @@ func Default() *T {
 	config.Consumer.BackOffTimeout = 500 * time.Millisecond
 	config.Consumer.RebalanceDelay = 250 * time.Millisecond
 	config.Consumer.OffsetsCommitInterval = 500 * time.Millisecond
-	config.Consumer.ReturnErrors = false
 
 	return config
 }
