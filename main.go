@@ -17,49 +17,44 @@ import (
 )
 
 const (
-	defaultKafkaPeers     = "localhost:9092"
-	defaultZookeeperPeers = "localhost:2181"
-	defaultTCPAddr        = "0.0.0.0:19092"
-	defaultLoggingCfg     = `[{"name": "console", "severity": "info"}]`
+	defaultLoggingCfg = `[{"name": "console", "severity": "info"}]`
 )
 
 var (
-	cfg            *config.T
-	pidFile        string
-	loggingJSONCfg string
+	cmdConfig         string
+	cmdTCPAddr        string
+	cmdUnixAddr       string
+	cmdKafkaPeers     string
+	cmdZookeeperPeers string
+	cmdPIDFile        string
+	cmdLoggingJSONCfg string
 )
 
 func init() {
-	cfg = config.Default()
-	var kafkaPeers, zookeeperPeers string
-
-	flag.StringVar(&cfg.TCPAddr, "tcpAddr", defaultTCPAddr, "TCP address that the HTTP API should listen on")
-	flag.StringVar(&cfg.UnixAddr, "unixAddr", "", "Unix domain socket address that the HTTP API should listen on")
-	flag.StringVar(&kafkaPeers, "kafkaPeers", defaultKafkaPeers, "Comma separated list of brokers")
-	flag.StringVar(&zookeeperPeers, "zookeeperPeers", defaultZookeeperPeers, "Comma separated list of ZooKeeper nodes followed by optional chroot")
-	flag.StringVar(&pidFile, "pidFile", "", "Path to the PID file")
-	flag.StringVar(&loggingJSONCfg, "logging", defaultLoggingCfg, "Logging configuration")
+	flag.StringVar(&cmdConfig, "config", "", "JSON configuration file, refer to https://github.com/mailgun/kafka-pixy/blob/master/config/config.go#L15 for a list of available configuration options")
+	flag.StringVar(&cmdTCPAddr, "tcpAddr", "", "TCP address that the HTTP API should listen on")
+	flag.StringVar(&cmdUnixAddr, "unixAddr", "", "Unix domain socket address that the HTTP API should listen on")
+	flag.StringVar(&cmdKafkaPeers, "kafkaPeers", "", "Comma separated list of brokers")
+	flag.StringVar(&cmdZookeeperPeers, "zookeeperPeers", "", "Comma separated list of ZooKeeper nodes followed by optional chroot")
+	flag.StringVar(&cmdPIDFile, "pidFile", "", "Path to the PID file")
+	flag.StringVar(&cmdLoggingJSONCfg, "logging", defaultLoggingCfg, "Logging configuration")
 	flag.Parse()
-
-	cfg.Kafka.SeedPeers = strings.Split(kafkaPeers, ",")
-
-	chrootStartIdx := strings.Index(zookeeperPeers, "/")
-	if chrootStartIdx >= 0 {
-		cfg.ZooKeeper.SeedPeers = strings.Split(zookeeperPeers[:chrootStartIdx], ",")
-		cfg.ZooKeeper.Chroot = zookeeperPeers[chrootStartIdx:]
-	} else {
-		cfg.ZooKeeper.SeedPeers = strings.Split(zookeeperPeers, ",")
-	}
 }
 
 func main() {
+	cfg, err := loadConfig()
+	if err != nil {
+		fmt.Printf("Failed to load config: err=(%s)\n", err)
+		os.Exit(1)
+	}
+
 	if err := initLogging(); err != nil {
 		fmt.Printf("Failed to initialize logger: err=(%s)\n", err)
 		os.Exit(1)
 	}
 
-	if pidFile != "" {
-		if err := writePID(pidFile); err != nil {
+	if cmdPIDFile != "" {
+		if err := writePID(cmdPIDFile); err != nil {
 			log.Errorf("Failed to write PID file: err=(%s)", err)
 			os.Exit(1)
 		}
@@ -90,9 +85,37 @@ func main() {
 	svc.Stop()
 }
 
+func loadConfig() (*config.T, error) {
+	cfg := config.Default()
+	if cmdConfig != "" {
+		if err := cfg.FromYAMLFile(cmdConfig); err != nil {
+			return nil, err
+		}
+	}
+	if cmdTCPAddr != "" {
+		cfg.TCPAddr = cmdTCPAddr
+	}
+	if cmdUnixAddr != "" {
+		cfg.UnixAddr = cmdUnixAddr
+	}
+	if cmdKafkaPeers != "" {
+		cfg.Kafka.SeedPeers = strings.Split(cmdKafkaPeers, ",")
+	}
+	if cmdZookeeperPeers != "" {
+		chrootStartIdx := strings.Index(cmdZookeeperPeers, "/")
+		if chrootStartIdx >= 0 {
+			cfg.ZooKeeper.SeedPeers = strings.Split(cmdZookeeperPeers[:chrootStartIdx], ",")
+			cfg.ZooKeeper.Chroot = cmdZookeeperPeers[chrootStartIdx:]
+		} else {
+			cfg.ZooKeeper.SeedPeers = strings.Split(cmdZookeeperPeers, ",")
+		}
+	}
+	return cfg, nil
+}
+
 func initLogging() error {
 	var loggingCfg []log.Config
-	if err := json.Unmarshal([]byte(loggingJSONCfg), &loggingCfg); err != nil {
+	if err := json.Unmarshal([]byte(cmdLoggingJSONCfg), &loggingCfg); err != nil {
 		return fmt.Errorf("failed to parse logger config: err=(%s)", err)
 	}
 	if err := log.InitWithConfig(loggingCfg...); err != nil {

@@ -1,5 +1,12 @@
 # Changelog
 
+#### Version 0.11.2 (TBD)
+
+* [#16](https://github.com/mailgun/kafka-pixy/issues/16) A YAML configuration
+  file can be passed to Kafka-Pixy with `--config` command line parameter. A
+  [default](https://github.com/mailgun/kafka-pixy/blob/master/default.yaml)
+  configuration file is provided for reference.
+
 #### Version 0.11.1 (2016-08-11)
 
 Bug fix release.
