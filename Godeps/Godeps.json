@@ -1,6 +1,7 @@
 {
 	"ImportPath": "github.com/mailgun/kafka-pixy",
 	"GoVersion": "go1.6",
+	"GodepVersion": "v74",
 	"Deps": [
 		{
 			"ImportPath": "github.com/Shopify/sarama",
@@ -53,6 +54,10 @@
 		{
 			"ImportPath": "github.com/wvanbergen/kazoo-go",
 			"Rev": "0f768712ae6f76454f987c3356177e138df258f8"
+		},
+		{
+			"ImportPath": "gopkg.in/yaml.v2",
+			"Rev": "31c299268d302dd0aa9a0dcf765a3d58971ac83f"
 		}
 	]
 }

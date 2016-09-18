@@ -16,7 +16,7 @@ all:
 	go install github.com/mailgun/kafka-pixy/tools/testconsumer
 
 vet:
-	go vet ./...
+	go vet `go list ./... | grep -v '/vendor/'`
 
 errcheck: install_errcheck
 	errcheck github.com/mailgun/kafka-pixy

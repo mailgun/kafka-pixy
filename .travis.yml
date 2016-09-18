@@ -27,8 +27,7 @@ before_install:
 script:
  - $HOME/gopath/bin/gotestcover -v -covermode=atomic -parallelpackages=1 -coverprofile=cover.out -timeout=5m ./... -check.vv
  - $HOME/gopath/bin/goveralls -coverprofile=cover.out -service=travis-ci
-# TODO Uncomment when vet stops checking the `vendor` directory
-# - make vet
+ - make vet
  - make fmt
 
 sudo: false

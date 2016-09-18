@@ -236,15 +236,25 @@ A message is considered to be consumed by Kafka-Pixy if it is successfully sent
 over network in an HTTP response body. So if a client application dies before
 the message is processed, then it will be lost. 
 
-## Command Line
+## Configuration
 
 Kafa-Pixy is designed to be very simple to run. It consists of a single
 executable that can be started just by passing a bunch of command line
-parameters to it - no configuration file needed. All configuration parameters
-that Kafka-Pixy accepts are listed below.
+parameters to it - no configuration file needed.
+
+However if you do need to fine-tune Kafka-Pixy for your use case, you can
+provide a YAML configuration file. Default configuration file
+[default.yaml](https://github.com/mailgun/kafka-pixy/blob/master/default.yaml)
+is shipped in the release archive. In you configuration file you can specify
+only parameters that you want to change, other options take their default
+values. If some option is both specified in the configuration file and provided
+as a command line argument, then the command line argument wins.
+
+Command line parameters that Kafka-Pixy accepts are listed below:
 
  Parameter      | Description
 ----------------|-------------------------------------------------------------------
+ config         | Path to a YAML configuration file.
  kafkaPeers     | Comma separated list of Kafka brokers. Note that these are just seed brokers. The rest brokers are discovered automatically. (Default **localhost:9092**)
  zookeeperPeers | Comma separated list of ZooKeeper nodes followed by optional chroot. (Default **localhost:2181**)
  tcpAddr        | TCP interface where the HTTP API should listen. (Default **0.0.0.0:19092**)

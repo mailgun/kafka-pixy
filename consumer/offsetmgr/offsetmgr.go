@@ -62,12 +62,6 @@ type T interface {
 	// `SubmitOffset` function will eventually block.
 	CommittedOffsets() <-chan DecoratedOffset
 
-	// Errors returns a read channel of errors that occur during offset management,
-	// if enabled. By default errors are not returned. If you want to implement any
-	// custom error handling logic then you need to set `Consumer.Return.Errors` to
-	// true, and read from this channel.
-	Errors() <-chan *OffsetCommitError
-
 	// Stop stops the offset manager. It is required to stop all spawned offset
 	// managers before their parent factory can be stopped.
 	//
@@ -112,6 +106,9 @@ type factory struct {
 	mapper       *mapper.T
 	children     map[groupTopicPartition]*offsetManager
 	childrenLock sync.Mutex
+
+	// To be used in tests only!
+	testReportErrors bool
 }
 
 type groupTopicPartition struct {
@@ -173,7 +170,9 @@ func (f *factory) spawnOffsetManager(namespace *actor.ID, gtp groupTopicPartitio
 		submitRequestsCh:   make(chan submitRequest),
 		assignmentCh:       make(chan mapper.Executor, 1),
 		committedOffsetsCh: make(chan DecoratedOffset, f.cfg.Consumer.ChannelBufferSize),
-		errorsCh:           make(chan *OffsetCommitError, f.cfg.Consumer.ChannelBufferSize),
+	}
+	if f.testReportErrors {
+		om.testErrorsCh = make(chan *OffsetCommitError, f.cfg.Consumer.ChannelBufferSize)
 	}
 	actor.Spawn(om.actorID, &om.wg, om.run)
 	return om
@@ -194,8 +193,10 @@ type offsetManager struct {
 	submitRequestsCh   chan submitRequest
 	assignmentCh       chan mapper.Executor
 	committedOffsetsCh chan DecoratedOffset
-	errorsCh           chan *OffsetCommitError
 	wg                 sync.WaitGroup
+
+	// To be used in tests only!
+	testErrorsCh chan *OffsetCommitError
 }
 
 // implements `T`.
@@ -215,11 +216,6 @@ func (om *offsetManager) SubmitOffset(offset int64, metadata string) {
 // implements `T`.
 func (om *offsetManager) CommittedOffsets() <-chan DecoratedOffset {
 	return om.committedOffsetsCh
-}
-
-// implements `T`.
-func (om *offsetManager) Errors() <-chan *OffsetCommitError {
-	return om.errorsCh
 }
 
 // implements `T`.
@@ -244,7 +240,9 @@ func (om *offsetManager) String() string {
 
 func (om *offsetManager) run() {
 	defer close(om.committedOffsetsCh)
-	defer close(om.errorsCh)
+	if om.testErrorsCh != nil {
+		defer close(om.testErrorsCh)
+	}
 	var (
 		lastSubmitRequest         = submitRequest{offset: math.MinInt64}
 		lastCommittedOffset       = DecoratedOffset{Offset: math.MinInt64}
@@ -365,7 +363,7 @@ func (om *offsetManager) fetchInitialOffset(conn *sarama.Broker) (DecoratedOffse
 }
 
 func (om *offsetManager) reportError(err error) {
-	if !om.f.cfg.Consumer.ReturnErrors {
+	if om.testErrorsCh == nil {
 		return
 	}
 	oce := &OffsetCommitError{
@@ -375,7 +373,7 @@ func (om *offsetManager) reportError(err error) {
 		Err:       err,
 	}
 	select {
-	case om.errorsCh <- oce:
+	case om.testErrorsCh <- oce:
 	default:
 	}
 }

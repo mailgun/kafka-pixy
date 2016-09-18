@@ -29,10 +29,12 @@ type T struct {
 	saramaClient      sarama.Client
 	saramaProducer    sarama.AsyncProducer
 	shutdownTimeout   time.Duration
-	deadMessageCh     chan<- *sarama.ProducerMessage
 	dispatcherCh      chan *sarama.ProducerMessage
 	resultCh          chan produceResult
 	wg                sync.WaitGroup
+
+	// To be used in tests only
+	testDroppedMsgCh chan<- *sarama.ProducerMessage
 }
 
 type produceResult struct {
@@ -70,7 +72,6 @@ func Spawn(cfg *config.T) (*T, error) {
 		saramaClient:      saramaClient,
 		saramaProducer:    saramaProducer,
 		shutdownTimeout:   cfg.Producer.ShutdownTimeout,
-		deadMessageCh:     cfg.Producer.DeadMessageCh,
 		dispatcherCh:      make(chan *sarama.ProducerMessage, cfg.Producer.ChannelBufferSize),
 		resultCh:          make(chan produceResult, cfg.Producer.ChannelBufferSize),
 	}
@@ -207,8 +208,7 @@ shutdownNow:
 }
 
 // handleProduceResult inspects a production results and if it is an error
-// then logs it and flushes it down the `deadMessageCh` if one had been
-// configured.
+// then logs it.
 func (p *T) handleProduceResult(result produceResult) {
 	if replyCh, ok := result.Msg.Metadata.(chan produceResult); ok {
 		replyCh <- result
@@ -220,8 +220,8 @@ func (p *T) handleProduceResult(result produceResult) {
 		result.Msg.Topic, encoderRepr(result.Msg.Key), encoderRepr(result.Msg.Value))
 	log.Errorf("<%v> Failed to submit message: msg=%v, err=(%s)",
 		p.dispatcherActorID, prodMsgRepr, result.Err)
-	if p.deadMessageCh != nil {
-		p.deadMessageCh <- result.Msg
+	if p.testDroppedMsgCh != nil {
+		p.testDroppedMsgCh <- result.Msg
 	}
 }
 
