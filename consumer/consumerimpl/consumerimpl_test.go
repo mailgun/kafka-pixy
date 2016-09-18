@@ -414,9 +414,9 @@ func (s *ConsumerSuite) TestRebalanceOnTimeout(c *C) {
 	c.Assert(len(consumed2["B"]), Equals, 5)
 }
 
-// A `ErrConsumerBufferOverflow` error can be returned if internal buffers are
-// filled with in-flight consume requests.
-func (s *ConsumerSuite) TestBufferOverflowError(c *C) {
+// A `ErrTooManyRequests` error can be returned if internal buffers are filled
+// with in-flight consume requests.
+func (s *ConsumerSuite) TestTooManyRequestsError(c *C) {
 	// Given
 	s.kh.ResetOffsets("g1", "test.1")
 	s.kh.PutMessages("join", "test.1", map[string]int{"A": 30})
@@ -428,7 +428,7 @@ func (s *ConsumerSuite) TestBufferOverflowError(c *C) {
 	defer sc.Stop()
 
 	// When
-	var overflowErrorCount int32
+	var tooManyRequestsCount int32
 	var wg sync.WaitGroup
 	for i := 0; i < 3; i++ {
 		wg.Add(1)
@@ -436,8 +436,9 @@ func (s *ConsumerSuite) TestBufferOverflowError(c *C) {
 			defer wg.Done()
 			for i := 0; i < 10; i++ {
 				_, err := sc.Consume("g1", "test.1")
-				if _, ok := err.(consumer.ErrBufferOverflow); ok {
-					atomic.AddInt32(&overflowErrorCount, 1)
+				if _, ok := err.(consumer.ErrTooManyRequests); ok {
+					c.Assert(err.Error(), Equals, "Too many requests. Consider increasing `consumer.channel_buffer_size` (https://github.com/mailgun/kafka-pixy/blob/master/default.yaml#L43)")
+					atomic.AddInt32(&tooManyRequestsCount, 1)
 				}
 			}
 		}()
@@ -445,8 +446,8 @@ func (s *ConsumerSuite) TestBufferOverflowError(c *C) {
 	wg.Wait()
 
 	// Then
-	c.Assert(overflowErrorCount, Not(Equals), 0)
-	log.Infof("*** overflow was hit %d times", overflowErrorCount)
+	c.Assert(tooManyRequestsCount, Not(Equals), 0)
+	log.Infof("*** ErrTooMannyRequests was returned %d times", tooManyRequestsCount)
 }
 
 // This test makes an attempt to exercise the code path where a message is

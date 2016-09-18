@@ -1,7 +1,7 @@
 package dispatcher
 
 import (
-	"fmt"
+	"errors"
 	"sync"
 	"time"
 
@@ -123,7 +123,7 @@ func (d *T) run() {
 			select {
 			case dt.Requests() <- req:
 			default:
-				overflowErr := consumer.ErrBufferOverflow(fmt.Errorf("<%s> buffer overflow", dt))
+				overflowErr := consumer.ErrTooManyRequests(errors.New("Too many requests. Consider increasing `consumer.channel_buffer_size` (https://github.com/mailgun/kafka-pixy/blob/master/default.yaml#L43)"))
 				req.ResponseCh <- Response{Err: overflowErr}
 			}
 
