@@ -195,8 +195,9 @@ func (as *T) handleConsume(w http.ResponseWriter, r *http.Request) {
 		switch err.(type) {
 		case consumer.ErrRequestTimeout:
 			status = http.StatusRequestTimeout
-		case consumer.ErrBufferOverflow:
-			status = 429 // StatusTooManyRequests
+		case consumer.ErrTooManyRequests:
+			// TODO Use http.StatusTooManyRequests after upgrade to Golang 1.6.x or higher.
+			status = 429
 		default:
 			status = http.StatusInternalServerError
 		}

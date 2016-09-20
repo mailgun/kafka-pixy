@@ -30,7 +30,7 @@ type Message struct {
 }
 
 type (
-	ErrSetup          error
-	ErrBufferOverflow error
-	ErrRequestTimeout error
+	ErrSetup           error
+	ErrTooManyRequests error
+	ErrRequestTimeout  error
 )
