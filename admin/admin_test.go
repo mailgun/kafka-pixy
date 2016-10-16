@@ -48,7 +48,7 @@ func (s *AdminSuite) TestGetOffsetsAfterProduce(c *C) {
 	for i := 0; i < 64; i++ {
 		keyToCount[strconv.Itoa(i)] = i
 	}
-	a, err := Spawn(s.cfg)
+	a, err := Spawn(s.ns, s.cfg)
 	c.Assert(err, IsNil)
 	offsetsBefore, err := a.GetGroupOffsets("foo", "test.64")
 	c.Assert(err, IsNil)
@@ -81,7 +81,7 @@ func (s *AdminSuite) TestGetOffsetsAfterProduce(c *C) {
 // It is possible to set offsets for only a subset of group/topic partitions.
 func (s *AdminSuite) TestSetOffsetsPartialUpdate(c *C) {
 	// Given
-	a, err := Spawn(s.cfg)
+	a, err := Spawn(s.ns, s.cfg)
 	c.Assert(err, IsNil)
 	a.SetGroupOffsets("foo", "test.4", []PartitionOffset{
 		{Partition: 0, Offset: 1001, Metadata: "A1"},

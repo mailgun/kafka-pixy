@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -40,14 +41,16 @@ const (
 
 // T provides methods to perform administrative operations on a Kafka cluster.
 type T struct {
-	cfg *config.T
+	namespace *actor.ID
+	cfg       *config.T
 }
 
 // Spawn creates an admin instance with the specified configuration and starts
 // internal goroutines to support its operation.
-func Spawn(config *config.T) (*T, error) {
+func Spawn(namespace *actor.ID, config *config.T) (*T, error) {
 	a := T{
-		cfg: config,
+		namespace: namespace,
+		cfg:       config,
 	}
 	return &a, nil
 }
@@ -217,7 +220,7 @@ func (a *T) GetTopicConsumers(group, topic string) (map[string][]int32, error) {
 	partitionNodes, _, err := zookeeperClt.Children(consumedPartitionsPath)
 	if err != nil {
 		if err == zk.ErrNoNode {
-			return nil, ErrInvalidParam(fmt.Errorf("either group or topic is incorrect"))
+			return nil, ErrInvalidParam(errors.New("either group or topic is incorrect"))
 		}
 		return nil, NewErrQuery(err, "failed to fetch partition owners data")
 	}

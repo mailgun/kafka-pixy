@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Shopify/sarama"
+	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
@@ -13,6 +14,7 @@ import (
 )
 
 type ProducerSuite struct {
+	ns           *actor.ID
 	cfg          *config.T
 	kh           *kafkahelper.T
 	droppedMsgCh chan *sarama.ProducerMessage
@@ -29,6 +31,7 @@ func (s *ProducerSuite) SetUpSuite(c *C) {
 }
 
 func (s *ProducerSuite) SetUpTest(c *C) {
+	s.ns = actor.RootID.NewChild("T")
 	s.droppedMsgCh = make(chan *sarama.ProducerMessage, 100)
 	s.cfg = config.Default()
 	s.cfg.Kafka.SeedPeers = testhelpers.KafkaPeers
@@ -42,7 +45,7 @@ func (s *ProducerSuite) TearDownTest(c *C) {
 // A started client can be stopped.
 func (s *ProducerSuite) TestStartAndStop(c *C) {
 	// Given
-	p, err := Spawn(s.cfg)
+	p, err := Spawn(s.ns, s.cfg)
 	c.Assert(err, IsNil)
 	c.Assert(p, NotNil)
 	// When
@@ -50,7 +53,7 @@ func (s *ProducerSuite) TestStartAndStop(c *C) {
 }
 
 func (s *ProducerSuite) TestProduce(c *C) {
-	p, _ := Spawn(s.cfg)
+	p, _ := Spawn(s.ns, s.cfg)
 	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 
 	// When
@@ -66,7 +69,7 @@ func (s *ProducerSuite) TestProduce(c *C) {
 }
 
 func (s *ProducerSuite) TestProduceInvalidTopic(c *C) {
-	p, _ := Spawn(s.cfg)
+	p, _ := Spawn(s.ns, s.cfg)
 
 	// When
 	_, err := p.Produce("no-such-topic", sarama.StringEncoder("1"), sarama.StringEncoder("Foo"))
@@ -81,7 +84,7 @@ func (s *ProducerSuite) TestProduceInvalidTopic(c *C) {
 // If `key` is not `nil` then produced messages are deterministically
 // distributed between partitions based on the `key` hash.
 func (s *ProducerSuite) TestAsyncProduce(c *C) {
-	p, _ := Spawn(s.cfg)
+	p, _ := Spawn(s.ns, s.cfg)
 	p.testDroppedMsgCh = s.droppedMsgCh
 	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 
@@ -108,7 +111,7 @@ func (s *ProducerSuite) TestAsyncProduce(c *C) {
 // partition. Therefore a batch of such messages is evenly distributed among
 // all available partitions.
 func (s *ProducerSuite) TestAsyncProduceNilKey(c *C) {
-	p, _ := Spawn(s.cfg)
+	p, _ := Spawn(s.ns, s.cfg)
 	p.testDroppedMsgCh = s.droppedMsgCh
 	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 
@@ -133,7 +136,7 @@ func (s *ProducerSuite) TestAsyncProduceNilKey(c *C) {
 // because none of them are retries. This test is mostly to increase coverage.
 func (s *ProducerSuite) TestTooSmallShutdownTimeout(c *C) {
 	s.cfg.Producer.ShutdownTimeout = 0
-	p, _ := Spawn(s.cfg)
+	p, _ := Spawn(s.ns, s.cfg)
 	p.testDroppedMsgCh = s.droppedMsgCh
 	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 
@@ -157,7 +160,7 @@ func (s *ProducerSuite) TestTooSmallShutdownTimeout(c *C) {
 // If `key` of a produced message is empty then it is deterministically
 // submitted to a particular partition determined by the empty key hash.
 func (s *ProducerSuite) TestAsyncProduceEmptyKey(c *C) {
-	p, _ := Spawn(s.cfg)
+	p, _ := Spawn(s.ns, s.cfg)
 	p.testDroppedMsgCh = s.droppedMsgCh
 	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 

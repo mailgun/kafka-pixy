@@ -26,7 +26,7 @@ type T struct {
 }
 
 func Spawn(cfg *config.T) (*T, error) {
-	prod, err := producer.Spawn(cfg)
+	prod, err := producer.Spawn(actor.RootID, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to spawn producer, err=(%s)", err)
 	}
@@ -34,7 +34,7 @@ func Spawn(cfg *config.T) (*T, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to spawn consumer, err=(%s)", err)
 	}
-	admin, err := admin.Spawn(cfg)
+	admin, err := admin.Spawn(actor.RootID, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to spawn admin, err=(%s)", err)
 	}
