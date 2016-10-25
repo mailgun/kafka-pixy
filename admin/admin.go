@@ -42,7 +42,7 @@ const (
 // T provides methods to perform administrative operations on a Kafka cluster.
 type T struct {
 	namespace *actor.ID
-	cfg       *config.T
+	cfg       *config.Proxy
 	kafkaClt  sarama.Client
 	zkConn    *zk.Conn
 	mtx       sync.Mutex
@@ -50,10 +50,10 @@ type T struct {
 
 // Spawn creates an admin instance with the specified configuration and starts
 // internal goroutines to support its operation.
-func Spawn(namespace *actor.ID, config *config.T) (*T, error) {
+func Spawn(namespace *actor.ID, cfg *config.Proxy) (*T, error) {
 	a := T{
 		namespace: namespace,
-		cfg:       config,
+		cfg:       cfg,
 	}
 	return &a, nil
 }

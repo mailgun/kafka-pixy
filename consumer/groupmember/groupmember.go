@@ -24,7 +24,7 @@ const safeClaimRetriesCount = 10
 // notifications of such changes.
 type T struct {
 	actorID          *actor.ID
-	cfg              *config.T
+	cfg              *config.Proxy
 	group            string
 	groupZNode       *kazoo.Consumergroup
 	groupMemberZNode *kazoo.ConsumergroupInstance
@@ -38,7 +38,7 @@ type T struct {
 
 // Spawn creates a consumer group member instance and starts its background
 // goroutines.
-func Spawn(namespace *actor.ID, group, memberID string, cfg *config.T, kazooConn *kazoo.Kazoo) *T {
+func Spawn(namespace *actor.ID, group, memberID string, cfg *config.Proxy, kazooConn *kazoo.Kazoo) *T {
 	groupZNode := kazooConn.Consumergroup(group)
 	groupMemberZNode := groupZNode.Instance(memberID)
 	gm := &T{

@@ -25,16 +25,16 @@ type T struct {
 	wg         sync.WaitGroup
 }
 
-func Spawn(cfg *config.T) (*T, error) {
-	prod, err := producer.Spawn(actor.RootID, cfg)
+func Spawn(cfg *config.App) (*T, error) {
+	prod, err := producer.Spawn(actor.RootID, cfg.DefaultProxy)
 	if err != nil {
 		return nil, fmt.Errorf("failed to spawn producer, err=(%s)", err)
 	}
-	cons, err := consumerimpl.Spawn(actor.RootID, cfg)
+	cons, err := consumerimpl.Spawn(actor.RootID, cfg.DefaultProxy)
 	if err != nil {
 		return nil, fmt.Errorf("failed to spawn consumer, err=(%s)", err)
 	}
-	admin, err := admin.Spawn(actor.RootID, cfg)
+	admin, err := admin.Spawn(actor.RootID, cfg.DefaultProxy)
 	if err != nil {
 		return nil, fmt.Errorf("failed to spawn admin, err=(%s)", err)
 	}

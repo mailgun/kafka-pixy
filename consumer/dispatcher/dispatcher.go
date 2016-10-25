@@ -19,7 +19,7 @@ import (
 // resolving to it will come in the nearest future.
 type T struct {
 	actorID           *actor.ID
-	cfg               *config.T
+	cfg               *config.Proxy
 	factory           Factory
 	requestsCh        chan Request
 	children          map[string]*expiringTier
@@ -80,7 +80,7 @@ type expiringTier struct {
 	expired   bool
 }
 
-func New(namespace *actor.ID, factory Factory, cfg *config.T) *T {
+func New(namespace *actor.ID, factory Factory, cfg *config.Proxy) *T {
 	d := &T{
 		actorID:           namespace.NewChild("dispatcher"),
 		cfg:               cfg,

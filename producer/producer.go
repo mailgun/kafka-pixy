@@ -43,7 +43,7 @@ type produceResult struct {
 }
 
 // Spawn creates a producer instance and starts its internal goroutines.
-func Spawn(namespace *actor.ID, cfg *config.T) (*T, error) {
+func Spawn(namespace *actor.ID, cfg *config.Proxy) (*T, error) {
 	saramaCfg := sarama.NewConfig()
 	saramaCfg.ChannelBufferSize = cfg.Producer.ChannelBufferSize
 	saramaCfg.ClientID = fmt.Sprintf("%s_producer", cfg.ClientID)

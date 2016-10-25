@@ -31,7 +31,7 @@ var (
 )
 
 func init() {
-	flag.StringVar(&cmdConfig, "config", "", "JSON configuration file, refer to https://github.com/mailgun/kafka-pixy/blob/master/config/config.go#L15 for a list of available configuration options")
+	flag.StringVar(&cmdConfig, "config", "", "YAML configuration file, refer to https://github.com/mailgun/kafka-pixy/blob/master/default.yaml for a list of available configuration options")
 	flag.StringVar(&cmdTCPAddr, "tcpAddr", "", "TCP address that the HTTP API should listen on")
 	flag.StringVar(&cmdUnixAddr, "unixAddr", "", "Unix domain socket address that the HTTP API should listen on")
 	flag.StringVar(&cmdKafkaPeers, "kafkaPeers", "", "Comma separated list of brokers")
@@ -42,7 +42,7 @@ func init() {
 }
 
 func main() {
-	cfg, err := loadConfig()
+	cfg, err := makeConfig()
 	if err != nil {
 		fmt.Printf("Failed to load config: err=(%s)\n", err)
 		os.Exit(1)
@@ -85,13 +85,19 @@ func main() {
 	svc.Stop()
 }
 
-func loadConfig() (*config.T, error) {
-	cfg := config.Default()
+func makeConfig() (*config.App, error) {
+	var cfg *config.App
+	// If a YAML configuration file is provided, then load it and ignore all
+	// parameters provided on the command line.
 	if cmdConfig != "" {
-		if err := cfg.FromYAMLFile(cmdConfig); err != nil {
+		var err error
+		if cfg, err = config.FromYAMLFile(cmdConfig); err != nil {
 			return nil, err
 		}
+		return cfg, nil
 	}
+
+	cfg = config.DefaultApp("default")
 	if cmdTCPAddr != "" {
 		cfg.TCPAddr = cmdTCPAddr
 	}
@@ -99,15 +105,15 @@ func loadConfig() (*config.T, error) {
 		cfg.UnixAddr = cmdUnixAddr
 	}
 	if cmdKafkaPeers != "" {
-		cfg.Kafka.SeedPeers = strings.Split(cmdKafkaPeers, ",")
+		cfg.DefaultProxy.Kafka.SeedPeers = strings.Split(cmdKafkaPeers, ",")
 	}
 	if cmdZookeeperPeers != "" {
 		chrootStartIdx := strings.Index(cmdZookeeperPeers, "/")
 		if chrootStartIdx >= 0 {
-			cfg.ZooKeeper.SeedPeers = strings.Split(cmdZookeeperPeers[:chrootStartIdx], ",")
-			cfg.ZooKeeper.Chroot = cmdZookeeperPeers[chrootStartIdx:]
+			cfg.DefaultProxy.ZooKeeper.SeedPeers = strings.Split(cmdZookeeperPeers[:chrootStartIdx], ",")
+			cfg.DefaultProxy.ZooKeeper.Chroot = cmdZookeeperPeers[chrootStartIdx:]
 		} else {
-			cfg.ZooKeeper.SeedPeers = strings.Split(cmdZookeeperPeers, ",")
+			cfg.DefaultProxy.ZooKeeper.SeedPeers = strings.Split(cmdZookeeperPeers, ",")
 		}
 	}
 	return cfg, nil

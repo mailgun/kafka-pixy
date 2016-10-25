@@ -145,7 +145,7 @@ func (kh *T) PutMessages(prefix, topic string, keys map[string]int) map[string][
 }
 
 func (kh *T) ResetOffsets(group, topic string) {
-	omf := offsetmgr.SpawnFactory(kh.ns, config.Default(), kh.client)
+	omf := offsetmgr.SpawnFactory(kh.ns, config.DefaultProxy(), kh.client)
 	defer omf.Stop()
 	partitions, err := kh.client.Partitions(topic)
 	kh.c.Assert(err, IsNil)

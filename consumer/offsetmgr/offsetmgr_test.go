@@ -49,7 +49,7 @@ func (s *OffsetMgrSuite) TestInitialOffset(c *C) {
 			SetOffset("g1", "t2", 9, 3000, "bazz", sarama.ErrNoError),
 	})
 
-	cfg := testhelpers.NewTestConfig("c1")
+	cfg := testhelpers.NewTestProxyCfg("c1")
 	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, nil)
 	c.Assert(err, IsNil)
@@ -79,7 +79,7 @@ func (s *OffsetMgrSuite) TestInitialNoCoordinator(c *C) {
 			SetError("g1", sarama.ErrOffsetsLoadInProgress),
 	})
 
-	cfg := testhelpers.NewTestConfig("c1")
+	cfg := testhelpers.NewTestProxyCfg("c1")
 	cfg.Consumer.BackOffTimeout = 50 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, nil)
@@ -113,7 +113,7 @@ func (s *OffsetMgrSuite) TestInitialFetchError(c *C) {
 			SetOffset("g1", "t1", 7, 0, "", sarama.ErrNotLeaderForPartition),
 	})
 
-	cfg := testhelpers.NewTestConfig("c1")
+	cfg := testhelpers.NewTestProxyCfg("c1")
 	cfg.Consumer.BackOffTimeout = 50 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, nil)
@@ -150,7 +150,7 @@ func (s *OffsetMgrSuite) TestCommitError(c *C) {
 			SetError("g1", "t1", 7, sarama.ErrNotLeaderForPartition),
 	})
 
-	cfg := testhelpers.NewTestConfig("c1")
+	cfg := testhelpers.NewTestProxyCfg("c1")
 	cfg.Consumer.BackOffTimeout = 1000 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, nil)
@@ -206,7 +206,7 @@ func (s *OffsetMgrSuite) TestCommitIncompleteResponse(c *C) {
 		"OffsetCommitRequest": sarama.NewMockWrapper(&offsetCommitResponse),
 	})
 
-	cfg := testhelpers.NewTestConfig("c1")
+	cfg := testhelpers.NewTestProxyCfg("c1")
 	cfg.Consumer.BackOffTimeout = 1000 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, nil)
@@ -256,7 +256,7 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
 	})
 
-	cfg := testhelpers.NewTestConfig("c1")
+	cfg := testhelpers.NewTestProxyCfg("c1")
 	cfg.Consumer.BackOffTimeout = 25 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 100 * time.Millisecond
 	saramaCfg := sarama.NewConfig()
@@ -355,7 +355,7 @@ func (s *OffsetMgrSuite) TestCommitDifferentGroups(c *C) {
 			SetError("g2", "t1", 7, sarama.ErrNoError),
 	})
 
-	cfg := testhelpers.NewTestConfig("c1")
+	cfg := testhelpers.NewTestProxyCfg("c1")
 	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, nil)
 	c.Assert(err, IsNil)
@@ -400,7 +400,7 @@ func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 			SetOffset("g2", "t1", 7, 3000, "foo3", sarama.ErrNoError),
 	})
 
-	cfg := testhelpers.NewTestConfig("c1")
+	cfg := testhelpers.NewTestProxyCfg("c1")
 	cfg.Consumer.BackOffTimeout = 100 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
 	saramaCfg := sarama.NewConfig()
@@ -467,7 +467,7 @@ func (s *OffsetMgrSuite) TestCommittedChannel(c *C) {
 			SetError("g1", "t1", 7, sarama.ErrNoError),
 	})
 
-	cfg := testhelpers.NewTestConfig("c1")
+	cfg := testhelpers.NewTestProxyCfg("c1")
 	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, nil)
 	c.Assert(err, IsNil)
@@ -510,7 +510,7 @@ func (s *OffsetMgrSuite) TestBugConnectionRestored(c *C) {
 			SetCoordinator("g1", broker2),
 	})
 
-	cfg := testhelpers.NewTestConfig("c1")
+	cfg := testhelpers.NewTestProxyCfg("c1")
 	cfg.Consumer.BackOffTimeout = 100 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
 	saramaCfg := sarama.NewConfig()
@@ -591,7 +591,7 @@ func (s *OffsetMgrSuite) TestBugOffsetDroppedOnStop(c *C) {
 			SetError("g1", "t1", 1, sarama.ErrNoError),
 	})
 
-	cfg := testhelpers.NewTestConfig("c1")
+	cfg := testhelpers.NewTestProxyCfg("c1")
 	cfg.Consumer.OffsetsCommitInterval = 300 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, nil)
 	c.Assert(err, IsNil)

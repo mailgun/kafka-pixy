@@ -75,7 +75,7 @@ func (s *GroupRegistratorSuite) TestSubscriptionsEqual(c *C) {
 // is received with the same list of topics for the registrator name.
 func (s *GroupRegistratorSuite) TestSimpleSubscribe(c *C) {
 	// Given
-	cfg := config.Default()
+	cfg := config.DefaultProxy()
 	cfg.Consumer.RebalanceDelay = 200 * time.Millisecond
 	gm := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm.Stop()
@@ -93,7 +93,7 @@ func (s *GroupRegistratorSuite) TestSimpleSubscribe(c *C) {
 // list for the registrator name.
 func (s *GroupRegistratorSuite) TestSubscribeSequence(c *C) {
 	// Given
-	cfg := config.Default()
+	cfg := config.DefaultProxy()
 	cfg.Consumer.RebalanceDelay = 200 * time.Millisecond
 	gm := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm.Stop()
@@ -111,7 +111,7 @@ func (s *GroupRegistratorSuite) TestSubscribeSequence(c *C) {
 // updated.
 func (s *GroupRegistratorSuite) TestReSubscribe(c *C) {
 	// Given
-	cfg := config.Default()
+	cfg := config.DefaultProxy()
 	cfg.Consumer.RebalanceDelay = 100 * time.Millisecond
 
 	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
@@ -145,7 +145,7 @@ func (s *GroupRegistratorSuite) TestReSubscribe(c *C) {
 // To unsubscribe from all topics an empty topic list can be sent.
 func (s *GroupRegistratorSuite) TestSubscribeToNothing(c *C) {
 	// Given
-	cfg := config.Default()
+	cfg := config.DefaultProxy()
 	cfg.Consumer.RebalanceDelay = 100 * time.Millisecond
 	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm1.Stop()
@@ -171,7 +171,7 @@ func (s *GroupRegistratorSuite) TestSubscribeToNothing(c *C) {
 // To unsubscribe from all topics nil value can be sent.
 func (s *GroupRegistratorSuite) TestSubscribeToNil(c *C) {
 	// Given
-	cfg := config.Default()
+	cfg := config.DefaultProxy()
 	cfg.Consumer.RebalanceDelay = 100 * time.Millisecond
 	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm1.Stop()
@@ -199,7 +199,7 @@ func (s *GroupRegistratorSuite) TestSubscribeToNil(c *C) {
 // their subscription.
 func (s *GroupRegistratorSuite) TestMembershipChanges(c *C) {
 	// Given
-	cfg := config.Default()
+	cfg := config.DefaultProxy()
 	cfg.Consumer.RebalanceDelay = 200 * time.Millisecond
 	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm1.Stop()
@@ -229,7 +229,7 @@ func (s *GroupRegistratorSuite) TestMembershipChanges(c *C) {
 // of the sequence then other members won't be notified of such changes.
 func (s *GroupRegistratorSuite) TestRedundantUpdateIgnored(c *C) {
 	// Given
-	cfg := config.Default()
+	cfg := config.DefaultProxy()
 	cfg.Consumer.RebalanceDelay = 200 * time.Millisecond
 	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm1.Stop()
@@ -259,7 +259,7 @@ func (s *GroupRegistratorSuite) TestRedundantUpdateIgnored(c *C) {
 // When a group registrator claims a topic partitions it becomes its owner.
 func (s *GroupRegistratorSuite) TestClaimPartition(c *C) {
 	// Given
-	cfg := config.Default()
+	cfg := config.DefaultProxy()
 	gm := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm.Stop()
 	cancelCh := make(chan none.T)
@@ -282,7 +282,7 @@ func (s *GroupRegistratorSuite) TestClaimPartition(c *C) {
 // already been acquired by another member then it fails.
 func (s *GroupRegistratorSuite) TestClaimPartitionClaimed(c *C) {
 	// Given
-	cfg := config.Default()
+	cfg := config.DefaultProxy()
 	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm1.Stop()
 	gm2 := Spawn(s.ns.NewChild("m2"), "g1", "m2", cfg, s.kazooConn)
@@ -308,7 +308,7 @@ func (s *GroupRegistratorSuite) TestClaimPartitionClaimed(c *C) {
 // It is ok to claim the same partition twice by the same group member.
 func (s *GroupRegistratorSuite) TestClaimPartitionTwice(c *C) {
 	// Given
-	cfg := config.Default()
+	cfg := config.DefaultProxy()
 	gm := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm.Stop()
 	cancelCh := make(chan none.T)
@@ -329,7 +329,7 @@ func (s *GroupRegistratorSuite) TestClaimPartitionTwice(c *C) {
 // any of the claims is revoked.
 func (s *GroupRegistratorSuite) TestReleasePartition(c *C) {
 	// Given
-	cfg := config.Default()
+	cfg := config.DefaultProxy()
 	gm := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm.Stop()
 	cancelCh := make(chan none.T)
@@ -351,7 +351,7 @@ func (s *GroupRegistratorSuite) TestReleasePartition(c *C) {
 // blocks until it is released.
 func (s *GroupRegistratorSuite) TestClaimPartitionParallel(c *C) {
 	// Given
-	cfg := config.Default()
+	cfg := config.DefaultProxy()
 	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm1.Stop()
 	gm2 := Spawn(s.ns.NewChild("m2"), "g1", "m2", cfg, s.kazooConn)
@@ -378,7 +378,7 @@ func (s *GroupRegistratorSuite) TestClaimPartitionParallel(c *C) {
 // blocks until it is released.
 func (s *GroupRegistratorSuite) TestClaimPartitionCanceled(c *C) {
 	// Given
-	cfg := config.Default()
+	cfg := config.DefaultProxy()
 	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooConn)
 	defer gm1.Stop()
 	gm2 := Spawn(s.ns.NewChild("m2"), "g1", "m2", cfg, s.kazooConn)

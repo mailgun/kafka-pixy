@@ -17,7 +17,7 @@ func Test(t *testing.T) {
 
 type AdminSuite struct {
 	ns  *actor.ID
-	cfg *config.T
+	cfg *config.Proxy
 	kh  *kafkahelper.T
 }
 
@@ -25,7 +25,7 @@ var _ = Suite(&AdminSuite{})
 
 func (s *AdminSuite) SetUpSuite(c *C) {
 	testhelpers.InitLogging(c)
-	s.cfg = config.Default()
+	s.cfg = config.DefaultProxy()
 	s.cfg.ClientID = "producer"
 	s.cfg.Kafka.SeedPeers = testhelpers.KafkaPeers
 	s.cfg.ZooKeeper.SeedPeers = testhelpers.ZookeeperPeers

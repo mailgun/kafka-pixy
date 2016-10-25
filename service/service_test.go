@@ -22,6 +22,7 @@ import (
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
 	. "gopkg.in/check.v1"
+	"path"
 )
 
 func Test(t *testing.T) {
@@ -29,7 +30,7 @@ func Test(t *testing.T) {
 }
 
 type ServiceSuite struct {
-	cfg        *config.T
+	cfg        *config.App
 	kh         *kafkahelper.T
 	unixClient *http.Client
 	tcpClient  *http.Client
@@ -42,7 +43,10 @@ func (s *ServiceSuite) SetUpSuite(c *C) {
 }
 
 func (s *ServiceSuite) SetUpTest(c *C) {
-	s.cfg = testhelpers.NewTestConfig("service-default")
+	s.cfg = &config.App{}
+	s.cfg.UnixAddr = path.Join(os.TempDir(), "kafka-pixy.sock")
+	s.cfg.DefaultProxy = testhelpers.NewTestProxyCfg("test_svc")
+
 	os.Remove(s.cfg.UnixAddr)
 	s.kh = kafkahelper.New(c)
 	s.unixClient = testhelpers.NewUDSHTTPClient(s.cfg.UnixAddr)
@@ -81,7 +85,7 @@ func (s *ServiceSuite) TestInvalidUnixAddr(c *C) {
 
 func (s *ServiceSuite) TestInvalidKafkaPeers(c *C) {
 	// Given
-	s.cfg.Kafka.SeedPeers = []string{"localhost:12345"}
+	s.cfg.DefaultProxy.Kafka.SeedPeers = []string{"localhost:12345"}
 
 	// When
 	svc, err := Spawn(s.cfg)
@@ -574,7 +578,7 @@ func (s *ServiceSuite) TestGetTopicConsumersOne(c *C) {
 	// Given
 	s.kh.ResetOffsets("foo", "test.4")
 	s.kh.PutMessages("get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1, "D": 1})
-	svc, _ := Spawn(testhelpers.NewTestConfig("C1"))
+	svc, _ := Spawn(s.cfg)
 	defer svc.Stop()
 	for i := 0; i < 4; i++ {
 		s.unixClient.Get("http://_/topics/test.4/messages?group=foo")
@@ -589,7 +593,7 @@ func (s *ServiceSuite) TestGetTopicConsumersOne(c *C) {
 	consumers := ParseJSONBody(c, r).(map[string]interface{})
 	assertConsumedPartitions(c, consumers, map[string]map[string][]int32{
 		"foo": {
-			"C1": {0, 1, 2, 3}},
+			"test_svc": {0, 1, 2, 3}},
 	})
 }
 
@@ -700,8 +704,9 @@ func (s *ServiceSuite) TestHealthCheck(c *C) {
 }
 
 func spawnTestService(c *C, port int) *T {
-	cfg := testhelpers.NewTestConfig(fmt.Sprintf("C%d", port))
-	cfg.UnixAddr = fmt.Sprintf("%s.%d", cfg.UnixAddr, port)
+	cfg := &config.App{}
+	cfg.UnixAddr = path.Join(os.TempDir(), fmt.Sprintf("kafka-pixy.%d.sock", port))
+	cfg.DefaultProxy = testhelpers.NewTestProxyCfg(fmt.Sprintf("C%d", port))
 	os.Remove(cfg.UnixAddr)
 	cfg.TCPAddr = fmt.Sprintf("127.0.0.1:%d", port)
 	svc, err := Spawn(cfg)

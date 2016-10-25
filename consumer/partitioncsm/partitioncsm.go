@@ -27,7 +27,7 @@ var (
 // consumed and its offset is committed.
 type T struct {
 	actorID          *actor.ID
-	cfg              *config.T
+	cfg              *config.Proxy
 	group            string
 	topic            string
 	partition        int32
@@ -41,7 +41,7 @@ type T struct {
 }
 
 // Spawn creates a partition consumer instance and starts its goroutines.
-func Spawn(namespace *actor.ID, group, topic string, partition int32, cfg *config.T,
+func Spawn(namespace *actor.ID, group, topic string, partition int32, cfg *config.Proxy,
 	groupMember *groupmember.T, msgStreamFactory msgstream.Factory, offsetMgrFactory offsetmgr.Factory,
 ) *T {
 	pc := &T{

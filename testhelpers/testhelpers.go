@@ -4,7 +4,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path"
 	"strings"
 	"sync"
 	"time"
@@ -39,9 +38,8 @@ func init() {
 	ZookeeperPeers = strings.Split(zookeeperPeersStr, ",")
 }
 
-func NewTestConfig(clientID string) *config.T {
-	cfg := config.Default()
-	cfg.UnixAddr = path.Join(os.TempDir(), "kafka-pixy.sock")
+func NewTestProxyCfg(clientID string) *config.Proxy {
+	cfg := config.DefaultProxy()
 	cfg.ClientID = clientID
 	cfg.Kafka.SeedPeers = KafkaPeers
 	cfg.ZooKeeper.SeedPeers = ZookeeperPeers
