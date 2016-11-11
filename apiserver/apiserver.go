@@ -15,7 +15,7 @@ import (
 	"github.com/mailgun/kafka-pixy/admin"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/prettyfmt"
-	"github.com/mailgun/kafka-pixy/producer"
+	"github.com/mailgun/kafka-pixy/proxy"
 	"github.com/mailgun/log"
 	"github.com/mailgun/manners"
 )
@@ -44,16 +44,14 @@ type T struct {
 	addr       string
 	listener   net.Listener
 	httpServer *manners.GracefulServer
-	prod       *producer.T
-	cons       consumer.T
-	admin      *admin.T
+	pxy        *proxy.T
 	errorCh    chan error
 }
 
 // New creates an HTTP server instance that will accept API requests at the
 // specified `network`/`address` and execute them with the specified `producer`,
 // `consumer`, or `admin`, depending on the request type.
-func New(network, addr string, prod *producer.T, cons consumer.T, admin *admin.T) (*T, error) {
+func New(network, addr string, pxy *proxy.T) (*T, error) {
 	// Start listening on the specified network/address.
 	listener, err := net.Listen(network, addr)
 	if err != nil {
@@ -73,9 +71,7 @@ func New(network, addr string, prod *producer.T, cons consumer.T, admin *admin.T
 		addr:       addr,
 		listener:   manners.NewListener(listener),
 		httpServer: httpServer,
-		prod:       prod,
-		cons:       cons,
-		admin:      admin,
+		pxy:        pxy,
 		errorCh:    make(chan error, 1),
 	}
 	// Configure the API request handlers.
@@ -154,12 +150,12 @@ func (as *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 
 	// Asynchronously submit the message to the Kafka cluster.
 	if !isSync {
-		as.prod.AsyncProduce(topic, toEncoderPreservingNil(key), sarama.StringEncoder(message))
+		as.pxy.AsyncProduce(topic, toEncoderPreservingNil(key), sarama.StringEncoder(message))
 		respondWithJSON(w, http.StatusOK, EmptyResponse)
 		return
 	}
 
-	prodMsg, err := as.prod.Produce(topic, toEncoderPreservingNil(key), sarama.StringEncoder(message))
+	prodMsg, err := as.pxy.Produce(topic, toEncoderPreservingNil(key), sarama.StringEncoder(message))
 	if err != nil {
 		var status int
 		switch err {
@@ -189,7 +185,7 @@ func (as *T) handleConsume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	consMsg, err := as.cons.Consume(group, topic)
+	consMsg, err := as.pxy.Consume(group, topic)
 	if err != nil {
 		var status int
 		switch err.(type) {
@@ -224,7 +220,7 @@ func (as *T) handleGetOffsets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	partitionOffsets, err := as.admin.GetGroupOffsets(group, topic)
+	partitionOffsets, err := as.pxy.GetGroupOffsets(group, topic)
 	if err != nil {
 		if err, ok := err.(admin.ErrQuery); ok && err.Cause() == sarama.ErrUnknownTopicOrPartition {
 			respondWithJSON(w, http.StatusNotFound, errorHTTPResponse{"Unknown topic"})
@@ -285,7 +281,7 @@ func (as *T) handleSetOffsets(w http.ResponseWriter, r *http.Request) {
 		partitionOffsets[i].Metadata = pov.Metadata
 	}
 
-	err = as.admin.SetGroupOffsets(group, topic, partitionOffsets)
+	err = as.pxy.SetGroupOffsets(group, topic, partitionOffsets)
 	if err != nil {
 		if err, ok := err.(admin.ErrQuery); ok && err.Cause() == sarama.ErrUnknownTopicOrPartition {
 			respondWithJSON(w, http.StatusNotFound, errorHTTPResponse{"Unknown topic"})
@@ -319,13 +315,13 @@ func (as *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
 
 	var consumers map[string]map[string][]int32
 	if group == "" {
-		consumers, err = as.admin.GetAllTopicConsumers(topic)
+		consumers, err = as.pxy.GetAllTopicConsumers(topic)
 		if err != nil {
 			respondWithJSON(w, http.StatusInternalServerError, errorHTTPResponse{err.Error()})
 			return
 		}
 	} else {
-		groupConsumers, err := as.admin.GetTopicConsumers(group, topic)
+		groupConsumers, err := as.pxy.GetTopicConsumers(group, topic)
 		if err != nil {
 			if _, ok := err.(admin.ErrInvalidParam); ok {
 				respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})

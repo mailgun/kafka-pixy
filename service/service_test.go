@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"testing"
@@ -22,7 +23,6 @@ import (
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
 	. "gopkg.in/check.v1"
-	"path"
 )
 
 func Test(t *testing.T) {
@@ -92,7 +92,7 @@ func (s *ServiceSuite) TestInvalidKafkaPeers(c *C) {
 
 	// Then
 	c.Assert(err.Error(), Equals,
-		"failed to spawn producer, err=(failed to create sarama.Client, err=(kafka: client has run out of available brokers to talk to (Is your cluster reachable?)))")
+		"failed to spawn proxy, name=default, err=(failed to spawn producer, err=(failed to create sarama.Client, err=(kafka: client has run out of available brokers to talk to (Is your cluster reachable?))))")
 	c.Assert(svc, IsNil)
 }
 
