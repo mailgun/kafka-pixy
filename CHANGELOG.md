@@ -2,7 +2,7 @@
 
 #### Version 0.12.0 (TBD)
 
-* [#TBD](https://github.com/mailgun/kafka-pixy/pull/TBD) Add capability to
+* [#81](https://github.com/mailgun/kafka-pixy/pull/81) Add capability to
   proxy to multiple Kafka/ZooKeeper clusters.
 * [#16](https://github.com/mailgun/kafka-pixy/issues/16) A YAML configuration
   file can be passed to Kafka-Pixy with `--config` command line parameter. A

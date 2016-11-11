@@ -33,6 +33,11 @@ alongside a TCP socket (**0.0.0.0:19092** by default).
 
 ## HTTP API
 
+Each API endpoint has two variants which differ by `/proxies/<proxy>` prefix.
+The one with the proxy prefix is to be used when multiple clusters are
+configured. The one without the prefix operates on the default cluster, the one
+that is mentioned first in the YAML configuration file.
+
 ### Produce
 
 `POST /topics/<topic>/messages?key=<key>`
