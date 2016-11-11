@@ -18,6 +18,7 @@ import (
 
 const (
 	defaultLoggingCfg = `[{"name": "console", "severity": "info"}]`
+	defaultPxyAlias   = "_"
 )
 
 var (
@@ -97,7 +98,7 @@ func makeConfig() (*config.App, error) {
 		return cfg, nil
 	}
 
-	cfg = config.DefaultApp("default")
+	cfg = config.DefaultApp(defaultPxyAlias)
 	if cmdTCPAddr != "" {
 		cfg.TCPAddr = cmdTCPAddr
 	}
@@ -105,15 +106,15 @@ func makeConfig() (*config.App, error) {
 		cfg.UnixAddr = cmdUnixAddr
 	}
 	if cmdKafkaPeers != "" {
-		cfg.DefaultProxy.Kafka.SeedPeers = strings.Split(cmdKafkaPeers, ",")
+		cfg.Proxies[defaultPxyAlias].Kafka.SeedPeers = strings.Split(cmdKafkaPeers, ",")
 	}
 	if cmdZookeeperPeers != "" {
 		chrootStartIdx := strings.Index(cmdZookeeperPeers, "/")
 		if chrootStartIdx >= 0 {
-			cfg.DefaultProxy.ZooKeeper.SeedPeers = strings.Split(cmdZookeeperPeers[:chrootStartIdx], ",")
-			cfg.DefaultProxy.ZooKeeper.Chroot = cmdZookeeperPeers[chrootStartIdx:]
+			cfg.Proxies[defaultPxyAlias].ZooKeeper.SeedPeers = strings.Split(cmdZookeeperPeers[:chrootStartIdx], ",")
+			cfg.Proxies[defaultPxyAlias].ZooKeeper.Chroot = cmdZookeeperPeers[chrootStartIdx:]
 		} else {
-			cfg.DefaultProxy.ZooKeeper.SeedPeers = strings.Split(cmdZookeeperPeers, ",")
+			cfg.Proxies[defaultPxyAlias].ZooKeeper.SeedPeers = strings.Split(cmdZookeeperPeers, ",")
 		}
 	}
 	return cfg, nil

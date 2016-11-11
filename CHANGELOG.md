@@ -1,7 +1,9 @@
 # Changelog
 
-#### Version 0.11.2 (TBD)
+#### Version 0.12.0 (TBD)
 
+* [#TBD](https://github.com/mailgun/kafka-pixy/pull/TBD) Add capability to
+  proxy to multiple Kafka/ZooKeeper clusters.
 * [#16](https://github.com/mailgun/kafka-pixy/issues/16) A YAML configuration
   file can be passed to Kafka-Pixy with `--config` command line parameter. A
   [default](https://github.com/mailgun/kafka-pixy/blob/master/default.yaml)
@@ -11,9 +13,12 @@
 
 Bug fix release.
 
-* [#64](https://github.com/mailgun/kafka-pixy/issues/64) Panic in group consumer.
-* [#66](https://github.com/mailgun/kafka-pixy/issues/66) Group consumer closed while rebalancing in progress.
-* [#67](https://github.com/mailgun/kafka-pixy/issues/67) Request timeout errors logged by offset manager.
+* [#64](https://github.com/mailgun/kafka-pixy/issues/64) Panic in group
+  consumer.
+* [#66](https://github.com/mailgun/kafka-pixy/issues/66) Group consumer
+  closed while rebalancing in progress.
+* [#67](https://github.com/mailgun/kafka-pixy/issues/67) Request timeout
+  errors logged by offset manager.
 
 #### Version 0.11.0 (2016-05-03)
 
@@ -23,9 +28,12 @@ important step before implementation of explicit acknowledgements can be
 started.
 
 During refactoring the following bugs were detected and fixed:
-* [#56](https://github.com/mailgun/kafka-pixy/issues/56) Invalid stored offset makes consumer panic.
-* [#59](https://github.com/mailgun/kafka-pixy/issues/59) Messages are skipped by consumer during rebalancing.
-* [#62](https://github.com/mailgun/kafka-pixy/issues/62) Messages consumed twice during rebalancing.
+* [#56](https://github.com/mailgun/kafka-pixy/issues/56) Invalid stored
+  offset makes consumer panic.
+* [#59](https://github.com/mailgun/kafka-pixy/issues/59) Messages are
+  skipped by consumer during rebalancing.
+* [#62](https://github.com/mailgun/kafka-pixy/issues/62) Messages consumed
+  twice during rebalancing.
 
 #### Version 0.10.1 (2015-12-21)
 

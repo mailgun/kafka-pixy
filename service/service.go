@@ -13,7 +13,8 @@ import (
 
 type T struct {
 	actorID    *actor.ID
-	pxy        *proxy.T
+	proxies    map[string]*proxy.T
+	defaultPxy *proxy.T
 	tcpServer  *apiserver.T
 	unixServer *apiserver.T
 	quitCh     chan struct{}
@@ -21,29 +22,33 @@ type T struct {
 }
 
 func Spawn(cfg *config.App) (*T, error) {
-	pxy, err := proxy.Spawn(actor.RootID, "default", cfg.DefaultProxy)
-	if err != nil {
-		return nil, fmt.Errorf("failed to spawn proxy, name=default, err=(%s)", err)
+	s := &T{
+		actorID: actor.RootID.NewChild("service"),
+		proxies: make(map[string]*proxy.T, len(cfg.Proxies)),
+		quitCh:  make(chan struct{}),
 	}
-	tcpServer, err := apiserver.New(apiserver.NetworkTCP, cfg.TCPAddr, pxy)
-	if err != nil {
-		pxy.Stop()
+	var err error
+
+	for pxyAlias, pxyCfg := range cfg.Proxies {
+		pxy, err := proxy.Spawn(actor.RootID, pxyAlias, pxyCfg)
+		if err != nil {
+			s.stopProxies()
+			return nil, fmt.Errorf("failed to spawn proxy, name=%s, err=(%s)", pxyAlias, err)
+		}
+		s.proxies[pxyAlias] = pxy
+	}
+	s.defaultPxy = s.proxies[cfg.DefaultProxy]
+
+	if s.tcpServer, err = apiserver.New(apiserver.NetworkTCP, cfg.TCPAddr, s.proxies, s.defaultPxy); err != nil {
+		s.stopProxies()
 		return nil, fmt.Errorf("failed to start TCP socket based HTTP API, err=(%s)", err)
 	}
-	var unixServer *apiserver.T
+
 	if cfg.UnixAddr != "" {
-		unixServer, err = apiserver.New(apiserver.NetworkUnix, cfg.UnixAddr, pxy)
-		if err != nil {
-			pxy.Stop()
+		if s.unixServer, err = apiserver.New(apiserver.NetworkUnix, cfg.UnixAddr, s.proxies, s.defaultPxy); err != nil {
+			s.stopProxies()
 			return nil, fmt.Errorf("failed to start Unix socket based HTTP API, err=(%s)", err)
 		}
-	}
-	s := &T{
-		actorID:    actor.RootID.NewChild("service"),
-		pxy:        pxy,
-		tcpServer:  tcpServer,
-		unixServer: unixServer,
-		quitCh:     make(chan struct{}),
 	}
 	actor.Spawn(s.actorID, &s.wg, s.run)
 	return s, nil
@@ -89,6 +94,15 @@ func (s *T) run() {
 			// Drain the errors channel until it is closed.
 		}
 	}
-	// There are no more requests in flight at this point so it is safe to stop.
-	s.pxy.Stop()
+	// There are no more requests in flight at this point so it is safe to stop
+	// all proxies.
+	s.stopProxies()
+}
+
+func (s *T) stopProxies() {
+	var wg sync.WaitGroup
+	for pxyAlias, pxy := range s.proxies {
+		actor.Spawn(s.actorID.NewChild(fmt.Sprintf("%s_stop", pxyAlias)), &wg, pxy.Stop)
+	}
+	wg.Wait()
 }

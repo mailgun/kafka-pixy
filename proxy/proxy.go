@@ -24,25 +24,20 @@ type T struct {
 
 // Spawn creates a proxy instance and starts its internal goroutines.
 func Spawn(namespace *actor.ID, name string, cfg *config.Proxy) (*T, error) {
-	actorID := namespace.NewChild(name)
-	prod, err := producer.Spawn(actorID, cfg)
-	if err != nil {
+	p := T{
+		actorID: namespace.NewChild(name),
+		cfg:     cfg,
+	}
+	var err error
+
+	if p.prod, err = producer.Spawn(p.actorID, cfg); err != nil {
 		return nil, fmt.Errorf("failed to spawn producer, err=(%s)", err)
 	}
-	cons, err := consumerimpl.Spawn(actorID, cfg)
-	if err != nil {
+	if p.cons, err = consumerimpl.Spawn(p.actorID, cfg); err != nil {
 		return nil, fmt.Errorf("failed to spawn consumer, err=(%s)", err)
 	}
-	adm, err := admin.Spawn(actorID, cfg)
-	if err != nil {
+	if p.adm, err = admin.Spawn(p.actorID, cfg); err != nil {
 		return nil, fmt.Errorf("failed to spawn admin, err=(%s)", err)
-	}
-	p := T{
-		actorID: actorID,
-		cfg:     cfg,
-		prod:    prod,
-		cons:    cons,
-		adm:     adm,
 	}
 	return &p, nil
 }
@@ -50,9 +45,15 @@ func Spawn(namespace *actor.ID, name string, cfg *config.Proxy) (*T, error) {
 // Stop terminates the proxy instances synchronously.
 func (p *T) Stop() {
 	var wg sync.WaitGroup
-	actor.Spawn(p.actorID.NewChild("producerStopper"), &wg, p.prod.Stop)
-	actor.Spawn(p.actorID.NewChild("consumerStopper"), &wg, p.cons.Stop)
-	actor.Spawn(p.actorID.NewChild("adminStopper"), &wg, p.adm.Stop)
+	if p.prod != nil {
+		actor.Spawn(p.actorID.NewChild("producer_stop"), &wg, p.prod.Stop)
+	}
+	if p.cons != nil {
+		actor.Spawn(p.actorID.NewChild("consumer_stop"), &wg, p.cons.Stop)
+	}
+	if p.adm != nil {
+		actor.Spawn(p.actorID.NewChild("admin_stop"), &wg, p.adm.Stop)
+	}
 	wg.Wait()
 }
 

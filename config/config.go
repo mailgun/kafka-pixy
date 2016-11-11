@@ -31,7 +31,7 @@ type App struct {
 	// prefix `/proxy/<alias>`. If config is initialized from a YAML file then
 	// default proxy is the one that is mentioned in the `Proxies` section
 	// first.
-	DefaultProxy *Proxy
+	DefaultProxy string
 }
 
 // Proxy defines configuration of a proxy to a particular Kafka/ZooKeeper
@@ -103,7 +103,7 @@ func DefaultApp(alias string) *App {
 	appCfg := newApp()
 	proxyCfg := DefaultProxy()
 	appCfg.Proxies[alias] = proxyCfg
-	appCfg.DefaultProxy = proxyCfg
+	appCfg.DefaultProxy = alias
 	return appCfg
 }
 
@@ -160,8 +160,8 @@ func FromYAML(data []byte) (*App, error) {
 			return nil, fmt.Errorf("failed to parse proxy config: alias=%s, err=(%s)", proxyAlias, err)
 		}
 		appCfg.Proxies[proxyAlias] = proxyCfg
-		if appCfg.DefaultProxy == nil {
-			appCfg.DefaultProxy = proxyCfg
+		if appCfg.DefaultProxy == "" {
+			appCfg.DefaultProxy = proxyAlias
 		}
 	}
 

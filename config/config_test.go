@@ -52,9 +52,9 @@ func (s *ConfigSuite) TestFromYAML(c *C) {
 	c.Assert(err, IsNil)
 
 	expected := DefaultApp("bar")
-	expected.DefaultProxy.ClientID = "foo"
-	expected.DefaultProxy.Kafka.SeedPeers = []string{"192.168.19.2:9092", "192.168.19.3:9092"}
-	expected.DefaultProxy.Consumer.LongPollingTimeout = 5 * time.Second
+	expected.Proxies["bar"].ClientID = "foo"
+	expected.Proxies["bar"].Kafka.SeedPeers = []string{"192.168.19.2:9092", "192.168.19.3:9092"}
+	expected.Proxies["bar"].Consumer.LongPollingTimeout = 5 * time.Second
 	c.Assert(appCfg, DeepEquals, expected)
 }
 
@@ -94,7 +94,7 @@ func (s *ConfigSuite) TestFromYAMLDefault(c *C) {
 
 	// Then
 	c.Assert(err, IsNil)
-	c.Assert(appCfg.DefaultProxy.ClientID, Equals, "foo_id")
+	c.Assert(appCfg.DefaultProxy, Equals, "foo")
 	c.Assert(appCfg.Proxies["foo"].ClientID, Equals, "foo_id")
 	c.Assert(appCfg.Proxies["bar"].ClientID, Equals, "bar_id")
 	c.Assert(appCfg.Proxies["bazz"].ClientID, Equals, "bazz_id")
@@ -108,7 +108,7 @@ func (s *ConfigSuite) TestFromYAMLFile(c *C) {
 	// Then
 	c.Assert(err, IsNil)
 	expected := DefaultApp("default")
-	expected.DefaultProxy.ClientID = "ID"
-	appCfg.DefaultProxy.ClientID = "ID"
+	expected.Proxies["default"].ClientID = "ID"
+	appCfg.Proxies["default"].ClientID = "ID"
 	c.Assert(appCfg, DeepEquals, expected)
 }
