@@ -33,12 +33,19 @@ alongside a TCP socket (**0.0.0.0:19092** by default).
 
 ## HTTP API
 
+Each API endpoint has two variants which differ by `/proxies/<proxy>` prefix.
+The one with the proxy prefix is to be used when multiple clusters are
+configured. The one without the prefix operates on the default cluster, the one
+that is mentioned first in the YAML configuration file.
+
 ### Produce
 
-`POST /topics/<topic>/messages?key=<key>` - submits a message to the specified
-**topic** using the hash of the specified **key** to determine the partition
-that the message should go to. The content type can be either `text/plain` or
-`application/json`. 
+`POST /topics/<topic>/messages?key=<key>`
+`POST /proxies/<proxy>/topics/<topic>/messages?key=<key>`
+
+Submits a message to the specified **topic** using the hash of the specified
+**key** to determine the partition that the message should go to. The content
+type can be either `text/plain` or `application/json`.
 
 By default a message is submitted to Kafka asynchronously, that is the HTTP
 request completes as soon as the proxy gets the message, and actual message
@@ -91,8 +98,11 @@ In case of failure (HTTP statuses **404** and **500**) the response will be.
 
 ### Consume
 
-`GET /topics/<topic>/messages?group=<group>` - consumes a message from the
-specified **topic** on behalf of the specified consumer **group**.
+`GET /topics/<topic>/messages?group=<group>`
+`GET /proxies/<proxy>/topics/<topic>/messages?group=<group>`
+
+Consumes a message from the specified **topic** on behalf of the specified
+consumer **group**.
  
 When a message is consumed on behalf of a consume group for the first time,
 the Kafka-Pixy instance joins the consumer group and subscribes to the topic.
@@ -131,10 +141,12 @@ e.g.:
 
 ### Get Offsets
  
-`GET /topics/<topic>/offsets?group=<group>` - returns offset information for
-all partitions of the specified **topic** including the next offset to be consumed
-by the specified consumer group. The structure of the returned JSON document is
-as follows:
+`GET /topics/<topic>/offsets?group=<group>`
+`GET /proxies/<proxy>/topics/<topic>/offsets?group=<group>`
+
+Returns offset information for all partitions of the specified **topic**
+including the next offset to be consumed by the specified consumer group. The
+structure of the returned JSON document is as follows:
 
 ```
 [
@@ -153,10 +165,12 @@ as follows:
 
 ### Set Offsets
 
-`POST /topics/<topic>/offsets?group=<group>` - sets offsets to be consumed from
-the specified topic by a particular consumer group. The request content should
-be a list of JSON objects, where each object defines an offset to be set for
-a particular partition:
+`POST /topics/<topic>/offsets?group=<group>`
+`POST /proxies/<proxy>/topics/<topic>/offsets?group=<group>`
+
+Sets offsets to be consumed from the specified topic by a particular consumer
+group. The request content should be a list of JSON objects, where each object
+defines an offset to be set for a particular partition:
 
 ```
 [
@@ -178,10 +192,13 @@ group inactivity on all Kafka-Pixy working with the Kafka cluster.
 
 ### List Consumers
 
-`GET /topics/<topic>/consumers[?group=<group>]` - returns a list of consumers
-that are subscribed to the specified **topic** along with a list of partitions
-assigned to each consumer. If **group** is not specified then information is
-provided for all consumer groups subscribed to the **topic**.
+`GET /topics/<topic>/consumers[?group=<group>]`
+`GET /proxies/<topic>/topics/<topic>/consumers[?group=<group>]`
+
+Returns a list of consumers that are subscribed to the specified **topic**
+along with a list of partitions assigned to each consumer. If **group** is not
+specified then information is provided for all consumer groups subscribed to
+the **topic**.
 
 e.g.:
 

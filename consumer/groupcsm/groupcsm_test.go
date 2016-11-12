@@ -91,7 +91,7 @@ func (s *GroupConsumerSuite) TestAssignTopicPartitions(c *C) {
 }
 
 func (s *GroupConsumerSuite) TestResolvePartitions(c *C) {
-	cfg := config.Default()
+	cfg := config.DefaultProxy()
 	cfg.ClientID = "c"
 	gc := T{
 		cfg: cfg,
@@ -127,7 +127,7 @@ func (s *GroupConsumerSuite) TestResolvePartitions(c *C) {
 }
 
 func (s *GroupConsumerSuite) TestResolvePartitionsEmpty(c *C) {
-	cfg := config.Default()
+	cfg := config.DefaultProxy()
 	cfg.ClientID = "c"
 	gc := T{
 		cfg: cfg,
@@ -145,7 +145,7 @@ func (s *GroupConsumerSuite) TestResolvePartitionsEmpty(c *C) {
 }
 
 func (s *GroupConsumerSuite) TestResolvePartitionsError(c *C) {
-	cfg := config.Default()
+	cfg := config.DefaultProxy()
 	cfg.ClientID = "c"
 	gc := T{
 		cfg: cfg,

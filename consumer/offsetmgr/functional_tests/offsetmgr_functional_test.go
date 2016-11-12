@@ -35,7 +35,7 @@ func (s *OffsetMgrFuncSuite) TestLatestOffsetSaved(c *C) {
 	// Given
 	newOffset := time.Now().Unix()
 
-	cfg := testhelpers.NewTestConfig("c1")
+	cfg := testhelpers.NewTestProxyCfg("c1")
 	client, err := sarama.NewClient(testhelpers.KafkaPeers, nil)
 	c.Assert(err, IsNil)
 	f := offsetmgr.SpawnFactory(s.ns, cfg, client)

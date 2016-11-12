@@ -23,81 +23,92 @@ func (s *ConfigSuite) TestGetIP(c *C) {
 	c.Assert(ip.String(), Not(Equals), "127.0.0.1")
 }
 
-func (s *ConfigSuite) TestFromYAMLEmpty(c *C) {
-	cfg := Default()
-	cfg.ClientID = "ID"
-	data := []byte("")
-
+func (s *ConfigSuite) TestFromYAMLNoProxies(c *C) {
 	// When
-	err := cfg.FromYAML(data)
+	_, err := FromYAML([]byte(""))
 
 	// Then
-	c.Assert(err, IsNil)
-	expected := Default()
-	expected.ClientID = "ID"
-	c.Assert(cfg, DeepEquals, expected)
+	c.Assert(err.Error(), Equals, "invalid config parameter: err=(at least on proxy must be configured)")
 }
 
 // Configuration fields that are not explicitly mentioned if the YAML data are
 // left intact.
 func (s *ConfigSuite) TestFromYAML(c *C) {
-	cfg := Default()
 	data := []byte("" +
-		"client_id: foo\n" +
-		"kafka:\n" +
-		"  seed_peers:\n" +
-		"    - 192.168.19.2:9092\n" +
-		"    - 192.168.19.3:9092\n" +
-		"consumer:\n" +
-		"  long_polling_timeout: 5s\n")
+		"proxies:\n" +
+		"  bar:\n" +
+		"    client_id: foo\n" +
+		"    kafka:\n" +
+		"      seed_peers:\n" +
+		"        - 192.168.19.2:9092\n" +
+		"        - 192.168.19.3:9092\n" +
+		"    consumer:\n" +
+		"      long_polling_timeout: 5s\n")
 
 	// When
-	err := cfg.FromYAML(data)
+	appCfg, err := FromYAML(data)
 
 	// Then
 	c.Assert(err, IsNil)
 
-	expected := Default()
-	expected.ClientID = "foo"
-	expected.Kafka.SeedPeers = []string{"192.168.19.2:9092", "192.168.19.3:9092"}
-	expected.Consumer.LongPollingTimeout = 5 * time.Second
-	c.Assert(cfg, DeepEquals, expected)
+	expected := DefaultApp("bar")
+	expected.Proxies["bar"].ClientID = "foo"
+	expected.Proxies["bar"].Kafka.SeedPeers = []string{"192.168.19.2:9092", "192.168.19.3:9092"}
+	expected.Proxies["bar"].Consumer.LongPollingTimeout = 5 * time.Second
+	c.Assert(appCfg, DeepEquals, expected)
 }
 
 // If YAML data is invalid then the original config is not changed.
 func (s *ConfigSuite) TestFromYAMLInvalid(c *C) {
-	cfg := Default()
-	cfg.ClientID = "bar"
 	data := []byte("" +
-		"client_id: foo\n" +
-		"kafka:\n" +
-		"  seed_peers:\n" +
-		"    - 192.168.19.2:9092\n" +
-		"    - 192.168.19.3:9092\n" +
-		"consumer:\n" +
-		"  long_polling_timeout: Kaboom!\n")
+		"proxies:\n" +
+		"  default:\n" +
+		"    client_id: foo\n" +
+		"    kafka:\n" +
+		"      seed_peers:\n" +
+		"        - 192.168.19.2:9092\n" +
+		"        - 192.168.19.3:9092\n" +
+		"    consumer:\n" +
+		"      long_polling_timeout: Kaboom!\n")
 
 	// When
-	err := cfg.FromYAML(data)
+	_, err := FromYAML(data)
 
 	// Then
-	c.Assert(err, DeepEquals, errors.New("failed to parse config: err=(yaml: unmarshal errors:\n  line 7: cannot unmarshal !!str `Kaboom!` into time.Duration)"))
-	expected := Default()
-	expected.ClientID = "bar"
-	c.Assert(cfg, DeepEquals, expected)
+	c.Assert(err, DeepEquals, errors.New("failed to parse proxy config: alias=default, err=(yaml: unmarshal errors:\n  line 7: cannot unmarshal !!str `Kaboom!` into time.Duration)"))
+}
+
+// The first proxy mentioned is returned as default.
+func (s *ConfigSuite) TestFromYAMLDefault(c *C) {
+	data := []byte("" +
+		"proxies:\n" +
+		"  foo:\n" +
+		"    client_id: foo_id\n" +
+		"  bar:\n" +
+		"    client_id: bar_id\n" +
+		"  bazz:\n" +
+		"    client_id: bazz_id\n")
+
+	// When
+	appCfg, err := FromYAML(data)
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(appCfg.DefaultProxy, Equals, "foo")
+	c.Assert(appCfg.Proxies["foo"].ClientID, Equals, "foo_id")
+	c.Assert(appCfg.Proxies["bar"].ClientID, Equals, "bar_id")
+	c.Assert(appCfg.Proxies["bazz"].ClientID, Equals, "bazz_id")
 }
 
 // default.yaml contains the same configuration as returned by Default()
 func (s *ConfigSuite) TestFromYAMLFile(c *C) {
-	cfg := &T{}
-	cfg.ClientID = "ID"
-
 	// When
-	err := cfg.FromYAMLFile("../default.yaml")
+	appCfg, err := FromYAMLFile("../default.yaml")
 
 	// Then
 	c.Assert(err, IsNil)
-	expected := Default()
-	expected.ClientID = "ID"
-	c.Assert(cfg, DeepEquals, expected)
+	expected := DefaultApp("default")
+	expected.Proxies["default"].ClientID = "ID"
+	appCfg.Proxies["default"].ClientID = "ID"
+	c.Assert(appCfg, DeepEquals, expected)
 }

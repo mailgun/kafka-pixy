@@ -28,7 +28,7 @@ import (
 // implements `dispatcher.Factory`.
 type t struct {
 	namespace           *actor.ID
-	cfg                 *config.T
+	cfg                 *config.Proxy
 	dispatcher          *dispatcher.T
 	clientForMsgStreams sarama.Client
 	clientForOffsetMgrs sarama.Client
@@ -38,7 +38,7 @@ type t struct {
 
 // Spawn creates a consumer instance with the specified configuration and
 // starts all its goroutines.
-func Spawn(namespace *actor.ID, cfg *config.T) (*t, error) {
+func Spawn(namespace *actor.ID, cfg *config.Proxy) (*t, error) {
 	saramaCfg := sarama.NewConfig()
 	saramaCfg.ClientID = cfg.ClientID
 	saramaCfg.ChannelBufferSize = cfg.Consumer.ChannelBufferSize

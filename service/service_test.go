@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"testing"
@@ -29,7 +30,7 @@ func Test(t *testing.T) {
 }
 
 type ServiceSuite struct {
-	cfg        *config.T
+	cfg        *config.App
 	kh         *kafkahelper.T
 	unixClient *http.Client
 	tcpClient  *http.Client
@@ -42,7 +43,11 @@ func (s *ServiceSuite) SetUpSuite(c *C) {
 }
 
 func (s *ServiceSuite) SetUpTest(c *C) {
-	s.cfg = testhelpers.NewTestConfig("service-default")
+	s.cfg = &config.App{Proxies: make(map[string]*config.Proxy)}
+	s.cfg.UnixAddr = path.Join(os.TempDir(), "kafka-pixy.sock")
+	s.cfg.Proxies["pxyD"] = testhelpers.NewTestProxyCfg("test_svc")
+	s.cfg.DefaultProxy = "pxyD"
+
 	os.Remove(s.cfg.UnixAddr)
 	s.kh = kafkahelper.New(c)
 	s.unixClient = testhelpers.NewUDSHTTPClient(s.cfg.UnixAddr)
@@ -81,14 +86,14 @@ func (s *ServiceSuite) TestInvalidUnixAddr(c *C) {
 
 func (s *ServiceSuite) TestInvalidKafkaPeers(c *C) {
 	// Given
-	s.cfg.Kafka.SeedPeers = []string{"localhost:12345"}
+	s.cfg.Proxies[s.cfg.DefaultProxy].Kafka.SeedPeers = []string{"localhost:12345"}
 
 	// When
 	svc, err := Spawn(s.cfg)
 
 	// Then
 	c.Assert(err.Error(), Equals,
-		"failed to spawn producer, err=(failed to create sarama.Client, err=(kafka: client has run out of available brokers to talk to (Is your cluster reachable?)))")
+		"failed to spawn proxy, name=pxyD, err=(failed to spawn producer, err=(failed to create sarama.Client, err=(kafka: client has run out of available brokers to talk to (Is your cluster reachable?))))")
 	c.Assert(svc, IsNil)
 }
 
@@ -574,7 +579,7 @@ func (s *ServiceSuite) TestGetTopicConsumersOne(c *C) {
 	// Given
 	s.kh.ResetOffsets("foo", "test.4")
 	s.kh.PutMessages("get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1, "D": 1})
-	svc, _ := Spawn(testhelpers.NewTestConfig("C1"))
+	svc, _ := Spawn(s.cfg)
 	defer svc.Stop()
 	for i := 0; i < 4; i++ {
 		s.unixClient.Get("http://_/topics/test.4/messages?group=foo")
@@ -589,7 +594,7 @@ func (s *ServiceSuite) TestGetTopicConsumersOne(c *C) {
 	consumers := ParseJSONBody(c, r).(map[string]interface{})
 	assertConsumedPartitions(c, consumers, map[string]map[string][]int32{
 		"foo": {
-			"C1": {0, 1, 2, 3}},
+			"test_svc": {0, 1, 2, 3}},
 	})
 }
 
@@ -699,9 +704,35 @@ func (s *ServiceSuite) TestHealthCheck(c *C) {
 	c.Assert(string(body), Equals, "pong")
 }
 
+// Ensure that API endpoints that explicitly select a proxy to operate on work.
+func (s *ServiceSuite) TestExplicitProxyAPIEndpoints(c *C) {
+	// Given
+	s.kh.ResetOffsets("foo", "test.1")
+	svc, _ := Spawn(s.cfg)
+	defer svc.Stop()
+
+	// When/Then
+	r, err := s.unixClient.Post("http://_/proxies/pxyD/topics/test.1/messages?sync", "text/plain", strings.NewReader("Bazinga!"))
+	c.Assert(err, IsNil)
+	c.Assert(r.StatusCode, Equals, http.StatusOK)
+	body := ParseJSONBody(c, r).(map[string]interface{})
+	c.Assert(int(body["partition"].(float64)), Equals, 0)
+	prodOffset := int64(body["offset"].(float64))
+
+	r, err = s.unixClient.Get("http://_/proxies/pxyD/topics/test.1/messages?group=foo")
+	c.Assert(err, IsNil)
+	c.Assert(r.StatusCode, Equals, http.StatusOK)
+	body = ParseJSONBody(c, r).(map[string]interface{})
+	c.Assert(ParseBase64(c, body["value"].(string)), Equals, "Bazinga!")
+	c.Assert(int64(body["offset"].(float64)), Equals, prodOffset)
+}
+
 func spawnTestService(c *C, port int) *T {
-	cfg := testhelpers.NewTestConfig(fmt.Sprintf("C%d", port))
-	cfg.UnixAddr = fmt.Sprintf("%s.%d", cfg.UnixAddr, port)
+	cfg := &config.App{Proxies: make(map[string]*config.Proxy)}
+	cfg.UnixAddr = path.Join(os.TempDir(), fmt.Sprintf("kafka-pixy.%d.sock", port))
+	pxyAlias := fmt.Sprintf("pxy%d", port)
+	cfg.Proxies[pxyAlias] = testhelpers.NewTestProxyCfg(fmt.Sprintf("C%d", port))
+	cfg.DefaultProxy = pxyAlias
 	os.Remove(cfg.UnixAddr)
 	cfg.TCPAddr = fmt.Sprintf("127.0.0.1:%d", port)
 	svc, err := Spawn(cfg)

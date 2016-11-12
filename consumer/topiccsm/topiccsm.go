@@ -21,7 +21,7 @@ import (
 // implements `multiplexer.Out`.
 type T struct {
 	actorID       *actor.ID
-	cfg           *config.T
+	cfg           *config.Proxy
 	group         string
 	topic         string
 	lifespanCh    chan<- *T
@@ -33,7 +33,7 @@ type T struct {
 
 // Creates a topic consumer instance. It should be explicitly started in
 // accordance with the `dispatcher.Tier` contract.
-func New(namespace *actor.ID, group, topic string, cfg *config.T, lifespanCh chan<- *T) *T {
+func New(namespace *actor.ID, group, topic string, cfg *config.Proxy, lifespanCh chan<- *T) *T {
 	return &T{
 		actorID:       namespace.NewChild(fmt.Sprintf("T:%s", topic)),
 		cfg:           cfg,

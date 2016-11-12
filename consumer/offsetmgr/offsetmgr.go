@@ -86,7 +86,7 @@ var ErrNoCoordinator = errors.New("failed to resolve coordinator")
 var ErrRequestTimeout = errors.New("request timeout")
 
 // SpawnFactory creates a new offset manager factory from the given client.
-func SpawnFactory(namespace *actor.ID, cfg *config.T, client sarama.Client) Factory {
+func SpawnFactory(namespace *actor.ID, cfg *config.Proxy, client sarama.Client) Factory {
 	f := &factory{
 		namespace: namespace.NewChild("offset_mgr_f"),
 		client:    client,
@@ -102,7 +102,7 @@ func SpawnFactory(namespace *actor.ID, cfg *config.T, client sarama.Client) Fact
 type factory struct {
 	namespace    *actor.ID
 	client       sarama.Client
-	cfg          *config.T
+	cfg          *config.Proxy
 	mapper       *mapper.T
 	children     map[groupTopicPartition]*offsetManager
 	childrenLock sync.Mutex
@@ -411,7 +411,7 @@ type submitResponse struct {
 type brokerExecutor struct {
 	aggrActorID     *actor.ID
 	execActorID     *actor.ID
-	cfg             *config.T
+	cfg             *config.Proxy
 	conn            *sarama.Broker
 	requestsCh      chan submitRequest
 	batchRequestsCh chan map[string]map[groupTopicPartition]submitRequest

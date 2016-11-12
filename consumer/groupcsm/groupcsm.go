@@ -30,7 +30,7 @@ import (
 type T struct {
 	supActorID         *actor.ID
 	mgrActorID         *actor.ID
-	cfg                *config.T
+	cfg                *config.Proxy
 	group              string
 	dispatcher         *dispatcher.T
 	saramaClient       sarama.Client
@@ -47,7 +47,7 @@ type T struct {
 	fetchTopicPartitionsFn func(topic string) ([]int32, error)
 }
 
-func New(namespace *actor.ID, group string, cfg *config.T, saramaClient sarama.Client,
+func New(namespace *actor.ID, group string, cfg *config.Proxy, saramaClient sarama.Client,
 	kazooConn *kazoo.Kazoo, offsetMgrFactory offsetmgr.Factory,
 ) *T {
 	supervisorActorID := namespace.NewChild(fmt.Sprintf("G:%s", group))

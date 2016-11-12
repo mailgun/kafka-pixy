@@ -15,7 +15,7 @@ import (
 	"github.com/mailgun/kafka-pixy/admin"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/prettyfmt"
-	"github.com/mailgun/kafka-pixy/producer"
+	"github.com/mailgun/kafka-pixy/proxy"
 	"github.com/mailgun/log"
 	"github.com/mailgun/manners"
 )
@@ -25,14 +25,15 @@ const (
 	NetworkUnix = "unix"
 
 	// HTTP headers used by the API.
-	headerContentLength = "Content-Length"
-	headerContentType   = "Content-Type"
+	hdrContentLength = "Content-Length"
+	hdrContentType   = "Content-Type"
 
 	// HTTP request parameters.
-	paramTopic = "topic"
-	paramKey   = "key"
-	paramSync  = "sync"
-	paramGroup = "group"
+	prmProxy = "proxy"
+	prmTopic = "topic"
+	prmKey   = "key"
+	prmSync  = "sync"
+	prmGroup = "group"
 )
 
 var (
@@ -44,16 +45,15 @@ type T struct {
 	addr       string
 	listener   net.Listener
 	httpServer *manners.GracefulServer
-	prod       *producer.T
-	cons       consumer.T
-	admin      *admin.T
+	proxies    map[string]*proxy.T
+	defaultPxy *proxy.T
 	errorCh    chan error
 }
 
 // New creates an HTTP server instance that will accept API requests at the
 // specified `network`/`address` and execute them with the specified `producer`,
 // `consumer`, or `admin`, depending on the request type.
-func New(network, addr string, prod *producer.T, cons consumer.T, admin *admin.T) (*T, error) {
+func New(network, addr string, proxies map[string]*proxy.T, defaultPxy *proxy.T) (*T, error) {
 	// Start listening on the specified network/address.
 	listener, err := net.Listen(network, addr)
 	if err != nil {
@@ -73,22 +73,24 @@ func New(network, addr string, prod *producer.T, cons consumer.T, admin *admin.T
 		addr:       addr,
 		listener:   manners.NewListener(listener),
 		httpServer: httpServer,
-		prod:       prod,
-		cons:       cons,
-		admin:      admin,
+		proxies:    proxies,
+		defaultPxy: defaultPxy,
 		errorCh:    make(chan error, 1),
 	}
 	// Configure the API request handlers.
-	router.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", paramTopic),
-		as.handleProduce).Methods("POST")
-	router.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", paramTopic),
-		as.handleConsume).Methods("GET")
-	router.HandleFunc(fmt.Sprintf("/topics/{%s}/offsets", paramTopic),
-		as.handleGetOffsets).Methods("GET")
-	router.HandleFunc(fmt.Sprintf("/topics/{%s}/offsets", paramTopic),
-		as.handleSetOffsets).Methods("POST")
-	router.HandleFunc(fmt.Sprintf("/topics/{%s}/consumers", paramTopic),
-		as.handleGetTopicConsumers).Methods("GET")
+	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), as.handleProduce).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", prmTopic), as.handleProduce).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), as.handleProduce).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", prmTopic), as.handleProduce).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), as.handleProduce).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", prmTopic), as.handleConsume).Methods("GET")
+	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), as.handleConsume).Methods("GET")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/offsets", prmTopic), as.handleGetOffsets).Methods("GET")
+	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/offsets", prmProxy, prmTopic), as.handleGetOffsets).Methods("GET")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/offsets", prmTopic), as.handleSetOffsets).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/offsets", prmProxy, prmTopic), as.handleSetOffsets).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/consumers", prmTopic), as.handleGetTopicConsumers).Methods("GET")
+	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/consumers", prmProxy, prmTopic), as.handleGetTopicConsumers).Methods("GET")
 	router.HandleFunc("/_ping", as.handlePing).Methods("GET")
 	return as, nil
 }
@@ -118,24 +120,33 @@ func (as *T) AsyncStop() {
 	as.httpServer.Close()
 }
 
+func (as *T) getProxy(r *http.Request) *proxy.T {
+	pxyAlias, ok := mux.Vars(r)[prmProxy]
+	if !ok {
+		return as.defaultPxy
+	}
+	return as.proxies[pxyAlias]
+}
+
 // handleProduce is an HTTP request handler for `POST /topic/{topic}/messages`
 func (as *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
-	topic := mux.Vars(r)[paramTopic]
-	key := getParamBytes(r, paramKey)
-	_, isSync := r.Form[paramSync]
+	pxy := as.getProxy(r)
+	topic := mux.Vars(r)[prmTopic]
+	key := getParamBytes(r, prmKey)
+	_, isSync := r.Form[prmSync]
 
 	// Get the message body from the HTTP request.
-	if _, ok := r.Header[headerContentLength]; !ok {
-		errorText := fmt.Sprintf("Missing %s header", headerContentLength)
+	if _, ok := r.Header[hdrContentLength]; !ok {
+		errorText := fmt.Sprintf("Missing %s header", hdrContentLength)
 		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{errorText})
 		return
 	}
-	messageSizeStr := r.Header.Get(headerContentLength)
+	messageSizeStr := r.Header.Get(hdrContentLength)
 	messageSize, err := strconv.Atoi(messageSizeStr)
 	if err != nil {
-		errorText := fmt.Sprintf("Invalid %s header: %s", headerContentLength, messageSizeStr)
+		errorText := fmt.Sprintf("Invalid %s header: %s", hdrContentLength, messageSizeStr)
 		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{errorText})
 		return
 	}
@@ -147,19 +158,19 @@ func (as *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(message) != messageSize {
 		errorText := fmt.Sprintf("Message size does not match %s: expected=%v, actual=%v",
-			headerContentLength, messageSize, len(message))
+			hdrContentLength, messageSize, len(message))
 		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{errorText})
 		return
 	}
 
 	// Asynchronously submit the message to the Kafka cluster.
 	if !isSync {
-		as.prod.AsyncProduce(topic, toEncoderPreservingNil(key), sarama.StringEncoder(message))
+		pxy.AsyncProduce(topic, toEncoderPreservingNil(key), sarama.StringEncoder(message))
 		respondWithJSON(w, http.StatusOK, EmptyResponse)
 		return
 	}
 
-	prodMsg, err := as.prod.Produce(topic, toEncoderPreservingNil(key), sarama.StringEncoder(message))
+	prodMsg, err := pxy.Produce(topic, toEncoderPreservingNil(key), sarama.StringEncoder(message))
 	if err != nil {
 		var status int
 		switch err {
@@ -182,22 +193,22 @@ func (as *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 func (as *T) handleConsume(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
-	topic := mux.Vars(r)[paramTopic]
+	pxy := as.getProxy(r)
+	topic := mux.Vars(r)[prmTopic]
 	group, err := getGroupParam(r)
 	if err != nil {
 		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
 		return
 	}
 
-	consMsg, err := as.cons.Consume(group, topic)
+	consMsg, err := pxy.Consume(group, topic)
 	if err != nil {
 		var status int
 		switch err.(type) {
 		case consumer.ErrRequestTimeout:
 			status = http.StatusRequestTimeout
 		case consumer.ErrTooManyRequests:
-			// TODO Use http.StatusTooManyRequests after upgrade to Golang 1.6.x or higher.
-			status = 429
+			status = http.StatusTooManyRequests
 		default:
 			status = http.StatusInternalServerError
 		}
@@ -217,14 +228,15 @@ func (as *T) handleConsume(w http.ResponseWriter, r *http.Request) {
 func (as *T) handleGetOffsets(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
-	topic := mux.Vars(r)[paramTopic]
+	pxy := as.getProxy(r)
+	topic := mux.Vars(r)[prmTopic]
 	group, err := getGroupParam(r)
 	if err != nil {
 		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
 		return
 	}
 
-	partitionOffsets, err := as.admin.GetGroupOffsets(group, topic)
+	partitionOffsets, err := pxy.GetGroupOffsets(group, topic)
 	if err != nil {
 		if err, ok := err.(admin.ErrQuery); ok && err.Cause() == sarama.ErrUnknownTopicOrPartition {
 			respondWithJSON(w, http.StatusNotFound, errorHTTPResponse{"Unknown topic"})
@@ -257,7 +269,8 @@ func (as *T) handleGetOffsets(w http.ResponseWriter, r *http.Request) {
 func (as *T) handleSetOffsets(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
-	topic := mux.Vars(r)[paramTopic]
+	pxy := as.getProxy(r)
+	topic := mux.Vars(r)[prmTopic]
 	group, err := getGroupParam(r)
 	if err != nil {
 		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
@@ -285,7 +298,7 @@ func (as *T) handleSetOffsets(w http.ResponseWriter, r *http.Request) {
 		partitionOffsets[i].Metadata = pov.Metadata
 	}
 
-	err = as.admin.SetGroupOffsets(group, topic, partitionOffsets)
+	err = pxy.SetGroupOffsets(group, topic, partitionOffsets)
 	if err != nil {
 		if err, ok := err.(admin.ErrQuery); ok && err.Cause() == sarama.ErrUnknownTopicOrPartition {
 			respondWithJSON(w, http.StatusNotFound, errorHTTPResponse{"Unknown topic"})
@@ -303,11 +316,12 @@ func (as *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	var err error
 
-	topic := mux.Vars(r)[paramTopic]
+	pxy := as.getProxy(r)
+	topic := mux.Vars(r)[prmTopic]
 
 	group := ""
 	r.ParseForm()
-	groups := r.Form[paramGroup]
+	groups := r.Form[prmGroup]
 	if len(groups) > 1 {
 		err = fmt.Errorf("One consumer group is expected, but %d provided", len(groups))
 		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
@@ -319,13 +333,13 @@ func (as *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
 
 	var consumers map[string]map[string][]int32
 	if group == "" {
-		consumers, err = as.admin.GetAllTopicConsumers(topic)
+		consumers, err = pxy.GetAllTopicConsumers(topic)
 		if err != nil {
 			respondWithJSON(w, http.StatusInternalServerError, errorHTTPResponse{err.Error()})
 			return
 		}
 	} else {
-		groupConsumers, err := as.admin.GetTopicConsumers(group, topic)
+		groupConsumers, err := pxy.GetTopicConsumers(group, topic)
 		if err != nil {
 			if _, ok := err.(admin.ErrInvalidParam); ok {
 				respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
@@ -348,7 +362,7 @@ func (as *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
 	}
 	encodedRes = prettyfmt.CollapseJSON(encodedRes)
 
-	w.Header().Add(headerContentType, "application/json")
+	w.Header().Add(hdrContentType, "application/json")
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write(encodedRes); err != nil {
 		log.Errorf("Failed to send HTTP response: status=%d, body=%v, reason=%v", http.StatusOK, encodedRes, err)
@@ -409,7 +423,7 @@ func respondWithJSON(w http.ResponseWriter, status int, body interface{}) {
 		return
 	}
 
-	w.Header().Add(headerContentType, "application/json")
+	w.Header().Add(hdrContentType, "application/json")
 	w.WriteHeader(status)
 	if _, err := w.Write(encodedRes); err != nil {
 		log.Errorf("Failed to send HTTP response: status=%d, body=%v, reason=%v", status, body, err)
@@ -418,7 +432,7 @@ func respondWithJSON(w http.ResponseWriter, status int, body interface{}) {
 
 func getGroupParam(r *http.Request) (string, error) {
 	r.ParseForm()
-	groups := r.Form[paramGroup]
+	groups := r.Form[prmGroup]
 	if len(groups) != 1 {
 		return "", fmt.Errorf("One consumer group is expected, but %d provided", len(groups))
 	}
