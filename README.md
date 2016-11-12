@@ -40,8 +40,10 @@ that is mentioned first in the YAML configuration file.
 
 ### Produce
 
-`POST /topics/<topic>/messages?key=<key>`
-`POST /proxies/<proxy>/topics/<topic>/messages?key=<key>`
+```
+POST /topics/<topic>/messages?key=<key>
+POST /proxies/<proxy>/topics/<topic>/messages?key=<key>
+```
 
 Submits a message to the specified **topic** using the hash of the specified
 **key** to determine the partition that the message should go to. The content
@@ -98,8 +100,10 @@ In case of failure (HTTP statuses **404** and **500**) the response will be.
 
 ### Consume
 
-`GET /topics/<topic>/messages?group=<group>`
-`GET /proxies/<proxy>/topics/<topic>/messages?group=<group>`
+```
+GET /topics/<topic>/messages?group=<group>
+GET /proxies/<proxy>/topics/<topic>/messages?group=<group>
+```
 
 Consumes a message from the specified **topic** on behalf of the specified
 consumer **group**.
@@ -141,8 +145,10 @@ e.g.:
 
 ### Get Offsets
  
-`GET /topics/<topic>/offsets?group=<group>`
-`GET /proxies/<proxy>/topics/<topic>/offsets?group=<group>`
+```
+GET /topics/<topic>/offsets?group=<group>
+GET /proxies/<proxy>/topics/<topic>/offsets?group=<group>
+```
 
 Returns offset information for all partitions of the specified **topic**
 including the next offset to be consumed by the specified consumer group. The
@@ -165,8 +171,10 @@ structure of the returned JSON document is as follows:
 
 ### Set Offsets
 
-`POST /topics/<topic>/offsets?group=<group>`
-`POST /proxies/<proxy>/topics/<topic>/offsets?group=<group>`
+```
+POST /topics/<topic>/offsets?group=<group>
+POST /proxies/<proxy>/topics/<topic>/offsets?group=<group>
+```
 
 Sets offsets to be consumed from the specified topic by a particular consumer
 group. The request content should be a list of JSON objects, where each object
@@ -192,8 +200,10 @@ group inactivity on all Kafka-Pixy working with the Kafka cluster.
 
 ### List Consumers
 
-`GET /topics/<topic>/consumers[?group=<group>]`
-`GET /proxies/<topic>/topics/<topic>/consumers[?group=<group>]`
+```
+GET /topics/<topic>/consumers[?group=<group>]
+GET /proxies/<topic>/topics/<topic>/consumers[?group=<group>]
+```
 
 Returns a list of consumers that are subscribed to the specified **topic**
 along with a list of partitions assigned to each consumer. If **group** is not
