@@ -78,6 +78,8 @@ func (m *T) IsRunning() bool {
 // multiplexer, if either output or any of inputs has changed.
 //
 // The multiplexer may be stopped if either output or all inputs are removed.
+//
+// WARNING: do not ever pass (*T)(nil) in output, that will cause panic.
 func (m *T) WireUp(output Out, assigned []int32) {
 	var wg sync.WaitGroup
 
