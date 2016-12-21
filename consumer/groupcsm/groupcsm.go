@@ -257,6 +257,12 @@ func (gc *T) runRebalancing(actorID *actor.ID, topicConsumers map[string]*topicc
 // rewireMuxAsync calls muxInputs in another goroutine.
 func (gc *T) rewireMuxAsync(topic string, wg *sync.WaitGroup, mux *multiplexer.T, tc *topiccsm.T, assigned []int32) {
 	actor.Spawn(gc.supActorID.NewChild("rewire", topic), wg, func() {
+		if tc == nil {
+			// Parameter output is of interface type, therefore nil should be
+			// passed explicitly.
+			mux.WireUp(nil, nil)
+			return
+		}
 		mux.WireUp(tc, assigned)
 	})
 }

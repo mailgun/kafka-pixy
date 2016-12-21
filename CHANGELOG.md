@@ -9,6 +9,11 @@
   [default](https://github.com/mailgun/kafka-pixy/blob/master/default.yaml)
   configuration file is provided for reference.
 
+Fixed:
+
+* [#83](https://github.com/mailgun/kafka-pixy/issues/83) Panic in partition
+  multiplexer.
+
 #### Version 0.11.1 (2016-08-11)
 
 Bug fix release.

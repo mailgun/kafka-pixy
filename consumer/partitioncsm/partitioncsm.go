@@ -2,6 +2,8 @@ package partitioncsm
 
 import (
 	"fmt"
+	"sync"
+
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
@@ -11,7 +13,6 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
-	"sync"
 )
 
 var (
@@ -122,8 +123,7 @@ func (pc *T) run() {
 	firstMessageFetched := false
 	for {
 		var msg *consumer.Message
-		// Wait for a fetched message to to provided by the controlled
-		// partition consumer.
+		// Wait for a fetched message to be provided by the message stream.
 		for {
 			select {
 			case msg = <-ms.Messages():

@@ -15,13 +15,13 @@ import (
 // inputs in the sense that it decides when an new input instance needs to
 // started, or the old one stopped.
 type T struct {
-	actorID   *actor.ID
-	spawnInF  SpawnInF
-	inputs    map[int32]*fetchedInput
-	output    Out
-	isRunning bool
-	stopCh    chan none.T
-	wg        sync.WaitGroup
+	actorID       *actor.ID
+	spawnInF      SpawnInF
+	fetchedInputs map[int32]*fetchedInput
+	output        Out
+	isRunning     bool
+	stopCh        chan none.T
+	wg            sync.WaitGroup
 }
 
 // In defines an interface of a multiplexer input.
@@ -52,10 +52,10 @@ type SpawnInF func(partition int32) In
 // New creates a new multiplexer instance.
 func New(namespace *actor.ID, spawnInF SpawnInF) *T {
 	return &T{
-		actorID:  namespace.NewChild("mux"),
-		inputs:   make(map[int32]*fetchedInput),
-		spawnInF: spawnInF,
-		stopCh:   make(chan none.T),
+		actorID:       namespace.NewChild("mux"),
+		fetchedInputs: make(map[int32]*fetchedInput),
+		spawnInF:      spawnInF,
+		stopCh:        make(chan none.T),
 	}
 }
 
@@ -72,10 +72,14 @@ func (m *T) IsRunning() bool {
 	return m.isRunning
 }
 
-// WireUp ensures that inputs of all assigned partitions are spawned and
-// multiplexed to the specified output. It stops inputs for partitions that are
-// no longer assigned, spawns inputs for newly assigned partitions, and
-// restarts the multiplexer, if either output or any of inputs has changed.
+// WireUp ensures that assigned inputs are spawned and multiplexed to the
+// specified output. It stops inputs for partitions that are no longer
+// assigned, spawns inputs for newly assigned partitions, and restarts the
+// multiplexer, if either output or any of inputs has changed.
+//
+// The multiplexer may be stopped if either output or all inputs are removed.
+//
+// WARNING: do not ever pass (*T)(nil) in output, that will cause panic.
 func (m *T) WireUp(output Out, assigned []int32) {
 	var wg sync.WaitGroup
 
@@ -83,40 +87,42 @@ func (m *T) WireUp(output Out, assigned []int32) {
 		m.stopIfRunning()
 		m.output = output
 	}
-
+	// If output is not provided, then stop all inputs and return.
 	if output == nil {
-		for partition, input := range m.inputs {
+		for partition, input := range m.fetchedInputs {
 			wg.Add(1)
-			go func(input *fetchedInput) {
+			go func(fin *fetchedInput) {
 				defer wg.Done()
-				input.in.Stop()
+				fin.in.Stop()
 			}(input)
-			delete(m.inputs, partition)
+			delete(m.fetchedInputs, partition)
 		}
 		wg.Wait()
 		return
 	}
-
-	for partition, input := range m.inputs {
+	// Stop inputs that are not assigned anymore.
+	for partition, fin := range m.fetchedInputs {
 		if !hasPartition(partition, assigned) {
 			m.stopIfRunning()
 			wg.Add(1)
-			go func(input *fetchedInput) {
+			go func(fin *fetchedInput) {
 				defer wg.Done()
-				input.in.Stop()
-			}(input)
-			delete(m.inputs, partition)
+				fin.in.Stop()
+			}(fin)
+			delete(m.fetchedInputs, partition)
 		}
 	}
 	wg.Wait()
-
+	// Spawn newly assigned inputs, but stop multiplexer before spawning the
+	// first input.
 	for _, partition := range assigned {
-		if _, ok := m.inputs[partition]; !ok {
+		if _, ok := m.fetchedInputs[partition]; !ok {
 			m.stopIfRunning()
-			m.inputs[partition] = &fetchedInput{m.spawnInF(partition), nil}
+			in := m.spawnInF(partition)
+			m.fetchedInputs[partition] = &fetchedInput{in, nil}
 		}
 	}
-	if !m.IsRunning() && len(m.inputs) > 0 {
+	if !m.IsRunning() && len(m.fetchedInputs) > 0 {
 		m.start()
 	}
 }
@@ -140,7 +146,7 @@ func (m *T) stopIfRunning() {
 }
 
 func (m *T) run() {
-	sortedIns := makeSortedIns(m.inputs)
+	sortedIns := makeSortedIns(m.fetchedInputs)
 	inputCount := len(sortedIns)
 	// Prepare a list of reflective select cases that is used when there are no
 	// messages available from any of the inputs and we need to wait on all
