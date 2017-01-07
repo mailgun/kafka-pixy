@@ -4,6 +4,10 @@
 
 * [#81](https://github.com/mailgun/kafka-pixy/pull/81) Add capability to
   proxy to multiple Kafka/ZooKeeper clusters.
+* [#83](https://github.com/mailgun/kafka-pixy/pull/83) Panic in partition
+  multiplexer.
+* [#85](https://github.com/mailgun/kafka-pixy/pull/85) Panic in partition
+  multiplexer.
 * [#16](https://github.com/mailgun/kafka-pixy/issues/16) A YAML configuration
   file can be passed to Kafka-Pixy with `--config` command line parameter. A
   [default](https://github.com/mailgun/kafka-pixy/blob/master/default.yaml)
