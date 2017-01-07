@@ -29,74 +29,47 @@ func (s *MultiplexerSuite) SetUpTest(c *C) {
 }
 
 func (s *MultiplexerSuite) TestSortedInputs(c *C) {
-	ins := map[int32]*fetchedInput{
-		1: {newMockIn(nil), nil},
-		2: {newMockIn(nil), nil},
-		3: {newMockIn(nil), nil},
-		4: {newMockIn(nil), nil},
-		5: {newMockIn(nil), nil},
+	ins := map[int32]*input{
+		1: {In: newMockIn(nil), partition: 1},
+		2: {In: newMockIn(nil), partition: 2},
+		3: {In: newMockIn(nil), partition: 3},
+		4: {In: newMockIn(nil), partition: 4},
+		5: {In: newMockIn(nil), partition: 5},
 	}
-	c.Assert(makeSortedIns(map[int32]*fetchedInput{}), DeepEquals,
-		[]*fetchedInput{})
+	c.Assert(makeSortedIns(map[int32]*input{}), DeepEquals,
+		[]*input{})
 
-	c.Assert(makeSortedIns(map[int32]*fetchedInput{1: ins[1]}), DeepEquals,
-		[]*fetchedInput{ins[1]})
+	c.Assert(makeSortedIns(map[int32]*input{1: ins[1]}), DeepEquals,
+		[]*input{ins[1]})
 
-	c.Assert(makeSortedIns(map[int32]*fetchedInput{5: ins[5], 2: ins[2], 4: ins[4], 1: ins[1], 3: ins[3]}), DeepEquals,
-		[]*fetchedInput{ins[1], ins[2], ins[3], ins[4], ins[5]})
-}
-
-func (s *MultiplexerSuite) TestFindMaxLag(c *C) {
-	inputs := []*fetchedInput{
-		{nil, nil},
-		{nil, lag(11)},
-		{nil, lag(13)},
-		{nil, nil},
-		{nil, lag(12)},
-	}
-	max, idx, cnt := findMaxLag(inputs)
-	c.Assert(max, Equals, int64(13))
-	c.Assert(idx, Equals, 2)
-	c.Assert(cnt, Equals, 1)
-}
-
-func (s *MultiplexerSuite) TestFindMaxLagSame(c *C) {
-	inputs := []*fetchedInput{
-		{nil, nil},
-		{nil, lag(11)},
-		{nil, lag(11)},
-		{nil, nil},
-		{nil, lag(11)},
-	}
-	max, idx, cnt := findMaxLag(inputs)
-	c.Assert(max, Equals, int64(11))
-	c.Assert(idx, Equals, 1)
-	c.Assert(cnt, Equals, 3)
+	c.Assert(makeSortedIns(map[int32]*input{5: ins[5], 2: ins[2], 4: ins[4], 1: ins[1], 3: ins[3]}), DeepEquals,
+		[]*input{ins[1], ins[2], ins[3], ins[4], ins[5]})
 }
 
 // SelectInput chooses an input that has a next message with the biggest lag.
 func (s *MultiplexerSuite) TestSelectInput(c *C) {
-	inputs := []*fetchedInput{
-		{nil, nil},
-		{nil, lag(11)},
-		{nil, lag(13)},
-		{nil, nil},
-		{nil, lag(12)},
+	inputs := []*input{
+		{},
+		{nextMsg: lag(11)},
+		{nextMsg: lag(13)},
+		{},
+		{nextMsg: lag(12)},
 	}
 	c.Assert(selectInput(-1, inputs), Equals, 2)
 	c.Assert(selectInput(2, inputs), Equals, 2)
 	c.Assert(selectInput(3, inputs), Equals, 2)
+	c.Assert(selectInput(100, inputs), Equals, 2)
 }
 
 // If there are several inputs with the same biggest lag, then the last input
 // index is used to chose between them.
 func (s *MultiplexerSuite) TestSelectInputSameLag(c *C) {
-	inputs := []*fetchedInput{
-		{nil, nil},
-		{nil, lag(11)},
-		{nil, lag(11)},
-		{nil, lag(10)},
-		{nil, lag(11)},
+	inputs := []*input{
+		{},
+		{nextMsg: lag(11)},
+		{nextMsg: lag(11)},
+		{nextMsg: lag(10)},
+		{nextMsg: lag(11)},
 	}
 	c.Assert(selectInput(-1, inputs), Equals, 1)
 	c.Assert(selectInput(0, inputs), Equals, 1)
@@ -104,6 +77,20 @@ func (s *MultiplexerSuite) TestSelectInputSameLag(c *C) {
 	c.Assert(selectInput(2, inputs), Equals, 4)
 	c.Assert(selectInput(3, inputs), Equals, 4)
 	c.Assert(selectInput(4, inputs), Equals, 1)
+	c.Assert(selectInput(100, inputs), Equals, 1)
+}
+
+// If there are several inputs with the same biggest lag, then the last input
+// index is used to chose between them.
+func (s *MultiplexerSuite) TestSelectInputNone(c *C) {
+	inputs := []*input{
+		{},
+		{},
+	}
+	c.Assert(selectInput(-1, inputs), Equals, -1)
+	c.Assert(selectInput(0, inputs), Equals, -1)
+	c.Assert(selectInput(1, inputs), Equals, -1)
+	c.Assert(selectInput(100, inputs), Equals, -1)
 }
 
 // If there is just one input then it is forwarded to the output.
@@ -525,6 +512,40 @@ func (s *MultiplexerSuite) TestStop(c *C) {
 		c.Errorf("Unexpected message: %v", msg)
 	default:
 	}
+}
+
+// If an input channel closes then respective input is removed from rotation.
+func (s *MultiplexerSuite) TestInputChanClose(c *C) {
+	acksCh := make(chan *consumer.Message, 100)
+	ins := map[int32]In{
+		1: newMockIn(acksCh,
+			msg(1001, 1),
+			msg(1002, 1),
+			msg(1003, 1)),
+		2: newMockIn(acksCh,
+			msg(2001, 1)),
+		3: newMockIn(acksCh,
+			msg(3001, 1),
+			msg(3002, 1),
+			msg(3003, 1)),
+	}
+	out := newMockOut(0)
+	m := New(s.ns, func(p int32) In { return ins[p] })
+	defer m.Stop()
+	m.WireUp(out, []int32{1, 2, 3})
+	c.Assert(m.IsRunning(), Equals, true)
+
+	// When
+	close(ins[2].(*mockIn).messagesCh)
+
+	// Then
+	checkMsg(c, out.messagesCh, acksCh, msg(1001, 1))
+	checkMsg(c, out.messagesCh, acksCh, msg(2001, 1))
+	checkMsg(c, out.messagesCh, acksCh, msg(1002, 1))
+	checkMsg(c, out.messagesCh, acksCh, msg(3001, 1))
+	checkMsg(c, out.messagesCh, acksCh, msg(1003, 1))
+	checkMsg(c, out.messagesCh, acksCh, msg(3002, 1))
+	checkMsg(c, out.messagesCh, acksCh, msg(3003, 1))
 }
 
 type mockIn struct {
