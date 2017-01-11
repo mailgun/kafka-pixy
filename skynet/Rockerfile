@@ -1,0 +1,47 @@
+# -------------------------------
+# Build the app
+# -------------------------------
+FROM golang:1.7.1
+
+# Specify our ssh key and disable strict key check
+MOUNT {{ .Env.GIT_SSH_KEY }}:/root/.ssh/id_rsa
+RUN echo -n "Host *\n StrictHostKeyChecking no" > /root/.ssh/config
+
+# Mount our go code inside the container
+MOUNT ..:/go/src/github.com/mailgun/kafka-pixy
+
+# Mount our local /bin directory to /go/bin
+MOUNT bin:/go/bin
+
+# Staticly compile
+#RUN CGO_ENABLED=0 && \
+    #go install -a -v github.com/mailgun/kafka-pixy/...
+
+RUN go install -a --ldflags '-extldflags "-static"' -installsuffix -v github.com/mailgun/kafka-pixy/...
+
+# Tag build image
+TAG mailgun/skynet-kafka-pixy:build-latest
+
+# ---------------------------------------------
+# Create our deploy image
+# ---------------------------------------------
+FROM mailgun/skynet-gobase:latest
+
+COPY bin/* /app
+WORKDIR /app
+
+# Assign some labels
+LABEL GitHash {{ .GitHash }}
+
+# Copy our configs
+COPY containerpilot.json /etc/containerpilot.json
+COPY config.yaml /etc/mailgun/kafka-pixy/config.yaml
+ENV CONTAINERPILOT file:///etc/containerpilot.json
+
+# Define our entry point
+ENTRYPOINT ["/usr/local/bin/containerpilot", "/app/kafka-pixy", "-config", "/etc/mailgun/kafka-pixy/config.yaml"]
+CMD []
+EXPOSE 19092
+
+# Tag image
+TAG mailgun/skynet-kafka-pixy:latest
