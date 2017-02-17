@@ -1,4 +1,4 @@
-package apiserver
+package httpsrv
 
 import (
 	"encoding/json"
@@ -68,7 +68,7 @@ func New(network, addr string, proxies map[string]*proxy.T, defaultPxy *proxy.T)
 	// Create a graceful HTTP server instance.
 	router := mux.NewRouter()
 	httpServer := manners.NewWithServer(&http.Server{Handler: router})
-	as := &T{
+	hs := &T{
 		actorID:    actor.RootID.NewChild(fmt.Sprintf("API@%s", addr)),
 		addr:       addr,
 		listener:   manners.NewListener(listener),
@@ -78,30 +78,30 @@ func New(network, addr string, proxies map[string]*proxy.T, defaultPxy *proxy.T)
 		errorCh:    make(chan error, 1),
 	}
 	// Configure the API request handlers.
-	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), as.handleProduce).Methods("POST")
-	router.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", prmTopic), as.handleProduce).Methods("POST")
-	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), as.handleProduce).Methods("POST")
-	router.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", prmTopic), as.handleProduce).Methods("POST")
-	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), as.handleProduce).Methods("POST")
-	router.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", prmTopic), as.handleConsume).Methods("GET")
-	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), as.handleConsume).Methods("GET")
-	router.HandleFunc(fmt.Sprintf("/topics/{%s}/offsets", prmTopic), as.handleGetOffsets).Methods("GET")
-	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/offsets", prmProxy, prmTopic), as.handleGetOffsets).Methods("GET")
-	router.HandleFunc(fmt.Sprintf("/topics/{%s}/offsets", prmTopic), as.handleSetOffsets).Methods("POST")
-	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/offsets", prmProxy, prmTopic), as.handleSetOffsets).Methods("POST")
-	router.HandleFunc(fmt.Sprintf("/topics/{%s}/consumers", prmTopic), as.handleGetTopicConsumers).Methods("GET")
-	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/consumers", prmProxy, prmTopic), as.handleGetTopicConsumers).Methods("GET")
-	router.HandleFunc("/_ping", as.handlePing).Methods("GET")
-	return as, nil
+	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), hs.handleProduce).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", prmTopic), hs.handleProduce).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), hs.handleProduce).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", prmTopic), hs.handleProduce).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), hs.handleProduce).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", prmTopic), hs.handleConsume).Methods("GET")
+	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), hs.handleConsume).Methods("GET")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/offsets", prmTopic), hs.handleGetOffsets).Methods("GET")
+	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/offsets", prmProxy, prmTopic), hs.handleGetOffsets).Methods("GET")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/offsets", prmTopic), hs.handleSetOffsets).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/offsets", prmProxy, prmTopic), hs.handleSetOffsets).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/consumers", prmTopic), hs.handleGetTopicConsumers).Methods("GET")
+	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/consumers", prmProxy, prmTopic), hs.handleGetTopicConsumers).Methods("GET")
+	router.HandleFunc("/_ping", hs.handlePing).Methods("GET")
+	return hs, nil
 }
 
 // Starts triggers asynchronous HTTP server start. If it fails then the error
 // will be sent down to `HTTPAPIServer.ErrorCh()`.
-func (as *T) Start() {
-	actor.Spawn(as.actorID, nil, func() {
-		defer close(as.errorCh)
-		if err := as.httpServer.Serve(as.listener); err != nil {
-			as.errorCh <- fmt.Errorf("HTTP API listener failed, err=(%s)", err)
+func (s *T) Start() {
+	actor.Spawn(s.actorID, nil, func() {
+		defer close(s.errorCh)
+		if err := s.httpServer.Serve(s.listener); err != nil {
+			s.errorCh <- fmt.Errorf("HTTP API listener failed, err=(%s)", err)
 		}
 	})
 }
@@ -109,30 +109,30 @@ func (as *T) Start() {
 // ErrorCh returns an output channel that HTTP server running in another
 // goroutine will use if it stops with error if one occurs. The channel will be
 // closed when the server is fully stopped due to an error or otherwise..
-func (as *T) ErrorCh() <-chan error {
-	return as.errorCh
+func (s *T) ErrorCh() <-chan error {
+	return s.errorCh
 }
 
 // AsyncStop triggers HTTP API listener stop. If a caller wants to know when
 // the server terminates it should read from the `Error()` channel that will be
 // closed upon server termination.
-func (as *T) AsyncStop() {
-	as.httpServer.Close()
+func (s *T) AsyncStop() {
+	s.httpServer.Close()
 }
 
-func (as *T) getProxy(r *http.Request) *proxy.T {
+func (s *T) getProxy(r *http.Request) *proxy.T {
 	pxyAlias, ok := mux.Vars(r)[prmProxy]
 	if !ok {
-		return as.defaultPxy
+		return s.defaultPxy
 	}
-	return as.proxies[pxyAlias]
+	return s.proxies[pxyAlias]
 }
 
 // handleProduce is an HTTP request handler for `POST /topic/{topic}/messages`
-func (as *T) handleProduce(w http.ResponseWriter, r *http.Request) {
+func (s *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
-	pxy := as.getProxy(r)
+	pxy := s.getProxy(r)
 	topic := mux.Vars(r)[prmTopic]
 	key := getParamBytes(r, prmKey)
 	_, isSync := r.Form[prmSync]
@@ -190,10 +190,10 @@ func (as *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleConsume is an HTTP request handler for `GET /topic/{topic}/messages`
-func (as *T) handleConsume(w http.ResponseWriter, r *http.Request) {
+func (s *T) handleConsume(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
-	pxy := as.getProxy(r)
+	pxy := s.getProxy(r)
 	topic := mux.Vars(r)[prmTopic]
 	group, err := getGroupParam(r)
 	if err != nil {
@@ -225,10 +225,10 @@ func (as *T) handleConsume(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGetOffsets is an HTTP request handler for `GET /topic/{topic}/offsets`
-func (as *T) handleGetOffsets(w http.ResponseWriter, r *http.Request) {
+func (s *T) handleGetOffsets(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
-	pxy := as.getProxy(r)
+	pxy := s.getProxy(r)
 	topic := mux.Vars(r)[prmTopic]
 	group, err := getGroupParam(r)
 	if err != nil {
@@ -266,10 +266,10 @@ func (as *T) handleGetOffsets(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGetOffsets is an HTTP request handler for `POST /topic/{topic}/offsets`
-func (as *T) handleSetOffsets(w http.ResponseWriter, r *http.Request) {
+func (s *T) handleSetOffsets(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
-	pxy := as.getProxy(r)
+	pxy := s.getProxy(r)
 	topic := mux.Vars(r)[prmTopic]
 	group, err := getGroupParam(r)
 	if err != nil {
@@ -312,11 +312,11 @@ func (as *T) handleSetOffsets(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGetTopicConsumers is an HTTP request handler for `GET /topic/{topic}/consumers`
-func (as *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
+func (s *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	var err error
 
-	pxy := as.getProxy(r)
+	pxy := s.getProxy(r)
 	topic := mux.Vars(r)[prmTopic]
 
 	group := ""
@@ -369,7 +369,7 @@ func (as *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (as *T) handlePing(w http.ResponseWriter, r *http.Request) {
+func (s *T) handlePing(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("pong"))
@@ -401,8 +401,8 @@ type errorHTTPResponse struct {
 	Error string `json:"error"`
 }
 
-// getParamBytes returns the request parameter as a slice of bytes. It works
-// pretty much the same way as `http.FormValue`, except it distinguishes empty
+// getParamBytes returns the request parameter s a slice of bytes. It works
+// pretty much the same way s `http.FormValue`, except it distinguishes empty
 // value (`[]byte{}`) from missing one (`nil`).
 func getParamBytes(r *http.Request, name string) []byte {
 	r.ParseForm() // Ignore errors, the go library does the same in FormValue.
@@ -413,7 +413,7 @@ func getParamBytes(r *http.Request, name string) []byte {
 	return []byte(values[0])
 }
 
-// respondWithJSON marshals `body` to a JSON string and sends it as an HTTP
+// respondWithJSON marshals `body` to a JSON string and sends it s an HTTP
 // response body along with the specified `status` code.
 func respondWithJSON(w http.ResponseWriter, status int, body interface{}) {
 	encodedRes, err := json.MarshalIndent(body, "", "  ")

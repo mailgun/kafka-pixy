@@ -5,8 +5,8 @@ import (
 	"sync"
 
 	"github.com/mailgun/kafka-pixy/actor"
-	"github.com/mailgun/kafka-pixy/apiserver"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/frontend/httpsrv"
 	"github.com/mailgun/kafka-pixy/proxy"
 	"github.com/mailgun/log"
 )
@@ -15,8 +15,8 @@ type T struct {
 	actorID    *actor.ID
 	proxies    map[string]*proxy.T
 	defaultPxy *proxy.T
-	tcpServer  *apiserver.T
-	unixServer *apiserver.T
+	tcpServer  *httpsrv.T
+	unixServer *httpsrv.T
 	quitCh     chan struct{}
 	wg         sync.WaitGroup
 }
@@ -39,13 +39,13 @@ func Spawn(cfg *config.App) (*T, error) {
 	}
 	s.defaultPxy = s.proxies[cfg.DefaultProxy]
 
-	if s.tcpServer, err = apiserver.New(apiserver.NetworkTCP, cfg.TCPAddr, s.proxies, s.defaultPxy); err != nil {
+	if s.tcpServer, err = httpsrv.New(httpsrv.NetworkTCP, cfg.TCPAddr, s.proxies, s.defaultPxy); err != nil {
 		s.stopProxies()
 		return nil, fmt.Errorf("failed to start TCP socket based HTTP API, err=(%s)", err)
 	}
 
 	if cfg.UnixAddr != "" {
-		if s.unixServer, err = apiserver.New(apiserver.NetworkUnix, cfg.UnixAddr, s.proxies, s.defaultPxy); err != nil {
+		if s.unixServer, err = httpsrv.New(httpsrv.NetworkUnix, cfg.UnixAddr, s.proxies, s.defaultPxy); err != nil {
 			s.stopProxies()
 			return nil, fmt.Errorf("failed to start Unix socket based HTTP API, err=(%s)", err)
 		}

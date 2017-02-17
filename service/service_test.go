@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"github.com/Shopify/sarama"
-	"github.com/mailgun/kafka-pixy/apiserver"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/frontend/httpsrv"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
 	. "gopkg.in/check.v1"
@@ -441,7 +441,7 @@ func (s *ServiceSuite) TestSetOffsets(c *C) {
 
 	// Then
 	c.Assert(err, IsNil)
-	c.Assert(ParseJSONBody(c, r), DeepEquals, apiserver.EmptyResponse)
+	c.Assert(ParseJSONBody(c, r), DeepEquals, httpsrv.EmptyResponse)
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
 
 	r, err = s.unixClient.Get("http://_/topics/test.4/offsets?group=foo")
@@ -479,7 +479,7 @@ func (s *ServiceSuite) TestSetOffsetsNoSuchTopic(c *C) {
 
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
-	c.Assert(ParseJSONBody(c, r), DeepEquals, apiserver.EmptyResponse)
+	c.Assert(ParseJSONBody(c, r), DeepEquals, httpsrv.EmptyResponse)
 }
 
 // Invalid body is detected and properly reported.
@@ -512,7 +512,7 @@ func (s *ServiceSuite) TestSetOffsetsInvalidPartition(c *C) {
 	// Then
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
-	c.Assert(ParseJSONBody(c, r), DeepEquals, apiserver.EmptyResponse)
+	c.Assert(ParseJSONBody(c, r), DeepEquals, httpsrv.EmptyResponse)
 }
 
 // Reported partition lags are correct, including those corresponding to -1 and
