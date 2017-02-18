@@ -45,15 +45,14 @@ type T struct {
 	addr       string
 	listener   net.Listener
 	httpServer *manners.GracefulServer
-	proxies    map[string]*proxy.T
-	defaultPxy *proxy.T
+	proxySet   *proxy.Set
 	errorCh    chan error
 }
 
 // New creates an HTTP server instance that will accept API requests at the
 // specified `network`/`address` and execute them with the specified `producer`,
 // `consumer`, or `admin`, depending on the request type.
-func New(network, addr string, proxies map[string]*proxy.T, defaultPxy *proxy.T) (*T, error) {
+func New(network, addr string, proxySet *proxy.Set) (*T, error) {
 	// Start listening on the specified network/address.
 	listener, err := net.Listen(network, addr)
 	if err != nil {
@@ -73,8 +72,7 @@ func New(network, addr string, proxies map[string]*proxy.T, defaultPxy *proxy.T)
 		addr:       addr,
 		listener:   manners.NewListener(listener),
 		httpServer: httpServer,
-		proxies:    proxies,
-		defaultPxy: defaultPxy,
+		proxySet:   proxySet,
 		errorCh:    make(chan error, 1),
 	}
 	// Configure the API request handlers.
@@ -121,11 +119,8 @@ func (s *T) AsyncStop() {
 }
 
 func (s *T) getProxy(r *http.Request) *proxy.T {
-	pxyAlias, ok := mux.Vars(r)[prmProxy]
-	if !ok {
-		return s.defaultPxy
-	}
-	return s.proxies[pxyAlias]
+	pxyAlias := mux.Vars(r)[prmProxy]
+	return s.proxySet.Get(pxyAlias)
 }
 
 // handleProduce is an HTTP request handler for `POST /topic/{topic}/messages`
