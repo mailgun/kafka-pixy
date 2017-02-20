@@ -2,6 +2,7 @@
 
 # Make sure the script fails fast.
 set -e
+set -u
 
 # Make a list of all non-vendored packages.
 PKGS=$(go list ./... | grep -v /vendor/ | grep -v /tools/ | grep -v /testhelpers/)

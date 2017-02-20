@@ -1,6 +1,7 @@
-#!/bin/bash -e
+#!/bin/sh
 
-set +x
+# Make sure the script fails fast.
+set -e
 set -u
 
 PROJECT_ROOT=${GOPATH}/src/github.com/mailgun/kafka-pixy
