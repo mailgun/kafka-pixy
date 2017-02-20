@@ -81,7 +81,7 @@ func (s *ServiceSuite) TestInvalidUnixAddr(c *C) {
 
 	// Then
 	c.Assert(err.Error(), Equals,
-		"failed to start Unix socket based HTTP API, err=(failed to create listener, err=(listen unix /tmp: bind: address already in use))")
+		"failed to start Unix socket based HTTP API server: failed to create listener: listen unix /tmp: bind: address already in use")
 	c.Assert(svc, IsNil)
 }
 
@@ -94,7 +94,7 @@ func (s *ServiceSuite) TestInvalidKafkaPeers(c *C) {
 
 	// Then
 	c.Assert(err.Error(), Equals,
-		"failed to spawn proxy, name=pxyD, err=(failed to spawn producer, err=(failed to create sarama.Client, err=(kafka: client has run out of available brokers to talk to (Is your cluster reachable?))))")
+		"failed to spawn proxy, name=pxyD: failed to spawn producer, err=(failed to create sarama.Client, err=(kafka: client has run out of available brokers to talk to (Is your cluster reachable?)))")
 	c.Assert(svc, IsNil)
 }
 
@@ -321,7 +321,7 @@ func (s *ServiceSuite) TestConsumeNoGroup(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusBadRequest)
 	body := ParseJSONBody(c, r).(map[string]interface{})
-	c.Assert(body["error"], Equals, "One consumer group is expected, but 0 provided")
+	c.Assert(body["error"], Equals, "one consumer group is expected, but 0 provided")
 }
 
 func (s *ServiceSuite) TestConsumeManyGroups(c *C) {
@@ -336,7 +336,7 @@ func (s *ServiceSuite) TestConsumeManyGroups(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusBadRequest)
 	body := ParseJSONBody(c, r).(map[string]interface{})
-	c.Assert(body["error"], Equals, "One consumer group is expected, but 2 provided")
+	c.Assert(body["error"], Equals, "one consumer group is expected, but 2 provided")
 }
 
 func (s *ServiceSuite) TestConsumeInvalidTopic(c *C) {

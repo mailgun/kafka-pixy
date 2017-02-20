@@ -9,6 +9,7 @@ import (
 	"github.com/mailgun/kafka-pixy/frontend/httpsrv"
 	"github.com/mailgun/kafka-pixy/proxy"
 	"github.com/mailgun/log"
+	"github.com/pkg/errors"
 )
 
 type T struct {
@@ -32,7 +33,7 @@ func Spawn(cfg *config.App) (*T, error) {
 		pxy, err := proxy.Spawn(actor.RootID, pxyAlias, pxyCfg)
 		if err != nil {
 			s.stopProxies()
-			return nil, fmt.Errorf("failed to spawn proxy, name=%s, err=(%s)", pxyAlias, err)
+			return nil, errors.Wrapf(err, "failed to spawn proxy, name=%s", pxyAlias)
 		}
 		s.proxies[pxyAlias] = pxy
 	}
@@ -40,12 +41,12 @@ func Spawn(cfg *config.App) (*T, error) {
 	proxySet := proxy.NewSet(s.proxies, s.proxies[cfg.DefaultProxy])
 	if s.tcpSrv, err = httpsrv.New(cfg.TCPAddr, proxySet); err != nil {
 		s.stopProxies()
-		return nil, fmt.Errorf("failed to start TCP socket based HTTP API, err=(%s)", err)
+		return nil, errors.Wrap(err, "failed to start TCP socket based HTTP API server")
 	}
 	if cfg.UnixAddr != "" {
 		if s.unixSrv, err = httpsrv.New(cfg.UnixAddr, proxySet); err != nil {
 			s.stopProxies()
-			return nil, fmt.Errorf("failed to start Unix socket based HTTP API, err=(%s)", err)
+			return nil, errors.Wrapf(err, "failed to start Unix socket based HTTP API server")
 		}
 	}
 	actor.Spawn(s.actorID, &s.wg, s.run)
@@ -73,11 +74,11 @@ func (s *T) run() {
 	case <-s.quitCh:
 	case err, ok := <-s.tcpSrv.ErrorCh():
 		if ok {
-			log.Errorf("Unix socket based HTTP API crashed, err=(%s)", err)
+			log.Errorf("Unix socket based HTTP API crashed: %+v", err)
 		}
 	case err, ok := <-unixServerErrorCh:
 		if ok {
-			log.Errorf("TCP socket based HTTP API crashed, err=(%s)", err)
+			log.Errorf("TCP socket based HTTP API crashed: %+v", err)
 		}
 	}
 	// Initiate stop of all API servers.

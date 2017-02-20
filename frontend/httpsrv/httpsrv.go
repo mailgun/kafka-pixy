@@ -20,6 +20,7 @@ import (
 	"github.com/mailgun/kafka-pixy/proxy"
 	"github.com/mailgun/log"
 	"github.com/mailgun/manners"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -63,12 +64,12 @@ func New(addr string, proxySet *proxy.Set) (*T, error) {
 	// Start listening on the specified network/address.
 	listener, err := net.Listen(network, addr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create listener, err=(%s)", err)
+		return nil, errors.Wrap(err, "failed to create listener")
 	}
 	// If the address is Unix Domain Socket then make it accessible for everyone.
 	if network == networkUnix {
 		if err := os.Chmod(addr, 0777); err != nil {
-			return nil, fmt.Errorf("failed to change socket permissions, err=(%s)", err)
+			return nil, errors.Wrap(err, "failed to change socket permissions")
 		}
 	}
 	// Create a graceful HTTP server instance.
@@ -105,7 +106,7 @@ func New(addr string, proxySet *proxy.Set) (*T, error) {
 func (s *T) Start() {
 	actor.Spawn(s.actorID, &s.wg, func() {
 		if err := s.httpServer.Serve(s.listener); err != nil {
-			s.errorCh <- fmt.Errorf("HTTP API listener failed, err=(%s)", err)
+			s.errorCh <- errors.Wrap(err, "HTTP API server failed")
 		}
 	})
 }
@@ -353,7 +354,7 @@ func (s *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
 
 	encodedRes, err := json.MarshalIndent(consumers, "", "  ")
 	if err != nil {
-		log.Errorf("Failed to send HTTP response: status=%d, body=%v, reason=%v", http.StatusOK, encodedRes, err)
+		log.Errorf("Failed to send HTTP response: status=%d, body=%v, err=%+v", http.StatusOK, encodedRes, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -362,7 +363,7 @@ func (s *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add(hdrContentType, "application/json")
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write(encodedRes); err != nil {
-		log.Errorf("Failed to send HTTP response: status=%d, body=%v, reason=%v", http.StatusOK, encodedRes, err)
+		log.Errorf("Failed to send HTTP response: status=%d, body=%v, err=%+v", http.StatusOK, encodedRes, err)
 	}
 }
 
@@ -415,7 +416,7 @@ func getParamBytes(r *http.Request, name string) []byte {
 func respondWithJSON(w http.ResponseWriter, status int, body interface{}) {
 	encodedRes, err := json.MarshalIndent(body, "", "  ")
 	if err != nil {
-		log.Errorf("Failed to send HTTP response: status=%d, body=%v, reason=%v", status, body, err)
+		log.Errorf("Failed to send HTTP response: status=%d, body=%v, err=%+v", status, body, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -423,7 +424,7 @@ func respondWithJSON(w http.ResponseWriter, status int, body interface{}) {
 	w.Header().Add(hdrContentType, "application/json")
 	w.WriteHeader(status)
 	if _, err := w.Write(encodedRes); err != nil {
-		log.Errorf("Failed to send HTTP response: status=%d, body=%v, reason=%v", status, body, err)
+		log.Errorf("Failed to send HTTP response: status=%d, body=%v, err=%+v", status, body, err)
 	}
 }
 
@@ -431,7 +432,7 @@ func getGroupParam(r *http.Request, opt bool) (string, error) {
 	r.ParseForm()
 	groups := r.Form[prmGroup]
 	if len(groups) > 1 || (!opt && len(groups) == 0) {
-		return "", fmt.Errorf("One consumer group is expected, but %d provided", len(groups))
+		return "", errors.Errorf("one consumer group is expected, but %d provided", len(groups))
 	}
 	if len(groups) == 0 {
 		return "", nil
