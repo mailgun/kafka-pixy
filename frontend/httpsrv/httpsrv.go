@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/Shopify/sarama"
 	"github.com/gorilla/mux"
@@ -21,8 +22,8 @@ import (
 )
 
 const (
-	NetworkTCP  = "tcp"
-	NetworkUnix = "unix"
+	networkTCP  = "tcp"
+	networkUnix = "unix"
 
 	// HTTP headers used by the API.
 	hdrContentLength = "Content-Length"
@@ -52,14 +53,18 @@ type T struct {
 // New creates an HTTP server instance that will accept API requests at the
 // specified `network`/`address` and execute them with the specified `producer`,
 // `consumer`, or `admin`, depending on the request type.
-func New(network, addr string, proxySet *proxy.Set) (*T, error) {
+func New(addr string, proxySet *proxy.Set) (*T, error) {
+	network := networkUnix
+	if strings.Contains(addr, ":") {
+		network = networkTCP
+	}
 	// Start listening on the specified network/address.
 	listener, err := net.Listen(network, addr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create listener, err=(%s)", err)
 	}
 	// If the address is Unix Domain Socket then make it accessible for everyone.
-	if network == NetworkUnix {
+	if network == networkUnix {
 		if err := os.Chmod(addr, 0777); err != nil {
 			return nil, fmt.Errorf("failed to change socket permissions, err=(%s)", err)
 		}

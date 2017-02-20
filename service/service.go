@@ -38,12 +38,12 @@ func Spawn(cfg *config.App) (*T, error) {
 	}
 
 	proxySet := proxy.NewSet(s.proxies, s.proxies[cfg.DefaultProxy])
-	if s.tcpServer, err = httpsrv.New(httpsrv.NetworkTCP, cfg.TCPAddr, proxySet); err != nil {
+	if s.tcpServer, err = httpsrv.New(cfg.TCPAddr, proxySet); err != nil {
 		s.stopProxies()
 		return nil, fmt.Errorf("failed to start TCP socket based HTTP API, err=(%s)", err)
 	}
 	if cfg.UnixAddr != "" {
-		if s.unixServer, err = httpsrv.New(httpsrv.NetworkUnix, cfg.UnixAddr, proxySet); err != nil {
+		if s.unixServer, err = httpsrv.New(cfg.UnixAddr, proxySet); err != nil {
 			s.stopProxies()
 			return nil, fmt.Errorf("failed to start Unix socket based HTTP API, err=(%s)", err)
 		}

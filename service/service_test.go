@@ -44,6 +44,7 @@ func (s *ServiceSuite) SetUpSuite(c *C) {
 
 func (s *ServiceSuite) SetUpTest(c *C) {
 	s.cfg = &config.App{Proxies: make(map[string]*config.Proxy)}
+	s.cfg.TCPAddr = "127.0.0.1:19092"
 	s.cfg.UnixAddr = path.Join(os.TempDir(), "kafka-pixy.sock")
 	s.cfg.Proxies["pxyD"] = testhelpers.NewTestProxyCfg("test_svc")
 	s.cfg.DefaultProxy = "pxyD"
@@ -188,21 +189,6 @@ func (s *ServiceSuite) TestUtf8Message(c *C) {
 	msgs := s.kh.GetMessages("test.4", offsetsBefore, offsetsAfter)
 	c.Assert(msgs, DeepEquals,
 		[][]string{[]string(nil), {"Превед Медвед"}, []string(nil), []string(nil)})
-}
-
-// TCP API is not started by default.
-func (s *ServiceSuite) TestTCPDoesNotWork(c *C) {
-	svc, _ := Spawn(s.cfg)
-	defer svc.Stop()
-
-	// When
-	r, err := s.tcpClient.Post("http://localhost:55501/topics/test.4/messages?key=foo",
-		"text/plain", strings.NewReader("Hello Kitty"))
-
-	// Then
-	c.Assert(err.Error(), Matches,
-		"Post http://localhost:55501/topics/test.4/messages\\?key=foo: .* connection refused")
-	c.Assert(r, IsNil)
 }
 
 // API is served on a TCP socket if it is explicitly configured.
