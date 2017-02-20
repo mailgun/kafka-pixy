@@ -198,7 +198,7 @@ func (s *T) handleConsume(w http.ResponseWriter, r *http.Request) {
 
 	pxy := s.getProxy(r)
 	topic := mux.Vars(r)[prmTopic]
-	group, err := getGroupParam(r)
+	group, err := getGroupParam(r, false)
 	if err != nil {
 		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
 		return
@@ -233,7 +233,7 @@ func (s *T) handleGetOffsets(w http.ResponseWriter, r *http.Request) {
 
 	pxy := s.getProxy(r)
 	topic := mux.Vars(r)[prmTopic]
-	group, err := getGroupParam(r)
+	group, err := getGroupParam(r, false)
 	if err != nil {
 		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
 		return
@@ -274,7 +274,7 @@ func (s *T) handleSetOffsets(w http.ResponseWriter, r *http.Request) {
 
 	pxy := s.getProxy(r)
 	topic := mux.Vars(r)[prmTopic]
-	group, err := getGroupParam(r)
+	group, err := getGroupParam(r, false)
 	if err != nil {
 		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
 		return
@@ -322,16 +322,10 @@ func (s *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
 	pxy := s.getProxy(r)
 	topic := mux.Vars(r)[prmTopic]
 
-	group := ""
-	r.ParseForm()
-	groups := r.Form[prmGroup]
-	if len(groups) > 1 {
-		err = fmt.Errorf("One consumer group is expected, but %d provided", len(groups))
+	group, err := getGroupParam(r, true)
+	if err != nil {
 		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
 		return
-	}
-	if len(groups) == 1 {
-		group = groups[0]
 	}
 
 	var consumers map[string]map[string][]int32
@@ -433,11 +427,14 @@ func respondWithJSON(w http.ResponseWriter, status int, body interface{}) {
 	}
 }
 
-func getGroupParam(r *http.Request) (string, error) {
+func getGroupParam(r *http.Request, opt bool) (string, error) {
 	r.ParseForm()
 	groups := r.Form[prmGroup]
-	if len(groups) != 1 {
+	if len(groups) > 1 || (!opt && len(groups) == 0) {
 		return "", fmt.Errorf("One consumer group is expected, but %d provided", len(groups))
+	}
+	if len(groups) == 0 {
+		return "", nil
 	}
 	return groups[0], nil
 }
