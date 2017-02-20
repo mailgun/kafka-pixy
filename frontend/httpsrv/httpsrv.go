@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/Shopify/sarama"
 	"github.com/gorilla/mux"
@@ -47,6 +48,7 @@ type T struct {
 	listener   net.Listener
 	httpServer *manners.GracefulServer
 	proxySet   *proxy.Set
+	wg         sync.WaitGroup
 	errorCh    chan error
 }
 
@@ -73,7 +75,7 @@ func New(addr string, proxySet *proxy.Set) (*T, error) {
 	router := mux.NewRouter()
 	httpServer := manners.NewWithServer(&http.Server{Handler: router})
 	hs := &T{
-		actorID:    actor.RootID.NewChild(fmt.Sprintf("API@%s", addr)),
+		actorID:    actor.RootID.NewChild(fmt.Sprintf("http://%s", addr)),
 		addr:       addr,
 		listener:   manners.NewListener(listener),
 		httpServer: httpServer,
@@ -99,10 +101,9 @@ func New(addr string, proxySet *proxy.Set) (*T, error) {
 }
 
 // Starts triggers asynchronous HTTP server start. If it fails then the error
-// will be sent down to `HTTPAPIServer.ErrorCh()`.
+// will be sent down to `ErrorCh()`.
 func (s *T) Start() {
-	actor.Spawn(s.actorID, nil, func() {
-		defer close(s.errorCh)
+	actor.Spawn(s.actorID, &s.wg, func() {
 		if err := s.httpServer.Serve(s.listener); err != nil {
 			s.errorCh <- fmt.Errorf("HTTP API listener failed, err=(%s)", err)
 		}
@@ -116,11 +117,13 @@ func (s *T) ErrorCh() <-chan error {
 	return s.errorCh
 }
 
-// AsyncStop triggers HTTP API listener stop. If a caller wants to know when
-// the server terminates it should read from the `Error()` channel that will be
-// closed upon server termination.
-func (s *T) AsyncStop() {
+// Stop gracefully stops the HTTP API server. It stops listening on the socket
+// for incoming requests first, and then blocks waiting for pending requests to
+// complete.
+func (s *T) Stop() {
 	s.httpServer.Close()
+	s.wg.Wait()
+	close(s.errorCh)
 }
 
 func (s *T) getProxy(r *http.Request) *proxy.T {

@@ -12,12 +12,12 @@ import (
 )
 
 type T struct {
-	actorID    *actor.ID
-	proxies    map[string]*proxy.T
-	tcpServer  *httpsrv.T
-	unixServer *httpsrv.T
-	quitCh     chan struct{}
-	wg         sync.WaitGroup
+	actorID *actor.ID
+	proxies map[string]*proxy.T
+	tcpSrv  *httpsrv.T
+	unixSrv *httpsrv.T
+	quitCh  chan struct{}
+	wg      sync.WaitGroup
 }
 
 func Spawn(cfg *config.App) (*T, error) {
@@ -38,12 +38,12 @@ func Spawn(cfg *config.App) (*T, error) {
 	}
 
 	proxySet := proxy.NewSet(s.proxies, s.proxies[cfg.DefaultProxy])
-	if s.tcpServer, err = httpsrv.New(cfg.TCPAddr, proxySet); err != nil {
+	if s.tcpSrv, err = httpsrv.New(cfg.TCPAddr, proxySet); err != nil {
 		s.stopProxies()
 		return nil, fmt.Errorf("failed to start TCP socket based HTTP API, err=(%s)", err)
 	}
 	if cfg.UnixAddr != "" {
-		if s.unixServer, err = httpsrv.New(cfg.UnixAddr, proxySet); err != nil {
+		if s.unixSrv, err = httpsrv.New(cfg.UnixAddr, proxySet); err != nil {
 			s.stopProxies()
 			return nil, fmt.Errorf("failed to start Unix socket based HTTP API, err=(%s)", err)
 		}
@@ -57,19 +57,21 @@ func (s *T) Stop() {
 	s.wg.Wait()
 }
 
-// supervisor takes care of the service graceful shutdown.
+// run implements main supervisor loop, that boils down to starting all
+// configured API servers, waiting for a stop signal and terminating everything
+// gracefully.
 func (s *T) run() {
 	var unixServerErrorCh <-chan error
 
-	s.tcpServer.Start()
-	if s.unixServer != nil {
-		s.unixServer.Start()
-		unixServerErrorCh = s.unixServer.ErrorCh()
+	s.tcpSrv.Start()
+	if s.unixSrv != nil {
+		s.unixSrv.Start()
+		unixServerErrorCh = s.unixSrv.ErrorCh()
 	}
 	// Block to wait for quit signal or an API server crash.
 	select {
 	case <-s.quitCh:
-	case err, ok := <-s.tcpServer.ErrorCh():
+	case err, ok := <-s.tcpSrv.ErrorCh():
 		if ok {
 			log.Errorf("Unix socket based HTTP API crashed, err=(%s)", err)
 		}
@@ -79,19 +81,12 @@ func (s *T) run() {
 		}
 	}
 	// Initiate stop of all API servers.
-	s.tcpServer.AsyncStop()
-	if s.unixServer != nil {
-		s.unixServer.AsyncStop()
+	var wg sync.WaitGroup
+	actor.Spawn(s.actorID.NewChild("tcpSrvStop"), &wg, s.tcpSrv.Stop)
+	if s.unixSrv != nil {
+		actor.Spawn(s.actorID.NewChild("unixSrvStop"), &wg, s.unixSrv.Stop)
 	}
-	// Wait until all API servers are stopped.
-	for range s.tcpServer.ErrorCh() {
-		// Drain the errors channel until it is closed.
-	}
-	if s.unixServer != nil {
-		for range s.unixServer.ErrorCh() {
-			// Drain the errors channel until it is closed.
-		}
-	}
+	wg.Wait()
 	// There are no more requests in flight at this point so it is safe to stop
 	// all proxies.
 	s.stopProxies()
@@ -100,7 +95,7 @@ func (s *T) run() {
 func (s *T) stopProxies() {
 	var wg sync.WaitGroup
 	for pxyAlias, pxy := range s.proxies {
-		actor.Spawn(s.actorID.NewChild(fmt.Sprintf("%s_stop", pxyAlias)), &wg, pxy.Stop)
+		actor.Spawn(s.actorID.NewChild(fmt.Sprintf("%sStop", pxyAlias)), &wg, pxy.Stop)
 	}
 	wg.Wait()
 }
