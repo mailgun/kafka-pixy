@@ -48,11 +48,13 @@ to give it a try.
 [gRPC](http://www.grpc.io/docs/guides/) is an opens source framework
 that is using [Protocol Buffers](https://developers.google.com/protocol-buffers/docs/overview)
 as interface definition language and [HTTP/2](https://http2.github.io/faq/)
-as transport protocol. Kafka-Pixy defines producer/consumer API in
-[grpc.proto](https://github.com/mailgun/kafka-pixy/blob/master/grpc.proto)
-file. Client stubs for Golang and Python are pre-generated, but you can
-easily generated for dozens of other languages. Please refer to the
-gRPC [documentation](http://www.grpc.io/docs/) for information on the
+as transport protocol. Kafka-Pixy API is defined in
+[grpc.proto](https://github.com/mailgun/kafka-pixy/blob/master/grpc.proto).
+Client stubs for [Golang](https://github.com/mailgun/kafka-pixy/blob/master/gen/golang)
+and [Python](https://github.com/mailgun/kafka-pixy/tree/master/gen/python)
+are generated and provided in this repository, but you can easily
+generate stubs for a bunch of other languages. Please refer to the gRPC
+[documentation](http://www.grpc.io/docs/) for information on the
 language of your choice.
 
 ## HTTP API
@@ -324,13 +326,13 @@ pretty much the same on Mac.
 ### Step 1. Download
 
 ```
-curl -L https://github.com/mailgun/kafka-pixy/releases/download/v0.11.1/kafka-pixy-v0.11.1-linux-amd64.tar.gz | tar xz
+curl -L https://github.com/mailgun/kafka-pixy/releases/download/v0.12.0/kafka-pixy-v0.12.0-linux-amd64.tar.gz | tar xz
 ```
 
 ### Step 2. Start
 
 ```
-cd kafka-pixy-v0.11.1-linux-amd64
+cd kafka-pixy-v0.12.0-linux-amd64
 ./kafka-pixy --kafkaPeers "<host1>:9092,...,<hostN>:9092" --zookeeperPeers "<host1>:2181,...,<hostM>:2181"
 ```
 
