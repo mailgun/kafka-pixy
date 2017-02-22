@@ -1,15 +1,15 @@
 # Changelog
 
-#### Version 0.12.0 (TBD)
+#### Version 0.12.0 (2017-02-21)
 
 Implemented:
 
-* [#81](https://github.com/mailgun/kafka-pixy/pull/81) Add capability to
-  proxy to multiple Kafka/ZooKeeper clusters.
+* [#81](https://github.com/mailgun/kafka-pixy/pull/81) Added capability
+  to proxy to multiple Kafka/ZooKeeper clusters.
 * [#16](https://github.com/mailgun/kafka-pixy/issues/16) A YAML
   configuration file can be passed to Kafka-Pixy with `--config` command
-  line parameter. Default configuration file is provided for reference.
-* [#87](https://github.com/mailgun/kafka-pixy/pull/87) Add support for
+  line parameter. A default configuration file is provided for reference.
+* [#87](https://github.com/mailgun/kafka-pixy/pull/87) Added support for
   gRPC API.
 
 Fixed:
