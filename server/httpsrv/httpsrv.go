@@ -127,7 +127,7 @@ func (s *T) Stop() {
 	close(s.errorCh)
 }
 
-func (s *T) getProxy(r *http.Request) *proxy.T {
+func (s *T) getProxy(r *http.Request) (*proxy.T, error) {
 	pxyAlias := mux.Vars(r)[prmProxy]
 	return s.proxySet.Get(pxyAlias)
 }
@@ -136,7 +136,11 @@ func (s *T) getProxy(r *http.Request) *proxy.T {
 func (s *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
-	pxy := s.getProxy(r)
+	pxy, err := s.getProxy(r)
+	if err != nil {
+		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		return
+	}
 	topic := mux.Vars(r)[prmTopic]
 	key := getParamBytes(r, prmKey)
 	_, isSync := r.Form[prmSync]
@@ -197,7 +201,11 @@ func (s *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 func (s *T) handleConsume(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
-	pxy := s.getProxy(r)
+	pxy, err := s.getProxy(r)
+	if err != nil {
+		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		return
+	}
 	topic := mux.Vars(r)[prmTopic]
 	group, err := getGroupParam(r, false)
 	if err != nil {
@@ -232,7 +240,11 @@ func (s *T) handleConsume(w http.ResponseWriter, r *http.Request) {
 func (s *T) handleGetOffsets(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
-	pxy := s.getProxy(r)
+	pxy, err := s.getProxy(r)
+	if err != nil {
+		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		return
+	}
 	topic := mux.Vars(r)[prmTopic]
 	group, err := getGroupParam(r, false)
 	if err != nil {
@@ -273,7 +285,11 @@ func (s *T) handleGetOffsets(w http.ResponseWriter, r *http.Request) {
 func (s *T) handleSetOffsets(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
-	pxy := s.getProxy(r)
+	pxy, err := s.getProxy(r)
+	if err != nil {
+		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		return
+	}
 	topic := mux.Vars(r)[prmTopic]
 	group, err := getGroupParam(r, false)
 	if err != nil {
@@ -320,7 +336,11 @@ func (s *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	var err error
 
-	pxy := s.getProxy(r)
+	pxy, err := s.getProxy(r)
+	if err != nil {
+		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		return
+	}
 	topic := mux.Vars(r)[prmTopic]
 
 	group, err := getGroupParam(r, true)

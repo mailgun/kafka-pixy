@@ -22,6 +22,7 @@ const (
 )
 
 var (
+	cmdGRPCAddr       string
 	cmdConfig         string
 	cmdTCPAddr        string
 	cmdUnixAddr       string
@@ -33,6 +34,7 @@ var (
 
 func init() {
 	flag.StringVar(&cmdConfig, "config", "", "YAML configuration file, refer to https://github.com/mailgun/kafka-pixy/blob/master/default.yaml for a list of available configuration options")
+	flag.StringVar(&cmdGRPCAddr, "grpcAddr", "", "TCP address that the gRPC API should listen on")
 	flag.StringVar(&cmdTCPAddr, "tcpAddr", "", "TCP address that the HTTP API should listen on")
 	flag.StringVar(&cmdUnixAddr, "unixAddr", "", "Unix domain socket address that the HTTP API should listen on")
 	flag.StringVar(&cmdKafkaPeers, "kafkaPeers", "", "Comma separated list of brokers")
@@ -99,6 +101,9 @@ func makeConfig() (*config.App, error) {
 	}
 
 	cfg = config.DefaultApp(defaultPxyAlias)
+	if cmdGRPCAddr != "" {
+		cfg.GRPCAddr = cmdGRPCAddr
+	}
 	if cmdTCPAddr != "" {
 		cfg.TCPAddr = cmdTCPAddr
 	}

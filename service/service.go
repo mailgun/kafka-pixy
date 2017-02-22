@@ -2,12 +2,15 @@ package service
 
 import (
 	"fmt"
+	"reflect"
 	"sync"
 
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
-	"github.com/mailgun/kafka-pixy/frontend/httpsrv"
 	"github.com/mailgun/kafka-pixy/proxy"
+	"github.com/mailgun/kafka-pixy/server"
+	"github.com/mailgun/kafka-pixy/server/grpcsrv"
+	"github.com/mailgun/kafka-pixy/server/httpsrv"
 	"github.com/mailgun/log"
 	"github.com/pkg/errors"
 )
@@ -15,9 +18,8 @@ import (
 type T struct {
 	actorID *actor.ID
 	proxies map[string]*proxy.T
-	tcpSrv  *httpsrv.T
-	unixSrv *httpsrv.T
-	quitCh  chan struct{}
+	servers []server.T
+	stopCh  chan struct{}
 	wg      sync.WaitGroup
 }
 
@@ -25,9 +27,8 @@ func Spawn(cfg *config.App) (*T, error) {
 	s := &T{
 		actorID: actor.RootID.NewChild("service"),
 		proxies: make(map[string]*proxy.T, len(cfg.Proxies)),
-		quitCh:  make(chan struct{}),
+		stopCh:  make(chan struct{}),
 	}
-	var err error
 
 	for pxyAlias, pxyCfg := range cfg.Proxies {
 		pxy, err := proxy.Spawn(actor.RootID, pxyAlias, pxyCfg)
@@ -39,22 +40,42 @@ func Spawn(cfg *config.App) (*T, error) {
 	}
 
 	proxySet := proxy.NewSet(s.proxies, s.proxies[cfg.DefaultProxy])
-	if s.tcpSrv, err = httpsrv.New(cfg.TCPAddr, proxySet); err != nil {
-		s.stopProxies()
-		return nil, errors.Wrap(err, "failed to start TCP socket based HTTP API server")
+
+	if cfg.GRPCAddr != "" {
+		grpcSrv, err := grpcsrv.New(cfg.GRPCAddr, proxySet)
+		if err != nil {
+			s.stopProxies()
+			return nil, errors.Wrap(err, "failed to start gRPC server")
+		}
+		s.servers = append(s.servers, grpcSrv)
+	}
+	if cfg.TCPAddr != "" {
+		tcpSrv, err := httpsrv.New(cfg.TCPAddr, proxySet)
+		if err != nil {
+			s.stopProxies()
+			return nil, errors.Wrap(err, "failed to start TCP socket based HTTP API server")
+		}
+		s.servers = append(s.servers, tcpSrv)
 	}
 	if cfg.UnixAddr != "" {
-		if s.unixSrv, err = httpsrv.New(cfg.UnixAddr, proxySet); err != nil {
+		unixSrv, err := httpsrv.New(cfg.UnixAddr, proxySet)
+		if err != nil {
 			s.stopProxies()
 			return nil, errors.Wrapf(err, "failed to start Unix socket based HTTP API server")
 		}
+		s.servers = append(s.servers, unixSrv)
 	}
+
+	if len(s.servers) == 0 {
+		return nil, errors.Errorf("at least one API server should be configured")
+	}
+
 	actor.Spawn(s.actorID, &s.wg, s.run)
 	return s, nil
 }
 
 func (s *T) Stop() {
-	close(s.quitCh)
+	close(s.stopCh)
 	s.wg.Wait()
 }
 
@@ -62,32 +83,34 @@ func (s *T) Stop() {
 // configured API servers, waiting for a stop signal and terminating everything
 // gracefully.
 func (s *T) run() {
-	var unixServerErrorCh <-chan error
+	selectCases := make([]reflect.SelectCase, len(s.servers)+1)
+	for i, srv := range s.servers {
+		srv.Start()
+		selectCases[i] = reflect.SelectCase{
+			Dir:  reflect.SelectRecv,
+			Chan: reflect.ValueOf(srv.ErrorCh()),
+		}
+	}
+	selectCases[len(s.servers)] = reflect.SelectCase{
+		Dir:  reflect.SelectRecv,
+		Chan: reflect.ValueOf(s.stopCh),
+	}
 
-	s.tcpSrv.Start()
-	if s.unixSrv != nil {
-		s.unixSrv.Start()
-		unixServerErrorCh = s.unixSrv.ErrorCh()
+	// Wait until either an error is reported by one of the servers or a Stop
+	// is called.
+	chosen, val, ok := reflect.Select(selectCases)
+	if chosen < len(s.servers) && ok {
+		serverErr := val.Interface().(error)
+		log.Errorf("API server crashed: %+v", serverErr)
 	}
-	// Block to wait for quit signal or an API server crash.
-	select {
-	case <-s.quitCh:
-	case err, ok := <-s.tcpSrv.ErrorCh():
-		if ok {
-			log.Errorf("Unix socket based HTTP API crashed: %+v", err)
-		}
-	case err, ok := <-unixServerErrorCh:
-		if ok {
-			log.Errorf("TCP socket based HTTP API crashed: %+v", err)
-		}
-	}
+
 	// Initiate stop of all API servers.
 	var wg sync.WaitGroup
-	actor.Spawn(s.actorID.NewChild("tcpSrvStop"), &wg, s.tcpSrv.Stop)
-	if s.unixSrv != nil {
-		actor.Spawn(s.actorID.NewChild("unixSrvStop"), &wg, s.unixSrv.Stop)
+	for _, fe := range s.servers {
+		actor.Spawn(s.actorID.NewChild("srv_stop"), &wg, fe.Stop)
 	}
 	wg.Wait()
+
 	// There are no more requests in flight at this point so it is safe to stop
 	// all proxies.
 	s.stopProxies()
@@ -96,7 +119,7 @@ func (s *T) run() {
 func (s *T) stopProxies() {
 	var wg sync.WaitGroup
 	for pxyAlias, pxy := range s.proxies {
-		actor.Spawn(s.actorID.NewChild(fmt.Sprintf("%sStop", pxyAlias)), &wg, pxy.Stop)
+		actor.Spawn(s.actorID.NewChild(fmt.Sprintf("%s_stop", pxyAlias)), &wg, pxy.Stop)
 	}
 	wg.Wait()
 }

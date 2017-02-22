@@ -1,5 +1,9 @@
 package proxy
 
+import (
+	"github.com/pkg/errors"
+)
+
 // Set represents a collection of proxy.T instances with a default value.
 type Set struct {
 	proxies    map[string]*T
@@ -19,12 +23,12 @@ func NewSet(proxies map[string]*T, defaultPxy *T) *Set {
 
 // Get returns a proxy with the specified alias or the default proxy if there
 // is no proxy with such alias.
-func (s *Set) Get(alias string) *T {
+func (s *Set) Get(alias string) (*T, error) {
 	if alias == "" {
-		return s.defaultPxy
+		return s.defaultPxy, nil
 	}
 	if pxy := s.proxies[alias]; pxy != nil {
-		return pxy
+		return pxy, nil
 	}
-	return s.defaultPxy
+	return nil, errors.Errorf("proxy `%s` does not exist", alias)
 }

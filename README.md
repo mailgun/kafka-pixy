@@ -1,35 +1,59 @@
-# Kafka-Pixy (HTTP Proxy)
+# Kafka-Pixy (gRPC/REST Proxy for Kafka)
 
 [![Build Status](https://travis-ci.org/mailgun/kafka-pixy.svg?branch=master)](https://travis-ci.org/mailgun/kafka-pixy) [![Go Report Card](https://goreportcard.com/badge/github.com/mailgun/kafka-pixy)](https://goreportcard.com/report/github.com/mailgun/kafka-pixy) [![Coverage Status](https://coveralls.io/repos/mailgun/kafka-pixy/badge.svg?branch=master&service=github)](https://coveralls.io/github/mailgun/kafka-pixy?branch=master)
 
-Kafka-Pixy is a local aggregating HTTP proxy to [Kafka](http://kafka.apache.org/documentation.html)
-with automatic consumer group control. It is designed to hide the complexity of
-the Kafka client protocol and provide a stupid simple HTTP API that is trivial
-to implement in any language.
+Kafka-Pixy is a dual API (gRPC and REST) proxy for [Kafka](http://kafka.apache.org/documentation.html)
+with automatic consumer group control. It is designed to hide the
+complexity of the Kafka client protocol and provide a stupid simple
+API that is trivial to implement in any language.
 
-Kafka-Pixy works with Kafka **0.8.2.x** and **0.9.0.x**. It uses the Kafka 
-[Offset Commit/Fetch API](https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol#AGuideToTheKafkaProtocol-OffsetCommit/FetchAPI)
-to keep track of consumer offsets and ZooKeeper to manage distribution of
-partitions among consumer group members.
+Kafka-Pixy supports Kafka **0.8.2.x** and **0.9.0.x**. It uses the
+Kafka [Offset Commit/Fetch API](https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol#AGuideToTheKafkaProtocol-OffsetCommit/FetchAPI)
+to keep track of consumer offsets and ZooKeeper to manage distribution
+of partitions among consumer group members.
 
-You can jump to [Quick Start](README.md#quick-start) if you are anxious to give it a try.
+You can jump to [Quick Start](README.md#quick-start) if you are anxious
+to give it a try.
 
-## Aggregation
-Kafka works best when messages are read/written in batches, but from application
-standpoint it is easier to deal with individual message read/writes. Kafka-Pixy
-provides message based API to clients, but internally it collects them in
-batches and submits them the way Kafka likes it the best. This behavior plays
-very well with the microservices architecture, where there are usually many tiny
-assorted service instances running on one beefy physical host. So Kafka-Pixy
-installed on that host would aggregate messages from all the service instances,
-herby effectively using the network bandwidth.
+#### Key Features:
 
-## Locality
-Kafka-Pixy is intended to run on the same host as the applications using it.
-Remember that it provides only message based API - no batching, therefore using
-it over network is suboptimal. To make local usage even more efficient
-Kafka-Pixy provides an option to serve its API via a Unix Domain Socket
-alongside a TCP socket (**0.0.0.0:19092** by default).
+- **Dual API**: Kafka-Pixy provides two types of API:
+  - [gRPC](http://www.grpc.io/docs/guides/)
+  ([Protocol Buffers](https://developers.google.com/protocol-buffers/docs/overview)
+  over [HTTP/2](https://http2.github.io/faq/)) recommended to
+  produce/consume messages;
+  - REST (JSON over HTTP) intended for for testing and operations
+  purposes, although you can use it to produce/consume messages too;
+- **Muli-Cluster Support**: One Kafka-Pixy instance can proxy to
+  several Kafka clusters. You just need to define them in the [config
+  file](https://github.com/mailgun/kafka-pixy/blob/master/default.yaml)
+  and then address clusters by name given in the config file in your
+  API requests.
+- **Aggregation**: Kafka works best when messages are read/written in
+  batches, but from application standpoint it is easier to deal with
+  individual message read/writes. Kafka-Pixy provides message based API
+  to clients, but internally it collects them in batches and submits
+  them the way Kafka likes it the best. This behavior plays very well
+  with the microservices architecture, where there are usually many
+  tiny assorted service instances running on one beefy physical host.
+  So Kafka-Pixy installed on that host would aggregate messages from
+  all the service instances, herby effectively using the network
+  bandwidth.
+- **Locality**: Kafka-Pixy is intended to run on the same host as the
+  applications using it. Remember that it provides only message based
+  API - no batching, therefore using it over network is suboptimal.
+
+## gRPC API
+
+[gRPC](http://www.grpc.io/docs/guides/) is an opens source framework
+that is using [Protocol Buffers](https://developers.google.com/protocol-buffers/docs/overview)
+as interface definition language and [HTTP/2](https://http2.github.io/faq/)
+as transport protocol. Kafka-Pixy defines producer/consumer API in
+[grpc.proto](https://github.com/mailgun/kafka-pixy/blob/master/grpc.proto)
+file. Client stubs for Golang and Python are pre-generated, but you can
+easily generated for dozens of other languages. Please refer to the
+gRPC [documentation](http://www.grpc.io/docs/) for information on the
+language of your choice.
 
 ## HTTP API
 
@@ -284,8 +308,9 @@ Command line parameters that Kafka-Pixy accepts are listed below:
  config         | Path to a YAML configuration file.
  kafkaPeers     | Comma separated list of Kafka brokers. Note that these are just seed brokers. The rest brokers are discovered automatically. (Default **localhost:9092**)
  zookeeperPeers | Comma separated list of ZooKeeper nodes followed by optional chroot. (Default **localhost:2181**)
- tcpAddr        | TCP interface where the HTTP API should listen. (Default **0.0.0.0:19092**)
- unixAddr       | Unix Domain Socket that the HTTP API should listen on. If not specified then the service will not listen on a Unix Domain Socket. 
+ grpcAddr       | TCP address that the HTTP API should listen. (Default **0.0.0.0:19092**)
+ tcpAddr        | TCP address that the HTTP API should listen. (Default **0.0.0.0:19092**)
+ unixAddr       | Unix Domain Socket that the HTTP API should listen on. If not specified then the service will not listen on a Unix Domain Socket.
  pidFile        | Name of a pid file to create. If not specified then a pid file is not created.
 
 You can run `kafka-pixy -help` to make it list all available command line

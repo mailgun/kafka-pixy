@@ -16,22 +16,24 @@ import (
 // App defines Kafka-Pixy application configuration. It mirrors the structure
 // of the JSON configuration file.
 type App struct {
-	// TCP address that Kafka-Pixy should listen at.
+	// TCP address that gRPC API server should listen on.
+	GRPCAddr string `yaml:"grpc_addr"`
+
+	// TCP address that HTTP API server should listen on.
 	TCPAddr string `yaml:"tcp_addr"`
 
-	// Unix domain socket address that Kafka-Pixy should listen at. Listening
-	// on a unix domain socket is disabled by default.
+	// Unix domain socket address that HTTP API server should listen on.
+	// Listening on a unix domain socket is disabled by default.
 	UnixAddr string `yaml:"unix_addr"`
 
 	// An arbitrary number of proxies to different Kafka/ZooKeeper clusters can
 	// be configured.
-	Proxies map[string]*Proxy
+	Proxies map[string]*Proxy `yaml:"proxies"`
 
-	// Default proxy, the one to be used in API calls that do not start with
-	// prefix `/proxy/<alias>`. If config is initialized from a YAML file then
-	// default proxy is the one that is mentioned in the `Proxies` section
-	// first.
-	DefaultProxy string
+	// Default proxy is the one to be used in API calls that do not start with
+	// prefix `/proxy/<alias>`. If it is not explicitly provided, then the one
+	// mentioned in the `Proxies` section first is assumed.
+	DefaultProxy string `yaml:"default_proxy"`
 }
 
 // Proxy defines configuration of a proxy to a particular Kafka/ZooKeeper
@@ -211,6 +213,7 @@ func (p *Proxy) validate() error {
 
 func newApp() *App {
 	appCfg := &App{}
+	appCfg.GRPCAddr = "0.0.0.0:19091"
 	appCfg.TCPAddr = "0.0.0.0:19092"
 	appCfg.Proxies = make(map[string]*Proxy)
 	return appCfg

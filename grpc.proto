@@ -1,0 +1,35 @@
+syntax = "proto3";
+option go_package = "pb";
+
+service KafkaPixy {
+    rpc Produce (ProdReq) returns (ProdRes) {}
+    rpc Consume (ConsReq) returns (ConsRes) {}
+}
+
+message ProdReq {
+    string proxy = 1;
+    string topic = 2;
+    bytes key_value = 3;
+    bool key_undefined = 4;
+    bytes message = 5;
+    bool async_mode = 6;
+}
+
+message ProdRes {
+    int32 partition = 1;
+    int64 offset = 2;
+}
+
+message ConsReq {
+    string proxy = 1;
+    string topic = 2;
+    string group = 3;
+}
+
+message ConsRes {
+    int32 partition = 1;
+    int64 offset = 2;
+    bytes key_value = 3;
+    bool key_undefined = 4;
+    bytes message = 5;
+}
