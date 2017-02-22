@@ -1,8 +1,11 @@
-# TCP address that Kafka-Pixy should listen at.
+# TCP address that gRPC API server should listen on.
+grpc_addr: 0.0.0.0:19091
+
+# TCP address that RESTful API server should listen on.
 tcp_addr: 0.0.0.0:19092
 
-# Unix domain socket address that Kafka-Pixy should listen at. Listening on
-# a unix domain socket is disabled by default.
+# Unix domain socket address that RESTful API server should listen on.
+# Listening on a unix domain socket is disabled by default.
 # unix_addr: "/var/run/kafka-pixy.sock"
 
 # An arbitrary number of proxies to different Kafka/ZooKeeper clusters can be

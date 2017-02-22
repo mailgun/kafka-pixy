@@ -2,98 +2,115 @@ package service
 
 import (
 	"fmt"
+	"reflect"
 	"sync"
 
 	"github.com/mailgun/kafka-pixy/actor"
-	"github.com/mailgun/kafka-pixy/apiserver"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/proxy"
+	"github.com/mailgun/kafka-pixy/server"
+	"github.com/mailgun/kafka-pixy/server/grpcsrv"
+	"github.com/mailgun/kafka-pixy/server/httpsrv"
 	"github.com/mailgun/log"
+	"github.com/pkg/errors"
 )
 
 type T struct {
-	actorID    *actor.ID
-	proxies    map[string]*proxy.T
-	defaultPxy *proxy.T
-	tcpServer  *apiserver.T
-	unixServer *apiserver.T
-	quitCh     chan struct{}
-	wg         sync.WaitGroup
+	actorID *actor.ID
+	proxies map[string]*proxy.T
+	servers []server.T
+	stopCh  chan struct{}
+	wg      sync.WaitGroup
 }
 
 func Spawn(cfg *config.App) (*T, error) {
 	s := &T{
 		actorID: actor.RootID.NewChild("service"),
 		proxies: make(map[string]*proxy.T, len(cfg.Proxies)),
-		quitCh:  make(chan struct{}),
+		stopCh:  make(chan struct{}),
 	}
-	var err error
 
 	for pxyAlias, pxyCfg := range cfg.Proxies {
 		pxy, err := proxy.Spawn(actor.RootID, pxyAlias, pxyCfg)
 		if err != nil {
 			s.stopProxies()
-			return nil, fmt.Errorf("failed to spawn proxy, name=%s, err=(%s)", pxyAlias, err)
+			return nil, errors.Wrapf(err, "failed to spawn proxy, name=%s", pxyAlias)
 		}
 		s.proxies[pxyAlias] = pxy
 	}
-	s.defaultPxy = s.proxies[cfg.DefaultProxy]
 
-	if s.tcpServer, err = apiserver.New(apiserver.NetworkTCP, cfg.TCPAddr, s.proxies, s.defaultPxy); err != nil {
-		s.stopProxies()
-		return nil, fmt.Errorf("failed to start TCP socket based HTTP API, err=(%s)", err)
-	}
+	proxySet := proxy.NewSet(s.proxies, s.proxies[cfg.DefaultProxy])
 
-	if cfg.UnixAddr != "" {
-		if s.unixServer, err = apiserver.New(apiserver.NetworkUnix, cfg.UnixAddr, s.proxies, s.defaultPxy); err != nil {
+	if cfg.GRPCAddr != "" {
+		grpcSrv, err := grpcsrv.New(cfg.GRPCAddr, proxySet)
+		if err != nil {
 			s.stopProxies()
-			return nil, fmt.Errorf("failed to start Unix socket based HTTP API, err=(%s)", err)
+			return nil, errors.Wrap(err, "failed to start gRPC server")
 		}
+		s.servers = append(s.servers, grpcSrv)
 	}
+	if cfg.TCPAddr != "" {
+		tcpSrv, err := httpsrv.New(cfg.TCPAddr, proxySet)
+		if err != nil {
+			s.stopProxies()
+			return nil, errors.Wrap(err, "failed to start TCP socket based HTTP API server")
+		}
+		s.servers = append(s.servers, tcpSrv)
+	}
+	if cfg.UnixAddr != "" {
+		unixSrv, err := httpsrv.New(cfg.UnixAddr, proxySet)
+		if err != nil {
+			s.stopProxies()
+			return nil, errors.Wrapf(err, "failed to start Unix socket based HTTP API server")
+		}
+		s.servers = append(s.servers, unixSrv)
+	}
+
+	if len(s.servers) == 0 {
+		return nil, errors.Errorf("at least one API server should be configured")
+	}
+
 	actor.Spawn(s.actorID, &s.wg, s.run)
 	return s, nil
 }
 
 func (s *T) Stop() {
-	close(s.quitCh)
+	close(s.stopCh)
 	s.wg.Wait()
 }
 
-// supervisor takes care of the service graceful shutdown.
+// run implements main supervisor loop, that boils down to starting all
+// configured API servers, waiting for a stop signal and terminating everything
+// gracefully.
 func (s *T) run() {
-	var unixServerErrorCh <-chan error
+	selectCases := make([]reflect.SelectCase, len(s.servers)+1)
+	for i, srv := range s.servers {
+		srv.Start()
+		selectCases[i] = reflect.SelectCase{
+			Dir:  reflect.SelectRecv,
+			Chan: reflect.ValueOf(srv.ErrorCh()),
+		}
+	}
+	selectCases[len(s.servers)] = reflect.SelectCase{
+		Dir:  reflect.SelectRecv,
+		Chan: reflect.ValueOf(s.stopCh),
+	}
 
-	s.tcpServer.Start()
-	if s.unixServer != nil {
-		s.unixServer.Start()
-		unixServerErrorCh = s.unixServer.ErrorCh()
+	// Wait until either an error is reported by one of the servers or a Stop
+	// is called.
+	chosen, val, ok := reflect.Select(selectCases)
+	if chosen < len(s.servers) && ok {
+		serverErr := val.Interface().(error)
+		log.Errorf("API server crashed: %+v", serverErr)
 	}
-	// Block to wait for quit signal or an API server crash.
-	select {
-	case <-s.quitCh:
-	case err, ok := <-s.tcpServer.ErrorCh():
-		if ok {
-			log.Errorf("Unix socket based HTTP API crashed, err=(%s)", err)
-		}
-	case err, ok := <-unixServerErrorCh:
-		if ok {
-			log.Errorf("TCP socket based HTTP API crashed, err=(%s)", err)
-		}
-	}
+
 	// Initiate stop of all API servers.
-	s.tcpServer.AsyncStop()
-	if s.unixServer != nil {
-		s.unixServer.AsyncStop()
+	var wg sync.WaitGroup
+	for _, fe := range s.servers {
+		actor.Spawn(s.actorID.NewChild("srv_stop"), &wg, fe.Stop)
 	}
-	// Wait until all API servers are stopped.
-	for range s.tcpServer.ErrorCh() {
-		// Drain the errors channel until it is closed.
-	}
-	if s.unixServer != nil {
-		for range s.unixServer.ErrorCh() {
-			// Drain the errors channel until it is closed.
-		}
-	}
+	wg.Wait()
+
 	// There are no more requests in flight at this point so it is safe to stop
 	// all proxies.
 	s.stopProxies()

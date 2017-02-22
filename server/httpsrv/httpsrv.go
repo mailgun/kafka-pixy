@@ -1,4 +1,4 @@
-package apiserver
+package httpsrv
 
 import (
 	"encoding/json"
@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
+	"sync"
 
 	"github.com/Shopify/sarama"
 	"github.com/gorilla/mux"
@@ -18,11 +20,12 @@ import (
 	"github.com/mailgun/kafka-pixy/proxy"
 	"github.com/mailgun/log"
 	"github.com/mailgun/manners"
+	"github.com/pkg/errors"
 )
 
 const (
-	NetworkTCP  = "tcp"
-	NetworkUnix = "unix"
+	networkTCP  = "tcp"
+	networkUnix = "unix"
 
 	// HTTP headers used by the API.
 	hdrContentLength = "Content-Length"
@@ -45,63 +48,65 @@ type T struct {
 	addr       string
 	listener   net.Listener
 	httpServer *manners.GracefulServer
-	proxies    map[string]*proxy.T
-	defaultPxy *proxy.T
+	proxySet   *proxy.Set
+	wg         sync.WaitGroup
 	errorCh    chan error
 }
 
 // New creates an HTTP server instance that will accept API requests at the
 // specified `network`/`address` and execute them with the specified `producer`,
 // `consumer`, or `admin`, depending on the request type.
-func New(network, addr string, proxies map[string]*proxy.T, defaultPxy *proxy.T) (*T, error) {
+func New(addr string, proxySet *proxy.Set) (*T, error) {
+	network := networkUnix
+	if strings.Contains(addr, ":") {
+		network = networkTCP
+	}
 	// Start listening on the specified network/address.
 	listener, err := net.Listen(network, addr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create listener, err=(%s)", err)
+		return nil, errors.Wrap(err, "failed to create listener")
 	}
 	// If the address is Unix Domain Socket then make it accessible for everyone.
-	if network == NetworkUnix {
+	if network == networkUnix {
 		if err := os.Chmod(addr, 0777); err != nil {
-			return nil, fmt.Errorf("failed to change socket permissions, err=(%s)", err)
+			return nil, errors.Wrap(err, "failed to change socket permissions")
 		}
 	}
 	// Create a graceful HTTP server instance.
 	router := mux.NewRouter()
 	httpServer := manners.NewWithServer(&http.Server{Handler: router})
-	as := &T{
-		actorID:    actor.RootID.NewChild(fmt.Sprintf("API@%s", addr)),
+	hs := &T{
+		actorID:    actor.RootID.NewChild(fmt.Sprintf("http://%s", addr)),
 		addr:       addr,
 		listener:   manners.NewListener(listener),
 		httpServer: httpServer,
-		proxies:    proxies,
-		defaultPxy: defaultPxy,
+		proxySet:   proxySet,
 		errorCh:    make(chan error, 1),
 	}
 	// Configure the API request handlers.
-	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), as.handleProduce).Methods("POST")
-	router.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", prmTopic), as.handleProduce).Methods("POST")
-	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), as.handleProduce).Methods("POST")
-	router.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", prmTopic), as.handleProduce).Methods("POST")
-	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), as.handleProduce).Methods("POST")
-	router.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", prmTopic), as.handleConsume).Methods("GET")
-	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), as.handleConsume).Methods("GET")
-	router.HandleFunc(fmt.Sprintf("/topics/{%s}/offsets", prmTopic), as.handleGetOffsets).Methods("GET")
-	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/offsets", prmProxy, prmTopic), as.handleGetOffsets).Methods("GET")
-	router.HandleFunc(fmt.Sprintf("/topics/{%s}/offsets", prmTopic), as.handleSetOffsets).Methods("POST")
-	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/offsets", prmProxy, prmTopic), as.handleSetOffsets).Methods("POST")
-	router.HandleFunc(fmt.Sprintf("/topics/{%s}/consumers", prmTopic), as.handleGetTopicConsumers).Methods("GET")
-	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/consumers", prmProxy, prmTopic), as.handleGetTopicConsumers).Methods("GET")
-	router.HandleFunc("/_ping", as.handlePing).Methods("GET")
-	return as, nil
+	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), hs.handleProduce).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", prmTopic), hs.handleProduce).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), hs.handleProduce).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", prmTopic), hs.handleProduce).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), hs.handleProduce).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", prmTopic), hs.handleConsume).Methods("GET")
+	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), hs.handleConsume).Methods("GET")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/offsets", prmTopic), hs.handleGetOffsets).Methods("GET")
+	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/offsets", prmProxy, prmTopic), hs.handleGetOffsets).Methods("GET")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/offsets", prmTopic), hs.handleSetOffsets).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/offsets", prmProxy, prmTopic), hs.handleSetOffsets).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/consumers", prmTopic), hs.handleGetTopicConsumers).Methods("GET")
+	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/consumers", prmProxy, prmTopic), hs.handleGetTopicConsumers).Methods("GET")
+	router.HandleFunc("/_ping", hs.handlePing).Methods("GET")
+	return hs, nil
 }
 
 // Starts triggers asynchronous HTTP server start. If it fails then the error
-// will be sent down to `HTTPAPIServer.ErrorCh()`.
-func (as *T) Start() {
-	actor.Spawn(as.actorID, nil, func() {
-		defer close(as.errorCh)
-		if err := as.httpServer.Serve(as.listener); err != nil {
-			as.errorCh <- fmt.Errorf("HTTP API listener failed, err=(%s)", err)
+// will be sent down to `ErrorCh()`.
+func (s *T) Start() {
+	actor.Spawn(s.actorID, &s.wg, func() {
+		if err := s.httpServer.Serve(s.listener); err != nil {
+			s.errorCh <- errors.Wrap(err, "HTTP API server failed")
 		}
 	})
 }
@@ -109,30 +114,33 @@ func (as *T) Start() {
 // ErrorCh returns an output channel that HTTP server running in another
 // goroutine will use if it stops with error if one occurs. The channel will be
 // closed when the server is fully stopped due to an error or otherwise..
-func (as *T) ErrorCh() <-chan error {
-	return as.errorCh
+func (s *T) ErrorCh() <-chan error {
+	return s.errorCh
 }
 
-// AsyncStop triggers HTTP API listener stop. If a caller wants to know when
-// the server terminates it should read from the `Error()` channel that will be
-// closed upon server termination.
-func (as *T) AsyncStop() {
-	as.httpServer.Close()
+// Stop gracefully stops the HTTP API server. It stops listening on the socket
+// for incoming requests first, and then blocks waiting for pending requests to
+// complete.
+func (s *T) Stop() {
+	s.httpServer.Close()
+	s.wg.Wait()
+	close(s.errorCh)
 }
 
-func (as *T) getProxy(r *http.Request) *proxy.T {
-	pxyAlias, ok := mux.Vars(r)[prmProxy]
-	if !ok {
-		return as.defaultPxy
-	}
-	return as.proxies[pxyAlias]
+func (s *T) getProxy(r *http.Request) (*proxy.T, error) {
+	pxyAlias := mux.Vars(r)[prmProxy]
+	return s.proxySet.Get(pxyAlias)
 }
 
 // handleProduce is an HTTP request handler for `POST /topic/{topic}/messages`
-func (as *T) handleProduce(w http.ResponseWriter, r *http.Request) {
+func (s *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
-	pxy := as.getProxy(r)
+	pxy, err := s.getProxy(r)
+	if err != nil {
+		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		return
+	}
 	topic := mux.Vars(r)[prmTopic]
 	key := getParamBytes(r, prmKey)
 	_, isSync := r.Form[prmSync]
@@ -190,12 +198,16 @@ func (as *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleConsume is an HTTP request handler for `GET /topic/{topic}/messages`
-func (as *T) handleConsume(w http.ResponseWriter, r *http.Request) {
+func (s *T) handleConsume(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
-	pxy := as.getProxy(r)
+	pxy, err := s.getProxy(r)
+	if err != nil {
+		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		return
+	}
 	topic := mux.Vars(r)[prmTopic]
-	group, err := getGroupParam(r)
+	group, err := getGroupParam(r, false)
 	if err != nil {
 		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
 		return
@@ -225,12 +237,16 @@ func (as *T) handleConsume(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGetOffsets is an HTTP request handler for `GET /topic/{topic}/offsets`
-func (as *T) handleGetOffsets(w http.ResponseWriter, r *http.Request) {
+func (s *T) handleGetOffsets(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
-	pxy := as.getProxy(r)
+	pxy, err := s.getProxy(r)
+	if err != nil {
+		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		return
+	}
 	topic := mux.Vars(r)[prmTopic]
-	group, err := getGroupParam(r)
+	group, err := getGroupParam(r, false)
 	if err != nil {
 		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
 		return
@@ -266,12 +282,16 @@ func (as *T) handleGetOffsets(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGetOffsets is an HTTP request handler for `POST /topic/{topic}/offsets`
-func (as *T) handleSetOffsets(w http.ResponseWriter, r *http.Request) {
+func (s *T) handleSetOffsets(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
-	pxy := as.getProxy(r)
+	pxy, err := s.getProxy(r)
+	if err != nil {
+		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		return
+	}
 	topic := mux.Vars(r)[prmTopic]
-	group, err := getGroupParam(r)
+	group, err := getGroupParam(r, false)
 	if err != nil {
 		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
 		return
@@ -312,23 +332,21 @@ func (as *T) handleSetOffsets(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGetTopicConsumers is an HTTP request handler for `GET /topic/{topic}/consumers`
-func (as *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
+func (s *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	var err error
 
-	pxy := as.getProxy(r)
-	topic := mux.Vars(r)[prmTopic]
-
-	group := ""
-	r.ParseForm()
-	groups := r.Form[prmGroup]
-	if len(groups) > 1 {
-		err = fmt.Errorf("One consumer group is expected, but %d provided", len(groups))
+	pxy, err := s.getProxy(r)
+	if err != nil {
 		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
 		return
 	}
-	if len(groups) == 1 {
-		group = groups[0]
+	topic := mux.Vars(r)[prmTopic]
+
+	group, err := getGroupParam(r, true)
+	if err != nil {
+		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		return
 	}
 
 	var consumers map[string]map[string][]int32
@@ -356,7 +374,7 @@ func (as *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
 
 	encodedRes, err := json.MarshalIndent(consumers, "", "  ")
 	if err != nil {
-		log.Errorf("Failed to send HTTP response: status=%d, body=%v, reason=%v", http.StatusOK, encodedRes, err)
+		log.Errorf("Failed to send HTTP response: status=%d, body=%v, err=%+v", http.StatusOK, encodedRes, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -365,11 +383,11 @@ func (as *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add(hdrContentType, "application/json")
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write(encodedRes); err != nil {
-		log.Errorf("Failed to send HTTP response: status=%d, body=%v, reason=%v", http.StatusOK, encodedRes, err)
+		log.Errorf("Failed to send HTTP response: status=%d, body=%v, err=%+v", http.StatusOK, encodedRes, err)
 	}
 }
 
-func (as *T) handlePing(w http.ResponseWriter, r *http.Request) {
+func (s *T) handlePing(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("pong"))
@@ -401,8 +419,8 @@ type errorHTTPResponse struct {
 	Error string `json:"error"`
 }
 
-// getParamBytes returns the request parameter as a slice of bytes. It works
-// pretty much the same way as `http.FormValue`, except it distinguishes empty
+// getParamBytes returns the request parameter s a slice of bytes. It works
+// pretty much the same way s `http.FormValue`, except it distinguishes empty
 // value (`[]byte{}`) from missing one (`nil`).
 func getParamBytes(r *http.Request, name string) []byte {
 	r.ParseForm() // Ignore errors, the go library does the same in FormValue.
@@ -413,12 +431,12 @@ func getParamBytes(r *http.Request, name string) []byte {
 	return []byte(values[0])
 }
 
-// respondWithJSON marshals `body` to a JSON string and sends it as an HTTP
+// respondWithJSON marshals `body` to a JSON string and sends it s an HTTP
 // response body along with the specified `status` code.
 func respondWithJSON(w http.ResponseWriter, status int, body interface{}) {
 	encodedRes, err := json.MarshalIndent(body, "", "  ")
 	if err != nil {
-		log.Errorf("Failed to send HTTP response: status=%d, body=%v, reason=%v", status, body, err)
+		log.Errorf("Failed to send HTTP response: status=%d, body=%v, err=%+v", status, body, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -426,15 +444,18 @@ func respondWithJSON(w http.ResponseWriter, status int, body interface{}) {
 	w.Header().Add(hdrContentType, "application/json")
 	w.WriteHeader(status)
 	if _, err := w.Write(encodedRes); err != nil {
-		log.Errorf("Failed to send HTTP response: status=%d, body=%v, reason=%v", status, body, err)
+		log.Errorf("Failed to send HTTP response: status=%d, body=%v, err=%+v", status, body, err)
 	}
 }
 
-func getGroupParam(r *http.Request) (string, error) {
+func getGroupParam(r *http.Request, opt bool) (string, error) {
 	r.ParseForm()
 	groups := r.Form[prmGroup]
-	if len(groups) != 1 {
-		return "", fmt.Errorf("One consumer group is expected, but %d provided", len(groups))
+	if len(groups) > 1 || (!opt && len(groups) == 0) {
+		return "", errors.Errorf("one consumer group is expected, but %d provided", len(groups))
+	}
+	if len(groups) == 0 {
+		return "", nil
 	}
 	return groups[0], nil
 }

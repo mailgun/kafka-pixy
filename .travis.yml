@@ -1,6 +1,6 @@
 language: go
 go:
-  - 1.6.3
+  - 1.7.5
 
 env:
   global:
@@ -18,16 +18,6 @@ before_install:
   - vendor/github.com/Shopify/sarama/vagrant/install_cluster.sh
   - vendor/github.com/Shopify/sarama/vagrant/boot_cluster.sh
   - vendor/github.com/Shopify/sarama/vagrant/create_topics.sh
-  # Install coveralls.io dependencies
-  - go get github.com/axw/gocov/gocov
-  - go get github.com/mattn/goveralls
-  - go get golang.org/x/tools/cmd/cover
-  - go get github.com/pierrre/gotestcover
 
-script:
- - $HOME/gopath/bin/gotestcover -v -covermode=atomic -parallelpackages=1 -coverprofile=cover.out -timeout=5m ./... -check.vv
- - $HOME/gopath/bin/goveralls -coverprofile=cover.out -service=travis-ci
- - make vet
- - make fmt
-
+script: ./scripts/travis_build.sh
 sudo: false
