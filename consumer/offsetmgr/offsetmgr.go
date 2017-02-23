@@ -155,8 +155,8 @@ func (f *factory) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
 		execActorID:     f.namespace.NewChild("broker", brokerConn.ID(), "exec"),
 		cfg:             f.cfg,
 		conn:            brokerConn,
-		requestsCh:      make(chan submitRequest),
-		batchRequestsCh: make(chan map[string]map[instanceID]submitRequest),
+		requestsCh:      make(chan submitReq),
+		batchRequestsCh: make(chan map[string]map[instanceID]submitReq),
 	}
 	actor.Spawn(be.aggrActorID, &be.wg, be.runAggregator)
 	actor.Spawn(be.execActorID, &be.wg, be.runExecutor)
@@ -169,7 +169,7 @@ func (f *factory) spawnOffsetManager(namespace *actor.ID, id instanceID) *offset
 		f:                  f,
 		id:                 id,
 		initialOffsetCh:    make(chan Offset, 1),
-		submitRequestsCh:   make(chan submitRequest),
+		submitRequestsCh:   make(chan submitReq),
 		assignmentCh:       make(chan mapper.Executor, 1),
 		committedOffsetsCh: make(chan Offset, f.cfg.Consumer.ChannelBufferSize),
 	}
@@ -192,13 +192,13 @@ type offsetMgr struct {
 	f                  *factory
 	id                 instanceID
 	initialOffsetCh    chan Offset
-	submitRequestsCh   chan submitRequest
+	submitRequestsCh   chan submitReq
 	assignmentCh       chan mapper.Executor
 	committedOffsetsCh chan Offset
 	wg                 sync.WaitGroup
 
-	assignedBrokerRequestsCh  chan<- submitRequest
-	nilOrBrokerRequestsCh     chan<- submitRequest
+	assignedBrokerRequestsCh  chan<- submitReq
+	nilOrBrokerRequestsCh     chan<- submitReq
 	nilOrReassignRetryTimerCh <-chan time.Time
 	lastSubmitTime            time.Time
 	lastReassignTime          time.Time
@@ -214,10 +214,9 @@ func (om *offsetMgr) InitialOffset() <-chan Offset {
 
 // implements `T`.
 func (om *offsetMgr) SubmitOffset(offset int64, metadata string) {
-	om.submitRequestsCh <- submitRequest{
-		id:       om.id,
-		offset:   offset,
-		metadata: metadata,
+	om.submitRequestsCh <- submitReq{
+		id:     om.id,
+		offset: Offset{offset, metadata},
 	}
 }
 
@@ -252,10 +251,10 @@ func (om *offsetMgr) run() {
 		defer close(om.testErrorsCh)
 	}
 	var (
-		lastSubmitRequest     = submitRequest{offset: math.MinInt64}
 		lastCommittedOffset   = Offset{Val: math.MinInt64}
+		lastSubmitRequest     = submitReq{offset: lastCommittedOffset}
 		nilOrSubmitRequestsCh = om.submitRequestsCh
-		submitResponseCh      = make(chan submitResponse, 1)
+		submitResponseCh      = make(chan submitRes, 1)
 		initialOffsetFetched  = false
 		stopped               = false
 		commitTicker          = time.NewTicker(om.f.cfg.Consumer.OffsetsCommitInterval)
@@ -284,12 +283,12 @@ func (om *offsetMgr) run() {
 				close(om.initialOffsetCh)
 				initialOffsetFetched = true
 			}
-			if !isSameDecoratedOffset(lastSubmitRequest, lastCommittedOffset) {
+			if lastSubmitRequest.offset != lastCommittedOffset {
 				om.nilOrBrokerRequestsCh = om.assignedBrokerRequestsCh
 			}
 		case submitReq, ok := <-nilOrSubmitRequestsCh:
 			if !ok {
-				if isSameDecoratedOffset(lastSubmitRequest, lastCommittedOffset) {
+				if lastSubmitRequest.offset == lastCommittedOffset {
 					return
 				}
 				stopped, nilOrSubmitRequestsCh = true, nil
@@ -308,14 +307,14 @@ func (om *offsetMgr) run() {
 				om.triggerOrScheduleReassign(err, "offset commit failed")
 				continue
 			}
-			lastCommittedOffset = Offset{submitRes.req.offset, submitRes.req.metadata}
+			lastCommittedOffset = submitRes.req.offset
 			om.committedOffsetsCh <- lastCommittedOffset
-			if stopped && isSameDecoratedOffset(lastSubmitRequest, lastCommittedOffset) {
+			if stopped && lastSubmitRequest.offset == lastCommittedOffset {
 				return
 			}
 		case <-commitTicker.C:
 			isRequestTimeout := time.Now().UTC().Sub(om.lastSubmitTime) > offsetCommitTimeout
-			if isRequestTimeout && !isSameDecoratedOffset(lastSubmitRequest, lastCommittedOffset) {
+			if isRequestTimeout && lastSubmitRequest.offset != lastCommittedOffset {
 				om.triggerOrScheduleReassign(ErrRequestTimeout, "offset commit failed")
 			}
 		case <-om.nilOrReassignRetryTimerCh:
@@ -396,15 +395,14 @@ func (om *offsetMgr) getCommitError(res *sarama.OffsetCommitResponse) error {
 	return nil
 }
 
-type submitRequest struct {
+type submitReq struct {
 	id       instanceID
-	offset   int64
-	metadata string
-	resultCh chan<- submitResponse
+	offset   Offset
+	resultCh chan<- submitRes
 }
 
-type submitResponse struct {
-	req      submitRequest
+type submitRes struct {
+	req      submitReq
 	kafkaRes *sarama.OffsetCommitResponse
 }
 
@@ -417,8 +415,8 @@ type brokerExecutor struct {
 	execActorID     *actor.ID
 	cfg             *config.Proxy
 	conn            *sarama.Broker
-	requestsCh      chan submitRequest
-	batchRequestsCh chan map[string]map[instanceID]submitRequest
+	requestsCh      chan submitReq
+	batchRequestsCh chan map[string]map[instanceID]submitReq
 	wg              sync.WaitGroup
 }
 
@@ -436,30 +434,30 @@ func (be *brokerExecutor) Stop() {
 func (be *brokerExecutor) runAggregator() {
 	defer close(be.batchRequestsCh)
 
-	batchRequests := make(map[string]map[instanceID]submitRequest)
-	var nilOrOffsetBatchesCh chan map[string]map[instanceID]submitRequest
+	batchRequests := make(map[string]map[instanceID]submitReq)
+	var nilOrOffsetBatchesCh chan map[string]map[instanceID]submitReq
 	for {
 		select {
-		case submitReq, ok := <-be.requestsCh:
+		case req, ok := <-be.requestsCh:
 			if !ok {
 				return
 			}
-			groupRequests := batchRequests[submitReq.id.group]
+			groupRequests := batchRequests[req.id.group]
 			if groupRequests == nil {
-				groupRequests = make(map[instanceID]submitRequest)
-				batchRequests[submitReq.id.group] = groupRequests
+				groupRequests = make(map[instanceID]submitReq)
+				batchRequests[req.id.group] = groupRequests
 			}
-			groupRequests[submitReq.id] = submitReq
+			groupRequests[req.id] = req
 			nilOrOffsetBatchesCh = be.batchRequestsCh
 		case nilOrOffsetBatchesCh <- batchRequests:
 			nilOrOffsetBatchesCh = nil
-			batchRequests = make(map[string]map[instanceID]submitRequest)
+			batchRequests = make(map[string]map[instanceID]submitReq)
 		}
 	}
 }
 
 func (be *brokerExecutor) runExecutor() {
-	var nilOrBatchRequestsCh chan map[string]map[instanceID]submitRequest
+	var nilOrBatchRequestsCh chan map[string]map[instanceID]submitReq
 	var lastErr error
 	var lastErrTime time.Time
 	commitTicker := time.NewTicker(be.cfg.Consumer.OffsetsCommitInterval)
@@ -486,8 +484,8 @@ offsetCommitLoop:
 					ConsumerGroup:           group,
 					ConsumerGroupGeneration: sarama.GroupGenerationUndefined,
 				}
-				for _, submitReq := range groupRequests {
-					kafkaReq.AddBlock(submitReq.id.topic, submitReq.id.partition, submitReq.offset, sarama.ReceiveTime, submitReq.metadata)
+				for _, req := range groupRequests {
+					kafkaReq.AddBlock(req.id.topic, req.id.partition, req.offset.Val, sarama.ReceiveTime, req.offset.Meta)
 				}
 				var kafkaRes *sarama.OffsetCommitResponse
 				kafkaRes, lastErr = be.conn.CommitOffset(kafkaReq)
@@ -498,8 +496,8 @@ offsetCommitLoop:
 					continue offsetCommitLoop
 				}
 				// Fan the response out to the partition offset managers.
-				for _, submitReq := range groupRequests {
-					submitReq.resultCh <- submitResponse{submitReq, kafkaRes}
+				for _, req := range groupRequests {
+					req.resultCh <- submitRes{req, kafkaRes}
 				}
 			}
 		}
@@ -511,8 +509,4 @@ func (be *brokerExecutor) String() string {
 		return "<nil>"
 	}
 	return be.aggrActorID.String()
-}
-
-func isSameDecoratedOffset(r submitRequest, o Offset) bool {
-	return r.offset == o.Val && r.metadata == o.Meta
 }
