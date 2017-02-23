@@ -115,7 +115,7 @@ func (pc *T) run() {
 
 	// Initialize the Kafka offset storage for a group on first consumption.
 	if initialOffset.Val == sarama.OffsetNewest {
-		om.SubmitOffset(concreteOffset, "")
+		om.SubmitOffset(offsetmgr.Offset{concreteOffset, ""})
 	}
 	lastSubmittedOffset := concreteOffset
 	lastCommittedOffset := concreteOffset
@@ -149,7 +149,7 @@ func (pc *T) run() {
 			// Keep offering the same message until it is acknowledged.
 			case <-pc.acksCh:
 				lastSubmittedOffset = msg.Offset + 1
-				om.SubmitOffset(lastSubmittedOffset, "")
+				om.SubmitOffset(offsetmgr.Offset{lastSubmittedOffset, ""})
 				break offerAndAck
 			case committedOffset := <-om.CommittedOffsets():
 				lastCommittedOffset = committedOffset.Val

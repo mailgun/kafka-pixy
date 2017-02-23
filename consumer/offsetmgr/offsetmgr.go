@@ -55,7 +55,7 @@ type T interface {
 	// `CommittedOffsets()` channel. The `CommittedOffsets()` channel has to be
 	// read alongside with submitting offsets, otherwise the partition offset
 	// manager will block.
-	SubmitOffset(offset int64, metadata string)
+	SubmitOffset(offset Offset)
 
 	// CommittedOffsets returns a channel that offsets committed to Kafka are
 	// sent down to. The user must read from this channel otherwise the
@@ -213,10 +213,10 @@ func (om *offsetMgr) InitialOffset() <-chan Offset {
 }
 
 // implements `T`.
-func (om *offsetMgr) SubmitOffset(offset int64, metadata string) {
+func (om *offsetMgr) SubmitOffset(offset Offset) {
 	om.submitRequestsCh <- submitReq{
 		id:     om.id,
-		offset: Offset{offset, metadata},
+		offset: offset,
 	}
 }
 

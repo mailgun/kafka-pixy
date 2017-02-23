@@ -164,7 +164,7 @@ func (s *OffsetMgrSuite) TestCommitError(c *C) {
 	c.Assert(err, IsNil)
 
 	// When
-	om.SubmitOffset(1000, "foo")
+	om.SubmitOffset(Offset{1000, "foo"})
 	var wg sync.WaitGroup
 	actor.Spawn(actor.RootID.NewChild("stopper"), &wg, om.Stop)
 
@@ -222,8 +222,8 @@ func (s *OffsetMgrSuite) TestCommitIncompleteResponse(c *C) {
 	c.Assert(err, IsNil)
 
 	// When
-	om1.SubmitOffset(1001, "foo1")
-	om2.SubmitOffset(2001, "bar2")
+	om1.SubmitOffset(Offset{1001, "foo1"})
+	om2.SubmitOffset(Offset{2001, "bar2"})
 	var wg sync.WaitGroup
 	actor.Spawn(actor.RootID.NewChild("stopper"), &wg, om1.Stop)
 	actor.Spawn(actor.RootID.NewChild("stopper"), &wg, om2.Stop)
@@ -271,7 +271,7 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 	c.Assert(err, IsNil)
 
 	// When: a partition offset manager is closed while there is a pending commit.
-	om.SubmitOffset(1001, "foo")
+	om.SubmitOffset(Offset{1001, "foo"})
 	go om.Stop()
 
 	// Then: the partition offset manager terminates only after it has
@@ -367,12 +367,12 @@ func (s *OffsetMgrSuite) TestCommitDifferentGroups(c *C) {
 	c.Assert(err, IsNil)
 
 	// When
-	om1.SubmitOffset(1009, "foo1")
-	om1.SubmitOffset(1010, "foo2")
-	om2.SubmitOffset(2010, "bar1")
-	om2.SubmitOffset(2011, "bar2")
-	om1.SubmitOffset(1017, "foo3")
-	om2.SubmitOffset(2019, "bar3")
+	om1.SubmitOffset(Offset{1009, "foo1"})
+	om1.SubmitOffset(Offset{1010, "foo2"})
+	om2.SubmitOffset(Offset{2010, "bar1"})
+	om2.SubmitOffset(Offset{2011, "bar2"})
+	om1.SubmitOffset(Offset{1017, "foo3"})
+	om2.SubmitOffset(Offset{2019, "bar3"})
 	om1.Stop()
 	om2.Stop()
 
@@ -417,9 +417,9 @@ func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 	c.Assert(err, IsNil)
 	om3, err := f.SpawnOffsetManager(s.ns.NewChild("g2", "t1", 7), "g2", "t1", 7)
 	c.Assert(err, IsNil)
-	om1.SubmitOffset(1001, "bar1")
-	om2.SubmitOffset(2001, "bar2")
-	om3.SubmitOffset(3001, "bar3")
+	om1.SubmitOffset(Offset{1001, "bar1"})
+	om2.SubmitOffset(Offset{2001, "bar2"})
+	om3.SubmitOffset(Offset{3001, "bar3"})
 
 	log.Infof("*** Waiting for errors...")
 	<-om1.(*offsetMgr).testErrorsCh
@@ -477,11 +477,11 @@ func (s *OffsetMgrSuite) TestCommittedChannel(c *C) {
 	c.Assert(err, IsNil)
 
 	// When
-	om.SubmitOffset(1001, "bar1")
-	om.SubmitOffset(1002, "bar2")
-	om.SubmitOffset(1003, "bar3")
-	om.SubmitOffset(1004, "bar4")
-	om.SubmitOffset(1005, "bar5")
+	om.SubmitOffset(Offset{1001, "bar1"})
+	om.SubmitOffset(Offset{1002, "bar2"})
+	om.SubmitOffset(Offset{1003, "bar3"})
+	om.SubmitOffset(Offset{1004, "bar4"})
+	om.SubmitOffset(Offset{1005, "bar5"})
 	om.Stop()
 
 	// Then
@@ -605,11 +605,11 @@ func (s *OffsetMgrSuite) TestBugOffsetDroppedOnStop(c *C) {
 
 	// When
 	// 0ms: the first offset is submitted;
-	om.SubmitOffset(1001, "bar1")
+	om.SubmitOffset(Offset{1001, "bar1"})
 	time.Sleep(400 * time.Millisecond)
 	// 300ms: broker executor sends OffsetCommitRequest to Kafka
 	// 400ms: the second offset is submitted.
-	om.SubmitOffset(1002, "bar2")
+	om.SubmitOffset(Offset{1002, "bar2"})
 	om.Stop()
 	// 500ms: a first offset commit response received from Kafka. Due to a bug
 	// the offset manager was quiting here, dropping the second commit.
