@@ -17,12 +17,12 @@ import (
 )
 
 type T struct {
-	ns           *actor.ID
-	c            *C
-	zookeeperClt *kazoo.Kazoo
-	kafkaClt     sarama.Client
-	producer     sarama.AsyncProducer
-	consumer     sarama.Consumer
+	ns       *actor.ID
+	c        *C
+	kazooClt *kazoo.Kazoo
+	kafkaClt sarama.Client
+	producer sarama.AsyncProducer
+	consumer sarama.Consumer
 }
 
 func New(c *C) *T {
@@ -34,7 +34,7 @@ func New(c *C) *T {
 	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
 	cfg.ClientID = "unittest-runner"
 	err := error(nil)
-	if kh.zookeeperClt, err = kazoo.NewKazoo(testhelpers.ZookeeperPeers, kazoo.NewConfig()); err != nil {
+	if kh.kazooClt, err = kazoo.NewKazoo(testhelpers.ZookeeperPeers, kazoo.NewConfig()); err != nil {
 		panic(err)
 	}
 	if kh.kafkaClt, err = sarama.NewClient(testhelpers.KafkaPeers, cfg); err != nil {
@@ -49,8 +49,8 @@ func New(c *C) *T {
 	return kh
 }
 
-func (kh *T) ZookeeperClt() *kazoo.Kazoo {
-	return kh.zookeeperClt
+func (kh *T) KazooClt() *kazoo.Kazoo {
+	return kh.kazooClt
 }
 
 func (kh *T) KafkaClt() sarama.Client {
@@ -58,7 +58,7 @@ func (kh *T) KafkaClt() sarama.Client {
 }
 
 func (kh *T) Close() {
-	kh.zookeeperClt.Close()
+	kh.kazooClt.Close()
 	kh.producer.Close()
 	kh.consumer.Close()
 	kh.kafkaClt.Close()

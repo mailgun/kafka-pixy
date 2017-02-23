@@ -75,7 +75,7 @@ func (ce Errors) Error() string {
 type factory struct {
 	namespace    *actor.ID
 	saramaCfg    *sarama.Config
-	client       sarama.Client
+	kafkaClt     sarama.Client
 	children     map[instanceID]*msgIStream
 	childrenLock sync.Mutex
 	mapper       *mapper.T
@@ -89,11 +89,11 @@ type instanceID struct {
 // SpawnFactory creates a new message stream factory using the given client. It
 // is still necessary to call Stop() on the underlying client after shutting
 // down this factory.
-func SpawnFactory(namespace *actor.ID, client sarama.Client) (Factory, error) {
+func SpawnFactory(namespace *actor.ID, kafkaClt sarama.Client) (Factory, error) {
 	f := &factory{
 		namespace: namespace.NewChild("msg_stream_f"),
-		client:    client,
-		saramaCfg: client.Config(),
+		kafkaClt:  kafkaClt,
+		saramaCfg: kafkaClt.Config(),
 		children:  make(map[instanceID]*msgIStream),
 	}
 	f.mapper = mapper.Spawn(f.namespace, f)
@@ -102,7 +102,7 @@ func SpawnFactory(namespace *actor.ID, client sarama.Client) (Factory, error) {
 
 // implements `Factory`.
 func (f *factory) SpawnMessageIStream(namespace *actor.ID, topic string, partition int32, offset int64) (T, int64, error) {
-	concreteOffset, err := f.chooseStartingOffset(topic, partition, offset)
+	realOffset, err := f.chooseStartingOffset(topic, partition, offset)
 	if err != nil {
 		return nil, sarama.OffsetNewest, err
 	}
@@ -114,10 +114,10 @@ func (f *factory) SpawnMessageIStream(namespace *actor.ID, topic string, partiti
 	if _, ok := f.children[id]; ok {
 		return nil, sarama.OffsetNewest, sarama.ConfigurationError("That topic/partition is already being consumed")
 	}
-	ms := f.spawnMsgStream(namespace, id, concreteOffset)
+	ms := f.spawnMsgIStream(namespace, id, realOffset)
 	f.mapper.WorkerSpawned() <- ms
 	f.children[id] = ms
-	return ms, concreteOffset, nil
+	return ms, realOffset, nil
 }
 
 // implements `Factory`.
@@ -128,10 +128,10 @@ func (f *factory) Stop() {
 // implements `mapper.Resolver.ResolveBroker()`.
 func (f *factory) ResolveBroker(pw mapper.Worker) (*sarama.Broker, error) {
 	ms := pw.(*msgIStream)
-	if err := f.client.RefreshMetadata(ms.id.topic); err != nil {
+	if err := f.kafkaClt.RefreshMetadata(ms.id.topic); err != nil {
 		return nil, err
 	}
-	return f.client.Leader(ms.id.topic, ms.id.partition)
+	return f.kafkaClt.Leader(ms.id.topic, ms.id.partition)
 }
 
 // implements `mapper.Resolver.Executor()`
@@ -157,11 +157,11 @@ func (f *factory) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
 // may change during the function execution (e.g. an old log chunk gets
 // deleted), so the offset value returned by the function may be incorrect.
 func (f *factory) chooseStartingOffset(topic string, partition int32, offset int64) (int64, error) {
-	newestOffset, err := f.client.GetOffset(topic, partition, sarama.OffsetNewest)
+	newestOffset, err := f.kafkaClt.GetOffset(topic, partition, sarama.OffsetNewest)
 	if err != nil {
 		return 0, err
 	}
-	oldestOffset, err := f.client.GetOffset(topic, partition, sarama.OffsetOldest)
+	oldestOffset, err := f.kafkaClt.GetOffset(topic, partition, sarama.OffsetOldest)
 	if err != nil {
 		return 0, err
 	}
@@ -197,7 +197,7 @@ type msgIStream struct {
 	lastReassignTime          time.Time
 }
 
-func (f *factory) spawnMsgStream(namespace *actor.ID, id instanceID, offset int64) *msgIStream {
+func (f *factory) spawnMsgIStream(namespace *actor.ID, id instanceID, offset int64) *msgIStream {
 	mis := &msgIStream{
 		actorID:      namespace.NewChild("msg_stream"),
 		f:            f,

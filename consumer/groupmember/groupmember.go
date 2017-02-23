@@ -38,8 +38,8 @@ type T struct {
 
 // Spawn creates a consumer group member instance and starts its background
 // goroutines.
-func Spawn(namespace *actor.ID, group, memberID string, cfg *config.Proxy, kazooConn *kazoo.Kazoo) *T {
-	groupZNode := kazooConn.Consumergroup(group)
+func Spawn(namespace *actor.ID, group, memberID string, cfg *config.Proxy, kazooClt *kazoo.Kazoo) *T {
+	groupZNode := kazooClt.Consumergroup(group)
 	groupMemberZNode := groupZNode.Instance(memberID)
 	gm := &T{
 		actorID:          namespace.NewChild("member"),

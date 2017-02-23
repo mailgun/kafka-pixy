@@ -42,10 +42,7 @@ type Factory interface {
 type T interface {
 	// InitialOffset returns a channel that an initial offset will be sent down
 	// to, when retrieved by a background goroutine. At most one value is sent down
-	// the channel, and the channel is closed immediately after that. If error
-	// reporting is enabled with `Config.Consumer.Return.Errors` then errors may be
-	// coming and has to be read from the `Errors()` channel, otherwise the offset
-	// manager will get into a dead lock.
+	// the channel, and the channel is closed immediately after that.
 	InitialOffset() <-chan Offset
 
 	// SubmitOffset triggers saving of the specified offset in Kafka. Commits are
@@ -88,10 +85,10 @@ var ErrNoCoordinator = errors.New("failed to resolve coordinator")
 var ErrRequestTimeout = errors.New("request timeout")
 
 // SpawnFactory creates a new offset manager factory from the given client.
-func SpawnFactory(namespace *actor.ID, cfg *config.Proxy, client sarama.Client) Factory {
+func SpawnFactory(namespace *actor.ID, cfg *config.Proxy, kafkaClt sarama.Client) Factory {
 	f := &factory{
 		namespace: namespace.NewChild("offset_mgr_f"),
-		client:    client,
+		kafkaClt:  kafkaClt,
 		cfg:       cfg,
 		children:  make(map[instanceID]*offsetMgr),
 	}
@@ -103,7 +100,7 @@ func SpawnFactory(namespace *actor.ID, cfg *config.Proxy, client sarama.Client) 
 // implements `mapper.Resolver`
 type factory struct {
 	namespace    *actor.ID
-	client       sarama.Client
+	kafkaClt     sarama.Client
 	cfg          *config.Proxy
 	mapper       *mapper.T
 	children     map[instanceID]*offsetMgr
@@ -137,11 +134,11 @@ func (f *factory) SpawnOffsetManager(namespace *actor.ID, group, topic string, p
 // implements `mapper.Resolver`.
 func (f *factory) ResolveBroker(pw mapper.Worker) (*sarama.Broker, error) {
 	om := pw.(*offsetMgr)
-	if err := f.client.RefreshCoordinator(om.id.group); err != nil {
+	if err := f.kafkaClt.RefreshCoordinator(om.id.group); err != nil {
 		return nil, err
 	}
 
-	brokerConn, err := f.client.Coordinator(om.id.group)
+	brokerConn, err := f.kafkaClt.Coordinator(om.id.group)
 	if err != nil {
 		return nil, err
 	}

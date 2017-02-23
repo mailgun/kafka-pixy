@@ -33,10 +33,10 @@ type T struct {
 	cfg                *config.Proxy
 	group              string
 	dispatcher         *dispatcher.T
-	saramaClient       sarama.Client
-	kazooConn          *kazoo.Kazoo
-	msgIStreamFactory  msgistream.Factory
-	offsetMgrFactory   offsetmgr.Factory
+	kafkaClt           sarama.Client
+	kazooClt           *kazoo.Kazoo
+	msgIStreamF        msgistream.Factory
+	offsetMgrF         offsetmgr.Factory
 	groupMember        *groupmember.T
 	multiplexers       map[string]*multiplexer.T
 	topicCsmLifespanCh chan *topiccsm.T
@@ -47,8 +47,8 @@ type T struct {
 	fetchTopicPartitionsFn func(topic string) ([]int32, error)
 }
 
-func New(namespace *actor.ID, group string, cfg *config.Proxy, saramaClient sarama.Client,
-	kazooConn *kazoo.Kazoo, offsetMgrFactory offsetmgr.Factory,
+func New(namespace *actor.ID, group string, cfg *config.Proxy, kafkaClt sarama.Client,
+	kazooClt *kazoo.Kazoo, offsetMgrF offsetmgr.Factory,
 ) *T {
 	supervisorActorID := namespace.NewChild(fmt.Sprintf("G:%s", group))
 	gc := &T{
@@ -56,14 +56,14 @@ func New(namespace *actor.ID, group string, cfg *config.Proxy, saramaClient sara
 		mgrActorID:         supervisorActorID.NewChild("manager"),
 		cfg:                cfg,
 		group:              group,
-		saramaClient:       saramaClient,
-		kazooConn:          kazooConn,
-		offsetMgrFactory:   offsetMgrFactory,
+		kafkaClt:           kafkaClt,
+		kazooClt:           kazooClt,
+		offsetMgrF:         offsetMgrF,
 		multiplexers:       make(map[string]*multiplexer.T),
 		topicCsmLifespanCh: make(chan *topiccsm.T),
 		stopCh:             make(chan none.T),
 
-		fetchTopicPartitionsFn: saramaClient.Partitions,
+		fetchTopicPartitionsFn: kafkaClt.Partitions,
 	}
 	gc.dispatcher = dispatcher.New(gc.supActorID, gc, cfg)
 	return gc
@@ -95,12 +95,12 @@ func (gc *T) Start(stoppedCh chan<- dispatcher.Tier) {
 	actor.Spawn(gc.supActorID, &gc.wg, func() {
 		defer func() { stoppedCh <- gc }()
 		var err error
-		gc.msgIStreamFactory, err = msgistream.SpawnFactory(gc.supActorID, gc.saramaClient)
+		gc.msgIStreamF, err = msgistream.SpawnFactory(gc.supActorID, gc.kafkaClt)
 		if err != nil {
 			// Must never happen.
 			panic(consumer.ErrSetup(fmt.Errorf("failed to create sarama.Consumer: err=(%v)", err)))
 		}
-		gc.groupMember = groupmember.Spawn(gc.supActorID, gc.group, gc.cfg.ClientID, gc.cfg, gc.kazooConn)
+		gc.groupMember = groupmember.Spawn(gc.supActorID, gc.group, gc.cfg.ClientID, gc.cfg, gc.kazooClt)
 		var manageWg sync.WaitGroup
 		actor.Spawn(gc.mgrActorID, &manageWg, gc.runManager)
 		gc.dispatcher.Start()
@@ -109,7 +109,7 @@ func (gc *T) Start(stoppedCh chan<- dispatcher.Tier) {
 		gc.dispatcher.Stop()
 		gc.groupMember.Stop()
 		manageWg.Wait()
-		gc.msgIStreamFactory.Stop()
+		gc.msgIStreamF.Stop()
 	})
 }
 
@@ -236,7 +236,7 @@ func (gc *T) runRebalancing(actorID *actor.ID, topicConsumers map[string]*topicc
 		topic := topic
 		spawnInF := func(partition int32) multiplexer.In {
 			return partitioncsm.Spawn(gc.supActorID, gc.group, topic, partition,
-				gc.cfg, gc.groupMember, gc.msgIStreamFactory, gc.offsetMgrFactory)
+				gc.cfg, gc.groupMember, gc.msgIStreamF, gc.offsetMgrF)
 		}
 		mux = multiplexer.New(gc.supActorID, spawnInF)
 		gc.rewireMuxAsync(topic, &wg, mux, tc, assignedTopicPartitions)
