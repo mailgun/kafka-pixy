@@ -94,7 +94,7 @@ func (s *OffsetMgrSuite) TestInitialNoCoordinator(c *C) {
 	defer om.Stop()
 
 	// Then
-	oce := <-om.(*offsetManager).testErrorsCh
+	oce := <-om.(*offsetMgr).testErrorsCh
 	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 8, ErrNoCoordinator})
 }
 
@@ -128,7 +128,7 @@ func (s *OffsetMgrSuite) TestInitialFetchError(c *C) {
 	defer om.Stop()
 
 	// Then
-	oce := <-om.(*offsetManager).testErrorsCh
+	oce := <-om.(*offsetMgr).testErrorsCh
 	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 7, sarama.ErrNotLeaderForPartition})
 }
 
@@ -169,7 +169,7 @@ func (s *OffsetMgrSuite) TestCommitError(c *C) {
 	actor.Spawn(actor.RootID.NewChild("stopper"), &wg, om.Stop)
 
 	// Then
-	oce := <-om.(*offsetManager).testErrorsCh
+	oce := <-om.(*offsetMgr).testErrorsCh
 	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 7, sarama.ErrNotLeaderForPartition})
 
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
@@ -229,7 +229,7 @@ func (s *OffsetMgrSuite) TestCommitIncompleteResponse(c *C) {
 	actor.Spawn(actor.RootID.NewChild("stopper"), &wg, om2.Stop)
 
 	// Then
-	oce := <-om1.(*offsetManager).testErrorsCh
+	oce := <-om1.(*offsetMgr).testErrorsCh
 	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 1, sarama.ErrIncompleteResponse})
 	c.Assert(<-om2.CommittedOffsets(), Equals, DecoratedOffset{2001, "bar2"})
 
@@ -279,7 +279,7 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 
 	// STAGE 1: Requests for coordinator time out.
 	log.Infof("    STAGE 1")
-	oce := <-om.(*offsetManager).testErrorsCh
+	oce := <-om.(*offsetMgr).testErrorsCh
 	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 7, ErrRequestTimeout})
 
 	// STAGE 2: Requests for initial offset return errors
@@ -290,7 +290,7 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
 			SetOffset("g1", "t1", 7, 0, "", sarama.ErrNotLeaderForPartition),
 	})
-	for oce = range om.(*offsetManager).testErrorsCh {
+	for oce = range om.(*offsetMgr).testErrorsCh {
 		if !reflect.DeepEqual(oce, &OffsetCommitError{"g1", "t1", 7, ErrRequestTimeout}) {
 			break
 		}
@@ -307,7 +307,7 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
 			SetError("g1", "t1", 7, sarama.ErrOffsetMetadataTooLarge),
 	})
-	for oce = range om.(*offsetManager).testErrorsCh {
+	for oce = range om.(*offsetMgr).testErrorsCh {
 		if !reflect.DeepEqual(oce, &OffsetCommitError{"g1", "t1", 7, sarama.ErrNotLeaderForPartition}) {
 			break
 		}
@@ -326,7 +326,7 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 	})
 	// The errors channel is closed when the partition offset manager has
 	// terminated.
-	for oce := range om.(*offsetManager).testErrorsCh {
+	for oce := range om.(*offsetMgr).testErrorsCh {
 		log.Infof("Drain error: %v", oce)
 	}
 
@@ -422,9 +422,9 @@ func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 	om3.SubmitOffset(3001, "bar3")
 
 	log.Infof("*** Waiting for errors...")
-	<-om1.(*offsetManager).testErrorsCh
-	<-om2.(*offsetManager).testErrorsCh
-	<-om3.(*offsetManager).testErrorsCh
+	<-om1.(*offsetMgr).testErrorsCh
+	<-om2.(*offsetMgr).testErrorsCh
+	<-om3.(*offsetMgr).testErrorsCh
 
 	// When
 	time.Sleep(cfg.Consumer.BackOffTimeout * 2)
@@ -528,7 +528,7 @@ func (s *OffsetMgrSuite) TestBugConnectionRestored(c *C) {
 	// Make sure the partition offset manager established connection with broker2.
 	oce := &OffsetCommitError{}
 	select {
-	case oce = <-om.(*offsetManager).testErrorsCh:
+	case oce = <-om.(*offsetMgr).testErrorsCh:
 	case <-time.After(200 * time.Millisecond):
 	}
 	_, ok := oce.Err.(*net.OpError)
@@ -565,7 +565,7 @@ func (s *OffsetMgrSuite) TestBugConnectionRestored(c *C) {
 	var do DecoratedOffset
 	select {
 	case do = <-om.InitialOffset():
-	case oce = <-om.(*offsetManager).testErrorsCh:
+	case oce = <-om.(*offsetMgr).testErrorsCh:
 	case <-time.After(200 * time.Millisecond):
 	}
 	c.Assert(do.Offset, Equals, int64(1000), Commentf("Failed to retrieve initial offset: %s", oce.Err))
