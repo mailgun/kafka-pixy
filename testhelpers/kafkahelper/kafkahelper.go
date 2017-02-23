@@ -12,15 +12,17 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/log"
+	"github.com/wvanbergen/kazoo-go"
 	. "gopkg.in/check.v1"
 )
 
 type T struct {
-	ns       *actor.ID
-	c        *C
-	client   sarama.Client
-	producer sarama.AsyncProducer
-	consumer sarama.Consumer
+	ns           *actor.ID
+	c            *C
+	zookeeperClt *kazoo.Kazoo
+	kafkaClt     sarama.Client
+	producer     sarama.AsyncProducer
+	consumer     sarama.Consumer
 }
 
 func New(c *C) *T {
@@ -32,36 +34,44 @@ func New(c *C) *T {
 	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
 	cfg.ClientID = "unittest-runner"
 	err := error(nil)
-	if kh.client, err = sarama.NewClient(testhelpers.KafkaPeers, cfg); err != nil {
+	if kh.zookeeperClt, err = kazoo.NewKazoo(testhelpers.ZookeeperPeers, kazoo.NewConfig()); err != nil {
 		panic(err)
 	}
-	if kh.consumer, err = sarama.NewConsumerFromClient(kh.client); err != nil {
+	if kh.kafkaClt, err = sarama.NewClient(testhelpers.KafkaPeers, cfg); err != nil {
 		panic(err)
 	}
-	if kh.producer, err = sarama.NewAsyncProducerFromClient(kh.client); err != nil {
+	if kh.consumer, err = sarama.NewConsumerFromClient(kh.kafkaClt); err != nil {
+		panic(err)
+	}
+	if kh.producer, err = sarama.NewAsyncProducerFromClient(kh.kafkaClt); err != nil {
 		panic(err)
 	}
 	return kh
 }
 
-func (kh *T) Client() sarama.Client {
-	return kh.client
+func (kh *T) ZookeeperClt() *kazoo.Kazoo {
+	return kh.zookeeperClt
+}
+
+func (kh *T) KafkaClt() sarama.Client {
+	return kh.kafkaClt
 }
 
 func (kh *T) Close() {
+	kh.zookeeperClt.Close()
 	kh.producer.Close()
 	kh.consumer.Close()
-	kh.client.Close()
+	kh.kafkaClt.Close()
 }
 
 func (kh *T) GetNewestOffsets(topic string) []int64 {
 	offsets := []int64{}
-	partitions, err := kh.client.Partitions(topic)
+	partitions, err := kh.kafkaClt.Partitions(topic)
 	if err != nil {
 		panic(err)
 	}
 	for _, p := range partitions {
-		offset, err := kh.client.GetOffset(topic, p, sarama.OffsetNewest)
+		offset, err := kh.kafkaClt.GetOffset(topic, p, sarama.OffsetNewest)
 		if err != nil {
 			panic(err)
 		}
@@ -72,12 +82,12 @@ func (kh *T) GetNewestOffsets(topic string) []int64 {
 
 func (kh *T) GetOldestOffsets(topic string) []int64 {
 	offsets := []int64{}
-	partitions, err := kh.client.Partitions(topic)
+	partitions, err := kh.kafkaClt.Partitions(topic)
 	if err != nil {
 		panic(err)
 	}
 	for _, p := range partitions {
-		offset, err := kh.client.GetOffset(topic, p, sarama.OffsetOldest)
+		offset, err := kh.kafkaClt.GetOffset(topic, p, sarama.OffsetOldest)
 		if err != nil {
 			panic(err)
 		}
@@ -145,16 +155,16 @@ func (kh *T) PutMessages(prefix, topic string, keys map[string]int) map[string][
 }
 
 func (kh *T) ResetOffsets(group, topic string) {
-	omf := offsetmgr.SpawnFactory(kh.ns, config.DefaultProxy(), kh.client)
+	omf := offsetmgr.SpawnFactory(kh.ns, config.DefaultProxy(), kh.kafkaClt)
 	defer omf.Stop()
-	partitions, err := kh.client.Partitions(topic)
+	partitions, err := kh.kafkaClt.Partitions(topic)
 	kh.c.Assert(err, IsNil)
 	var wg sync.WaitGroup
 	for _, p := range partitions {
 		wg.Add(1)
 		go func(p int32) {
 			defer wg.Done()
-			offset, err := kh.client.GetOffset(topic, p, sarama.OffsetNewest)
+			offset, err := kh.kafkaClt.GetOffset(topic, p, sarama.OffsetNewest)
 			kh.c.Assert(err, IsNil)
 			om, err := omf.SpawnOffsetManager(kh.ns, group, topic, p)
 			kh.c.Assert(err, IsNil)
@@ -164,6 +174,47 @@ func (kh *T) ResetOffsets(group, topic string) {
 		}(p)
 	}
 	wg.Wait()
+}
+
+func (kh *T) SetOffsets(group, topic string, offsets []offsetmgr.Offset) {
+	omf := offsetmgr.SpawnFactory(kh.ns, config.DefaultProxy(), kh.kafkaClt)
+	defer omf.Stop()
+	partitions, err := kh.kafkaClt.Partitions(topic)
+	kh.c.Assert(err, IsNil)
+	var wg sync.WaitGroup
+	for _, p := range partitions {
+		wg.Add(1)
+		go func(p int32) {
+			defer wg.Done()
+			om, err := omf.SpawnOffsetManager(kh.ns, group, topic, p)
+			kh.c.Assert(err, IsNil)
+			om.SubmitOffset(offsets[p])
+			log.Infof("*** set initial offset %s/%s/%d=%+v", group, topic, p, offsets[p])
+			om.Stop()
+		}(p)
+	}
+	wg.Wait()
+}
+
+func (kh *T) GetCommittedOffsets(group, topic string) []offsetmgr.Offset {
+	omf := offsetmgr.SpawnFactory(kh.ns, config.DefaultProxy(), kh.kafkaClt)
+	defer omf.Stop()
+	partitions, err := kh.kafkaClt.Partitions(topic)
+	kh.c.Assert(err, IsNil)
+	offsets := make([]offsetmgr.Offset, len(partitions))
+	var wg sync.WaitGroup
+	for _, p := range partitions {
+		wg.Add(1)
+		go func(p int32) {
+			defer wg.Done()
+			om, err := omf.SpawnOffsetManager(kh.ns, group, topic, p)
+			kh.c.Assert(err, IsNil)
+			offsets[p] = <-om.InitialOffset()
+			om.Stop()
+		}(p)
+	}
+	wg.Wait()
+	return offsets
 }
 
 type messageSlice []*sarama.ProducerMessage

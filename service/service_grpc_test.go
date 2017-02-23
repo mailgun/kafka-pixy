@@ -45,6 +45,7 @@ func (s *ServiceGRPCSuite) SetUpTest(c *C) {
 
 func (s *ServiceGRPCSuite) TearDownTest(c *C) {
 	s.cltConn.Close()
+	s.kh.Close()
 }
 
 // If `key` is explicitly specified produced messages are deterministically
