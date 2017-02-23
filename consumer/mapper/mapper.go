@@ -44,6 +44,7 @@ type Resolver interface {
 	// ResolveBroker returns a broker connection that should be used to
 	// determine a broker executor assigned to the specified partition worker.
 	ResolveBroker(pw Worker) (*sarama.Broker, error)
+
 	// SpawnExecutor spawns a broker executor for the specified connection.
 	SpawnExecutor(brokerConn *sarama.Broker) Executor
 }
@@ -64,6 +65,7 @@ type Worker interface {
 type Executor interface {
 	// BrokerConn returns a broker connection used by the executor.
 	BrokerConn() *sarama.Broker
+
 	// Stop synchronously stops the executor.
 	Stop()
 }

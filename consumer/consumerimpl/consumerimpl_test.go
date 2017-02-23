@@ -56,7 +56,7 @@ func (s *ConsumerSuite) TestInitialOffsetTooLarge(c *C) {
 	defer omf.Stop()
 	om, err := omf.SpawnOffsetManager(s.ns, "g1", "test.1", 0)
 	c.Assert(err, IsNil)
-	om.SubmitOffset(newestOffsets[0]+100, "")
+	om.SubmitOffset(offsetmgr.Offset{newestOffsets[0] + 100, ""})
 	om.Stop()
 
 	sc, err := Spawn(s.ns, testhelpers.NewTestProxyCfg("g1"))

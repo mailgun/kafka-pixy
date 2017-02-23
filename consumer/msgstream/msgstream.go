@@ -77,12 +77,12 @@ type factory struct {
 	namespace    *actor.ID
 	saramaCfg    *sarama.Config
 	client       sarama.Client
-	children     map[topicPartition]*msgStream
+	children     map[instanceID]*msgStream
 	childrenLock sync.Mutex
 	mapper       *mapper.T
 }
 
-type topicPartition struct {
+type instanceID struct {
 	topic     string
 	partition int32
 }
@@ -95,7 +95,7 @@ func SpawnFactory(namespace *actor.ID, client sarama.Client) (Factory, error) {
 		namespace: namespace.NewChild("msg_stream_f"),
 		client:    client,
 		saramaCfg: client.Config(),
-		children:  make(map[topicPartition]*msgStream),
+		children:  make(map[instanceID]*msgStream),
 	}
 	f.mapper = mapper.Spawn(f.namespace, f)
 	return f, nil
@@ -111,13 +111,13 @@ func (f *factory) SpawnMessageStream(namespace *actor.ID, topic string, partitio
 	f.childrenLock.Lock()
 	defer f.childrenLock.Unlock()
 
-	tp := topicPartition{topic, partition}
-	if _, ok := f.children[tp]; ok {
+	id := instanceID{topic, partition}
+	if _, ok := f.children[id]; ok {
 		return nil, sarama.OffsetNewest, sarama.ConfigurationError("That topic/partition is already being consumed")
 	}
-	ms := f.spawnMsgStream(namespace, tp, concreteOffset)
+	ms := f.spawnMsgStream(namespace, id, concreteOffset)
 	f.mapper.WorkerSpawned() <- ms
-	f.children[tp] = ms
+	f.children[id] = ms
 	return ms, concreteOffset, nil
 }
 
@@ -129,10 +129,10 @@ func (f *factory) Stop() {
 // implements `mapper.Resolver.ResolveBroker()`.
 func (f *factory) ResolveBroker(pw mapper.Worker) (*sarama.Broker, error) {
 	ms := pw.(*msgStream)
-	if err := f.client.RefreshMetadata(ms.tp.topic); err != nil {
+	if err := f.client.RefreshMetadata(ms.id.topic); err != nil {
 		return nil, err
 	}
-	return f.client.Leader(ms.tp.topic, ms.tp.partition)
+	return f.client.Leader(ms.id.topic, ms.id.partition)
 }
 
 // implements `mapper.Resolver.Executor()`
@@ -142,8 +142,8 @@ func (f *factory) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
 		execActorID:     f.namespace.NewChild("broker", brokerConn.ID(), "exec"),
 		config:          f.saramaCfg,
 		conn:            brokerConn,
-		requestsCh:      make(chan fetchRequest),
-		batchRequestsCh: make(chan []fetchRequest),
+		requestsCh:      make(chan fetchReq),
+		batchRequestsCh: make(chan []fetchReq),
 	}
 	actor.Spawn(be.aggrActorID, &be.wg, be.runAggregator)
 	actor.Spawn(be.execActorID, &be.wg, be.runExecutor)
@@ -181,7 +181,7 @@ func (f *factory) chooseStartingOffset(topic string, partition int32, offset int
 type msgStream struct {
 	actorID      *actor.ID
 	f            *factory
-	tp           topicPartition
+	id           instanceID
 	fetchSize    int32
 	offset       int64
 	lag          int64
@@ -191,13 +191,18 @@ type msgStream struct {
 	errorsCh     chan *Err
 	closingCh    chan none.T
 	wg           sync.WaitGroup
+
+	assignedBrokerRequestCh   chan<- fetchReq
+	nilOrBrokerRequestsCh     chan<- fetchReq
+	nilOrReassignRetryTimerCh <-chan time.Time
+	lastReassignTime          time.Time
 }
 
-func (f *factory) spawnMsgStream(namespace *actor.ID, tp topicPartition, offset int64) *msgStream {
+func (f *factory) spawnMsgStream(namespace *actor.ID, id instanceID, offset int64) *msgStream {
 	ms := &msgStream{
 		actorID:      namespace.NewChild("msg_stream"),
 		f:            f,
-		tp:           tp,
+		id:           id,
 		assignmentCh: make(chan mapper.Executor, 1),
 		initErrorCh:  make(chan error),
 		messagesCh:   make(chan *consumer.Message, f.saramaCfg.ChannelBufferSize),
@@ -226,7 +231,7 @@ func (ms *msgStream) Stop() {
 	ms.wg.Wait()
 
 	ms.f.childrenLock.Lock()
-	delete(ms.f.children, ms.tp)
+	delete(ms.f.children, ms.id)
 	ms.f.childrenLock.Unlock()
 	ms.f.mapper.WorkerStopped() <- ms
 }
@@ -242,52 +247,36 @@ func (ms *msgStream) Assignment() chan<- mapper.Executor {
 // channel buffer full making fetch requests to the assigned broker as needed.
 func (ms *msgStream) run() {
 	var (
-		assignedFetchRequestCh    chan<- fetchRequest
-		nilOrFetchRequestsCh      chan<- fetchRequest
-		fetchResultCh             = make(chan fetchResult, 1)
-		nilOrFetchResultsCh       <-chan fetchResult
-		nilOrMessagesCh           chan<- *consumer.Message
-		nilOrReassignRetryTimerCh <-chan time.Time
-		fetchedMessages           []*consumer.Message
-		err                       error
-		currMessage               *consumer.Message
-		currMessageIdx            int
-		lastReassignTime          time.Time
+		fetchResultCh       = make(chan fetchRes, 1)
+		nilOrFetchResultsCh <-chan fetchRes
+		nilOrMessagesCh     chan<- *consumer.Message
+		fetchedMessages     []*consumer.Message
+		err                 error
+		currMessage         *consumer.Message
+		currMessageIdx      int
 	)
-	triggerOrScheduleReassign := func(reason string) {
-		assignedFetchRequestCh = nil
-		now := time.Now().UTC()
-		if now.Sub(lastReassignTime) > ms.f.saramaCfg.Consumer.Retry.Backoff {
-			log.Infof("<%s> trigger reassign: reason=(%s)", ms.actorID, reason)
-			lastReassignTime = now
-			ms.f.mapper.WorkerReassign() <- ms
-		} else {
-			log.Infof("<%s> schedule reassign: reason=(%s)", ms.actorID, reason)
-		}
-		nilOrReassignRetryTimerCh = time.After(ms.f.saramaCfg.Consumer.Retry.Backoff)
-	}
 pullMessagesLoop:
 	for {
 		select {
 		case bw := <-ms.assignmentCh:
 			log.Infof("<%s> assigned %s", ms.actorID, bw)
 			if bw == nil {
-				triggerOrScheduleReassign("no broker assigned")
+				ms.triggerOrScheduleReassign("no broker assigned")
 				continue pullMessagesLoop
 			}
 			be := bw.(*brokerExecutor)
 			// A new leader broker has been assigned for the partition.
-			assignedFetchRequestCh = be.requestsCh
+			ms.assignedBrokerRequestCh = be.requestsCh
 			// Cancel the reassign retry timer.
-			nilOrReassignRetryTimerCh = nil
+			ms.nilOrReassignRetryTimerCh = nil
 			// If there is a fetch request pending, then let it complete,
 			// otherwise trigger one.
 			if nilOrFetchResultsCh == nil && nilOrMessagesCh == nil {
-				nilOrFetchRequestsCh = assignedFetchRequestCh
+				ms.nilOrBrokerRequestsCh = ms.assignedBrokerRequestCh
 			}
 
-		case nilOrFetchRequestsCh <- fetchRequest{ms.tp.topic, ms.tp.partition, ms.offset, ms.fetchSize, ms.lag, fetchResultCh}:
-			nilOrFetchRequestsCh = nil
+		case ms.nilOrBrokerRequestsCh <- fetchReq{ms.id.topic, ms.id.partition, ms.offset, ms.fetchSize, ms.lag, fetchResultCh}:
+			ms.nilOrBrokerRequestsCh = nil
 			nilOrFetchResultsCh = fetchResultCh
 
 		case result := <-nilOrFetchResultsCh:
@@ -300,12 +289,12 @@ pullMessagesLoop:
 					// same way, therefore is nothing to do but give up.
 					goto done
 				}
-				triggerOrScheduleReassign("fetch error")
+				ms.triggerOrScheduleReassign("fetch error")
 				continue pullMessagesLoop
 			}
 			// If no messages has been fetched, then trigger another request.
 			if len(fetchedMessages) == 0 {
-				nilOrFetchRequestsCh = assignedFetchRequestCh
+				ms.nilOrBrokerRequestsCh = ms.assignedBrokerRequestCh
 				continue pullMessagesLoop
 			}
 			// Some messages have been fetched, start pushing them to the user.
@@ -322,12 +311,12 @@ pullMessagesLoop:
 			}
 			// All messages have been pushed, trigger a new fetch request.
 			nilOrMessagesCh = nil
-			nilOrFetchRequestsCh = assignedFetchRequestCh
+			ms.nilOrBrokerRequestsCh = ms.assignedBrokerRequestCh
 
-		case <-nilOrReassignRetryTimerCh:
+		case <-ms.nilOrReassignRetryTimerCh:
 			ms.f.mapper.WorkerReassign() <- ms
 			log.Infof("<%s> reassign triggered by timeout", ms.actorID)
-			nilOrReassignRetryTimerCh = time.After(ms.f.saramaCfg.Consumer.Retry.Backoff)
+			ms.nilOrReassignRetryTimerCh = time.After(ms.f.saramaCfg.Consumer.Retry.Backoff)
 
 		case <-ms.closingCh:
 			goto done
@@ -338,8 +327,21 @@ done:
 	close(ms.errorsCh)
 }
 
+func (ms *msgStream) triggerOrScheduleReassign(reason string) {
+	ms.assignedBrokerRequestCh = nil
+	now := time.Now().UTC()
+	if now.Sub(ms.lastReassignTime) > ms.f.saramaCfg.Consumer.Retry.Backoff {
+		log.Infof("<%s> trigger reassign: reason=(%s)", ms.actorID, reason)
+		ms.lastReassignTime = now
+		ms.f.mapper.WorkerReassign() <- ms
+	} else {
+		log.Infof("<%s> schedule reassign: reason=(%s)", ms.actorID, reason)
+	}
+	ms.nilOrReassignRetryTimerCh = time.After(ms.f.saramaCfg.Consumer.Retry.Backoff)
+}
+
 // parseFetchResult parses a fetch response received a broker.
-func (ms *msgStream) parseFetchResult(cid *actor.ID, fetchResult fetchResult) ([]*consumer.Message, error) {
+func (ms *msgStream) parseFetchResult(cid *actor.ID, fetchResult fetchRes) ([]*consumer.Message, error) {
 	if fetchResult.Err != nil {
 		return nil, fetchResult.Err
 	}
@@ -349,7 +351,7 @@ func (ms *msgStream) parseFetchResult(cid *actor.ID, fetchResult fetchResult) ([
 		return nil, sarama.ErrIncompleteResponse
 	}
 
-	block := response.GetBlock(ms.tp.topic, ms.tp.partition)
+	block := response.GetBlock(ms.id.topic, ms.id.partition)
 	if block == nil {
 		return nil, sarama.ErrIncompleteResponse
 	}
@@ -387,8 +389,8 @@ func (ms *msgStream) parseFetchResult(cid *actor.ID, fetchResult fetchResult) ([
 				continue
 			}
 			consumerMessage := &consumer.Message{
-				Topic:         ms.tp.topic,
-				Partition:     ms.tp.partition,
+				Topic:         ms.id.topic,
+				Partition:     ms.id.partition,
 				Key:           msg.Msg.Key,
 				Value:         msg.Msg.Value,
 				Offset:        msg.Offset,
@@ -412,8 +414,8 @@ func (ms *msgStream) reportError(err error) {
 		return
 	}
 	ce := &Err{
-		Topic:     ms.tp.topic,
-		Partition: ms.tp.partition,
+		Topic:     ms.id.topic,
+		Partition: ms.id.partition,
 		Err:       err,
 	}
 	select {
@@ -438,21 +440,21 @@ type brokerExecutor struct {
 	execActorID     *actor.ID
 	config          *sarama.Config
 	conn            *sarama.Broker
-	requestsCh      chan fetchRequest
-	batchRequestsCh chan []fetchRequest
+	requestsCh      chan fetchReq
+	batchRequestsCh chan []fetchReq
 	wg              sync.WaitGroup
 }
 
-type fetchRequest struct {
+type fetchReq struct {
 	Topic     string
 	Partition int32
 	Offset    int64
 	MaxBytes  int32
 	Lag       int64
-	ReplyToCh chan<- fetchResult
+	ReplyToCh chan<- fetchRes
 }
 
-type fetchResult struct {
+type fetchRes struct {
 	Response *sarama.FetchResponse
 	Err      error
 }
@@ -474,8 +476,8 @@ func (be *brokerExecutor) Stop() {
 func (be *brokerExecutor) runAggregator() {
 	defer close(be.batchRequestsCh)
 
-	var nilOrBatchRequestCh chan<- []fetchRequest
-	var batchRequest []fetchRequest
+	var nilOrBatchRequestCh chan<- []fetchReq
+	var batchRequest []fetchReq
 	for {
 		select {
 		case fr, ok := <-be.requestsCh:
@@ -502,7 +504,7 @@ func (be *brokerExecutor) runExecutor() {
 		// allow the Kafka cluster some time to recuperate.
 		if time.Now().UTC().Sub(lastErrTime) < be.config.Consumer.Retry.Backoff {
 			for _, fr := range fetchRequests {
-				fr.ReplyToCh <- fetchResult{nil, lastErr}
+				fr.ReplyToCh <- fetchRes{nil, lastErr}
 			}
 			continue
 		}
@@ -523,7 +525,7 @@ func (be *brokerExecutor) runExecutor() {
 		}
 		// Fan the response out to the message streams.
 		for _, fr := range fetchRequests {
-			fr.ReplyToCh <- fetchResult{res, lastErr}
+			fr.ReplyToCh <- fetchRes{res, lastErr}
 		}
 	}
 }

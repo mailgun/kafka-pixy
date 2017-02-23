@@ -200,7 +200,6 @@ type offsetMgr struct {
 	assignedBrokerRequestsCh  chan<- submitReq
 	nilOrBrokerRequestsCh     chan<- submitReq
 	nilOrReassignRetryTimerCh <-chan time.Time
-	lastSubmitTime            time.Time
 	lastReassignTime          time.Time
 
 	// To be used in tests only!
@@ -259,6 +258,7 @@ func (om *offsetMgr) run() {
 		stopped               = false
 		commitTicker          = time.NewTicker(om.f.cfg.Consumer.OffsetsCommitInterval)
 		offsetCommitTimeout   = om.f.cfg.Consumer.OffsetsCommitInterval * 3
+		lastSubmitTime        time.Time
 	)
 	defer commitTicker.Stop()
 	for {
@@ -300,7 +300,7 @@ func (om *offsetMgr) run() {
 
 		case om.nilOrBrokerRequestsCh <- lastSubmitRequest:
 			om.nilOrBrokerRequestsCh = nil
-			om.lastSubmitTime = time.Now().UTC()
+			lastSubmitTime = time.Now().UTC()
 
 		case submitRes := <-submitResponseCh:
 			if err := om.getCommitError(submitRes.kafkaRes); err != nil {
@@ -313,7 +313,7 @@ func (om *offsetMgr) run() {
 				return
 			}
 		case <-commitTicker.C:
-			isRequestTimeout := time.Now().UTC().Sub(om.lastSubmitTime) > offsetCommitTimeout
+			isRequestTimeout := time.Now().UTC().Sub(lastSubmitTime) > offsetCommitTimeout
 			if isRequestTimeout && lastSubmitRequest.offset != lastCommittedOffset {
 				om.triggerOrScheduleReassign(ErrRequestTimeout, "offset commit failed")
 			}
