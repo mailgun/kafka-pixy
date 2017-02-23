@@ -2,6 +2,7 @@ package offsetmgr
 
 import (
 	"errors"
+	"math"
 	"sync"
 	"time"
 
@@ -10,7 +11,6 @@ import (
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer/mapper"
 	"github.com/mailgun/log"
-	"math"
 )
 
 // Factory provides a method to spawn offset manager instances to commit
@@ -91,7 +91,7 @@ func SpawnFactory(namespace *actor.ID, cfg *config.Proxy, client sarama.Client) 
 		namespace: namespace.NewChild("offset_mgr_f"),
 		client:    client,
 		cfg:       cfg,
-		children:  make(map[groupTopicPartition]*offsetManager),
+		children:  make(map[instanceID]*offsetManager),
 	}
 	f.mapper = mapper.Spawn(f.namespace, f)
 	return f
@@ -104,14 +104,14 @@ type factory struct {
 	client       sarama.Client
 	cfg          *config.Proxy
 	mapper       *mapper.T
-	children     map[groupTopicPartition]*offsetManager
+	children     map[instanceID]*offsetManager
 	childrenLock sync.Mutex
 
 	// To be used in tests only!
 	testReportErrors bool
 }
 
-type groupTopicPartition struct {
+type instanceID struct {
 	group     string
 	topic     string
 	partition int32
@@ -119,27 +119,27 @@ type groupTopicPartition struct {
 
 // implements `Factory`
 func (f *factory) SpawnOffsetManager(namespace *actor.ID, group, topic string, partition int32) (T, error) {
-	gtp := groupTopicPartition{group, topic, partition}
+	id := instanceID{group, topic, partition}
 
 	f.childrenLock.Lock()
 	defer f.childrenLock.Unlock()
-	if _, ok := f.children[gtp]; ok {
+	if _, ok := f.children[id]; ok {
 		return nil, sarama.ConfigurationError("This group/topic/partition is already being managed")
 	}
-	om := f.spawnOffsetManager(namespace, gtp)
+	om := f.spawnOffsetManager(namespace, id)
 	f.mapper.WorkerSpawned() <- om
-	f.children[gtp] = om
+	f.children[id] = om
 	return om, nil
 }
 
 // implements `mapper.Resolver`.
 func (f *factory) ResolveBroker(pw mapper.Worker) (*sarama.Broker, error) {
 	om := pw.(*offsetManager)
-	if err := f.client.RefreshCoordinator(om.gtp.group); err != nil {
+	if err := f.client.RefreshCoordinator(om.id.group); err != nil {
 		return nil, err
 	}
 
-	brokerConn, err := f.client.Coordinator(om.gtp.group)
+	brokerConn, err := f.client.Coordinator(om.id.group)
 	if err != nil {
 		return nil, err
 	}
@@ -154,18 +154,18 @@ func (f *factory) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
 		cfg:             f.cfg,
 		conn:            brokerConn,
 		requestsCh:      make(chan submitRequest),
-		batchRequestsCh: make(chan map[string]map[groupTopicPartition]submitRequest),
+		batchRequestsCh: make(chan map[string]map[instanceID]submitRequest),
 	}
 	actor.Spawn(be.aggrActorID, &be.wg, be.runAggregator)
 	actor.Spawn(be.execActorID, &be.wg, be.runExecutor)
 	return be
 }
 
-func (f *factory) spawnOffsetManager(namespace *actor.ID, gtp groupTopicPartition) *offsetManager {
+func (f *factory) spawnOffsetManager(namespace *actor.ID, id instanceID) *offsetManager {
 	om := &offsetManager{
 		actorID:            namespace.NewChild("offset_mgr"),
 		f:                  f,
-		gtp:                gtp,
+		id:                 id,
 		initialOffsetCh:    make(chan DecoratedOffset, 1),
 		submitRequestsCh:   make(chan submitRequest),
 		assignmentCh:       make(chan mapper.Executor, 1),
@@ -188,7 +188,7 @@ func (f *factory) Stop() {
 type offsetManager struct {
 	actorID            *actor.ID
 	f                  *factory
-	gtp                groupTopicPartition
+	id                 instanceID
 	initialOffsetCh    chan DecoratedOffset
 	submitRequestsCh   chan submitRequest
 	assignmentCh       chan mapper.Executor
@@ -207,7 +207,7 @@ func (om *offsetManager) InitialOffset() <-chan DecoratedOffset {
 // implements `T`.
 func (om *offsetManager) SubmitOffset(offset int64, metadata string) {
 	om.submitRequestsCh <- submitRequest{
-		gtp:      om.gtp,
+		id:       om.id,
 		offset:   offset,
 		metadata: metadata,
 	}
@@ -224,7 +224,7 @@ func (om *offsetManager) Stop() {
 	om.wg.Wait()
 
 	om.f.childrenLock.Lock()
-	delete(om.f.children, om.gtp)
+	delete(om.f.children, om.id)
 	om.f.childrenLock.Unlock()
 	om.f.mapper.WorkerStopped() <- om
 }
@@ -340,8 +340,8 @@ func (om *offsetManager) run() {
 func (om *offsetManager) fetchInitialOffset(conn *sarama.Broker) (DecoratedOffset, error) {
 	request := new(sarama.OffsetFetchRequest)
 	request.Version = 1
-	request.ConsumerGroup = om.gtp.group
-	request.AddPartition(om.gtp.topic, om.gtp.partition)
+	request.ConsumerGroup = om.id.group
+	request.AddPartition(om.id.topic, om.id.partition)
 
 	response, err := conn.FetchOffset(request)
 	if err != nil {
@@ -351,7 +351,7 @@ func (om *offsetManager) fetchInitialOffset(conn *sarama.Broker) (DecoratedOffse
 		_ = conn.Close()
 		return DecoratedOffset{}, err
 	}
-	block := response.GetBlock(om.gtp.topic, om.gtp.partition)
+	block := response.GetBlock(om.id.topic, om.id.partition)
 	if block == nil {
 		return DecoratedOffset{}, sarama.ErrIncompleteResponse
 	}
@@ -367,9 +367,9 @@ func (om *offsetManager) reportError(err error) {
 		return
 	}
 	oce := &OffsetCommitError{
-		Group:     om.gtp.group,
-		Topic:     om.gtp.topic,
-		Partition: om.gtp.partition,
+		Group:     om.id.group,
+		Topic:     om.id.topic,
+		Partition: om.id.partition,
 		Err:       err,
 	}
 	select {
@@ -379,10 +379,10 @@ func (om *offsetManager) reportError(err error) {
 }
 
 func (om *offsetManager) getCommitError(res *sarama.OffsetCommitResponse) error {
-	if res.Errors[om.gtp.topic] == nil {
+	if res.Errors[om.id.topic] == nil {
 		return sarama.ErrIncompleteResponse
 	}
-	err, ok := res.Errors[om.gtp.topic][om.gtp.partition]
+	err, ok := res.Errors[om.id.topic][om.id.partition]
 	if !ok {
 		return sarama.ErrIncompleteResponse
 	}
@@ -393,7 +393,7 @@ func (om *offsetManager) getCommitError(res *sarama.OffsetCommitResponse) error 
 }
 
 type submitRequest struct {
-	gtp      groupTopicPartition
+	id       instanceID
 	offset   int64
 	metadata string
 	resultCh chan<- submitResponse
@@ -414,7 +414,7 @@ type brokerExecutor struct {
 	cfg             *config.Proxy
 	conn            *sarama.Broker
 	requestsCh      chan submitRequest
-	batchRequestsCh chan map[string]map[groupTopicPartition]submitRequest
+	batchRequestsCh chan map[string]map[instanceID]submitRequest
 	wg              sync.WaitGroup
 }
 
@@ -432,30 +432,30 @@ func (be *brokerExecutor) Stop() {
 func (be *brokerExecutor) runAggregator() {
 	defer close(be.batchRequestsCh)
 
-	batchRequests := make(map[string]map[groupTopicPartition]submitRequest)
-	var nilOrOffsetBatchesCh chan map[string]map[groupTopicPartition]submitRequest
+	batchRequests := make(map[string]map[instanceID]submitRequest)
+	var nilOrOffsetBatchesCh chan map[string]map[instanceID]submitRequest
 	for {
 		select {
 		case submitReq, ok := <-be.requestsCh:
 			if !ok {
 				return
 			}
-			groupRequests := batchRequests[submitReq.gtp.group]
+			groupRequests := batchRequests[submitReq.id.group]
 			if groupRequests == nil {
-				groupRequests = make(map[groupTopicPartition]submitRequest)
-				batchRequests[submitReq.gtp.group] = groupRequests
+				groupRequests = make(map[instanceID]submitRequest)
+				batchRequests[submitReq.id.group] = groupRequests
 			}
-			groupRequests[submitReq.gtp] = submitReq
+			groupRequests[submitReq.id] = submitReq
 			nilOrOffsetBatchesCh = be.batchRequestsCh
 		case nilOrOffsetBatchesCh <- batchRequests:
 			nilOrOffsetBatchesCh = nil
-			batchRequests = make(map[string]map[groupTopicPartition]submitRequest)
+			batchRequests = make(map[string]map[instanceID]submitRequest)
 		}
 	}
 }
 
 func (be *brokerExecutor) runExecutor() {
-	var nilOrBatchRequestsCh chan map[string]map[groupTopicPartition]submitRequest
+	var nilOrBatchRequestsCh chan map[string]map[instanceID]submitRequest
 	var lastErr error
 	var lastErrTime time.Time
 	commitTicker := time.NewTicker(be.cfg.Consumer.OffsetsCommitInterval)
@@ -483,7 +483,7 @@ offsetCommitLoop:
 					ConsumerGroupGeneration: sarama.GroupGenerationUndefined,
 				}
 				for _, submitReq := range groupRequests {
-					kafkaReq.AddBlock(submitReq.gtp.topic, submitReq.gtp.partition, submitReq.offset, sarama.ReceiveTime, submitReq.metadata)
+					kafkaReq.AddBlock(submitReq.id.topic, submitReq.id.partition, submitReq.offset, sarama.ReceiveTime, submitReq.metadata)
 				}
 				var kafkaRes *sarama.OffsetCommitResponse
 				kafkaRes, lastErr = be.conn.CommitOffset(kafkaReq)
