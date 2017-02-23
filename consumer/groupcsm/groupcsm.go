@@ -12,7 +12,7 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/consumer/dispatcher"
 	"github.com/mailgun/kafka-pixy/consumer/groupmember"
-	"github.com/mailgun/kafka-pixy/consumer/msgstream"
+	"github.com/mailgun/kafka-pixy/consumer/msgistream"
 	"github.com/mailgun/kafka-pixy/consumer/multiplexer"
 	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
 	"github.com/mailgun/kafka-pixy/consumer/partitioncsm"
@@ -35,7 +35,7 @@ type T struct {
 	dispatcher         *dispatcher.T
 	saramaClient       sarama.Client
 	kazooConn          *kazoo.Kazoo
-	msgStreamFactory   msgstream.Factory
+	msgIStreamFactory  msgistream.Factory
 	offsetMgrFactory   offsetmgr.Factory
 	groupMember        *groupmember.T
 	multiplexers       map[string]*multiplexer.T
@@ -95,7 +95,7 @@ func (gc *T) Start(stoppedCh chan<- dispatcher.Tier) {
 	actor.Spawn(gc.supActorID, &gc.wg, func() {
 		defer func() { stoppedCh <- gc }()
 		var err error
-		gc.msgStreamFactory, err = msgstream.SpawnFactory(gc.supActorID, gc.saramaClient)
+		gc.msgIStreamFactory, err = msgistream.SpawnFactory(gc.supActorID, gc.saramaClient)
 		if err != nil {
 			// Must never happen.
 			panic(consumer.ErrSetup(fmt.Errorf("failed to create sarama.Consumer: err=(%v)", err)))
@@ -109,7 +109,7 @@ func (gc *T) Start(stoppedCh chan<- dispatcher.Tier) {
 		gc.dispatcher.Stop()
 		gc.groupMember.Stop()
 		manageWg.Wait()
-		gc.msgStreamFactory.Stop()
+		gc.msgIStreamFactory.Stop()
 	})
 }
 
@@ -236,7 +236,7 @@ func (gc *T) runRebalancing(actorID *actor.ID, topicConsumers map[string]*topicc
 		topic := topic
 		spawnInF := func(partition int32) multiplexer.In {
 			return partitioncsm.Spawn(gc.supActorID, gc.group, topic, partition,
-				gc.cfg, gc.groupMember, gc.msgStreamFactory, gc.offsetMgrFactory)
+				gc.cfg, gc.groupMember, gc.msgIStreamFactory, gc.offsetMgrFactory)
 		}
 		mux = multiplexer.New(gc.supActorID, spawnInF)
 		gc.rewireMuxAsync(topic, &wg, mux, tc, assignedTopicPartitions)

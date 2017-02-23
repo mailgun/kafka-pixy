@@ -9,7 +9,7 @@ import (
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/consumer/groupmember"
-	"github.com/mailgun/kafka-pixy/consumer/msgstream"
+	"github.com/mailgun/kafka-pixy/consumer/msgistream"
 	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
@@ -33,7 +33,7 @@ type T struct {
 	topic            string
 	partition        int32
 	groupMember      *groupmember.T
-	msgStreamFactory msgstream.Factory
+	msgStreamFactory msgistream.Factory
 	offsetMgrFactory offsetmgr.Factory
 	messagesCh       chan *consumer.Message
 	acksCh           chan *consumer.Message
@@ -43,7 +43,7 @@ type T struct {
 
 // Spawn creates a partition consumer instance and starts its goroutines.
 func Spawn(namespace *actor.ID, group, topic string, partition int32, cfg *config.Proxy,
-	groupMember *groupmember.T, msgStreamFactory msgstream.Factory, offsetMgrFactory offsetmgr.Factory,
+	groupMember *groupmember.T, msgStreamFactory msgistream.Factory, offsetMgrFactory offsetmgr.Factory,
 ) *T {
 	pc := &T{
 		actorID:          namespace.NewChild(fmt.Sprintf("P:%s_%d", topic, partition)),
@@ -100,13 +100,13 @@ func (pc *T) run() {
 		return
 	}
 
-	ms, concreteOffset, err := pc.msgStreamFactory.SpawnMessageStream(pc.actorID, pc.topic, pc.partition, initialOffset.Val)
+	mis, concreteOffset, err := pc.msgStreamFactory.SpawnMessageIStream(pc.actorID, pc.topic, pc.partition, initialOffset.Val)
 	if err != nil {
 		// Must never happen.
 		log.Errorf("<%s> failed to start message stream: offset=%d, err=(%s)", pc.actorID, initialOffset.Val, err)
 		return
 	}
-	defer ms.Stop()
+	defer mis.Stop()
 	if initialOffset.Val != concreteOffset {
 		log.Errorf("<%s> invalid initial offset: stored=%d, adjusted=%d",
 			pc.actorID, initialOffset.Val, concreteOffset)
@@ -126,7 +126,7 @@ func (pc *T) run() {
 		// Wait for a fetched message to be provided by the message stream.
 		for {
 			select {
-			case msg = <-ms.Messages():
+			case msg = <-mis.Messages():
 				// Notify tests when the very first message is fetched.
 				if !firstMessageFetched && FirstMessageFetchedCh != nil {
 					firstMessageFetched = true
