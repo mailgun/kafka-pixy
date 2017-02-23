@@ -46,7 +46,7 @@ type T interface {
 	// reporting is enabled with `Config.Consumer.Return.Errors` then errors may be
 	// coming and has to be read from the `Errors()` channel, otherwise the offset
 	// manager will get into a dead lock.
-	InitialOffset() <-chan DecoratedOffset
+	InitialOffset() <-chan Offset
 
 	// SubmitOffset triggers saving of the specified offset in Kafka. Commits are
 	// performed periodically in a background goroutine. The commit interval is
@@ -60,7 +60,7 @@ type T interface {
 	// CommittedOffsets returns a channel that offsets committed to Kafka are
 	// sent down to. The user must read from this channel otherwise the
 	// `SubmitOffset` function will eventually block.
-	CommittedOffsets() <-chan DecoratedOffset
+	CommittedOffsets() <-chan Offset
 
 	// Stop stops the offset manager. It is required to stop all spawned offset
 	// managers before their parent factory can be stopped.
@@ -70,9 +70,11 @@ type T interface {
 	Stop()
 }
 
-type DecoratedOffset struct {
-	Offset   int64
-	Metadata string
+// Offset represents an offset data as it is stored in Kafka, that is an offset
+// value decorated with a metadata string.
+type Offset struct {
+	Val  int64
+	Meta string
 }
 
 type OffsetCommitError struct {
@@ -166,10 +168,10 @@ func (f *factory) spawnOffsetManager(namespace *actor.ID, id instanceID) *offset
 		actorID:            namespace.NewChild("offset_mgr"),
 		f:                  f,
 		id:                 id,
-		initialOffsetCh:    make(chan DecoratedOffset, 1),
+		initialOffsetCh:    make(chan Offset, 1),
 		submitRequestsCh:   make(chan submitRequest),
 		assignmentCh:       make(chan mapper.Executor, 1),
-		committedOffsetsCh: make(chan DecoratedOffset, f.cfg.Consumer.ChannelBufferSize),
+		committedOffsetsCh: make(chan Offset, f.cfg.Consumer.ChannelBufferSize),
 	}
 	if f.testReportErrors {
 		om.testErrorsCh = make(chan *OffsetCommitError, f.cfg.Consumer.ChannelBufferSize)
@@ -189,10 +191,10 @@ type offsetMgr struct {
 	actorID            *actor.ID
 	f                  *factory
 	id                 instanceID
-	initialOffsetCh    chan DecoratedOffset
+	initialOffsetCh    chan Offset
 	submitRequestsCh   chan submitRequest
 	assignmentCh       chan mapper.Executor
-	committedOffsetsCh chan DecoratedOffset
+	committedOffsetsCh chan Offset
 	wg                 sync.WaitGroup
 
 	assignedBrokerRequestsCh  chan<- submitRequest
@@ -206,7 +208,7 @@ type offsetMgr struct {
 }
 
 // implements `T`.
-func (om *offsetMgr) InitialOffset() <-chan DecoratedOffset {
+func (om *offsetMgr) InitialOffset() <-chan Offset {
 	return om.initialOffsetCh
 }
 
@@ -220,7 +222,7 @@ func (om *offsetMgr) SubmitOffset(offset int64, metadata string) {
 }
 
 // implements `T`.
-func (om *offsetMgr) CommittedOffsets() <-chan DecoratedOffset {
+func (om *offsetMgr) CommittedOffsets() <-chan Offset {
 	return om.committedOffsetsCh
 }
 
@@ -251,7 +253,7 @@ func (om *offsetMgr) run() {
 	}
 	var (
 		lastSubmitRequest     = submitRequest{offset: math.MinInt64}
-		lastCommittedOffset   = DecoratedOffset{Offset: math.MinInt64}
+		lastCommittedOffset   = Offset{Val: math.MinInt64}
 		nilOrSubmitRequestsCh = om.submitRequestsCh
 		submitResponseCh      = make(chan submitResponse, 1)
 		initialOffsetFetched  = false
@@ -306,7 +308,7 @@ func (om *offsetMgr) run() {
 				om.triggerOrScheduleReassign(err, "offset commit failed")
 				continue
 			}
-			lastCommittedOffset = DecoratedOffset{submitRes.req.offset, submitRes.req.metadata}
+			lastCommittedOffset = Offset{submitRes.req.offset, submitRes.req.metadata}
 			om.committedOffsetsCh <- lastCommittedOffset
 			if stopped && isSameDecoratedOffset(lastSubmitRequest, lastCommittedOffset) {
 				return
@@ -339,7 +341,7 @@ func (om *offsetMgr) triggerOrScheduleReassign(err error, reason string) {
 	om.nilOrReassignRetryTimerCh = time.After(om.f.cfg.Consumer.BackOffTimeout)
 }
 
-func (om *offsetMgr) fetchInitialOffset(conn *sarama.Broker) (DecoratedOffset, error) {
+func (om *offsetMgr) fetchInitialOffset(conn *sarama.Broker) (Offset, error) {
 	request := new(sarama.OffsetFetchRequest)
 	request.Version = 1
 	request.ConsumerGroup = om.id.group
@@ -351,16 +353,16 @@ func (om *offsetMgr) fetchInitialOffset(conn *sarama.Broker) (DecoratedOffset, e
 		// otherwise it won't be re-establish and following requests to this
 		// broker will fail as well.
 		_ = conn.Close()
-		return DecoratedOffset{}, err
+		return Offset{}, err
 	}
 	block := response.GetBlock(om.id.topic, om.id.partition)
 	if block == nil {
-		return DecoratedOffset{}, sarama.ErrIncompleteResponse
+		return Offset{}, sarama.ErrIncompleteResponse
 	}
 	if block.Err != sarama.ErrNoError {
-		return DecoratedOffset{}, block.Err
+		return Offset{}, block.Err
 	}
-	fetchedOffset := DecoratedOffset{block.Offset, block.Metadata}
+	fetchedOffset := Offset{block.Offset, block.Metadata}
 	return fetchedOffset, nil
 }
 
@@ -511,6 +513,6 @@ func (be *brokerExecutor) String() string {
 	return be.aggrActorID.String()
 }
 
-func isSameDecoratedOffset(r submitRequest, o DecoratedOffset) bool {
-	return r.offset == o.Offset && r.metadata == o.Metadata
+func isSameDecoratedOffset(r submitRequest, o Offset) bool {
+	return r.offset == o.Val && r.metadata == o.Meta
 }

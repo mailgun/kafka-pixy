@@ -53,7 +53,7 @@ func (s *OffsetMgrFuncSuite) TestLatestOffsetSaved(c *C) {
 	c.Assert(err, IsNil)
 
 	fo := <-om0_2.InitialOffset()
-	c.Assert(fo, Equals, offsetmgr.DecoratedOffset{newOffset + 2, "bazz"})
+	c.Assert(fo, Equals, offsetmgr.Offset{newOffset + 2, "bazz"})
 
 	om0_2.Stop()
 	f.Stop()

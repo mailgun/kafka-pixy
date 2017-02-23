@@ -63,7 +63,7 @@ func (s *OffsetMgrSuite) TestInitialOffset(c *C) {
 
 	// Then
 	initialOffset := <-om.InitialOffset()
-	c.Assert(initialOffset, DeepEquals, DecoratedOffset{2000, "bar"})
+	c.Assert(initialOffset, DeepEquals, Offset{2000, "bar"})
 }
 
 // A partition offset manager can be closed even while it keeps trying to
@@ -181,7 +181,7 @@ func (s *OffsetMgrSuite) TestCommitError(c *C) {
 
 	wg.Wait()
 	committedOffset := lastCommittedOffset(broker1, "g1", "t1", 7)
-	c.Assert(committedOffset, DeepEquals, DecoratedOffset{1000, "foo"})
+	c.Assert(committedOffset, DeepEquals, Offset{1000, "foo"})
 }
 
 // If offset a response received from Kafka for an offset commit request does
@@ -231,7 +231,7 @@ func (s *OffsetMgrSuite) TestCommitIncompleteResponse(c *C) {
 	// Then
 	oce := <-om1.(*offsetMgr).testErrorsCh
 	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 1, sarama.ErrIncompleteResponse})
-	c.Assert(<-om2.CommittedOffsets(), Equals, DecoratedOffset{2001, "bar2"})
+	c.Assert(<-om2.CommittedOffsets(), Equals, Offset{2001, "bar2"})
 
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
@@ -241,7 +241,7 @@ func (s *OffsetMgrSuite) TestCommitIncompleteResponse(c *C) {
 	})
 
 	wg.Wait()
-	c.Assert(<-om1.CommittedOffsets(), Equals, DecoratedOffset{1001, "foo1"})
+	c.Assert(<-om1.CommittedOffsets(), Equals, Offset{1001, "foo1"})
 }
 
 // It is guaranteed that a partition offset manager commits all pending offsets
@@ -297,7 +297,7 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 	}
 	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 7, sarama.ErrNotLeaderForPartition})
 
-	// STAGE 3: Offset commit requests fail
+	// STAGE 3: Val commit requests fail
 	log.Infof("    STAGE 3")
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
@@ -331,7 +331,7 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 	}
 
 	committedOffset := lastCommittedOffset(broker1, "g1", "t1", 7)
-	c.Assert(committedOffset, DeepEquals, DecoratedOffset{1001, "foo"})
+	c.Assert(committedOffset, DeepEquals, Offset{1001, "foo"})
 }
 
 // Different consumer groups can keep different offsets for the same
@@ -378,9 +378,9 @@ func (s *OffsetMgrSuite) TestCommitDifferentGroups(c *C) {
 
 	// Then
 	committedOffset1 := lastCommittedOffset(broker1, "g1", "t1", 7)
-	c.Assert(committedOffset1, DeepEquals, DecoratedOffset{1017, "foo3"})
+	c.Assert(committedOffset1, DeepEquals, Offset{1017, "foo3"})
 	committedOffset2 := lastCommittedOffset(broker1, "g2", "t1", 7)
-	c.Assert(committedOffset2, DeepEquals, DecoratedOffset{2019, "bar3"})
+	c.Assert(committedOffset2, DeepEquals, Offset{2019, "bar3"})
 }
 
 func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
@@ -444,11 +444,11 @@ func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 
 	// Then: offset managers are able to commit offsets and terminate.
 	committedOffset1 := lastCommittedOffset(broker1, "g1", "t1", 7)
-	c.Assert(committedOffset1, DeepEquals, DecoratedOffset{1001, "bar1"})
+	c.Assert(committedOffset1, DeepEquals, Offset{1001, "bar1"})
 	committedOffset2 := lastCommittedOffset(broker1, "g1", "t1", 8)
-	c.Assert(committedOffset2, DeepEquals, DecoratedOffset{2001, "bar2"})
+	c.Assert(committedOffset2, DeepEquals, Offset{2001, "bar2"})
 	committedOffset3 := lastCommittedOffset(broker1, "g2", "t1", 7)
-	c.Assert(committedOffset3, DeepEquals, DecoratedOffset{3001, "bar3"})
+	c.Assert(committedOffset3, DeepEquals, Offset{3001, "bar3"})
 }
 
 func (s *OffsetMgrSuite) TestCommittedChannel(c *C) {
@@ -485,11 +485,11 @@ func (s *OffsetMgrSuite) TestCommittedChannel(c *C) {
 	om.Stop()
 
 	// Then
-	var committedOffsets []DecoratedOffset
+	var committedOffsets []Offset
 	for committedOffset := range om.CommittedOffsets() {
 		committedOffsets = append(committedOffsets, committedOffset)
 	}
-	c.Assert(committedOffsets, DeepEquals, []DecoratedOffset{{1005, "bar5"}})
+	c.Assert(committedOffsets, DeepEquals, []Offset{{1005, "bar5"}})
 }
 
 // Test for issue https://github.com/mailgun/kafka-pixy/issues/29. The problem
@@ -562,13 +562,13 @@ func (s *OffsetMgrSuite) TestBugConnectionRestored(c *C) {
 	log.Infof("    THEN")
 	// Then: the new partition offset manager re-establishes connection with
 	// broker2 and successfully retrieves the initial offset.
-	var do DecoratedOffset
+	var do Offset
 	select {
 	case do = <-om.InitialOffset():
 	case oce = <-om.(*offsetMgr).testErrorsCh:
 	case <-time.After(200 * time.Millisecond):
 	}
-	c.Assert(do.Offset, Equals, int64(1000), Commentf("Failed to retrieve initial offset: %s", oce.Err))
+	c.Assert(do.Val, Equals, int64(1000), Commentf("Failed to retrieve initial offset: %s", oce.Err))
 }
 
 // Test for issue https://github.com/mailgun/kafka-pixy/issues/62. The problem
@@ -616,17 +616,17 @@ func (s *OffsetMgrSuite) TestBugOffsetDroppedOnStop(c *C) {
 	// 700ms: a second offset commit response received from Kafka.
 
 	// Then
-	var committedOffsets []DecoratedOffset
+	var committedOffsets []Offset
 	for committedOffset := range om.CommittedOffsets() {
 		committedOffsets = append(committedOffsets, committedOffset)
 	}
-	c.Assert(committedOffsets, DeepEquals, []DecoratedOffset{{1001, "bar1"}, {1002, "bar2"}})
+	c.Assert(committedOffsets, DeepEquals, []Offset{{1001, "bar1"}, {1002, "bar2"}})
 }
 
 // lastCommittedOffset traverses the mock broker history backwards searching
 // for the OffsetCommitRequest coming from the specified consumer group that
 // commits an offset of the specified topic/partition.
-func lastCommittedOffset(mb *sarama.MockBroker, group, topic string, partition int32) DecoratedOffset {
+func lastCommittedOffset(mb *sarama.MockBroker, group, topic string, partition int32) Offset {
 	for i := len(mb.History()) - 1; i >= 0; i-- {
 		req, ok := mb.History()[i].Request.(*sarama.OffsetCommitRequest)
 		if !ok || req.ConsumerGroup != group {
@@ -636,7 +636,7 @@ func lastCommittedOffset(mb *sarama.MockBroker, group, topic string, partition i
 		if err != nil {
 			continue
 		}
-		return DecoratedOffset{offset, metadata}
+		return Offset{offset, metadata}
 	}
-	return DecoratedOffset{}
+	return Offset{}
 }

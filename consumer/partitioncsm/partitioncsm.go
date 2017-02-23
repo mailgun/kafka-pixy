@@ -93,28 +93,28 @@ func (pc *T) run() {
 	}()
 
 	// Wait for the initial offset to be retrieved.
-	var initialOffset offsetmgr.DecoratedOffset
+	var initialOffset offsetmgr.Offset
 	select {
 	case initialOffset = <-om.InitialOffset():
 	case <-pc.stopCh:
 		return
 	}
 
-	ms, concreteOffset, err := pc.msgStreamFactory.SpawnMessageStream(pc.actorID, pc.topic, pc.partition, initialOffset.Offset)
+	ms, concreteOffset, err := pc.msgStreamFactory.SpawnMessageStream(pc.actorID, pc.topic, pc.partition, initialOffset.Val)
 	if err != nil {
 		// Must never happen.
-		log.Errorf("<%s> failed to start message stream: offset=%d, err=(%s)", pc.actorID, initialOffset.Offset, err)
+		log.Errorf("<%s> failed to start message stream: offset=%d, err=(%s)", pc.actorID, initialOffset.Val, err)
 		return
 	}
 	defer ms.Stop()
-	if initialOffset.Offset != concreteOffset {
+	if initialOffset.Val != concreteOffset {
 		log.Errorf("<%s> invalid initial offset: stored=%d, adjusted=%d",
-			pc.actorID, initialOffset.Offset, concreteOffset)
+			pc.actorID, initialOffset.Val, concreteOffset)
 	}
 	log.Infof("<%s> initialized: offset=%d", pc.actorID, concreteOffset)
 
 	// Initialize the Kafka offset storage for a group on first consumption.
-	if initialOffset.Offset == sarama.OffsetNewest {
+	if initialOffset.Val == sarama.OffsetNewest {
 		om.SubmitOffset(concreteOffset, "")
 	}
 	lastSubmittedOffset := concreteOffset
@@ -134,7 +134,7 @@ func (pc *T) run() {
 				}
 				goto offerAndAck
 			case committedOffset := <-om.CommittedOffsets():
-				lastCommittedOffset = committedOffset.Offset
+				lastCommittedOffset = committedOffset.Val
 				continue
 			case <-pc.stopCh:
 				goto done
@@ -152,7 +152,7 @@ func (pc *T) run() {
 				om.SubmitOffset(lastSubmittedOffset, "")
 				break offerAndAck
 			case committedOffset := <-om.CommittedOffsets():
-				lastCommittedOffset = committedOffset.Offset
+				lastCommittedOffset = committedOffset.Val
 				continue
 			case <-pc.stopCh:
 				goto done
@@ -163,7 +163,7 @@ done:
 	om.Stop()
 	// Drain committed offsets.
 	for committedOffset := range om.CommittedOffsets() {
-		lastCommittedOffset = committedOffset.Offset
+		lastCommittedOffset = committedOffset.Val
 	}
 	// Reset `om` to prevent the deferred panic offset manager cleanup function
 	// from running and calling `Stop()` on the already stopped offset manager.
