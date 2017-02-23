@@ -1,4 +1,4 @@
-package msgstream
+package msgistream
 
 import (
 	"time"
@@ -57,11 +57,11 @@ func (s *MessageStreamFuncSuite) TestSlacker(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	pcA, _, err := f.SpawnMessageStream(s.ns.NewChild("test.1", 0), "test.1", 0, producedTest1["foo"][0].Offset)
+	pcA, _, err := f.SpawnMessageIStream(s.ns.NewChild("test.1", 0), "test.1", 0, producedTest1["foo"][0].Offset)
 	c.Assert(err, IsNil)
 	defer pcA.Stop()
 
-	pcB, _, err := f.SpawnMessageStream(s.ns.NewChild("test.4", 2), "test.4", 2, producedTest4["bar"][0].Offset)
+	pcB, _, err := f.SpawnMessageIStream(s.ns.NewChild("test.4", 2), "test.4", 2, producedTest4["bar"][0].Offset)
 	c.Assert(err, IsNil)
 	defer pcB.Stop()
 

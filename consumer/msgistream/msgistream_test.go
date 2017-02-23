@@ -1,4 +1,4 @@
-package msgstream
+package msgistream
 
 import (
 	"sync"
@@ -63,7 +63,7 @@ func (s *MessageStreamSuite) TestOffsetManual(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	pc, concreteOffset, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 1234)
+	pc, concreteOffset, err := f.SpawnMessageIStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 1234)
 	defer pc.Stop()
 	c.Assert(err, IsNil)
 	c.Assert(concreteOffset, Equals, int64(1234))
@@ -107,7 +107,7 @@ func (s *MessageStreamSuite) TestOffsetNewest(c *C) {
 	defer f.Stop()
 
 	// When
-	pc, concreteOffset, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetNewest)
+	pc, concreteOffset, err := f.SpawnMessageIStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetNewest)
 	c.Assert(err, IsNil)
 	defer pc.Stop()
 	c.Assert(concreteOffset, Equals, int64(10))
@@ -140,13 +140,13 @@ func (s *MessageStreamSuite) TestRecreate(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	pc, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 10)
+	pc, _, err := f.SpawnMessageIStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 10)
 	c.Assert(err, IsNil)
 	c.Assert((<-pc.Messages()).Offset, Equals, int64(10))
 
 	// When
 	pc.Stop()
-	pc, _, err = f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 10)
+	pc, _, err = f.SpawnMessageIStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 10)
 	c.Assert(err, IsNil)
 	defer pc.Stop()
 
@@ -177,12 +177,12 @@ func (s *MessageStreamSuite) TestDuplicate(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	pc1, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 0)
+	pc1, _, err := f.SpawnMessageIStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 0)
 	c.Assert(err, IsNil)
 	defer pc1.Stop()
 
 	// When
-	pc2, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 0)
+	pc2, _, err := f.SpawnMessageIStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 0)
 
 	// Then
 	if pc2 != nil || err != sarama.ConfigurationError("That topic/partition is already being consumed") {
@@ -222,7 +222,7 @@ func (s *MessageStreamSuite) TestLeaderRefreshError(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	pc, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
+	pc, _, err := f.SpawnMessageIStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
 	c.Assert(err, IsNil)
 	defer pc.Stop()
 	c.Assert((<-pc.Messages()).Offset, Equals, int64(123))
@@ -280,7 +280,7 @@ func (s *MessageStreamSuite) TestInvalidTopic(c *C) {
 	defer f.Stop()
 
 	// When
-	pc, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
+	pc, _, err := f.SpawnMessageIStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
 
 	// Then
 	if pc != nil || err != sarama.ErrUnknownTopicOrPartition {
@@ -316,7 +316,7 @@ func (s *MessageStreamSuite) TestClosePartitionWithoutLeader(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	pc, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
+	pc, _, err := f.SpawnMessageIStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
 	c.Assert(err, IsNil)
 	defer pc.Stop()
 	c.Assert((<-pc.Messages()).Offset, Equals, int64(123))
@@ -364,7 +364,7 @@ func (s *MessageStreamSuite) TestShutsDownOutOfRange(c *C) {
 	defer f.Stop()
 
 	// When
-	pc, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 101)
+	pc, _, err := f.SpawnMessageIStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 101)
 	c.Assert(err, IsNil)
 	defer pc.Stop()
 
@@ -404,7 +404,7 @@ func (s *MessageStreamSuite) TestExtraOffsets(c *C) {
 	defer f.Stop()
 
 	// When
-	pc, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 3)
+	pc, _, err := f.SpawnMessageIStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 3)
 	c.Assert(err, IsNil)
 	defer pc.Stop()
 
@@ -443,7 +443,7 @@ func (s *MessageStreamSuite) TestNonSequentialOffsets(c *C) {
 	defer f.Stop()
 
 	// When
-	pc, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 3)
+	pc, _, err := f.SpawnMessageIStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 3)
 	c.Assert(err, IsNil)
 	defer pc.Stop()
 
@@ -499,7 +499,7 @@ func (s *MessageStreamSuite) TestRebalancingMultiplePartitions(c *C) {
 	// we expect to end up (eventually) consuming exactly ten messages on each partition
 	var wg sync.WaitGroup
 	for i := int32(0); i < 2; i++ {
-		pc, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", i), "my_topic", i, 0)
+		pc, _, err := f.SpawnMessageIStream(s.ns.NewChild("my_topic", i), "my_topic", i, 0)
 		c.Assert(err, IsNil)
 
 		go func(pc T) {
@@ -636,11 +636,11 @@ func (s *MessageStreamSuite) TestInterleavedClose(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	pc0, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 1000)
+	pc0, _, err := f.SpawnMessageIStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 1000)
 	c.Assert(err, IsNil)
 	defer pc0.Stop()
 
-	pc1, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 1), "my_topic", 1, 2000)
+	pc1, _, err := f.SpawnMessageIStream(s.ns.NewChild("my_topic", 1), "my_topic", 1, 2000)
 	c.Assert(err, IsNil)
 	defer pc1.Stop()
 
@@ -694,11 +694,11 @@ func (s *MessageStreamSuite) TestBounceWithReferenceOpen(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	pc0, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 1000)
+	pc0, _, err := f.SpawnMessageIStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 1000)
 	c.Assert(err, IsNil)
 	defer pc0.Stop()
 
-	pc1, _, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 1), "my_topic", 1, 2000)
+	pc1, _, err := f.SpawnMessageIStream(s.ns.NewChild("my_topic", 1), "my_topic", 1, 2000)
 	c.Assert(err, IsNil)
 	defer pc1.Stop()
 
@@ -760,12 +760,12 @@ func (s *MessageStreamSuite) TestOffsetOutOfRange(c *C) {
 	defer f.Stop()
 
 	// When/Then
-	pc, offset, err := f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 0)
+	pc, offset, err := f.SpawnMessageIStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 0)
 	c.Assert(err, IsNil)
 	c.Assert(offset, Equals, int64(1000))
 	pc.Stop()
 
-	pc, offset, err = f.SpawnMessageStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 3456)
+	pc, offset, err = f.SpawnMessageIStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, 3456)
 	c.Assert(err, IsNil)
 	c.Assert(offset, Equals, int64(2000))
 	pc.Stop()

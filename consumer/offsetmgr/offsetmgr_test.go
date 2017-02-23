@@ -63,7 +63,7 @@ func (s *OffsetMgrSuite) TestInitialOffset(c *C) {
 
 	// Then
 	initialOffset := <-om.InitialOffset()
-	c.Assert(initialOffset, DeepEquals, DecoratedOffset{2000, "bar"})
+	c.Assert(initialOffset, DeepEquals, Offset{2000, "bar"})
 }
 
 // A partition offset manager can be closed even while it keeps trying to
@@ -94,7 +94,7 @@ func (s *OffsetMgrSuite) TestInitialNoCoordinator(c *C) {
 	defer om.Stop()
 
 	// Then
-	oce := <-om.(*offsetManager).testErrorsCh
+	oce := <-om.(*offsetMgr).testErrorsCh
 	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 8, ErrNoCoordinator})
 }
 
@@ -128,7 +128,7 @@ func (s *OffsetMgrSuite) TestInitialFetchError(c *C) {
 	defer om.Stop()
 
 	// Then
-	oce := <-om.(*offsetManager).testErrorsCh
+	oce := <-om.(*offsetMgr).testErrorsCh
 	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 7, sarama.ErrNotLeaderForPartition})
 }
 
@@ -164,12 +164,12 @@ func (s *OffsetMgrSuite) TestCommitError(c *C) {
 	c.Assert(err, IsNil)
 
 	// When
-	om.SubmitOffset(1000, "foo")
+	om.SubmitOffset(Offset{1000, "foo"})
 	var wg sync.WaitGroup
 	actor.Spawn(actor.RootID.NewChild("stopper"), &wg, om.Stop)
 
 	// Then
-	oce := <-om.(*offsetManager).testErrorsCh
+	oce := <-om.(*offsetMgr).testErrorsCh
 	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 7, sarama.ErrNotLeaderForPartition})
 
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
@@ -181,7 +181,7 @@ func (s *OffsetMgrSuite) TestCommitError(c *C) {
 
 	wg.Wait()
 	committedOffset := lastCommittedOffset(broker1, "g1", "t1", 7)
-	c.Assert(committedOffset, DeepEquals, DecoratedOffset{1000, "foo"})
+	c.Assert(committedOffset, DeepEquals, Offset{1000, "foo"})
 }
 
 // If offset a response received from Kafka for an offset commit request does
@@ -222,16 +222,16 @@ func (s *OffsetMgrSuite) TestCommitIncompleteResponse(c *C) {
 	c.Assert(err, IsNil)
 
 	// When
-	om1.SubmitOffset(1001, "foo1")
-	om2.SubmitOffset(2001, "bar2")
+	om1.SubmitOffset(Offset{1001, "foo1"})
+	om2.SubmitOffset(Offset{2001, "bar2"})
 	var wg sync.WaitGroup
 	actor.Spawn(actor.RootID.NewChild("stopper"), &wg, om1.Stop)
 	actor.Spawn(actor.RootID.NewChild("stopper"), &wg, om2.Stop)
 
 	// Then
-	oce := <-om1.(*offsetManager).testErrorsCh
+	oce := <-om1.(*offsetMgr).testErrorsCh
 	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 1, sarama.ErrIncompleteResponse})
-	c.Assert(<-om2.CommittedOffsets(), Equals, DecoratedOffset{2001, "bar2"})
+	c.Assert(<-om2.CommittedOffsets(), Equals, Offset{2001, "bar2"})
 
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
@@ -241,7 +241,7 @@ func (s *OffsetMgrSuite) TestCommitIncompleteResponse(c *C) {
 	})
 
 	wg.Wait()
-	c.Assert(<-om1.CommittedOffsets(), Equals, DecoratedOffset{1001, "foo1"})
+	c.Assert(<-om1.CommittedOffsets(), Equals, Offset{1001, "foo1"})
 }
 
 // It is guaranteed that a partition offset manager commits all pending offsets
@@ -271,7 +271,7 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 	c.Assert(err, IsNil)
 
 	// When: a partition offset manager is closed while there is a pending commit.
-	om.SubmitOffset(1001, "foo")
+	om.SubmitOffset(Offset{1001, "foo"})
 	go om.Stop()
 
 	// Then: the partition offset manager terminates only after it has
@@ -279,7 +279,7 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 
 	// STAGE 1: Requests for coordinator time out.
 	log.Infof("    STAGE 1")
-	oce := <-om.(*offsetManager).testErrorsCh
+	oce := <-om.(*offsetMgr).testErrorsCh
 	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 7, ErrRequestTimeout})
 
 	// STAGE 2: Requests for initial offset return errors
@@ -290,14 +290,14 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
 			SetOffset("g1", "t1", 7, 0, "", sarama.ErrNotLeaderForPartition),
 	})
-	for oce = range om.(*offsetManager).testErrorsCh {
+	for oce = range om.(*offsetMgr).testErrorsCh {
 		if !reflect.DeepEqual(oce, &OffsetCommitError{"g1", "t1", 7, ErrRequestTimeout}) {
 			break
 		}
 	}
 	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 7, sarama.ErrNotLeaderForPartition})
 
-	// STAGE 3: Offset commit requests fail
+	// STAGE 3: Val commit requests fail
 	log.Infof("    STAGE 3")
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
@@ -307,7 +307,7 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
 			SetError("g1", "t1", 7, sarama.ErrOffsetMetadataTooLarge),
 	})
-	for oce = range om.(*offsetManager).testErrorsCh {
+	for oce = range om.(*offsetMgr).testErrorsCh {
 		if !reflect.DeepEqual(oce, &OffsetCommitError{"g1", "t1", 7, sarama.ErrNotLeaderForPartition}) {
 			break
 		}
@@ -326,12 +326,12 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 	})
 	// The errors channel is closed when the partition offset manager has
 	// terminated.
-	for oce := range om.(*offsetManager).testErrorsCh {
+	for oce := range om.(*offsetMgr).testErrorsCh {
 		log.Infof("Drain error: %v", oce)
 	}
 
 	committedOffset := lastCommittedOffset(broker1, "g1", "t1", 7)
-	c.Assert(committedOffset, DeepEquals, DecoratedOffset{1001, "foo"})
+	c.Assert(committedOffset, DeepEquals, Offset{1001, "foo"})
 }
 
 // Different consumer groups can keep different offsets for the same
@@ -367,20 +367,20 @@ func (s *OffsetMgrSuite) TestCommitDifferentGroups(c *C) {
 	c.Assert(err, IsNil)
 
 	// When
-	om1.SubmitOffset(1009, "foo1")
-	om1.SubmitOffset(1010, "foo2")
-	om2.SubmitOffset(2010, "bar1")
-	om2.SubmitOffset(2011, "bar2")
-	om1.SubmitOffset(1017, "foo3")
-	om2.SubmitOffset(2019, "bar3")
+	om1.SubmitOffset(Offset{1009, "foo1"})
+	om1.SubmitOffset(Offset{1010, "foo2"})
+	om2.SubmitOffset(Offset{2010, "bar1"})
+	om2.SubmitOffset(Offset{2011, "bar2"})
+	om1.SubmitOffset(Offset{1017, "foo3"})
+	om2.SubmitOffset(Offset{2019, "bar3"})
 	om1.Stop()
 	om2.Stop()
 
 	// Then
 	committedOffset1 := lastCommittedOffset(broker1, "g1", "t1", 7)
-	c.Assert(committedOffset1, DeepEquals, DecoratedOffset{1017, "foo3"})
+	c.Assert(committedOffset1, DeepEquals, Offset{1017, "foo3"})
 	committedOffset2 := lastCommittedOffset(broker1, "g2", "t1", 7)
-	c.Assert(committedOffset2, DeepEquals, DecoratedOffset{2019, "bar3"})
+	c.Assert(committedOffset2, DeepEquals, Offset{2019, "bar3"})
 }
 
 func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
@@ -417,14 +417,14 @@ func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 	c.Assert(err, IsNil)
 	om3, err := f.SpawnOffsetManager(s.ns.NewChild("g2", "t1", 7), "g2", "t1", 7)
 	c.Assert(err, IsNil)
-	om1.SubmitOffset(1001, "bar1")
-	om2.SubmitOffset(2001, "bar2")
-	om3.SubmitOffset(3001, "bar3")
+	om1.SubmitOffset(Offset{1001, "bar1"})
+	om2.SubmitOffset(Offset{2001, "bar2"})
+	om3.SubmitOffset(Offset{3001, "bar3"})
 
 	log.Infof("*** Waiting for errors...")
-	<-om1.(*offsetManager).testErrorsCh
-	<-om2.(*offsetManager).testErrorsCh
-	<-om3.(*offsetManager).testErrorsCh
+	<-om1.(*offsetMgr).testErrorsCh
+	<-om2.(*offsetMgr).testErrorsCh
+	<-om3.(*offsetMgr).testErrorsCh
 
 	// When
 	time.Sleep(cfg.Consumer.BackOffTimeout * 2)
@@ -444,11 +444,11 @@ func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 
 	// Then: offset managers are able to commit offsets and terminate.
 	committedOffset1 := lastCommittedOffset(broker1, "g1", "t1", 7)
-	c.Assert(committedOffset1, DeepEquals, DecoratedOffset{1001, "bar1"})
+	c.Assert(committedOffset1, DeepEquals, Offset{1001, "bar1"})
 	committedOffset2 := lastCommittedOffset(broker1, "g1", "t1", 8)
-	c.Assert(committedOffset2, DeepEquals, DecoratedOffset{2001, "bar2"})
+	c.Assert(committedOffset2, DeepEquals, Offset{2001, "bar2"})
 	committedOffset3 := lastCommittedOffset(broker1, "g2", "t1", 7)
-	c.Assert(committedOffset3, DeepEquals, DecoratedOffset{3001, "bar3"})
+	c.Assert(committedOffset3, DeepEquals, Offset{3001, "bar3"})
 }
 
 func (s *OffsetMgrSuite) TestCommittedChannel(c *C) {
@@ -477,19 +477,19 @@ func (s *OffsetMgrSuite) TestCommittedChannel(c *C) {
 	c.Assert(err, IsNil)
 
 	// When
-	om.SubmitOffset(1001, "bar1")
-	om.SubmitOffset(1002, "bar2")
-	om.SubmitOffset(1003, "bar3")
-	om.SubmitOffset(1004, "bar4")
-	om.SubmitOffset(1005, "bar5")
+	om.SubmitOffset(Offset{1001, "bar1"})
+	om.SubmitOffset(Offset{1002, "bar2"})
+	om.SubmitOffset(Offset{1003, "bar3"})
+	om.SubmitOffset(Offset{1004, "bar4"})
+	om.SubmitOffset(Offset{1005, "bar5"})
 	om.Stop()
 
 	// Then
-	var committedOffsets []DecoratedOffset
+	var committedOffsets []Offset
 	for committedOffset := range om.CommittedOffsets() {
 		committedOffsets = append(committedOffsets, committedOffset)
 	}
-	c.Assert(committedOffsets, DeepEquals, []DecoratedOffset{{1005, "bar5"}})
+	c.Assert(committedOffsets, DeepEquals, []Offset{{1005, "bar5"}})
 }
 
 // Test for issue https://github.com/mailgun/kafka-pixy/issues/29. The problem
@@ -528,7 +528,7 @@ func (s *OffsetMgrSuite) TestBugConnectionRestored(c *C) {
 	// Make sure the partition offset manager established connection with broker2.
 	oce := &OffsetCommitError{}
 	select {
-	case oce = <-om.(*offsetManager).testErrorsCh:
+	case oce = <-om.(*offsetMgr).testErrorsCh:
 	case <-time.After(200 * time.Millisecond):
 	}
 	_, ok := oce.Err.(*net.OpError)
@@ -562,13 +562,13 @@ func (s *OffsetMgrSuite) TestBugConnectionRestored(c *C) {
 	log.Infof("    THEN")
 	// Then: the new partition offset manager re-establishes connection with
 	// broker2 and successfully retrieves the initial offset.
-	var do DecoratedOffset
+	var do Offset
 	select {
 	case do = <-om.InitialOffset():
-	case oce = <-om.(*offsetManager).testErrorsCh:
+	case oce = <-om.(*offsetMgr).testErrorsCh:
 	case <-time.After(200 * time.Millisecond):
 	}
-	c.Assert(do.Offset, Equals, int64(1000), Commentf("Failed to retrieve initial offset: %s", oce.Err))
+	c.Assert(do.Val, Equals, int64(1000), Commentf("Failed to retrieve initial offset: %s", oce.Err))
 }
 
 // Test for issue https://github.com/mailgun/kafka-pixy/issues/62. The problem
@@ -605,28 +605,28 @@ func (s *OffsetMgrSuite) TestBugOffsetDroppedOnStop(c *C) {
 
 	// When
 	// 0ms: the first offset is submitted;
-	om.SubmitOffset(1001, "bar1")
+	om.SubmitOffset(Offset{1001, "bar1"})
 	time.Sleep(400 * time.Millisecond)
 	// 300ms: broker executor sends OffsetCommitRequest to Kafka
 	// 400ms: the second offset is submitted.
-	om.SubmitOffset(1002, "bar2")
+	om.SubmitOffset(Offset{1002, "bar2"})
 	om.Stop()
 	// 500ms: a first offset commit response received from Kafka. Due to a bug
 	// the offset manager was quiting here, dropping the second commit.
 	// 700ms: a second offset commit response received from Kafka.
 
 	// Then
-	var committedOffsets []DecoratedOffset
+	var committedOffsets []Offset
 	for committedOffset := range om.CommittedOffsets() {
 		committedOffsets = append(committedOffsets, committedOffset)
 	}
-	c.Assert(committedOffsets, DeepEquals, []DecoratedOffset{{1001, "bar1"}, {1002, "bar2"}})
+	c.Assert(committedOffsets, DeepEquals, []Offset{{1001, "bar1"}, {1002, "bar2"}})
 }
 
 // lastCommittedOffset traverses the mock broker history backwards searching
 // for the OffsetCommitRequest coming from the specified consumer group that
 // commits an offset of the specified topic/partition.
-func lastCommittedOffset(mb *sarama.MockBroker, group, topic string, partition int32) DecoratedOffset {
+func lastCommittedOffset(mb *sarama.MockBroker, group, topic string, partition int32) Offset {
 	for i := len(mb.History()) - 1; i >= 0; i-- {
 		req, ok := mb.History()[i].Request.(*sarama.OffsetCommitRequest)
 		if !ok || req.ConsumerGroup != group {
@@ -636,7 +636,7 @@ func lastCommittedOffset(mb *sarama.MockBroker, group, topic string, partition i
 		if err != nil {
 			continue
 		}
-		return DecoratedOffset{offset, metadata}
+		return Offset{offset, metadata}
 	}
-	return DecoratedOffset{}
+	return Offset{}
 }

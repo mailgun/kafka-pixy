@@ -43,9 +43,9 @@ func (s *OffsetMgrFuncSuite) TestLatestOffsetSaved(c *C) {
 	c.Assert(err, IsNil)
 
 	// When: several offsets are committed.
-	om0_1.SubmitOffset(newOffset, "foo")
-	om0_1.SubmitOffset(newOffset+1, "bar")
-	om0_1.SubmitOffset(newOffset+2, "bazz")
+	om0_1.SubmitOffset(offsetmgr.Offset{newOffset, "foo"})
+	om0_1.SubmitOffset(offsetmgr.Offset{newOffset + 1, "bar"})
+	om0_1.SubmitOffset(offsetmgr.Offset{newOffset + 2, "bazz"})
 
 	// Then: last committed request is the one that becomes effective.
 	om0_1.Stop()
@@ -53,7 +53,7 @@ func (s *OffsetMgrFuncSuite) TestLatestOffsetSaved(c *C) {
 	c.Assert(err, IsNil)
 
 	fo := <-om0_2.InitialOffset()
-	c.Assert(fo, Equals, offsetmgr.DecoratedOffset{newOffset + 2, "bazz"})
+	c.Assert(fo, Equals, offsetmgr.Offset{newOffset + 2, "bazz"})
 
 	om0_2.Stop()
 	f.Stop()

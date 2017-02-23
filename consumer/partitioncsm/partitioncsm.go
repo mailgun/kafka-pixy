@@ -9,7 +9,7 @@ import (
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/consumer/groupmember"
-	"github.com/mailgun/kafka-pixy/consumer/msgstream"
+	"github.com/mailgun/kafka-pixy/consumer/msgistream"
 	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
@@ -33,7 +33,7 @@ type T struct {
 	topic            string
 	partition        int32
 	groupMember      *groupmember.T
-	msgStreamFactory msgstream.Factory
+	msgStreamFactory msgistream.Factory
 	offsetMgrFactory offsetmgr.Factory
 	messagesCh       chan *consumer.Message
 	acksCh           chan *consumer.Message
@@ -43,7 +43,7 @@ type T struct {
 
 // Spawn creates a partition consumer instance and starts its goroutines.
 func Spawn(namespace *actor.ID, group, topic string, partition int32, cfg *config.Proxy,
-	groupMember *groupmember.T, msgStreamFactory msgstream.Factory, offsetMgrFactory offsetmgr.Factory,
+	groupMember *groupmember.T, msgStreamFactory msgistream.Factory, offsetMgrFactory offsetmgr.Factory,
 ) *T {
 	pc := &T{
 		actorID:          namespace.NewChild(fmt.Sprintf("P:%s_%d", topic, partition)),
@@ -93,29 +93,29 @@ func (pc *T) run() {
 	}()
 
 	// Wait for the initial offset to be retrieved.
-	var initialOffset offsetmgr.DecoratedOffset
+	var initialOffset offsetmgr.Offset
 	select {
 	case initialOffset = <-om.InitialOffset():
 	case <-pc.stopCh:
 		return
 	}
 
-	ms, concreteOffset, err := pc.msgStreamFactory.SpawnMessageStream(pc.actorID, pc.topic, pc.partition, initialOffset.Offset)
+	mis, concreteOffset, err := pc.msgStreamFactory.SpawnMessageIStream(pc.actorID, pc.topic, pc.partition, initialOffset.Val)
 	if err != nil {
 		// Must never happen.
-		log.Errorf("<%s> failed to start message stream: offset=%d, err=(%s)", pc.actorID, initialOffset.Offset, err)
+		log.Errorf("<%s> failed to start message stream: offset=%d, err=(%s)", pc.actorID, initialOffset.Val, err)
 		return
 	}
-	defer ms.Stop()
-	if initialOffset.Offset != concreteOffset {
+	defer mis.Stop()
+	if initialOffset.Val != concreteOffset {
 		log.Errorf("<%s> invalid initial offset: stored=%d, adjusted=%d",
-			pc.actorID, initialOffset.Offset, concreteOffset)
+			pc.actorID, initialOffset.Val, concreteOffset)
 	}
 	log.Infof("<%s> initialized: offset=%d", pc.actorID, concreteOffset)
 
 	// Initialize the Kafka offset storage for a group on first consumption.
-	if initialOffset.Offset == sarama.OffsetNewest {
-		om.SubmitOffset(concreteOffset, "")
+	if initialOffset.Val == sarama.OffsetNewest {
+		om.SubmitOffset(offsetmgr.Offset{concreteOffset, ""})
 	}
 	lastSubmittedOffset := concreteOffset
 	lastCommittedOffset := concreteOffset
@@ -126,7 +126,7 @@ func (pc *T) run() {
 		// Wait for a fetched message to be provided by the message stream.
 		for {
 			select {
-			case msg = <-ms.Messages():
+			case msg = <-mis.Messages():
 				// Notify tests when the very first message is fetched.
 				if !firstMessageFetched && FirstMessageFetchedCh != nil {
 					firstMessageFetched = true
@@ -134,7 +134,7 @@ func (pc *T) run() {
 				}
 				goto offerAndAck
 			case committedOffset := <-om.CommittedOffsets():
-				lastCommittedOffset = committedOffset.Offset
+				lastCommittedOffset = committedOffset.Val
 				continue
 			case <-pc.stopCh:
 				goto done
@@ -149,10 +149,10 @@ func (pc *T) run() {
 			// Keep offering the same message until it is acknowledged.
 			case <-pc.acksCh:
 				lastSubmittedOffset = msg.Offset + 1
-				om.SubmitOffset(lastSubmittedOffset, "")
+				om.SubmitOffset(offsetmgr.Offset{lastSubmittedOffset, ""})
 				break offerAndAck
 			case committedOffset := <-om.CommittedOffsets():
-				lastCommittedOffset = committedOffset.Offset
+				lastCommittedOffset = committedOffset.Val
 				continue
 			case <-pc.stopCh:
 				goto done
@@ -163,7 +163,7 @@ done:
 	om.Stop()
 	// Drain committed offsets.
 	for committedOffset := range om.CommittedOffsets() {
-		lastCommittedOffset = committedOffset.Offset
+		lastCommittedOffset = committedOffset.Val
 	}
 	// Reset `om` to prevent the deferred panic offset manager cleanup function
 	// from running and calling `Stop()` on the already stopped offset manager.
