@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer"
@@ -27,36 +26,36 @@ var (
 // message is pulled from the `messages()` channel, it is considered to be
 // consumed and its offset is committed.
 type T struct {
-	actorID          *actor.ID
-	cfg              *config.Proxy
-	group            string
-	topic            string
-	partition        int32
-	groupMember      *groupmember.T
-	msgStreamFactory msgistream.Factory
-	offsetMgrFactory offsetmgr.Factory
-	messagesCh       chan *consumer.Message
-	acksCh           chan *consumer.Message
-	stopCh           chan none.T
-	wg               sync.WaitGroup
+	actorID     *actor.ID
+	cfg         *config.Proxy
+	group       string
+	topic       string
+	partition   int32
+	groupMember *groupmember.T
+	msgIStreamF msgistream.Factory
+	offsetMgrF  offsetmgr.Factory
+	messagesCh  chan *consumer.Message
+	offersCh    chan *consumer.Message
+	stopCh      chan none.T
+	wg          sync.WaitGroup
 }
 
 // Spawn creates a partition consumer instance and starts its goroutines.
 func Spawn(namespace *actor.ID, group, topic string, partition int32, cfg *config.Proxy,
-	groupMember *groupmember.T, msgStreamFactory msgistream.Factory, offsetMgrFactory offsetmgr.Factory,
+	groupMember *groupmember.T, msgIStreamF msgistream.Factory, offsetMgrF offsetmgr.Factory,
 ) *T {
 	pc := &T{
-		actorID:          namespace.NewChild(fmt.Sprintf("P:%s_%d", topic, partition)),
-		cfg:              cfg,
-		group:            group,
-		topic:            topic,
-		partition:        partition,
-		groupMember:      groupMember,
-		msgStreamFactory: msgStreamFactory,
-		offsetMgrFactory: offsetMgrFactory,
-		messagesCh:       make(chan *consumer.Message),
-		acksCh:           make(chan *consumer.Message),
-		stopCh:           make(chan none.T),
+		actorID:     namespace.NewChild(fmt.Sprintf("P:%s_%d", topic, partition)),
+		cfg:         cfg,
+		group:       group,
+		topic:       topic,
+		partition:   partition,
+		groupMember: groupMember,
+		msgIStreamF: msgIStreamF,
+		offsetMgrF:  offsetMgrF,
+		messagesCh:  make(chan *consumer.Message),
+		offersCh:    make(chan *consumer.Message),
+		stopCh:      make(chan none.T),
 	}
 	actor.Spawn(pc.actorID, &pc.wg, pc.run)
 	return pc
@@ -73,14 +72,14 @@ func (pc *T) Messages() <-chan *consumer.Message {
 }
 
 // implements `multiplexer.In`
-func (pc *T) Acks() chan<- *consumer.Message {
-	return pc.acksCh
+func (pc *T) Offers() chan<- *consumer.Message {
+	return pc.offersCh
 }
 
 func (pc *T) run() {
 	defer pc.groupMember.ClaimPartition(pc.actorID, pc.topic, pc.partition, pc.stopCh)()
 
-	om, err := pc.offsetMgrFactory.SpawnOffsetManager(pc.actorID, pc.group, pc.topic, pc.partition)
+	om, err := pc.offsetMgrF.SpawnOffsetManager(pc.actorID, pc.group, pc.topic, pc.partition)
 	if err != nil {
 		// Must never happen.
 		log.Errorf("<%s> failed to spawn offset manager: err=(%s)", pc.actorID, err)
@@ -93,87 +92,72 @@ func (pc *T) run() {
 	}()
 
 	// Wait for the initial offset to be retrieved.
-	var initialOffset offsetmgr.Offset
+	var committedOffset offsetmgr.Offset
 	select {
-	case initialOffset = <-om.InitialOffset():
+	case committedOffset = <-om.InitialOffset():
 	case <-pc.stopCh:
 		return
 	}
+	submittedOffset := committedOffset
 
-	mis, concreteOffset, err := pc.msgStreamFactory.SpawnMessageIStream(pc.actorID, pc.topic, pc.partition, initialOffset.Val)
+	// Initialize the message input stream from the initial offset.
+	mis, realOffsetVal, err := pc.msgIStreamF.SpawnMessageIStream(pc.actorID, pc.topic, pc.partition, committedOffset.Val)
 	if err != nil {
 		// Must never happen.
-		log.Errorf("<%s> failed to start message stream: offset=%d, err=(%s)", pc.actorID, initialOffset.Val, err)
+		log.Errorf("<%s> failed to start message stream: offset=%d, err=(%s)", pc.actorID, committedOffset.Val, err)
 		return
 	}
 	defer mis.Stop()
-	if initialOffset.Val != concreteOffset {
-		log.Errorf("<%s> invalid initial offset: stored=%d, adjusted=%d",
-			pc.actorID, initialOffset.Val, concreteOffset)
-	}
-	log.Infof("<%s> initialized: offset=%d", pc.actorID, concreteOffset)
 
-	// Initialize the Kafka offset storage for a group on first consumption.
-	if initialOffset.Val == sarama.OffsetNewest {
-		om.SubmitOffset(offsetmgr.Offset{concreteOffset, ""})
+	// If the real initial offset is not what had been committed then adjust.
+	if committedOffset.Val != realOffsetVal {
+		log.Errorf("<%s> invalid initial offset: stored=%+v, adjusted=%+v",
+			pc.actorID, committedOffset.Val, realOffsetVal)
+		submittedOffset = offsetmgr.Offset{Val: realOffsetVal, Meta: ""}
+		om.SubmitOffset(submittedOffset)
+	} else {
+		log.Infof("<%s> initialized: offset=%+v", pc.actorID, submittedOffset)
 	}
-	lastSubmittedOffset := concreteOffset
-	lastCommittedOffset := concreteOffset
 
+	nilOrIStreamMessagesCh := mis.Messages()
+	var nilOrMessagesCh chan *consumer.Message
+	var msg *consumer.Message
 	firstMessageFetched := false
 	for {
-		var msg *consumer.Message
-		// Wait for a fetched message to be provided by the message stream.
-		for {
-			select {
-			case msg = <-mis.Messages():
-				// Notify tests when the very first message is fetched.
-				if !firstMessageFetched && FirstMessageFetchedCh != nil {
-					firstMessageFetched = true
-					FirstMessageFetchedCh <- pc
-				}
-				goto offerAndAck
-			case committedOffset := <-om.CommittedOffsets():
-				lastCommittedOffset = committedOffset.Val
-				continue
-			case <-pc.stopCh:
-				goto done
+		select {
+		case msg = <-nilOrIStreamMessagesCh:
+			nilOrIStreamMessagesCh = nil
+			nilOrMessagesCh = pc.messagesCh
+			// Notify tests when the very first message is fetched.
+			if !firstMessageFetched && FirstMessageFetchedCh != nil {
+				firstMessageFetched = true
+				FirstMessageFetchedCh <- pc
 			}
-		}
-	offerAndAck:
-		// Offer the fetched message to the upstream consumer and wait for it
-		// to be acknowledged.
-		for {
-			select {
-			case pc.messagesCh <- msg:
-			// Keep offering the same message until it is acknowledged.
-			case <-pc.acksCh:
-				lastSubmittedOffset = msg.Offset + 1
-				om.SubmitOffset(offsetmgr.Offset{lastSubmittedOffset, ""})
-				break offerAndAck
-			case committedOffset := <-om.CommittedOffsets():
-				lastCommittedOffset = committedOffset.Val
-				continue
-			case <-pc.stopCh:
-				goto done
-			}
+		case nilOrMessagesCh <- msg:
+			nilOrIStreamMessagesCh = mis.Messages()
+			nilOrMessagesCh = nil
+		case ack := <-pc.offersCh:
+			submittedOffset = offsetmgr.Offset{Val: ack.Offset + 1, Meta: ""}
+			om.SubmitOffset(submittedOffset)
+		case committedOffset = <-om.CommittedOffsets():
+		case <-pc.stopCh:
+			goto done
 		}
 	}
 done:
 	om.Stop()
 	// Drain committed offsets.
-	for committedOffset := range om.CommittedOffsets() {
-		lastCommittedOffset = committedOffset.Val
+	for committedOffset = range om.CommittedOffsets() {
 	}
 	// Reset `om` to prevent the deferred panic offset manager cleanup function
 	// from running and calling `Stop()` on the already stopped offset manager.
 	om = nil
-	if lastCommittedOffset != lastSubmittedOffset {
-		log.Errorf("<%s> failed to commit offset: submitted=%d, committed=%d",
-			pc.actorID, lastSubmittedOffset, lastCommittedOffset)
+	if committedOffset != submittedOffset {
+		log.Errorf("<%s> failed to commit offset: submitted=%+v, committed=%+v",
+			pc.actorID, submittedOffset, committedOffset)
 		return
 	}
-	log.Infof("<%s> last committed offset: %d", pc.actorID, lastCommittedOffset)
+	log.Infof("<%s> last committed offset: %+v", pc.actorID, committedOffset)
 }
 
 func (pc *T) Stop() {

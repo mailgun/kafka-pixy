@@ -15,7 +15,8 @@ func Test(t *testing.T) {
 }
 
 type MultiplexerSuite struct {
-	ns *actor.ID
+	ns       *actor.ID
+	offersCh chan *consumer.Message
 }
 
 var _ = Suite(&MultiplexerSuite{})
@@ -26,6 +27,7 @@ func (s *MultiplexerSuite) SetUpSuite(c *C) {
 
 func (s *MultiplexerSuite) SetUpTest(c *C) {
 	s.ns = actor.RootID.NewChild("T")
+	s.offersCh = make(chan *consumer.Message, 100)
 }
 
 func (s *MultiplexerSuite) TestSortedInputs(c *C) {
@@ -95,9 +97,8 @@ func (s *MultiplexerSuite) TestSelectInputNone(c *C) {
 
 // If there is just one input then it is forwarded to the output.
 func (s *MultiplexerSuite) TestOneInput(c *C) {
-	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
-		1: newMockIn(acksCh,
+		1: newMockIn(s.offersCh,
 			msg(1001, 1),
 			msg(1002, 1),
 			msg(1003, 1),
@@ -111,33 +112,32 @@ func (s *MultiplexerSuite) TestOneInput(c *C) {
 	m.WireUp(out, []int32{1})
 
 	// Then
-	checkMsg(c, out.messagesCh, acksCh, msg(1001, 1))
-	checkMsg(c, out.messagesCh, acksCh, msg(1002, 1))
-	checkMsg(c, out.messagesCh, acksCh, msg(1003, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(1001, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(1002, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(1003, 1))
 }
 
 // If there are several inputs with the same max lag then messages from them
 // are multiplexed in the round robin fashion. Note that messages are acknowledged
 func (s *MultiplexerSuite) TestSameLag(c *C) {
-	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
-		1: newMockIn(acksCh,
+		1: newMockIn(s.offersCh,
 			msg(1001, 1),
 			msg(1002, 1),
 			msg(1003, 1),
 			msg(1004, 1),
 			msg(1005, 1),
 		),
-		2: newMockIn(acksCh,
+		2: newMockIn(s.offersCh,
 			msg(2001, 1),
 			msg(2002, 1),
 			msg(2003, 1),
 		),
-		3: newMockIn(acksCh,
+		3: newMockIn(s.offersCh,
 			msg(3001, 1),
 			msg(3002, 1),
 		),
-		4: newMockIn(acksCh,
+		4: newMockIn(s.offersCh,
 			msg(4001, 1),
 		)}
 	out := newMockOut(100)
@@ -148,36 +148,35 @@ func (s *MultiplexerSuite) TestSameLag(c *C) {
 	m.WireUp(out, []int32{1, 2, 3, 4})
 
 	// Then
-	checkMsg(c, out.messagesCh, acksCh, msg(1001, 1))
-	checkMsg(c, out.messagesCh, acksCh, msg(2001, 1))
-	checkMsg(c, out.messagesCh, acksCh, msg(3001, 1))
-	checkMsg(c, out.messagesCh, acksCh, msg(4001, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(1001, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(2001, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(3001, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(4001, 1))
 
-	checkMsg(c, out.messagesCh, acksCh, msg(1002, 1))
-	checkMsg(c, out.messagesCh, acksCh, msg(2002, 1))
-	checkMsg(c, out.messagesCh, acksCh, msg(3002, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(1002, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(2002, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(3002, 1))
 
-	checkMsg(c, out.messagesCh, acksCh, msg(1003, 1))
-	checkMsg(c, out.messagesCh, acksCh, msg(2003, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(1003, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(2003, 1))
 
-	checkMsg(c, out.messagesCh, acksCh, msg(1004, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(1004, 1))
 
-	checkMsg(c, out.messagesCh, acksCh, msg(1005, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(1005, 1))
 }
 
 // Messages with the largest lag among current channel heads is selected.
 func (s *MultiplexerSuite) TestLargeLagPreferred(c *C) {
-	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
-		1: newMockIn(acksCh,
+		1: newMockIn(s.offersCh,
 			msg(1001, 1),
 			msg(1002, 3),
 		),
-		2: newMockIn(acksCh,
+		2: newMockIn(s.offersCh,
 			msg(2001, 2),
 			msg(2002, 1),
 		),
-		3: newMockIn(acksCh,
+		3: newMockIn(s.offersCh,
 			msg(3001, 1),
 			msg(3002, 4),
 		),
@@ -190,23 +189,22 @@ func (s *MultiplexerSuite) TestLargeLagPreferred(c *C) {
 	m.WireUp(out, []int32{1, 2, 3})
 
 	// Then
-	checkMsg(c, out.messagesCh, acksCh, msg(2001, 2))
-	checkMsg(c, out.messagesCh, acksCh, msg(3001, 1))
-	checkMsg(c, out.messagesCh, acksCh, msg(3002, 4))
-	checkMsg(c, out.messagesCh, acksCh, msg(1001, 1))
-	checkMsg(c, out.messagesCh, acksCh, msg(1002, 3))
-	checkMsg(c, out.messagesCh, acksCh, msg(2002, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(2001, 2))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(3001, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(3002, 4))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(1001, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(1002, 3))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(2002, 1))
 }
 
 // If there are no messages available on the inputs, multiplexer blocks waiting
 // for a message to appear in any of the inputs.
 func (s *MultiplexerSuite) TestNoMessages(c *C) {
 	// Given
-	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
-		1: newMockIn(acksCh, msg(1001, 1)),
-		2: newMockIn(acksCh),
-		3: newMockIn(acksCh),
+		1: newMockIn(s.offersCh, msg(1001, 1)),
+		2: newMockIn(s.offersCh),
+		3: newMockIn(s.offersCh),
 	}
 	out := newMockOut(100)
 	m := New(s.ns, func(p int32) In { return ins[p] })
@@ -214,7 +212,7 @@ func (s *MultiplexerSuite) TestNoMessages(c *C) {
 	m.WireUp(out, []int32{1, 2, 3})
 
 	// Make sure that multiplexer started and is pumping messages.
-	checkMsg(c, out.messagesCh, acksCh, msg(1001, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(1001, 1))
 	select {
 	case msg := <-out.messagesCh:
 		c.Errorf("Unexpected message: %v", *msg)
@@ -225,17 +223,16 @@ func (s *MultiplexerSuite) TestNoMessages(c *C) {
 	ins[2].(*mockIn).messagesCh <- msg(2001, 1)
 
 	// Then
-	checkMsg(c, out.messagesCh, acksCh, msg(2001, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(2001, 1))
 }
 
 func (s *MultiplexerSuite) TestWireUp(c *C) {
-	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
-		1: newMockIn(acksCh, msg(1001, 1)),
-		2: newMockIn(acksCh, msg(2001, 1)),
-		3: newMockIn(acksCh, msg(3001, 1)),
-		4: newMockIn(acksCh, msg(4001, 1)),
-		5: newMockIn(acksCh, msg(5001, 1)),
+		1: newMockIn(s.offersCh, msg(1001, 1)),
+		2: newMockIn(s.offersCh, msg(2001, 1)),
+		3: newMockIn(s.offersCh, msg(3001, 1)),
+		4: newMockIn(s.offersCh, msg(4001, 1)),
+		5: newMockIn(s.offersCh, msg(5001, 1)),
 	}
 	out := newMockOut(100)
 	m := New(s.ns, func(p int32) In { return ins[p] })
@@ -247,8 +244,8 @@ func (s *MultiplexerSuite) TestWireUp(c *C) {
 
 	// Then
 	c.Assert(m.IsRunning(), Equals, true)
-	checkMsg(c, out.messagesCh, acksCh, msg(2001, 1))
-	checkMsg(c, out.messagesCh, acksCh, msg(4001, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(2001, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(4001, 1))
 	select {
 	case msg := <-out.messagesCh:
 		c.Errorf("Unexpected message: %v", msg)
@@ -257,13 +254,12 @@ func (s *MultiplexerSuite) TestWireUp(c *C) {
 }
 
 func (s *MultiplexerSuite) TestWireUpAdd(c *C) {
-	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
-		1: newMockIn(acksCh, msg(1001, 1)),
-		2: newMockIn(acksCh, msg(2001, 1)),
-		3: newMockIn(acksCh, msg(3001, 1)),
-		4: newMockIn(acksCh, msg(4001, 1)),
-		5: newMockIn(acksCh, msg(5001, 1)),
+		1: newMockIn(s.offersCh, msg(1001, 1)),
+		2: newMockIn(s.offersCh, msg(2001, 1)),
+		3: newMockIn(s.offersCh, msg(3001, 1)),
+		4: newMockIn(s.offersCh, msg(4001, 1)),
+		5: newMockIn(s.offersCh, msg(5001, 1)),
 	}
 	out := newMockOut(0)
 	m := New(s.ns, func(p int32) In { return ins[p] })
@@ -276,9 +272,9 @@ func (s *MultiplexerSuite) TestWireUpAdd(c *C) {
 
 	// Then
 	c.Assert(m.IsRunning(), Equals, true)
-	checkMsg(c, out.messagesCh, acksCh, msg(2001, 1))
-	checkMsg(c, out.messagesCh, acksCh, msg(3001, 1))
-	checkMsg(c, out.messagesCh, acksCh, msg(4001, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(2001, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(3001, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(4001, 1))
 	select {
 	case msg := <-out.messagesCh:
 		c.Errorf("Unexpected message: %v", msg)
@@ -287,13 +283,12 @@ func (s *MultiplexerSuite) TestWireUpAdd(c *C) {
 }
 
 func (s *MultiplexerSuite) TestWireUpRemove(c *C) {
-	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
-		1: newMockIn(acksCh, msg(1001, 1)),
-		2: newMockIn(acksCh, msg(2001, 1)),
-		3: newMockIn(acksCh, msg(3001, 1)),
-		4: newMockIn(acksCh, msg(4001, 1)),
-		5: newMockIn(acksCh, msg(5001, 1)),
+		1: newMockIn(s.offersCh, msg(1001, 1)),
+		2: newMockIn(s.offersCh, msg(2001, 1)),
+		3: newMockIn(s.offersCh, msg(3001, 1)),
+		4: newMockIn(s.offersCh, msg(4001, 1)),
+		5: newMockIn(s.offersCh, msg(5001, 1)),
 	}
 	out := newMockOut(0)
 	m := New(s.ns, func(p int32) In { return ins[p] })
@@ -306,7 +301,7 @@ func (s *MultiplexerSuite) TestWireUpRemove(c *C) {
 
 	// Then
 	c.Assert(m.IsRunning(), Equals, true)
-	checkMsg(c, out.messagesCh, acksCh, msg(4001, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(4001, 1))
 	select {
 	case msg := <-out.messagesCh:
 		c.Errorf("Unexpected message: %v", msg)
@@ -315,13 +310,12 @@ func (s *MultiplexerSuite) TestWireUpRemove(c *C) {
 }
 
 func (s *MultiplexerSuite) TestWireUpAddRemove(c *C) {
-	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
-		1: newMockIn(acksCh, msg(1001, 1)),
-		2: newMockIn(acksCh, msg(2001, 1)),
-		3: newMockIn(acksCh, msg(3001, 1)),
-		4: newMockIn(acksCh, msg(4001, 1)),
-		5: newMockIn(acksCh, msg(5001, 1)),
+		1: newMockIn(s.offersCh, msg(1001, 1)),
+		2: newMockIn(s.offersCh, msg(2001, 1)),
+		3: newMockIn(s.offersCh, msg(3001, 1)),
+		4: newMockIn(s.offersCh, msg(4001, 1)),
+		5: newMockIn(s.offersCh, msg(5001, 1)),
 	}
 	out := newMockOut(0)
 	m := New(s.ns, func(p int32) In { return ins[p] })
@@ -334,8 +328,8 @@ func (s *MultiplexerSuite) TestWireUpAddRemove(c *C) {
 
 	// Then
 	c.Assert(m.IsRunning(), Equals, true)
-	checkMsg(c, out.messagesCh, acksCh, msg(3001, 1))
-	checkMsg(c, out.messagesCh, acksCh, msg(4001, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(3001, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(4001, 1))
 	select {
 	case msg := <-out.messagesCh:
 		c.Errorf("Unexpected message: %v", msg)
@@ -344,13 +338,12 @@ func (s *MultiplexerSuite) TestWireUpAddRemove(c *C) {
 }
 
 func (s *MultiplexerSuite) TestWireUpSame(c *C) {
-	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
-		1: newMockIn(acksCh, msg(1001, 1)),
-		2: newMockIn(acksCh, msg(2001, 1)),
-		3: newMockIn(acksCh, msg(3001, 1)),
-		4: newMockIn(acksCh, msg(4001, 1)),
-		5: newMockIn(acksCh, msg(5001, 1)),
+		1: newMockIn(s.offersCh, msg(1001, 1)),
+		2: newMockIn(s.offersCh, msg(2001, 1)),
+		3: newMockIn(s.offersCh, msg(3001, 1)),
+		4: newMockIn(s.offersCh, msg(4001, 1)),
+		5: newMockIn(s.offersCh, msg(5001, 1)),
 	}
 	out := newMockOut(0)
 	m := New(s.ns, func(p int32) In { return ins[p] })
@@ -363,8 +356,8 @@ func (s *MultiplexerSuite) TestWireUpSame(c *C) {
 
 	// Then
 	c.Assert(m.IsRunning(), Equals, true)
-	checkMsg(c, out.messagesCh, acksCh, msg(2001, 1))
-	checkMsg(c, out.messagesCh, acksCh, msg(4001, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(2001, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(4001, 1))
 	select {
 	case msg := <-out.messagesCh:
 		c.Errorf("Unexpected message: %v", msg)
@@ -373,13 +366,12 @@ func (s *MultiplexerSuite) TestWireUpSame(c *C) {
 }
 
 func (s *MultiplexerSuite) TestWireUpEmpty(c *C) {
-	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
-		1: newMockIn(acksCh, msg(1001, 1)),
-		2: newMockIn(acksCh, msg(2001, 1)),
-		3: newMockIn(acksCh, msg(3001, 1)),
-		4: newMockIn(acksCh, msg(4001, 1)),
-		5: newMockIn(acksCh, msg(5001, 1)),
+		1: newMockIn(s.offersCh, msg(1001, 1)),
+		2: newMockIn(s.offersCh, msg(2001, 1)),
+		3: newMockIn(s.offersCh, msg(3001, 1)),
+		4: newMockIn(s.offersCh, msg(4001, 1)),
+		5: newMockIn(s.offersCh, msg(5001, 1)),
 	}
 	out := newMockOut(0)
 	m := New(s.ns, func(p int32) In { return ins[p] })
@@ -400,13 +392,12 @@ func (s *MultiplexerSuite) TestWireUpEmpty(c *C) {
 }
 
 func (s *MultiplexerSuite) TestWireUpNil(c *C) {
-	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
-		1: newMockIn(acksCh, msg(1001, 1)),
-		2: newMockIn(acksCh, msg(2001, 1)),
-		3: newMockIn(acksCh, msg(3001, 1)),
-		4: newMockIn(acksCh, msg(4001, 1)),
-		5: newMockIn(acksCh, msg(5001, 1)),
+		1: newMockIn(s.offersCh, msg(1001, 1)),
+		2: newMockIn(s.offersCh, msg(2001, 1)),
+		3: newMockIn(s.offersCh, msg(3001, 1)),
+		4: newMockIn(s.offersCh, msg(4001, 1)),
+		5: newMockIn(s.offersCh, msg(5001, 1)),
 	}
 	out := newMockOut(0)
 	m := New(s.ns, func(p int32) In { return ins[p] })
@@ -427,13 +418,12 @@ func (s *MultiplexerSuite) TestWireUpNil(c *C) {
 }
 
 func (s *MultiplexerSuite) TestWireUpOutChanged(c *C) {
-	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
-		1: newMockIn(acksCh, msg(1001, 1)),
-		2: newMockIn(acksCh, msg(2001, 1)),
-		3: newMockIn(acksCh, msg(3001, 1)),
-		4: newMockIn(acksCh, msg(4001, 1)),
-		5: newMockIn(acksCh, msg(5001, 1)),
+		1: newMockIn(s.offersCh, msg(1001, 1)),
+		2: newMockIn(s.offersCh, msg(2001, 1)),
+		3: newMockIn(s.offersCh, msg(3001, 1)),
+		4: newMockIn(s.offersCh, msg(4001, 1)),
+		5: newMockIn(s.offersCh, msg(5001, 1)),
 	}
 	out1 := newMockOut(0)
 	out2 := newMockOut(0)
@@ -452,8 +442,8 @@ func (s *MultiplexerSuite) TestWireUpOutChanged(c *C) {
 		c.Errorf("Unexpected message: %v", msg)
 	default:
 	}
-	checkMsg(c, out2.messagesCh, acksCh, msg(2001, 1))
-	checkMsg(c, out2.messagesCh, acksCh, msg(4001, 1))
+	checkMsg(c, out2.messagesCh, s.offersCh, msg(2001, 1))
+	checkMsg(c, out2.messagesCh, s.offersCh, msg(4001, 1))
 	select {
 	case msg := <-out2.messagesCh:
 		c.Errorf("Unexpected message: %v", msg)
@@ -462,13 +452,12 @@ func (s *MultiplexerSuite) TestWireUpOutChanged(c *C) {
 }
 
 func (s *MultiplexerSuite) TestWireUpOutNil(c *C) {
-	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
-		1: newMockIn(acksCh, msg(1001, 1)),
-		2: newMockIn(acksCh, msg(2001, 1)),
-		3: newMockIn(acksCh, msg(3001, 1)),
-		4: newMockIn(acksCh, msg(4001, 1)),
-		5: newMockIn(acksCh, msg(5001, 1)),
+		1: newMockIn(s.offersCh, msg(1001, 1)),
+		2: newMockIn(s.offersCh, msg(2001, 1)),
+		3: newMockIn(s.offersCh, msg(3001, 1)),
+		4: newMockIn(s.offersCh, msg(4001, 1)),
+		5: newMockIn(s.offersCh, msg(5001, 1)),
 	}
 	out1 := newMockOut(0)
 	m := New(s.ns, func(p int32) In { return ins[p] })
@@ -489,13 +478,12 @@ func (s *MultiplexerSuite) TestWireUpOutNil(c *C) {
 }
 
 func (s *MultiplexerSuite) TestStop(c *C) {
-	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
-		1: newMockIn(acksCh, msg(1001, 1)),
-		2: newMockIn(acksCh, msg(2001, 1)),
-		3: newMockIn(acksCh, msg(3001, 1)),
-		4: newMockIn(acksCh, msg(4001, 1)),
-		5: newMockIn(acksCh, msg(5001, 1)),
+		1: newMockIn(s.offersCh, msg(1001, 1)),
+		2: newMockIn(s.offersCh, msg(2001, 1)),
+		3: newMockIn(s.offersCh, msg(3001, 1)),
+		4: newMockIn(s.offersCh, msg(4001, 1)),
+		5: newMockIn(s.offersCh, msg(5001, 1)),
 	}
 	out := newMockOut(0)
 	m := New(s.ns, func(p int32) In { return ins[p] })
@@ -516,15 +504,14 @@ func (s *MultiplexerSuite) TestStop(c *C) {
 
 // If an input channel closes then respective input is removed from rotation.
 func (s *MultiplexerSuite) TestInputChanClose(c *C) {
-	acksCh := make(chan *consumer.Message, 100)
 	ins := map[int32]In{
-		1: newMockIn(acksCh,
+		1: newMockIn(s.offersCh,
 			msg(1001, 1),
 			msg(1002, 1),
 			msg(1003, 1)),
-		2: newMockIn(acksCh,
+		2: newMockIn(s.offersCh,
 			msg(2001, 1)),
-		3: newMockIn(acksCh,
+		3: newMockIn(s.offersCh,
 			msg(3001, 1),
 			msg(3002, 1),
 			msg(3003, 1)),
@@ -539,24 +526,24 @@ func (s *MultiplexerSuite) TestInputChanClose(c *C) {
 	close(ins[2].(*mockIn).messagesCh)
 
 	// Then
-	checkMsg(c, out.messagesCh, acksCh, msg(1001, 1))
-	checkMsg(c, out.messagesCh, acksCh, msg(2001, 1))
-	checkMsg(c, out.messagesCh, acksCh, msg(1002, 1))
-	checkMsg(c, out.messagesCh, acksCh, msg(3001, 1))
-	checkMsg(c, out.messagesCh, acksCh, msg(1003, 1))
-	checkMsg(c, out.messagesCh, acksCh, msg(3002, 1))
-	checkMsg(c, out.messagesCh, acksCh, msg(3003, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(1001, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(2001, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(1002, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(3001, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(1003, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(3002, 1))
+	checkMsg(c, out.messagesCh, s.offersCh, msg(3003, 1))
 }
 
 type mockIn struct {
 	messagesCh chan *consumer.Message
-	acksCh     chan *consumer.Message
+	offersCh   chan *consumer.Message
 }
 
-func newMockIn(acksCh chan *consumer.Message, messages ...*consumer.Message) *mockIn {
+func newMockIn(offersCh chan *consumer.Message, messages ...*consumer.Message) *mockIn {
 	mi := mockIn{
 		messagesCh: make(chan *consumer.Message, len(messages)),
-		acksCh:     acksCh,
+		offersCh:   offersCh,
 	}
 	for _, m := range messages {
 		mi.messagesCh <- m
@@ -570,8 +557,8 @@ func (mi *mockIn) Messages() <-chan *consumer.Message {
 }
 
 // implements `In`
-func (mi *mockIn) Acks() chan<- *consumer.Message {
-	return mi.acksCh
+func (mi *mockIn) Offers() chan<- *consumer.Message {
+	return mi.offersCh
 }
 
 // implements `In`
@@ -607,7 +594,7 @@ func lag(lag int64) *consumer.Message {
 	}
 }
 
-func checkMsg(c *C, outCh, acksCh chan *consumer.Message, expected *consumer.Message) {
+func checkMsg(c *C, outCh, offersCh chan *consumer.Message, expected *consumer.Message) {
 	c.Assert(<-outCh, DeepEquals, expected)
-	c.Assert(<-acksCh, DeepEquals, expected)
+	c.Assert(<-offersCh, DeepEquals, expected)
 }

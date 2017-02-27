@@ -234,11 +234,11 @@ func (gc *T) runRebalancing(actorID *actor.ID, topicConsumers map[string]*topicc
 			continue
 		}
 		topic := topic
-		spawnInF := func(partition int32) multiplexer.In {
+		spawnInFn := func(partition int32) multiplexer.In {
 			return partitioncsm.Spawn(gc.supActorID, gc.group, topic, partition,
 				gc.cfg, gc.groupMember, gc.msgIStreamF, gc.offsetMgrF)
 		}
-		mux = multiplexer.New(gc.supActorID, spawnInF)
+		mux = multiplexer.New(gc.supActorID, spawnInFn)
 		gc.rewireMuxAsync(topic, &wg, mux, tc, assignedTopicPartitions)
 		gc.multiplexers[topic] = mux
 	}

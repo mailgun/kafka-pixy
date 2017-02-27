@@ -17,7 +17,7 @@ import (
 // started, or the old one stopped.
 type T struct {
 	actorID   *actor.ID
-	spawnInF  SpawnInF
+	spawnInFn SpawnInFn
 	inputs    map[int32]*input
 	output    Out
 	isRunning bool
@@ -27,13 +27,13 @@ type T struct {
 
 // In defines an interface of a multiplexer input.
 type In interface {
-	// Messages returns channel that multiplexer receives messages from.
+	// Messages returns a channel that multiplexer receives messages from.
+	// Read messages should NOT be considered as consumed by the input.
 	Messages() <-chan *consumer.Message
 
-	// Acks returns a channel that multiplexer sends a message that was pulled
-	// from the `Messages()` channel of this input after the message has been
-	// send to the output.
-	Acks() chan<- *consumer.Message
+	// Offers returns a channel that multiplexer sends messages read from
+	// Messages() channel when they are actually offered to a consumer.
+	Offers() chan<- *consumer.Message
 
 	// Stop signals the input to stop and blocks waiting for its goroutines to
 	// complete.
@@ -46,17 +46,17 @@ type Out interface {
 	Messages() chan<- *consumer.Message
 }
 
-// SpawnInF is a function type that is used by multiplexer to spawn inputs for
+// SpawnInFn is a function type that is used by multiplexer to spawn inputs for
 // assigned partitions during rewiring.
-type SpawnInF func(partition int32) In
+type SpawnInFn func(partition int32) In
 
 // New creates a new multiplexer instance.
-func New(namespace *actor.ID, spawnInF SpawnInF) *T {
+func New(namespace *actor.ID, spawnInFn SpawnInFn) *T {
 	return &T{
-		actorID:  namespace.NewChild("mux"),
-		inputs:   make(map[int32]*input),
-		spawnInF: spawnInF,
-		stopCh:   make(chan none.T),
+		actorID:   namespace.NewChild("mux"),
+		inputs:    make(map[int32]*input),
+		spawnInFn: spawnInFn,
+		stopCh:    make(chan none.T),
 	}
 }
 
@@ -120,7 +120,7 @@ func (m *T) WireUp(output Out, assigned []int32) {
 	for _, p := range assigned {
 		if _, ok := m.inputs[p]; !ok {
 			m.stopIfRunning()
-			m.inputs[p] = &input{In: m.spawnInF(p), partition: p}
+			m.inputs[p] = &input{In: m.spawnInFn(p), partition: p}
 		}
 	}
 	if !m.IsRunning() && len(m.inputs) > 0 {
@@ -204,7 +204,7 @@ reset:
 		case <-m.stopCh:
 			return
 		case m.output.Messages() <- sortedIns[inputIdx].nextMsg:
-			sortedIns[inputIdx].Acks() <- sortedIns[inputIdx].nextMsg
+			sortedIns[inputIdx].Offers() <- sortedIns[inputIdx].nextMsg
 			sortedIns[inputIdx].nextMsg = nil
 		}
 	}
