@@ -3,6 +3,7 @@ package partitioncsm
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
@@ -10,6 +11,7 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer/groupmember"
 	"github.com/mailgun/kafka-pixy/consumer/msgistream"
 	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
+	"github.com/mailgun/kafka-pixy/consumer/offsettrac"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
 )
@@ -18,6 +20,15 @@ var (
 	// TESTING ONLY!: If this channel is not `nil` then partition consumers
 	// will use it to notify when they fetch the very first message.
 	FirstMessageFetchedCh chan *T
+	initialOffsetCh       chan offsetmgr.Offset
+
+	// Following variables are supposed to be constants but they were defined
+	// as variables to allow overriding in tests:
+
+	check4RetryInterval   = time.Second
+	retriesHighWaterMark  = 1
+	retriesEmergencyBreak = 3 * retriesHighWaterMark
+	pendingHighWaterMark  = 100
 )
 
 // exclusiveConsumer ensures exclusive consumption of messages from a topic
@@ -36,8 +47,12 @@ type T struct {
 	offsetMgrF  offsetmgr.Factory
 	messagesCh  chan *consumer.Message
 	offersCh    chan *consumer.Message
+	acksCh      chan *consumer.Message
 	stopCh      chan none.T
 	wg          sync.WaitGroup
+
+	// For tests only!
+	firstMsgFetched bool
 }
 
 // Spawn creates a partition consumer instance and starts its goroutines.
@@ -53,8 +68,9 @@ func Spawn(namespace *actor.ID, group, topic string, partition int32, cfg *confi
 		groupMember: groupMember,
 		msgIStreamF: msgIStreamF,
 		offsetMgrF:  offsetMgrF,
-		messagesCh:  make(chan *consumer.Message),
-		offersCh:    make(chan *consumer.Message),
+		messagesCh:  make(chan *consumer.Message, 1),
+		offersCh:    make(chan *consumer.Message, 1),
+		acksCh:      make(chan *consumer.Message, 1),
 		stopCh:      make(chan none.T),
 	}
 	actor.Spawn(pc.actorID, &pc.wg, pc.run)
@@ -100,7 +116,7 @@ func (pc *T) run() {
 	}
 	submittedOffset := committedOffset
 
-	// Initialize the message input stream from the initial offset.
+	// Initialize the message input stream to read from the initial offset.
 	mis, realOffsetVal, err := pc.msgIStreamF.SpawnMessageIStream(pc.actorID, pc.topic, pc.partition, committedOffset.Val)
 	if err != nil {
 		// Must never happen.
@@ -118,29 +134,89 @@ func (pc *T) run() {
 	} else {
 		log.Infof("<%s> initialized: offset=%+v", pc.actorID, submittedOffset)
 	}
+	pc.notifyTestInitialized(submittedOffset)
+	ot := offsettrac.New(submittedOffset, pc.cfg.Consumer.RebalanceDelay)
 
-	nilOrIStreamMessagesCh := mis.Messages()
-	var nilOrMessagesCh chan *consumer.Message
-	var msg *consumer.Message
-	firstMessageFetched := false
+	var (
+		nilOrIStreamMessagesCh = mis.Messages()
+		nilOrMessagesCh        chan *consumer.Message
+		retryTicker            = time.NewTicker(check4RetryInterval)
+		msg                    *consumer.Message
+		fetchedMsg             *consumer.Message
+		pending                int
+		retryNo                int
+	)
+	defer retryTicker.Stop()
 	for {
 		select {
-		case msg = <-nilOrIStreamMessagesCh:
-			nilOrIStreamMessagesCh = nil
-			nilOrMessagesCh = pc.messagesCh
-			// Notify tests when the very first message is fetched.
-			if !firstMessageFetched && FirstMessageFetchedCh != nil {
-				firstMessageFetched = true
-				FirstMessageFetchedCh <- pc
+		case fetchedMsg = <-nilOrIStreamMessagesCh:
+			pc.notifyTestFetched()
+			if msg == nil {
+				msg = fetchedMsg
+				fetchedMsg = nil
+				nilOrMessagesCh = pc.messagesCh
+				continue
 			}
+			nilOrIStreamMessagesCh = nil
+		case <-retryTicker.C:
+			if msg != nil {
+				continue
+			}
+			msg, retryNo = ot.NextRetry()
+			if msg == nil {
+				continue
+			}
+			if retryNo > retriesEmergencyBreak {
+				log.Errorf("<%s> Too many retries: offset=%d", pc.actorID, msg.Offset)
+				goto wait4Ack
+			}
+			if retryNo > retriesHighWaterMark {
+				log.Warningf("<%s> Retries above HWM: retryNo=%d, offset=%d", pc.actorID, retryNo, msg.Offset)
+			}
+			nilOrMessagesCh = pc.messagesCh
 		case nilOrMessagesCh <- msg:
-			nilOrIStreamMessagesCh = mis.Messages()
+			msg, retryNo = ot.NextRetry()
+			if msg != nil {
+				if retryNo > retriesEmergencyBreak {
+					log.Errorf("<%s> too many retries: offset=%d", pc.actorID, msg.Offset)
+					goto wait4Ack
+				}
+				if retryNo > retriesHighWaterMark {
+					log.Warningf("<%s> retries above HWM: %d, offset=%d", pc.actorID, retryNo, msg.Offset)
+				}
+				continue
+			}
+			if fetchedMsg != nil {
+				msg = fetchedMsg
+				fetchedMsg = nil
+				if pending <= pendingHighWaterMark {
+					nilOrIStreamMessagesCh = mis.Messages()
+				}
+				continue
+			}
 			nilOrMessagesCh = nil
-		case ack := <-pc.offersCh:
-			submittedOffset = offsetmgr.Offset{Val: ack.Offset + 1, Meta: ""}
+		case offeredMsg := <-pc.offersCh:
+			ot.OnOffered(offeredMsg)
+			// FIXME: At this stage of ack feature implementation we consider a
+			// FIXME: message acknowledged as soon as it has been offered.
+			submittedOffset, pending = ot.OnAcked(offeredMsg)
+			if pending > pendingHighWaterMark {
+				log.Warningf("<%s> pending count above HWM: %d, offset=%d", pc.actorID, retryNo, msg.Offset)
+				nilOrIStreamMessagesCh = nil
+			}
 			om.SubmitOffset(submittedOffset)
 		case committedOffset = <-om.CommittedOffsets():
 		case <-pc.stopCh:
+			goto wait4Ack
+		}
+	}
+wait4Ack:
+	for ok, timeout := ot.ShouldWait4Ack(); ok; ok, timeout = ot.ShouldWait4Ack() {
+		select {
+		case ackedMsg := <-pc.acksCh:
+			submittedOffset, _ := ot.OnAcked(ackedMsg)
+			om.SubmitOffset(submittedOffset)
+		case <-time.After(timeout):
 			goto done
 		}
 	}
@@ -163,4 +239,20 @@ done:
 func (pc *T) Stop() {
 	close(pc.stopCh)
 	pc.wg.Wait()
+}
+
+// notifyTestInitialized sends initial offset to initialOffsetCh channel.
+func (pc *T) notifyTestInitialized(initialOffset offsetmgr.Offset) {
+	if initialOffsetCh != nil {
+		initialOffsetCh <- initialOffset
+	}
+}
+
+// notifyTestFetched sends a signal to FirstMessageFetchedCh channel the
+// first time it is called.
+func (pc *T) notifyTestFetched() {
+	if !pc.firstMsgFetched && FirstMessageFetchedCh != nil {
+		pc.firstMsgFetched = true
+		FirstMessageFetchedCh <- pc
+	}
 }
