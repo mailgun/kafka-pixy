@@ -71,6 +71,22 @@ func (ot *T) OnAcked(msg *consumer.Message) (offsetmgr.Offset, int) {
 	return ot.offset, msgCount
 }
 
+// IsAcked tells if a message has already been acknowledged.
+func (ot *T) IsAcked(msg *consumer.Message) bool {
+	if msg.Offset < ot.offset.Val {
+		return true
+	}
+	for _, ar := range ot.ackRanges {
+		if msg.Offset < ar.from {
+			return false
+		}
+		if msg.Offset < ar.to {
+			return true
+		}
+	}
+	return false
+}
+
 // NextRetry returns a next message to be retried along with the retry attempt
 // number. If there is no message to be retried then nil is returned.
 func (ot *T) NextRetry() (*consumer.Message, int) {

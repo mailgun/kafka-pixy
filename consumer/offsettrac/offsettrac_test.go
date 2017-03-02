@@ -161,6 +161,38 @@ func (s *OffsetTrackerSuite) TestNewOffsetAdjusted(c *C) {
 	}
 }
 
+func (s *OffsetTrackerSuite) TestIsAcked(c *C) {
+	meta, _ := encodeAckRanges(301, []ackRange{
+		{302, 305}, {307, 309}, {310, 313}})
+	offset := offsetmgr.Offset{301, meta}
+	ot := New(offset, -1)
+	for i, tc := range []struct {
+		offset  int64
+		isAcked bool
+	}{
+		/*  0 */ {offset: 299, isAcked: true},
+		/*  1 */ {offset: 300, isAcked: true},
+		/*  2 */ {offset: 301, isAcked: false},
+		/*  3 */ {offset: 302, isAcked: true},
+		/*  4 */ {offset: 303, isAcked: true},
+		/*  5 */ {offset: 304, isAcked: true},
+		/*  6 */ {offset: 305, isAcked: false},
+		/*  7 */ {offset: 306, isAcked: false},
+		/*  8 */ {offset: 307, isAcked: true},
+		/*  9 */ {offset: 308, isAcked: true},
+		/* 10 */ {offset: 309, isAcked: false},
+		/* 11 */ {offset: 310, isAcked: true},
+		/* 12 */ {offset: 311, isAcked: true},
+		/* 13 */ {offset: 312, isAcked: true},
+		/* 14 */ {offset: 313, isAcked: false},
+		/* 15 */ {offset: 314, isAcked: false},
+	} {
+		// When/Then
+		c.Assert(ot.IsAcked(&consumer.Message{Offset: tc.offset}),
+			Equals, tc.isAcked, Commentf("case: %d", i))
+	}
+}
+
 func offsetToStr(offset offsetmgr.Offset) string {
 	var buf bytes.Buffer
 	buf.WriteString(strconv.FormatInt(offset.Val, 10))
