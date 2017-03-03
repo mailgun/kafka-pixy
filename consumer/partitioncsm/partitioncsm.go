@@ -135,7 +135,7 @@ func (pc *T) run() {
 		log.Infof("<%s> initialized: offset=%+v", pc.actorID, submittedOffset)
 	}
 	pc.notifyTestInitialized(submittedOffset)
-	ot := offsettrac.New(submittedOffset, pc.cfg.Consumer.RebalanceDelay)
+	ot := offsettrac.New(pc.actorID, submittedOffset, pc.cfg.Consumer.RebalanceDelay)
 
 	var (
 		nilOrIStreamMessagesCh = mis.Messages()

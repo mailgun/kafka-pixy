@@ -1,62 +1,77 @@
 package offsettrac
 
 import (
-	"bytes"
-	"strconv"
 	"testing"
+	"time"
 
+	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
 	"github.com/pkg/errors"
 	. "gopkg.in/check.v1"
 )
 
+type action int
+
+const (
+	doOff action = iota
+	doAck
+)
+
 var _ = Suite(&OffsetTrackerSuite{})
 
 type OffsetTrackerSuite struct {
+	ns *actor.ID
 }
 
 func Test(t *testing.T) {
 	TestingT(t)
 }
 
+func (s *OffsetTrackerSuite) SetUpTest(c *C) {
+	s.ns = actor.RootID.NewChild("T")
+}
+
 // Acknowledged offsets are properly reflected in ackRanges.
 func (s *OffsetTrackerSuite) TestOnAckedRanges(c *C) {
-	ot := New(offsetmgr.Offset{Val: 300}, -1)
+	ot := New(s.ns, offsetmgr.Offset{Val: 300}, -1)
 	for i, tc := range []struct {
 		offset            int64
+		committed         int64
 		ranges            string
 		skipSymmetryCheck bool
 	}{
-		/*  0 */ {offset: 299, ranges: "300:"},
-		/*  1 */ {offset: 300, ranges: "301:"},
-		/*  2 */ {offset: 302, ranges: "301:302-303"},
-		/*  3 */ {offset: 310, ranges: "301:302-303,310-311"},
-		/*  4 */ {offset: 311, ranges: "301:302-303,310-312"},
-		/*  5 */ {offset: 307, ranges: "301:302-303,307-308,310-312"},
-		/*  6 */ {offset: 305, ranges: "301:302-303,305-306,307-308,310-312"},
-		/*  7 */ {offset: 304, ranges: "301:302-303,304-306,307-308,310-312"},
-		/*  8 */ {offset: 305, ranges: "301:302-303,304-306,307-308,310-312"},
-		/*  9 */ {offset: 308, ranges: "301:302-303,304-306,307-309,310-312"},
-		/* 10 */ {offset: 303, ranges: "301:302-306,307-309,310-312"},
-		/* 11 */ {offset: 309, ranges: "301:302-306,307-312"},
-		/* 12 */ {offset: 306, ranges: "301:302-312"},
-		/* 13 */ {offset: 301, ranges: "312:"},
-		/* 14 */ {offset: 398, ranges: "312:398-399"},
-		/* 15 */ {offset: 399, ranges: "312:398-400"},
+		/*  0 */ {offset: 299, committed: 300, ranges: ""},
+		/*  1 */ {offset: 300, committed: 301, ranges: ""},
+		/*  2 */ {offset: 302, committed: 301, ranges: "1-2"},
+		/*  3 */ {offset: 310, committed: 301, ranges: "1-2,9-10"},
+		/*  4 */ {offset: 311, committed: 301, ranges: "1-2,9-11"},
+		/*  5 */ {offset: 307, committed: 301, ranges: "1-2,6-7,9-11"},
+		/*  6 */ {offset: 305, committed: 301, ranges: "1-2,4-5,6-7,9-11"},
+		/*  7 */ {offset: 304, committed: 301, ranges: "1-2,3-5,6-7,9-11"},
+		//        Acking the an acked offset makes no difference
+		/*  8 */ {offset: 305, committed: 301, ranges: "1-2,3-5,6-7,9-11"},
+		/*  9 */ {offset: 308, committed: 301, ranges: "1-2,3-5,6-8,9-11"},
+		/* 10 */ {offset: 303, committed: 301, ranges: "1-5,6-8,9-11"},
+		/* 11 */ {offset: 309, committed: 301, ranges: "1-5,6-11"},
+		/* 12 */ {offset: 306, committed: 301, ranges: "1-11"},
+		/* 13 */ {offset: 301, committed: 312, ranges: ""},
+		/* 14 */ {offset: 398, committed: 312, ranges: "86-87"},
+		/* 15 */ {offset: 399, committed: 312, ranges: "86-88"},
 		//        delta is greater then 4095, so large deltas cannot be
-		//        represented in the selected encoding algorithm. They must
+		//        represented in the selected encoding algorithm. That must
 		//        never happen in production, but to be thorough we need to
 		//        handle this case somehow, so we just drop all range info.
-		/* 16 */ {offset: 4496, ranges: "312:", skipSymmetryCheck: true},
-		/* 17 */ {offset: 4495, ranges: "312:398-400,4495-4497"},
+		/* 16 */ {offset: 4496, committed: 312, ranges: "", skipSymmetryCheck: true},
+		/* 17 */ {offset: 4495, committed: 312, ranges: "86-88,4183-4185"},
 	} {
 		// When
 		offset, _ := ot.OnAcked(&consumer.Message{Offset: tc.offset})
-		ot2 := New(offset, -1)
+		ot2 := New(s.ns, offset, -1)
 
 		// Then
-		c.Assert(offsetToStr(offset), Equals, tc.ranges, Commentf("case: %d", i))
+		c.Assert(offset.Val, Equals, tc.committed, Commentf("case: %d", i))
+		c.Assert(RangesToStr(offset), Equals, tc.ranges, Commentf("case: %d", i))
 		if tc.skipSymmetryCheck {
 			continue
 		}
@@ -120,7 +135,7 @@ func (s *OffsetTrackerSuite) TestAckRangeDecodeError(c *C) {
 		err     error
 	}{
 		/* 0 */ {"abc", errors.New("too few chars: 3")},
-		/* 1 */ {"ab@d", errors.New("invalid char: @")},
+		/* 1 */ {"ab@d", errors.New("bad `to` boundary: invalid char: @")},
 		/* 2 */ {"ABAA", errors.New("invalid range: {10001 10001}")},
 	} {
 		// When
@@ -154,7 +169,7 @@ func (s *OffsetTrackerSuite) TestNewOffsetAdjusted(c *C) {
 		},
 	} {
 		// When
-		ot := New(tc.initial, -1)
+		ot := New(s.ns, tc.initial, -1)
 
 		// Then
 		c.Assert(ot.offset, Equals, tc.adjusted, Commentf("case: %d", i))
@@ -165,7 +180,7 @@ func (s *OffsetTrackerSuite) TestIsAcked(c *C) {
 	meta, _ := encodeAckRanges(301, []ackRange{
 		{302, 305}, {307, 309}, {310, 313}})
 	offset := offsetmgr.Offset{301, meta}
-	ot := New(offset, -1)
+	ot := New(s.ns, offset, -1)
 	for i, tc := range []struct {
 		offset  int64
 		isAcked bool
@@ -193,18 +208,158 @@ func (s *OffsetTrackerSuite) TestIsAcked(c *C) {
 	}
 }
 
-func offsetToStr(offset offsetmgr.Offset) string {
-	var buf bytes.Buffer
-	buf.WriteString(strconv.FormatInt(offset.Val, 10))
-	buf.WriteString(":")
-	ackRanges, _ := decodeAckRanges(offset.Val, offset.Meta)
-	for i, ar := range ackRanges {
-		if i != 0 {
-			buf.WriteString(",")
+func (s *OffsetTrackerSuite) TestOfferAckLoop(c *C) {
+	ot := New(s.ns, offsetmgr.Offset{Val: 300}, -1)
+	for i, tc := range []struct {
+		act       action
+		offset    int64
+		count     int
+		committed int64
+		ranges    string
+	}{
+		/*  0 */ {act: doOff, offset: 298, count: 0},
+		/*  1 */ {act: doOff, offset: 299, count: 0},
+		//        Test offering in arbitrary order, even though it never
+		//        happens in real life.
+		/*  2 */ {act: doOff, offset: 301, count: 1},
+		/*  3 */ {act: doOff, offset: 300, count: 2},
+		/*  4 */ {act: doOff, offset: 304, count: 3},
+		/*  5 */ {act: doOff, offset: 302, count: 4},
+		/*  6 */ {act: doOff, offset: 303, count: 5},
+		//        And a bit of regular sequential offering
+		/*  7 */ {act: doOff, offset: 305, count: 6},
+		/*  8 */ {act: doOff, offset: 306, count: 7},
+		//        Ack some messages
+		/*  9 */ {act: doAck, offset: 307, count: 7, committed: 300, ranges: "7-8"},
+		/* 10 */ {act: doAck, offset: 299, count: 7, committed: 300, ranges: "7-8"},
+		/* 11 */ {act: doAck, offset: 303, count: 6, committed: 300, ranges: "3-4,7-8"},
+		/* 12 */ {act: doAck, offset: 300, count: 5, committed: 301, ranges: "2-3,6-7"},
+		//        Offer acked again
+		/* 13 */ {act: doOff, offset: 298, count: 5},
+		/* 14 */ {act: doOff, offset: 305, count: 5},
+		//        Offer offered (ignored)
+		/* 15 */ {act: doOff, offset: 302, count: 5},
+		/* 16 */ {act: doOff, offset: 305, count: 5},
+		/* 17 */ {act: doOff, offset: 306, count: 5},
+		//        Ack acked (ignored)
+		/* 18 */ {act: doAck, offset: 299, count: 5, committed: 301, ranges: "2-3,6-7"},
+		/* 19 */ {act: doAck, offset: 300, count: 5, committed: 301, ranges: "2-3,6-7"},
+		//        Offer/Ack some more
+		/* 20 */ {act: doOff, offset: 309, count: 6},
+		/* 21 */ {act: doAck, offset: 302, count: 5, committed: 301, ranges: "1-3,6-7"},
+		/* 22 */ {act: doAck, offset: 301, count: 4, committed: 304, ranges: "3-4"},
+		/* 23 */ {act: doOff, offset: 308, count: 5},
+		/* 24 */ {act: doAck, offset: 306, count: 4, committed: 304, ranges: "2-4"},
+	} {
+		var count int
+		// When
+		switch tc.act {
+		case doOff:
+			count = ot.OnOffered(&consumer.Message{Offset: tc.offset})
+		case doAck:
+			var offset offsetmgr.Offset
+			offset, count = ot.OnAcked(&consumer.Message{Offset: tc.offset})
+			c.Assert(offset.Val, Equals, tc.committed, Commentf("case: %d", i))
+			c.Assert(RangesToStr(offset), Equals, tc.ranges, Commentf("case: %d", i))
 		}
-		buf.WriteString(strconv.FormatInt(ar.from, 10))
-		buf.WriteString("-")
-		buf.WriteString(strconv.FormatInt(ar.to, 10))
+		// Then
+		c.Assert(count, Equals, tc.count, Commentf("case: %d", i))
 	}
-	return buf.String()
+}
+
+func (s *OffsetTrackerSuite) TestNestRetry(c *C) {
+	ot := New(s.ns, offsetmgr.Offset{Val: 300}, 5*time.Second)
+	msgs := []*consumer.Message{
+		{Offset: 301},
+		{Offset: 302},
+		{Offset: 303},
+	}
+	begin := time.Now()
+	for _, msg := range msgs {
+		ot.OnOffered(msg)
+	}
+	ot.offers[0].deadline = begin.Add(5 * time.Second)
+	ot.offers[1].deadline = begin.Add(7 * time.Second)
+	ot.offers[2].deadline = begin.Add(9 * time.Second)
+
+	for i, tc := range []struct {
+		millis     int
+		offset     int64
+		retryCount int
+	}{
+		/*  0 */ {millis: 0},
+		/*  1 */ {millis: 1000},
+		/*  2 */ {millis: 5000},
+		/*  3 */ {millis: 5001, offset: 301, retryCount: 1},
+		/*  4 */ {millis: 7000},
+		//        The next attempt deadline is counted from the time when
+		//        NextRetry returns the message.
+		/*  5 */ {millis: 9001, offset: 302, retryCount: 1},
+		/*  6 */ {millis: 9003, offset: 303, retryCount: 1},
+		/*  8 */ {millis: 10000},
+		/*  9 */ {millis: 20000, offset: 301, retryCount: 2},
+		/* 10 */ {millis: 20002, offset: 302, retryCount: 2},
+		/* 11 */ {millis: 20004, offset: 303, retryCount: 2},
+		/* 12 */ {millis: 25000},
+		/* 13 */ {millis: 25001, offset: 301, retryCount: 3},
+		/* 14 */ {millis: 25002},
+		/* 15 */ {millis: 25003, offset: 302, retryCount: 3},
+		/* 16 */ {millis: 25004},
+		/* 17 */ {millis: 25005, offset: 303, retryCount: 3},
+		/* 18 */ {millis: 25006},
+	} {
+		// When
+		now := begin.Add(time.Duration(tc.millis) * time.Millisecond)
+		msg, retryCount := ot.nextRetry(now)
+
+		// Then
+		if msg == nil {
+			c.Assert(tc.offset, Equals, int64(0), Commentf("case: %d", i))
+			c.Assert(retryCount, Equals, -1, Commentf("case: %d", i))
+		} else {
+			c.Assert(msg.Offset, Equals, tc.offset, Commentf("case: %d", i))
+			c.Assert(retryCount, Equals, tc.retryCount, Commentf("case: %d", i))
+		}
+	}
+}
+
+func (s *OffsetTrackerSuite) TestShouldWait4Ack(c *C) {
+	ot := New(s.ns, offsetmgr.Offset{Val: 300}, -1)
+	msgs := []*consumer.Message{
+		{Offset: 301},
+		{Offset: 302},
+		{Offset: 303},
+	}
+	begin := time.Now()
+	for _, msg := range msgs {
+		ot.OnOffered(msg)
+	}
+	ot.offers[0].deadline = begin.Add(3 * time.Second)
+	ot.offers[1].deadline = begin.Add(4 * time.Second)
+	ot.offers[2].deadline = begin.Add(9 * time.Second)
+
+	for i, tc := range []struct {
+		millis  int
+		wait    bool
+		timeout int
+	}{
+		/*  0 */ {millis: 0, wait: true, timeout: 3000},
+		/*  1 */ {millis: 2998, wait: true, timeout: 2},
+		/*  2 */ {millis: 2999, wait: true, timeout: 1},
+		/*  3 */ {millis: 3000, wait: true, timeout: 1000},
+		/*  4 */ {millis: 3001, wait: true, timeout: 999},
+		/*  5 */ {millis: 3999, wait: true, timeout: 1},
+		/*  6 */ {millis: 4000, wait: true, timeout: 5000},
+		/*  7 */ {millis: 8950, wait: true, timeout: 50},
+		/*  8 */ {millis: 8999, wait: true, timeout: 1},
+		/*  9 */ {millis: 9000, wait: false, timeout: 0},
+		/* 10 */ {millis: 9001, wait: false, timeout: 0},
+		/* 11 */ {millis: 9999, wait: false, timeout: 0},
+	} {
+		// When/Then
+		now := begin.Add(time.Duration(tc.millis) * time.Millisecond)
+		wait, timeout := ot.shouldWait4Ack(now)
+		c.Assert(wait, Equals, tc.wait, Commentf("case: %d", i))
+		c.Assert(timeout, Equals, time.Duration(tc.timeout)*time.Millisecond, Commentf("case: %d", i))
+	}
 }
