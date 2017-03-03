@@ -17,25 +17,25 @@ func Test(t *testing.T) {
 	TestingT(t)
 }
 
-type GroupRegistratorSuite struct {
+type GroupMemberSuite struct {
 	ns       *actor.ID
 	kazooClt *kazoo.Kazoo
 }
 
-var _ = Suite(&GroupRegistratorSuite{})
+var _ = Suite(&GroupMemberSuite{})
 
-func (s *GroupRegistratorSuite) SetUpSuite(c *C) {
+func (s *GroupMemberSuite) SetUpSuite(c *C) {
 	testhelpers.InitLogging(c)
 	var err error
 	s.kazooClt, err = kazoo.NewKazoo(testhelpers.ZookeeperPeers, kazoo.NewConfig())
 	c.Assert(err, IsNil)
 }
 
-func (s *GroupRegistratorSuite) SetUpTest(c *C) {
+func (s *GroupMemberSuite) SetUpTest(c *C) {
 	s.ns = actor.RootID.NewChild("T")
 }
 
-func (s *GroupRegistratorSuite) TestNormalizeTopics(c *C) {
+func (s *GroupMemberSuite) TestNormalizeTopics(c *C) {
 	c.Assert(normalizeTopics(nil), DeepEquals, []string(nil))
 	c.Assert(normalizeTopics([]string{}), DeepEquals, []string(nil))
 	c.Assert(normalizeTopics([]string{"c", "a", "b"}), DeepEquals, []string{"a", "b", "c"})
@@ -43,7 +43,7 @@ func (s *GroupRegistratorSuite) TestNormalizeTopics(c *C) {
 	c.Assert(normalizeTopics([]string{"c", "a", "b"}), Not(DeepEquals), []string{"a", "b"})
 }
 
-func (s *GroupRegistratorSuite) TestTopicsEqual(c *C) {
+func (s *GroupMemberSuite) TestTopicsEqual(c *C) {
 	c.Assert(topicsEqual([]string{}, nil), Equals, true)
 	c.Assert(topicsEqual(nil, []string{}), Equals, true)
 	c.Assert(topicsEqual([]string{}, []string{}), Equals, true)
@@ -54,7 +54,7 @@ func (s *GroupRegistratorSuite) TestTopicsEqual(c *C) {
 	c.Assert(topicsEqual([]string{"a", "b"}, []string{"b", "a"}), Equals, false)
 }
 
-func (s *GroupRegistratorSuite) TestSubscriptionsEqual(c *C) {
+func (s *GroupMemberSuite) TestSubscriptionsEqual(c *C) {
 	c.Assert(subscriptionsEqual(nil, nil), Equals, true)
 	c.Assert(subscriptionsEqual(map[string][]string{}, nil), Equals, true)
 	c.Assert(subscriptionsEqual(nil, map[string][]string{}), Equals, true)
@@ -73,7 +73,7 @@ func (s *GroupRegistratorSuite) TestSubscriptionsEqual(c *C) {
 
 // When a list of topics is sent to the `topics()` channel, a membership change
 // is received with the same list of topics for the registrator name.
-func (s *GroupRegistratorSuite) TestSimpleSubscribe(c *C) {
+func (s *GroupMemberSuite) TestSimpleSubscribe(c *C) {
 	// Given
 	cfg := config.DefaultProxy()
 	cfg.Consumer.RebalanceDelay = 200 * time.Millisecond
@@ -91,7 +91,7 @@ func (s *GroupRegistratorSuite) TestSimpleSubscribe(c *C) {
 // When topic subscription changes occur in close succession only one
 // membership change notification is received back with the most recent topic
 // list for the registrator name.
-func (s *GroupRegistratorSuite) TestSubscribeSequence(c *C) {
+func (s *GroupMemberSuite) TestSubscribeSequence(c *C) {
 	// Given
 	cfg := config.DefaultProxy()
 	cfg.Consumer.RebalanceDelay = 200 * time.Millisecond
@@ -109,7 +109,7 @@ func (s *GroupRegistratorSuite) TestSubscribeSequence(c *C) {
 
 // If a group member resubscribes to the same list of topics, then nothing is
 // updated.
-func (s *GroupRegistratorSuite) TestReSubscribe(c *C) {
+func (s *GroupMemberSuite) TestReSubscribe(c *C) {
 	// Given
 	cfg := config.DefaultProxy()
 	cfg.Consumer.RebalanceDelay = 100 * time.Millisecond
@@ -143,7 +143,7 @@ func (s *GroupRegistratorSuite) TestReSubscribe(c *C) {
 }
 
 // To unsubscribe from all topics an empty topic list can be sent.
-func (s *GroupRegistratorSuite) TestSubscribeToNothing(c *C) {
+func (s *GroupMemberSuite) TestSubscribeToNothing(c *C) {
 	// Given
 	cfg := config.DefaultProxy()
 	cfg.Consumer.RebalanceDelay = 100 * time.Millisecond
@@ -169,7 +169,7 @@ func (s *GroupRegistratorSuite) TestSubscribeToNothing(c *C) {
 }
 
 // To unsubscribe from all topics nil value can be sent.
-func (s *GroupRegistratorSuite) TestSubscribeToNil(c *C) {
+func (s *GroupMemberSuite) TestSubscribeToNil(c *C) {
 	// Given
 	cfg := config.DefaultProxy()
 	cfg.Consumer.RebalanceDelay = 100 * time.Millisecond
@@ -197,7 +197,7 @@ func (s *GroupRegistratorSuite) TestSubscribeToNil(c *C) {
 // When several different registrator instances subscribe to the same group,
 // they all receive identical membership change notifications that include all
 // their subscription.
-func (s *GroupRegistratorSuite) TestMembershipChanges(c *C) {
+func (s *GroupMemberSuite) TestMembershipChanges(c *C) {
 	// Given
 	cfg := config.DefaultProxy()
 	cfg.Consumer.RebalanceDelay = 200 * time.Millisecond
@@ -227,7 +227,7 @@ func (s *GroupRegistratorSuite) TestMembershipChanges(c *C) {
 // When one of the group members generates a rapid sequence of subscription
 // changes so that at the end its subscription is the same as in the beginning
 // of the sequence then other members won't be notified of such changes.
-func (s *GroupRegistratorSuite) TestRedundantUpdateIgnored(c *C) {
+func (s *GroupMemberSuite) TestRedundantUpdateIgnored(c *C) {
 	// Given
 	cfg := config.DefaultProxy()
 	cfg.Consumer.RebalanceDelay = 200 * time.Millisecond
@@ -257,7 +257,7 @@ func (s *GroupRegistratorSuite) TestRedundantUpdateIgnored(c *C) {
 }
 
 // When a group registrator claims a topic partitions it becomes its owner.
-func (s *GroupRegistratorSuite) TestClaimPartition(c *C) {
+func (s *GroupMemberSuite) TestClaimPartition(c *C) {
 	// Given
 	cfg := config.DefaultProxy()
 	gm := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooClt)
@@ -280,7 +280,7 @@ func (s *GroupRegistratorSuite) TestClaimPartition(c *C) {
 
 // If a consumer group member instance tries to acquire a partition that has
 // already been acquired by another member then it fails.
-func (s *GroupRegistratorSuite) TestClaimPartitionClaimed(c *C) {
+func (s *GroupMemberSuite) TestClaimPartitionClaimed(c *C) {
 	// Given
 	cfg := config.DefaultProxy()
 	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooClt)
@@ -306,7 +306,7 @@ func (s *GroupRegistratorSuite) TestClaimPartitionClaimed(c *C) {
 }
 
 // It is ok to claim the same partition twice by the same group member.
-func (s *GroupRegistratorSuite) TestClaimPartitionTwice(c *C) {
+func (s *GroupMemberSuite) TestClaimPartitionTwice(c *C) {
 	// Given
 	cfg := config.DefaultProxy()
 	gm := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooClt)
@@ -327,7 +327,7 @@ func (s *GroupRegistratorSuite) TestClaimPartitionTwice(c *C) {
 
 // If a partition has been claimed more then once then it is release as soon as
 // any of the claims is revoked.
-func (s *GroupRegistratorSuite) TestReleasePartition(c *C) {
+func (s *GroupMemberSuite) TestReleasePartition(c *C) {
 	// Given
 	cfg := config.DefaultProxy()
 	gm := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooClt)
@@ -349,7 +349,7 @@ func (s *GroupRegistratorSuite) TestReleasePartition(c *C) {
 
 // If a partition is claimed by another group member then `ClaimPartition` call
 // blocks until it is released.
-func (s *GroupRegistratorSuite) TestClaimPartitionParallel(c *C) {
+func (s *GroupMemberSuite) TestClaimPartitionParallel(c *C) {
 	// Given
 	cfg := config.DefaultProxy()
 	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooClt)
@@ -376,7 +376,7 @@ func (s *GroupRegistratorSuite) TestClaimPartitionParallel(c *C) {
 
 // If a partition is claimed by another group member then `ClaimPartition` call
 // blocks until it is released.
-func (s *GroupRegistratorSuite) TestClaimPartitionCanceled(c *C) {
+func (s *GroupMemberSuite) TestClaimPartitionCanceled(c *C) {
 	// Given
 	cfg := config.DefaultProxy()
 	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooClt)
