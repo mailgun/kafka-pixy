@@ -665,6 +665,7 @@ func (s *ConsumerSuite) consume(c *C, sc *t, group, topic string, count int,
 			c.Fatalf("Not enough messages consumed: expected=%d, actual=%d", count, i)
 		}
 		c.Assert(err, IsNil)
+		consMsg.AckCh = nil
 		consumed[string(consMsg.Key)] = append(consumed[string(consMsg.Key)], consMsg)
 		logConsumed(sc, consMsg)
 	}

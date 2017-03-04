@@ -24,11 +24,10 @@ var (
 
 	// Following variables are supposed to be constants but they were defined
 	// as variables to allow overriding in tests:
-
 	check4RetryInterval   = time.Second
 	retriesHighWaterMark  = 1
 	retriesEmergencyBreak = 3 * retriesHighWaterMark
-	pendingHighWaterMark  = 100
+	offeredHighWaterMark  = 100
 )
 
 // exclusiveConsumer ensures exclusive consumption of messages from a topic
@@ -93,11 +92,12 @@ func (pc *T) Offers() chan<- *consumer.Message {
 }
 
 func (pc *T) run() {
+	defer close(pc.messagesCh)
 	defer pc.groupMember.ClaimPartition(pc.actorID, pc.topic, pc.partition, pc.stopCh)()
 
 	om, err := pc.offsetMgrF.SpawnOffsetManager(pc.actorID, pc.group, pc.topic, pc.partition)
 	if err != nil {
-		// Must never happen.
+		// Must never happen!
 		log.Errorf("<%s> failed to spawn offset manager: err=(%s)", pc.actorID, err)
 		return
 	}
@@ -119,7 +119,7 @@ func (pc *T) run() {
 	// Initialize the message input stream to read from the initial offset.
 	mis, realOffsetVal, err := pc.msgIStreamF.SpawnMessageIStream(pc.actorID, pc.topic, pc.partition, committedOffset.Val)
 	if err != nil {
-		// Must never happen.
+		// Must never happen!
 		log.Errorf("<%s> failed to start message stream: offset=%d, err=(%s)", pc.actorID, committedOffset.Val, err)
 		return
 	}
@@ -127,13 +127,13 @@ func (pc *T) run() {
 
 	// If the real initial offset is not what had been committed then adjust.
 	if committedOffset.Val != realOffsetVal {
-		log.Errorf("<%s> invalid initial offset: stored=%+v, adjusted=%+v",
-			pc.actorID, committedOffset.Val, realOffsetVal)
+		log.Errorf("<%s> invalid initial offset: %d, sparseAcks=%s",
+			pc.actorID, committedOffset.Val, offsettrac.RangesToStr(committedOffset))
 		submittedOffset = offsetmgr.Offset{Val: realOffsetVal, Meta: ""}
 		om.SubmitOffset(submittedOffset)
-	} else {
-		log.Infof("<%s> initialized: offset=%+v", pc.actorID, submittedOffset)
 	}
+	log.Infof("<%s> initialized: offset=%d, sparseAcks=%s",
+		pc.actorID, submittedOffset.Val, offsettrac.RangesToStr(submittedOffset))
 	pc.notifyTestInitialized(submittedOffset)
 	ot := offsettrac.New(pc.actorID, submittedOffset, pc.cfg.Consumer.RebalanceDelay)
 
@@ -142,22 +142,19 @@ func (pc *T) run() {
 		nilOrMessagesCh        chan *consumer.Message
 		retryTicker            = time.NewTicker(check4RetryInterval)
 		msg                    *consumer.Message
-		fetchedMsg             *consumer.Message
-		pending                int
 		retryNo                int
 	)
 	defer retryTicker.Stop()
 	for {
 		select {
-		case fetchedMsg = <-nilOrIStreamMessagesCh:
-			pc.notifyTestFetched()
-			if msg == nil {
-				msg = fetchedMsg
-				fetchedMsg = nil
-				nilOrMessagesCh = pc.messagesCh
+		case msg = <-nilOrIStreamMessagesCh:
+			if ot.IsAcked(msg) {
 				continue
 			}
+			msg.AckCh = pc.acksCh
+			pc.notifyTestFetched()
 			nilOrIStreamMessagesCh = nil
+			nilOrMessagesCh = pc.messagesCh
 		case <-retryTicker.C:
 			if msg != nil {
 				continue
@@ -167,14 +164,23 @@ func (pc *T) run() {
 				continue
 			}
 			if retryNo > retriesEmergencyBreak {
-				log.Errorf("<%s> Too many retries: offset=%d", pc.actorID, msg.Offset)
+				log.Errorf("<%s> too many retries: offset=%d", pc.actorID, msg.Offset)
 				goto wait4Ack
 			}
 			if retryNo > retriesHighWaterMark {
-				log.Warningf("<%s> Retries above HWM: retryNo=%d, offset=%d", pc.actorID, retryNo, msg.Offset)
+				log.Warningf("<%s> retries above HWM: retryNo=%d, offset=%d", pc.actorID, retryNo, msg.Offset)
 			}
+			nilOrIStreamMessagesCh = nil
 			nilOrMessagesCh = pc.messagesCh
 		case nilOrMessagesCh <- msg:
+			nilOrMessagesCh = nil
+		case offeredMsg := <-pc.offersCh:
+			if offeredMsg != msg {
+				// Must never happen!
+				log.Errorf("<%s> invalid offered: %d, expected=%d", pc.actorID, offeredMsg.Offset, msg.Offset)
+				goto wait4Ack
+			}
+			offeredCount := ot.OnOffered(offeredMsg)
 			msg, retryNo = ot.NextRetry()
 			if msg != nil {
 				if retryNo > retriesEmergencyBreak {
@@ -184,27 +190,22 @@ func (pc *T) run() {
 				if retryNo > retriesHighWaterMark {
 					log.Warningf("<%s> retries above HWM: %d, offset=%d", pc.actorID, retryNo, msg.Offset)
 				}
+				nilOrMessagesCh = pc.messagesCh
 				continue
 			}
-			if fetchedMsg != nil {
-				msg = fetchedMsg
-				fetchedMsg = nil
-				if pending <= pendingHighWaterMark {
-					nilOrIStreamMessagesCh = mis.Messages()
-				}
-				continue
-			}
-			nilOrMessagesCh = nil
-		case offeredMsg := <-pc.offersCh:
-			ot.OnOffered(offeredMsg)
-			// FIXME: At this stage of ack feature implementation we consider a
-			// FIXME: message acknowledged as soon as it has been offered.
-			submittedOffset, pending = ot.OnAcked(offeredMsg)
-			if pending > pendingHighWaterMark {
-				log.Warningf("<%s> pending count above HWM: %d, offset=%d", pc.actorID, retryNo, msg.Offset)
+			if offeredCount > offeredHighWaterMark {
+				log.Warningf("<%s> offered count above HWM: %d", pc.actorID, offeredCount)
 				nilOrIStreamMessagesCh = nil
+			} else {
+				nilOrIStreamMessagesCh = mis.Messages()
 			}
+		case ackedMsg := <-pc.acksCh:
+			var offeredCount int
+			submittedOffset, offeredCount = ot.OnAcked(ackedMsg)
 			om.SubmitOffset(submittedOffset)
+			if msg == nil && offeredCount <= offeredHighWaterMark {
+				nilOrIStreamMessagesCh = mis.Messages()
+			}
 		case committedOffset = <-om.CommittedOffsets():
 		case <-pc.stopCh:
 			goto wait4Ack
@@ -214,7 +215,7 @@ wait4Ack:
 	for ok, timeout := ot.ShouldWait4Ack(); ok; ok, timeout = ot.ShouldWait4Ack() {
 		select {
 		case ackedMsg := <-pc.acksCh:
-			submittedOffset, _ := ot.OnAcked(ackedMsg)
+			submittedOffset, _ = ot.OnAcked(ackedMsg)
 			om.SubmitOffset(submittedOffset)
 		case <-time.After(timeout):
 			goto done
@@ -229,11 +230,11 @@ done:
 	// from running and calling `Stop()` on the already stopped offset manager.
 	om = nil
 	if committedOffset != submittedOffset {
-		log.Errorf("<%s> failed to commit offset: submitted=%+v, committed=%+v",
-			pc.actorID, submittedOffset, committedOffset)
-		return
+		log.Errorf("<%s> failed to commit offset: %d, sparseAcks=%s",
+			pc.actorID, submittedOffset.Val, offsettrac.RangesToStr(submittedOffset))
 	}
-	log.Infof("<%s> last committed offset: %+v", pc.actorID, committedOffset)
+	log.Infof("<%s> last committed offset: %d, sparceAcks=%s",
+		pc.actorID, committedOffset.Val, offsettrac.RangesToStr(committedOffset))
 }
 
 func (pc *T) Stop() {
@@ -255,4 +256,11 @@ func (pc *T) notifyTestFetched() {
 		pc.firstMsgFetched = true
 		FirstMessageFetchedCh <- pc
 	}
+}
+
+func resetConstants() {
+	check4RetryInterval = time.Second
+	retriesHighWaterMark = 1
+	retriesEmergencyBreak = 3 * retriesHighWaterMark
+	offeredHighWaterMark = 100
 }

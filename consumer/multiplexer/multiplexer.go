@@ -177,7 +177,7 @@ reset:
 				// If a channel of an input is closed, then the input should be
 				// removed from the list of multiplexed inputs.
 				if !ok {
-					log.Infof("<%s> input channel closed: partition=%d", in.partition)
+					log.Infof("<%s> input channel closed: partition=%d", m.actorID, in.partition)
 					delete(m.inputs, in.partition)
 					goto reset
 				}
@@ -200,11 +200,21 @@ reset:
 		inputIdx = selectInput(inputIdx, sortedIns)
 		// Block until the output reads the next message of the selected input
 		// or a stop signal is received.
+
+		// FIXME: Remove this when acks are coming from API servers.
+		ackCh := sortedIns[inputIdx].nextMsg.AckCh
+
 		select {
 		case <-m.stopCh:
 			return
 		case m.output.Messages() <- sortedIns[inputIdx].nextMsg:
 			sortedIns[inputIdx].Offers() <- sortedIns[inputIdx].nextMsg
+
+			// FIXME: Remove this when acks are coming from API servers.
+			if ackCh != nil {
+				ackCh <- sortedIns[inputIdx].nextMsg
+			}
+
 			sortedIns[inputIdx].nextMsg = nil
 		}
 	}
