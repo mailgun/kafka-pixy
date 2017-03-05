@@ -27,6 +27,7 @@ type Message struct {
 	Partition     int32
 	Offset        int64
 	HighWaterMark int64
+	AckCh         chan<- *Message
 }
 
 type (
