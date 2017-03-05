@@ -68,8 +68,8 @@ func Spawn(namespace *actor.ID, group, topic string, partition int32, cfg *confi
 		msgIStreamF: msgIStreamF,
 		offsetMgrF:  offsetMgrF,
 		messagesCh:  make(chan *consumer.Message, 1),
-		offersCh:    make(chan *consumer.Message, 1),
-		acksCh:      make(chan *consumer.Message, 1),
+		offersCh:    make(chan *consumer.Message),
+		acksCh:      make(chan *consumer.Message),
 		stopCh:      make(chan none.T),
 	}
 	actor.Spawn(pc.actorID, &pc.wg, pc.run)
