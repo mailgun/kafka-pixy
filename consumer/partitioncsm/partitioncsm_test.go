@@ -128,11 +128,7 @@ func (s *PartitionCsmSuite) TestMustBeOfferedToProceed(c *C) {
 	pc.Offers() <- msg
 
 	// Then
-	select {
-	case <-pc.Messages():
-	case <-time.After(200 * time.Millisecond):
-		c.Error("Next message should be available")
-	}
+	<-pc.Messages()
 }
 
 // A message read from Messages() must be offered via Offered() before a next
@@ -210,13 +206,9 @@ func (s *PartitionCsmSuite) TestOfferedTooMany(c *C) {
 	// Read and confirm offered messages up to the HWM+1 limit.
 	var messages []*consumer.Message
 	for i := 0; i < 4; i++ {
-		select {
-		case msg = <-pc.Messages():
-			messages = append(messages, msg)
-			pc.Offers() <- msg // Confirm offered to get fetching going
-		case <-time.After(200 * time.Millisecond):
-			c.Error("A message should have been read")
-		}
+		msg = <-pc.Messages()
+		messages = append(messages, msg)
+		pc.Offers() <- msg // Confirm offered to get fetching going.
 	}
 
 	// No more message should be returned.
@@ -231,13 +223,10 @@ func (s *PartitionCsmSuite) TestOfferedTooMany(c *C) {
 
 	// Total number of pending offered messages is 1 short of HWM limit. So we
 	// should be able to read just one message.
-	select {
-	case msg = <-pc.Messages():
-		messages = append(messages, msg)
-		pc.Offers() <- msg // Confirm offered to get fetching going
-	case <-time.After(200 * time.Millisecond):
-		c.Error("A message should have been read")
-	}
+	msg = <-pc.Messages()
+	messages = append(messages, msg)
+	pc.Offers() <- msg // Confirm offered to get fetching going.
+
 	select {
 	case msg := <-pc.Messages():
 		c.Errorf("No messages should be available above HWM limit: %d", msg.Offset)
@@ -357,7 +346,7 @@ func (s *PartitionCsmSuite) TestMaxRetriesReached(c *C) {
 		msgI.AckCh <- msgI
 		// ...but retried message is not.
 		msg1_i := <-pc.Messages()
-		c.Assert(msg1_i, Equals, msg1)
+		c.Assert(msg1_i, Equals, msg1, Commentf("got: %d, want: %d", msg1_i.Offset, msg1.Offset))
 		pc.Offers() <- msg1
 	}
 	// Expire offer of the retried message one last time.
@@ -430,10 +419,11 @@ func (s *PartitionCsmSuite) TestRetryNoMoreMessages(c *C) {
 	time.Sleep(100 * time.Millisecond)
 	msg0.AckCh <- msg0
 
-	// Since there are no more messages in the queue, we only offered retries.
+	// Since there are no more messages in the partition, then only retries are
+	// offered.
 	for i := 0; i < 4; i++ {
 		msg1_i := <-pc.Messages()
-		c.Assert(msg1_i, Equals, msg1)
+		c.Assert(msg1_i, Equals, msg1, Commentf("got: %d, want: %d", msg1_i.Offset, msg1.Offset))
 		pc.Offers() <- msg1
 	}
 
