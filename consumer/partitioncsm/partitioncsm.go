@@ -201,7 +201,7 @@ func (pc *T) run() {
 			}
 		case ackedMsg := <-pc.acksCh:
 			var offeredCount int
-			submittedOffset, offeredCount = ot.OnAcked(ackedMsg)
+			submittedOffset, offeredCount = ot.OnAcked(ackedMsg.Offset)
 			om.SubmitOffset(submittedOffset)
 			if msg == nil && offeredCount <= offeredHighWaterMark {
 				nilOrIStreamMessagesCh = mis.Messages()
@@ -215,7 +215,7 @@ wait4Ack:
 	for ok, timeout := ot.ShouldWait4Ack(); ok; ok, timeout = ot.ShouldWait4Ack() {
 		select {
 		case ackedMsg := <-pc.acksCh:
-			submittedOffset, _ = ot.OnAcked(ackedMsg)
+			submittedOffset, _ = ot.OnAcked(ackedMsg.Offset)
 			om.SubmitOffset(submittedOffset)
 		case <-time.After(timeout):
 			goto done

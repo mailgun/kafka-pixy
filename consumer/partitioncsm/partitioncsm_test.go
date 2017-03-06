@@ -152,7 +152,7 @@ func (s *PartitionCsmSuite) TestSparseAckedNotRead(c *C) {
 	var initOffset offsetmgr.Offset
 	for i, acked := range ackedDlts {
 		if acked {
-			initOffset, _ = ot.OnAcked(&consumer.Message{Offset: base + int64(i)})
+			initOffset, _ = ot.OnAcked(base + int64(i))
 		}
 	}
 	c.Assert(offsettrac.RangesToStr(initOffset), Equals, "1-4,6-7")

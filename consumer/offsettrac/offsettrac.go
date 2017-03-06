@@ -109,10 +109,10 @@ func (ot *T) OnOffered(msg *consumer.Message) int {
 }
 
 // OnAcked should be called when a message has been acknowledged by a consumer.
-// It returns an offset to be submitted and a total number of pending messages.
-func (ot *T) OnAcked(msg *consumer.Message) (offsetmgr.Offset, int) {
-	ot.removeOffer(msg)
-	ot.addAckedOffset(msg.Offset)
+// It returns an offset to be submitted and a total number of offered messages.
+func (ot *T) OnAcked(offset int64) (offsetmgr.Offset, int) {
+	ot.removeOffer(offset)
+	ot.updateAckRanges(offset)
 	var err error
 	ot.offset.Meta, err = encodeAckRanges(ot.offset.Val, ot.ackRanges)
 	if err != nil {
@@ -121,13 +121,13 @@ func (ot *T) OnAcked(msg *consumer.Message) (offsetmgr.Offset, int) {
 	return ot.offset, len(ot.offers)
 }
 
-func (ot *T) removeOffer(msg *consumer.Message) {
+func (ot *T) removeOffer(offset int64) {
 	offersCount := len(ot.offers)
 	i := sort.Search(offersCount, func(i int) bool {
-		return ot.offers[i].msg.Offset >= msg.Offset
+		return ot.offers[i].msg.Offset >= offset
 	})
-	if i >= offersCount || ot.offers[i].msg.Offset != msg.Offset {
-		log.Errorf("<%s> unknown message acked: offset=%d", ot.actorID, msg.Offset)
+	if i >= offersCount || ot.offers[i].msg.Offset != offset {
+		log.Errorf("<%s> unknown message acked: offset=%d", ot.actorID, offset)
 		return
 	}
 	offersCount -= 1
@@ -198,14 +198,14 @@ func (ot *T) shouldWait4Ack(now time.Time) (bool, time.Duration) {
 	return false, 0
 }
 
-func (ot *T) addAckedOffset(ackedOffset int64) {
+func (ot *T) updateAckRanges(offset int64) {
 	ackRangesCount := len(ot.ackRanges)
-	if ackedOffset < ot.offset.Val {
-		log.Errorf("<%s> ack before committed: offset=%d", ot.actorID, ackedOffset)
+	if offset < ot.offset.Val {
+		log.Errorf("<%s> ack before committed: offset=%d", ot.actorID, offset)
 		return
 	}
-	if ackedOffset == ot.offset.Val {
-		if ackRangesCount > 0 && ackedOffset == ot.ackRanges[0].from-1 {
+	if offset == ot.offset.Val {
+		if ackRangesCount > 0 && offset == ot.ackRanges[0].from-1 {
 			ot.offset.Val = ot.ackRanges[0].to
 			ot.ackRanges = ot.ackRanges[1:]
 			return
@@ -214,22 +214,22 @@ func (ot *T) addAckedOffset(ackedOffset int64) {
 		return
 	}
 	for i := range ot.ackRanges {
-		if ackedOffset < ot.ackRanges[i].from {
-			if ackedOffset == ot.ackRanges[i].from-1 {
+		if offset < ot.ackRanges[i].from {
+			if offset == ot.ackRanges[i].from-1 {
 				ot.ackRanges[i].from -= 1
 				return
 			}
 			ot.ackRanges = append(ot.ackRanges, ackRange{})
 			copy(ot.ackRanges[i+1:], ot.ackRanges[i:ackRangesCount])
-			ot.ackRanges[i] = newAckRange(ackedOffset)
+			ot.ackRanges[i] = newAckRange(offset)
 			return
 		}
-		if ackedOffset < ot.ackRanges[i].to {
-			log.Errorf("<%s> duplicate ack: offset=%d", ot.actorID, ackedOffset)
+		if offset < ot.ackRanges[i].to {
+			log.Errorf("<%s> duplicate ack: offset=%d", ot.actorID, offset)
 			return
 		}
-		if ackedOffset == ot.ackRanges[i].to {
-			if ackRangesCount > i+1 && ackedOffset == ot.ackRanges[i+1].from-1 {
+		if offset == ot.ackRanges[i].to {
+			if ackRangesCount > i+1 && offset == ot.ackRanges[i+1].from-1 {
 				ot.ackRanges[i+1].from = ot.ackRanges[i].from
 				ackRangesCount -= 1
 				copy(ot.ackRanges[i:ackRangesCount], ot.ackRanges[i+1:])
@@ -240,7 +240,7 @@ func (ot *T) addAckedOffset(ackedOffset int64) {
 			return
 		}
 	}
-	ot.ackRanges = append(ot.ackRanges, newAckRange(ackedOffset))
+	ot.ackRanges = append(ot.ackRanges, newAckRange(offset))
 	return
 }
 

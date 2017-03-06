@@ -66,7 +66,7 @@ func (s *OffsetTrackerSuite) TestOnAckedRanges(c *C) {
 		/* 17 */ {offset: 4495, committed: 312, ranges: "86-88,4183-4185"},
 	} {
 		// When
-		offset, _ := ot.OnAcked(&consumer.Message{Offset: tc.offset})
+		offset, _ := ot.OnAcked(tc.offset)
 		ot2 := New(s.ns, offset, -1)
 
 		// Then
@@ -258,7 +258,7 @@ func (s *OffsetTrackerSuite) TestOfferAckLoop(c *C) {
 			count = ot.OnOffered(&consumer.Message{Offset: tc.offset})
 		case doAck:
 			var offset offsetmgr.Offset
-			offset, count = ot.OnAcked(&consumer.Message{Offset: tc.offset})
+			offset, count = ot.OnAcked(tc.offset)
 			c.Assert(offset.Val, Equals, tc.committed, Commentf("case: %d", i))
 			c.Assert(RangesToStr(offset), Equals, tc.ranges, Commentf("case: %d", i))
 		}
