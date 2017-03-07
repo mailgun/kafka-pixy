@@ -357,61 +357,70 @@ func (s *ConsumerSuite) TestRebalanceOnLeave(c *C) {
 // When a consumer registration times out the partitions that used to be
 // assigned to it are redistributed among active consumers.
 func (s *ConsumerSuite) TestRebalanceOnTimeout(c *C) {
-	// Given
+	var wg sync.WaitGroup
+	consumed := make([]map[string][]*consumer.Message, 2)
+
 	s.kh.ResetOffsets("g1", "test.4")
 	s.kh.PutMessages("timeout", "test.4", map[string]int{"A": 10, "B": 10})
 
-	sc1, err := Spawn(s.ns, testhelpers.NewTestProxyCfg("consumer-1"))
+	sc0, err := Spawn(s.ns, testhelpers.NewTestProxyCfg("consumer-1"))
 	c.Assert(err, IsNil)
-	defer sc1.Stop()
+	defer sc0.Stop()
 
 	cfg2 := testhelpers.NewTestProxyCfg("consumer-2")
-	cfg2.Consumer.RegistrationTimeout = 300 * time.Millisecond
-	sc2, err := Spawn(s.ns, cfg2)
+	cfg2.Consumer.RegistrationTimeout = 500 * time.Millisecond
+	sc1, err := Spawn(s.ns, cfg2)
 	c.Assert(err, IsNil)
-	defer sc2.Stop()
+	defer sc1.Stop()
 
 	// Consume the first message to make the consumers join the group and
 	// subscribe to the topic.
 	log.Infof("*** GIVEN 1")
-	consumed1 := s.consume(c, sc1, "g1", "test.4", 1)
-	consumed2 := s.consume(c, sc2, "g1", "test.4", 1)
-	if len(consumed1["B"]) == 0 {
-		c.Assert(len(consumed1["A"]), Equals, 1)
+	consumed[0] = s.consume(c, sc0, "g1", "test.4", 1)
+	consumed[1] = s.consume(c, sc1, "g1", "test.4", 1)
+
+	if len(consumed[0]["B"]) == 0 {
+		c.Assert(len(consumed[0]["A"]), Equals, 1)
 	} else {
-		c.Assert(len(consumed1["A"]), Equals, 0)
+		c.Assert(len(consumed[0]["A"]), Equals, 0)
 	}
-	c.Assert(len(consumed2["A"]), Equals, 0)
-	c.Assert(len(consumed2["B"]), Equals, 1)
+	c.Assert(len(consumed[1]["A"]), Equals, 0)
+	c.Assert(len(consumed[1]["B"]), Equals, 1)
 
 	// Consume 4 more messages to make sure that each consumer pulls from a
-	// particular assigned to it.
+	// partition assigned to it.
 	log.Infof("*** GIVEN 2")
-	consumed1 = s.consume(c, sc1, "g1", "test.4", 4, consumed1)
-	consumed2 = s.consume(c, sc2, "g1", "test.4", 4, consumed2)
-	if len(consumed1["B"]) == 1 {
-		c.Assert(len(consumed1["A"]), Equals, 4)
-	} else {
-		c.Assert(len(consumed1["A"]), Equals, 5)
-	}
-	c.Assert(len(consumed2["A"]), Equals, 0)
-	c.Assert(len(consumed2["B"]), Equals, 5)
+	actor.Spawn(s.ns.NewChild("consume[0]"), &wg, func() {
+		consumed[0] = s.consume(c, sc0, "g1", "test.4", 4, consumed[0])
+	})
+	actor.Spawn(s.ns.NewChild("consume[1]"), &wg, func() {
+		consumed[1] = s.consume(c, sc1, "g1", "test.4", 4, consumed[1])
+	})
+	wg.Wait()
 
-	drainFirstFetched(sc1)
+	if len(consumed[0]["B"]) == 1 {
+		c.Assert(len(consumed[0]["A"]), Equals, 4)
+	} else {
+		c.Assert(len(consumed[0]["A"]), Equals, 5)
+	}
+	c.Assert(len(consumed[1]["A"]), Equals, 0)
+	c.Assert(len(consumed[1]["B"]), Equals, 5)
+
+	drainFirstFetched(sc0)
 
 	// When: `consumer-2` registration timeout elapses, the partitions get
 	// rebalanced so that `consumer-1` becomes assigned to all of them...
 	log.Infof("*** WHEN")
 	// Wait for partition `B` reassigned back to sc1.
-	waitFirstFetched(sc1, 1)
+	waitFirstFetched(sc0, 1)
 
 	// ...and consumes the remaining messages from all partitions.
 	log.Infof("*** THEN")
-	consumed1 = s.consume(c, sc1, "g1", "test.4", 10, consumed1)
-	c.Assert(len(consumed1["A"]), Equals, 10)
-	c.Assert(len(consumed1["B"]), Equals, 5)
-	c.Assert(len(consumed2["A"]), Equals, 0)
-	c.Assert(len(consumed2["B"]), Equals, 5)
+	consumed[0] = s.consume(c, sc0, "g1", "test.4", 10, consumed[0])
+	c.Assert(len(consumed[0]["A"]), Equals, 10)
+	c.Assert(len(consumed[0]["B"]), Equals, 5)
+	c.Assert(len(consumed[1]["A"]), Equals, 0)
+	c.Assert(len(consumed[1]["B"]), Equals, 5)
 }
 
 // A `ErrTooManyRequests` error can be returned if internal buffers are filled
@@ -657,7 +666,7 @@ func (s *ConsumerSuite) consume(c *C, sc *t, group, topic string, count int,
 		consumed = extend[0]
 	}
 	for i := 0; i != count; i++ {
-		consMsg, err := sc.Consume(group, topic)
+		msg, err := sc.Consume(group, topic)
 		if _, ok := err.(consumer.ErrRequestTimeout); ok {
 			if count == consumeAll {
 				return consumed
@@ -665,16 +674,18 @@ func (s *ConsumerSuite) consume(c *C, sc *t, group, topic string, count int,
 			c.Fatalf("Not enough messages consumed: expected=%d, actual=%d", count, i)
 		}
 		c.Assert(err, IsNil)
-		consMsg.AckCh = nil
-		consumed[string(consMsg.Key)] = append(consumed[string(consMsg.Key)], consMsg)
-		logConsumed(sc, consMsg)
+		logConsumed(sc, msg)
+		// Acknowledge consumed messages immediately
+		msg.EventsCh <- consumer.Ack(msg.Offset)
+		msg.EventsCh = nil
+		consumed[string(msg.Key)] = append(consumed[string(msg.Key)], msg)
 	}
 	return consumed
 }
 
-func logConsumed(sc *t, consMsg *consumer.Message) {
+func logConsumed(sc *t, msg *consumer.Message) {
 	log.Infof("*** consumed: by=%s, topic=%s, partition=%d, offset=%d, message=%s",
-		sc.namespace.String(), consMsg.Topic, consMsg.Partition, consMsg.Offset, consMsg.Value)
+		sc.namespace.String(), msg.Topic, msg.Partition, msg.Offset, msg.Value)
 }
 
 func drainFirstFetched(c *t) {
