@@ -16,26 +16,26 @@ func Test(t *testing.T) {
 	TestingT(t)
 }
 
-type MessageStreamSuite struct {
+type MsgIStreamSuite struct {
 	ns *actor.ID
 }
 
 var (
-	_       = Suite(&MessageStreamSuite{})
+	_       = Suite(&MsgIStreamSuite{})
 	testMsg = sarama.StringEncoder("Foo")
 )
 
-func (s *MessageStreamSuite) SetUpSuite(c *C) {
+func (s *MsgIStreamSuite) SetUpSuite(c *C) {
 	testhelpers.InitLogging(c)
 }
 
-func (s *MessageStreamSuite) SetUpTest(c *C) {
+func (s *MsgIStreamSuite) SetUpTest(c *C) {
 	s.ns = actor.RootID.NewChild("T")
 }
 
 // If a particular offset is provided then messages are consumed starting from
 // that offset.
-func (s *MessageStreamSuite) TestOffsetManual(c *C) {
+func (s *MsgIStreamSuite) TestOffsetManual(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 0)
 	defer broker0.Close()
@@ -82,7 +82,7 @@ func (s *MessageStreamSuite) TestOffsetManual(c *C) {
 // If `sarama.OffsetNewest` is passed as the initial offset then the first consumed
 // message is indeed corresponds to the offset that broker claims to be the
 // newest in its metadata response.
-func (s *MessageStreamSuite) TestOffsetNewest(c *C) {
+func (s *MsgIStreamSuite) TestOffsetNewest(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 0)
 	defer broker0.Close()
@@ -119,7 +119,7 @@ func (s *MessageStreamSuite) TestOffsetNewest(c *C) {
 }
 
 // It is possible to close a partition consumer and create the same anew.
-func (s *MessageStreamSuite) TestRecreate(c *C) {
+func (s *MsgIStreamSuite) TestRecreate(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 0)
 	defer broker0.Close()
@@ -155,7 +155,7 @@ func (s *MessageStreamSuite) TestRecreate(c *C) {
 }
 
 // An attempt to consume the same partition twice should fail.
-func (s *MessageStreamSuite) TestDuplicate(c *C) {
+func (s *MsgIStreamSuite) TestDuplicate(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 0)
 	defer broker0.Close()
@@ -192,7 +192,7 @@ func (s *MessageStreamSuite) TestDuplicate(c *C) {
 
 // If consumer fails to refresh metadata it keeps retrying with frequency
 // specified by `Config.Consumer.Retry.Backoff`.
-func (s *MessageStreamSuite) TestLeaderRefreshError(c *C) {
+func (s *MsgIStreamSuite) TestLeaderRefreshError(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 100)
 	defer broker0.Close()
@@ -264,7 +264,7 @@ func (s *MessageStreamSuite) TestLeaderRefreshError(c *C) {
 	c.Assert((<-pc.Messages()).Offset, Equals, int64(124))
 }
 
-func (s *MessageStreamSuite) TestInvalidTopic(c *C) {
+func (s *MsgIStreamSuite) TestInvalidTopic(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 100)
 	defer broker0.Close()
@@ -290,7 +290,7 @@ func (s *MessageStreamSuite) TestInvalidTopic(c *C) {
 
 // Nothing bad happens if a partition consumer that has no leader assigned at
 // the moment is closed.
-func (s *MessageStreamSuite) TestClosePartitionWithoutLeader(c *C) {
+func (s *MsgIStreamSuite) TestClosePartitionWithoutLeader(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 100)
 	defer broker0.Close()
@@ -341,7 +341,7 @@ func (s *MessageStreamSuite) TestClosePartitionWithoutLeader(c *C) {
 // If the initial offset passed on partition consumer creation is out of the
 // actual offset range for the partition, then the partition consumer stops
 // immediately closing its output channels.
-func (s *MessageStreamSuite) TestShutsDownOutOfRange(c *C) {
+func (s *MsgIStreamSuite) TestShutsDownOutOfRange(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 0)
 	defer broker0.Close()
@@ -376,7 +376,7 @@ func (s *MessageStreamSuite) TestShutsDownOutOfRange(c *C) {
 
 // If a fetch response contains messages with offsets that are smaller then
 // requested, then such messages are ignored.
-func (s *MessageStreamSuite) TestExtraOffsets(c *C) {
+func (s *MsgIStreamSuite) TestExtraOffsets(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 0)
 	defer broker0.Close()
@@ -416,7 +416,7 @@ func (s *MessageStreamSuite) TestExtraOffsets(c *C) {
 
 // It is fine if offsets of fetched messages are not sequential (although
 // strictly increasing!).
-func (s *MessageStreamSuite) TestNonSequentialOffsets(c *C) {
+func (s *MsgIStreamSuite) TestNonSequentialOffsets(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 0)
 	defer broker0.Close()
@@ -456,7 +456,7 @@ func (s *MessageStreamSuite) TestNonSequentialOffsets(c *C) {
 
 // If leadership for a partition is changing then consumer resolves the new
 // leader and switches to it.
-func (s *MessageStreamSuite) TestRebalancingMultiplePartitions(c *C) {
+func (s *MsgIStreamSuite) TestRebalancingMultiplePartitions(c *C) {
 	// initial setup
 	seedBroker := sarama.NewMockBroker(c, 10)
 	defer seedBroker.Close()
@@ -607,7 +607,7 @@ func (s *MessageStreamSuite) TestRebalancingMultiplePartitions(c *C) {
 // When two partitions have the same broker as the leader, if one partition
 // consumer channel buffer is full then that does not affect the ability to
 // read messages by the other consumer.
-func (s *MessageStreamSuite) TestInterleavedClose(c *C) {
+func (s *MsgIStreamSuite) TestInterleavedClose(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 0)
 	defer broker0.Close()
@@ -650,7 +650,7 @@ func (s *MessageStreamSuite) TestInterleavedClose(c *C) {
 	c.Assert((<-pc0.Messages()).Offset, Equals, int64(1002))
 }
 
-func (s *MessageStreamSuite) TestBounceWithReferenceOpen(c *C) {
+func (s *MsgIStreamSuite) TestBounceWithReferenceOpen(c *C) {
 	broker0 := sarama.NewMockBroker(c, 0)
 	broker0Addr := broker0.Addr()
 	broker1 := sarama.NewMockBroker(c, 1)
@@ -740,7 +740,7 @@ func (s *MessageStreamSuite) TestBounceWithReferenceOpen(c *C) {
 	}
 }
 
-func (s *MessageStreamSuite) TestOffsetOutOfRange(c *C) {
+func (s *MsgIStreamSuite) TestOffsetOutOfRange(c *C) {
 	// Given
 	broker0 := sarama.NewMockBroker(c, 2)
 	defer broker0.Close()
