@@ -29,7 +29,7 @@ type T struct {
 type In interface {
 	// Messages returns a channel that multiplexer receives messages from.
 	// Read messages should NOT be considered as consumed by the input.
-	Messages() <-chan *consumer.Message
+	Messages() <-chan consumer.Message
 
 	// Stop signals the input to stop and blocks waiting for its goroutines to
 	// complete.
@@ -39,7 +39,7 @@ type In interface {
 // Out defines an interface of multiplexer output.
 type Out interface {
 	// Messages returns channel that multiplexer sends messages to.
-	Messages() chan<- *consumer.Message
+	Messages() chan<- consumer.Message
 }
 
 // SpawnInFn is a function type that is used by multiplexer to spawn inputs for
@@ -61,7 +61,8 @@ func New(namespace *actor.ID, spawnInFn SpawnInFn) *T {
 type input struct {
 	In
 	partition int32
-	nextMsg   *consumer.Message
+	msg       consumer.Message
+	msgOk     bool
 }
 
 // IsRunning returns `true` if multiplexer is running pumping events from the
@@ -164,7 +165,7 @@ reset:
 		// Collect next messages from inputs that have them available.
 		isAtLeastOneAvailable := false
 		for _, in := range sortedIns {
-			if in.nextMsg != nil {
+			if in.msgOk {
 				isAtLeastOneAvailable = true
 				continue
 			}
@@ -177,7 +178,8 @@ reset:
 					delete(m.inputs, in.partition)
 					goto reset
 				}
-				in.nextMsg = msg
+				in.msg = msg
+				in.msgOk = true
 				isAtLeastOneAvailable = true
 			default:
 			}
@@ -190,7 +192,8 @@ reset:
 			if idx == inputCount {
 				return
 			}
-			sortedIns[idx].nextMsg = value.Interface().(*consumer.Message)
+			sortedIns[idx].msg = value.Interface().(consumer.Message)
+			sortedIns[idx].msgOk = true
 		}
 		// At this point there is at least one message available.
 		inputIdx = selectInput(inputIdx, sortedIns)
@@ -199,8 +202,8 @@ reset:
 		select {
 		case <-m.stopCh:
 			return
-		case m.output.Messages() <- sortedIns[inputIdx].nextMsg:
-			sortedIns[inputIdx].nextMsg = nil
+		case m.output.Messages() <- sortedIns[inputIdx].msg:
+			sortedIns[inputIdx].msgOk = false
 		}
 	}
 }
@@ -235,10 +238,10 @@ func selectInput(prevSelectedIdx int, sortedIns []*input) int {
 	maxLag := int64(-1)
 	selectedIdx := -1
 	for i, input := range sortedIns {
-		if input.nextMsg == nil {
+		if !input.msgOk {
 			continue
 		}
-		lag := input.nextMsg.HighWaterMark - input.nextMsg.Offset
+		lag := input.msg.HighWaterMark - input.msg.Offset
 		if lag > maxLag {
 			maxLag = lag
 			selectedIdx = i

@@ -45,7 +45,7 @@ type T struct {
 	groupMember *groupmember.T
 	msgIStreamF msgistream.Factory
 	offsetMgrF  offsetmgr.Factory
-	messagesCh  chan *consumer.Message
+	messagesCh  chan consumer.Message
 	eventsCh    chan consumer.Event
 	stopCh      chan none.T
 	wg          sync.WaitGroup
@@ -67,7 +67,7 @@ func Spawn(namespace *actor.ID, group, topic string, partition int32, cfg *confi
 		groupMember: groupMember,
 		msgIStreamF: msgIStreamF,
 		offsetMgrF:  offsetMgrF,
-		messagesCh:  make(chan *consumer.Message, 1),
+		messagesCh:  make(chan consumer.Message, 1),
 		eventsCh:    make(chan consumer.Event, 1),
 		stopCh:      make(chan none.T),
 	}
@@ -81,7 +81,7 @@ func (pc *T) Partition() int32 {
 }
 
 // implements `multiplexer.In`
-func (pc *T) Messages() <-chan *consumer.Message {
+func (pc *T) Messages() <-chan consumer.Message {
 	return pc.messagesCh
 }
 
@@ -131,9 +131,10 @@ func (pc *T) run() {
 
 	var (
 		nilOrIStreamMessagesCh = mis.Messages()
-		nilOrMessagesCh        chan *consumer.Message
+		nilOrMessagesCh        chan consumer.Message
 		retryTicker            = time.NewTicker(check4RetryInterval)
-		msg                    *consumer.Message
+		msg                    consumer.Message
+		msgOk                  = false
 		retryNo                int
 	)
 	defer retryTicker.Stop()
@@ -144,15 +145,16 @@ func (pc *T) run() {
 				continue
 			}
 			msg.EventsCh = pc.eventsCh
+			msgOk = true
 			pc.notifyTestFetched()
 			nilOrIStreamMessagesCh = nil
 			nilOrMessagesCh = pc.messagesCh
 		case <-retryTicker.C:
-			if msg != nil {
+			if msgOk {
 				continue
 			}
-			msg, retryNo = ot.NextRetry()
-			if msg == nil {
+			msg, retryNo, msgOk = ot.NextRetry()
+			if !msgOk {
 				continue
 			}
 			if retryNo > retriesEmergencyBreak {
@@ -174,8 +176,8 @@ func (pc *T) run() {
 					panic(errors.Wrapf(err, "<%s> invalid offer offset %d, want=%d", pc.actorID, event.Offset, msg.Offset))
 				}
 				offeredCount := ot.OnOffered(msg)
-				msg, retryNo = ot.NextRetry()
-				if msg != nil {
+				msg, retryNo, msgOk = ot.NextRetry()
+				if msgOk {
 					log.Warningf("<%s> retrying: offset=%d, no=%d", pc.actorID, msg.Offset, retryNo)
 					if retryNo > retriesEmergencyBreak {
 						log.Errorf("<%s> too many retries: offset=%d", pc.actorID, msg.Offset)
@@ -197,7 +199,7 @@ func (pc *T) run() {
 				var offeredCount int
 				submittedOffset, offeredCount = ot.OnAcked(event.Offset)
 				om.SubmitOffset(submittedOffset)
-				if msg == nil && offeredCount <= offeredHighWaterMark {
+				if !msgOk && offeredCount <= offeredHighWaterMark {
 					nilOrIStreamMessagesCh = mis.Messages()
 				}
 			}

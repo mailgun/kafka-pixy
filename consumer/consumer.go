@@ -22,7 +22,7 @@ type T interface {
 	// `ErrBufferOverflow` or `ErrRequestTimeout` even when there are messages
 	// available for consumption. In that case the user should back off a bit
 	// and then repeat the request.
-	Consume(group, topic string) (*Message, error)
+	Consume(group, topic string) (Message, error)
 
 	// Stop sends a shutdown signal to all internal goroutines and blocks until
 	// they are stopped. It is guaranteed that all last consumed offsets of all

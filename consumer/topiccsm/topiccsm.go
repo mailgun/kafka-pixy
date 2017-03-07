@@ -26,7 +26,7 @@ type T struct {
 	topic      string
 	lifespanCh chan<- *T
 	requestsCh chan dispatcher.Request
-	messagesCh chan *consumer.Message
+	messagesCh chan consumer.Message
 	wg         sync.WaitGroup
 }
 
@@ -44,7 +44,7 @@ func New(namespace *actor.ID, group, topic string, cfg *config.Proxy, lifespanCh
 		// Messages channel must be non-buffered. Otherwise we might end up
 		// buffering a message from a partition that no longer belongs to this
 		// consumer group member.
-		messagesCh: make(chan *consumer.Message),
+		messagesCh: make(chan consumer.Message),
 	}
 }
 
@@ -54,7 +54,7 @@ func (tc *T) Topic() string {
 }
 
 // implements `multiplexer.Out`
-func (tc *T) Messages() chan<- *consumer.Message {
+func (tc *T) Messages() chan<- consumer.Message {
 	return tc.messagesCh
 }
 

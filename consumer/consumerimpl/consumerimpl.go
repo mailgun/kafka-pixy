@@ -86,7 +86,7 @@ func Spawn(namespace *actor.ID, cfg *config.Proxy) (*t, error) {
 }
 
 // implements `consumer.T`
-func (c *t) Consume(group, topic string) (*consumer.Message, error) {
+func (c *t) Consume(group, topic string) (consumer.Message, error) {
 	replyCh := make(chan dispatcher.Response, 1)
 	c.dispatcher.Requests() <- dispatcher.Request{time.Now().UTC(), group, topic, replyCh}
 	result := <-replyCh

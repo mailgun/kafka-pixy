@@ -15,8 +15,7 @@ func Test(t *testing.T) {
 }
 
 type MultiplexerSuite struct {
-	ns       *actor.ID
-	offersCh chan *consumer.Message
+	ns *actor.ID
 }
 
 var _ = Suite(&MultiplexerSuite{})
@@ -27,16 +26,15 @@ func (s *MultiplexerSuite) SetUpSuite(c *C) {
 
 func (s *MultiplexerSuite) SetUpTest(c *C) {
 	s.ns = actor.RootID.NewChild("T")
-	s.offersCh = make(chan *consumer.Message, 100)
 }
 
 func (s *MultiplexerSuite) TestSortedInputs(c *C) {
 	ins := map[int32]*input{
-		1: {In: newMockIn(nil), partition: 1},
-		2: {In: newMockIn(nil), partition: 2},
-		3: {In: newMockIn(nil), partition: 3},
-		4: {In: newMockIn(nil), partition: 4},
-		5: {In: newMockIn(nil), partition: 5},
+		1: {In: newMockIn(), partition: 1},
+		2: {In: newMockIn(), partition: 2},
+		3: {In: newMockIn(), partition: 3},
+		4: {In: newMockIn(), partition: 4},
+		5: {In: newMockIn(), partition: 5},
 	}
 	c.Assert(makeSortedIns(map[int32]*input{}), DeepEquals,
 		[]*input{})
@@ -52,10 +50,10 @@ func (s *MultiplexerSuite) TestSortedInputs(c *C) {
 func (s *MultiplexerSuite) TestSelectInput(c *C) {
 	inputs := []*input{
 		{},
-		{nextMsg: lag(11)},
-		{nextMsg: lag(13)},
+		{msg: lag(11), msgOk: true},
+		{msg: lag(13), msgOk: true},
 		{},
-		{nextMsg: lag(12)},
+		{msg: lag(12), msgOk: true},
 	}
 	c.Assert(selectInput(-1, inputs), Equals, 2)
 	c.Assert(selectInput(2, inputs), Equals, 2)
@@ -68,10 +66,10 @@ func (s *MultiplexerSuite) TestSelectInput(c *C) {
 func (s *MultiplexerSuite) TestSelectInputSameLag(c *C) {
 	inputs := []*input{
 		{},
-		{nextMsg: lag(11)},
-		{nextMsg: lag(11)},
-		{nextMsg: lag(10)},
-		{nextMsg: lag(11)},
+		{msg: lag(11), msgOk: true},
+		{msg: lag(11), msgOk: true},
+		{msg: lag(10), msgOk: true},
+		{msg: lag(11), msgOk: true},
 	}
 	c.Assert(selectInput(-1, inputs), Equals, 1)
 	c.Assert(selectInput(0, inputs), Equals, 1)
@@ -215,7 +213,7 @@ func (s *MultiplexerSuite) TestNoMessages(c *C) {
 	checkMsg(c, out.messagesCh, msg(1001, 1))
 	select {
 	case msg := <-out.messagesCh:
-		c.Errorf("Unexpected message: %v", *msg)
+		c.Errorf("Unexpected message: %v", msg)
 	case <-time.After(100 * time.Millisecond):
 	}
 
@@ -536,12 +534,12 @@ func (s *MultiplexerSuite) TestInputChanClose(c *C) {
 }
 
 type mockIn struct {
-	messagesCh chan *consumer.Message
+	messagesCh chan consumer.Message
 }
 
-func newMockIn(messages ...*consumer.Message) *mockIn {
+func newMockIn(messages ...consumer.Message) *mockIn {
 	mi := mockIn{
-		messagesCh: make(chan *consumer.Message, len(messages)),
+		messagesCh: make(chan consumer.Message, len(messages)),
 	}
 	for _, m := range messages {
 		mi.messagesCh <- m
@@ -550,7 +548,7 @@ func newMockIn(messages ...*consumer.Message) *mockIn {
 }
 
 // implements `In`
-func (mi *mockIn) Messages() <-chan *consumer.Message {
+func (mi *mockIn) Messages() <-chan consumer.Message {
 	return mi.messagesCh
 }
 
@@ -559,34 +557,34 @@ func (mi *mockIn) Stop() {
 }
 
 type mockOut struct {
-	messagesCh chan *consumer.Message
+	messagesCh chan consumer.Message
 }
 
 func newMockOut(capacity int) *mockOut {
 	return &mockOut{
-		messagesCh: make(chan *consumer.Message, capacity),
+		messagesCh: make(chan consumer.Message, capacity),
 	}
 }
 
 // implements `Out`
-func (mo *mockOut) Messages() chan<- *consumer.Message {
+func (mo *mockOut) Messages() chan<- consumer.Message {
 	return mo.messagesCh
 }
 
-func msg(offset, lag int64) *consumer.Message {
-	return &consumer.Message{
+func msg(offset, lag int64) consumer.Message {
+	return consumer.Message{
 		Offset:        offset,
 		HighWaterMark: offset + lag,
 	}
 }
 
-func lag(lag int64) *consumer.Message {
-	return &consumer.Message{
+func lag(lag int64) consumer.Message {
+	return consumer.Message{
 		Offset:        0,
 		HighWaterMark: lag,
 	}
 }
 
-func checkMsg(c *C, outCh chan *consumer.Message, expected *consumer.Message) {
-	c.Assert(<-outCh, DeepEquals, expected)
+func checkMsg(c *C, outCh chan consumer.Message, want consumer.Message) {
+	c.Assert(<-outCh, DeepEquals, want)
 }

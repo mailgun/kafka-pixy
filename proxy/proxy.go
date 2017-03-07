@@ -86,7 +86,7 @@ func (p *T) AsyncProduce(topic string, key, message sarama.Encoder) {
 // `ErrBufferOverflow` or `ErrRequestTimeout` even when there are messages
 // available for consumption. In that case the user should back off a bit
 // and then repeat the request.
-func (p *T) Consume(group, topic string) (*consumer.Message, error) {
+func (p *T) Consume(group, topic string) (consumer.Message, error) {
 	msg, err := p.cons.Consume(group, topic)
 	if err == nil {
 		msg.EventsCh <- consumer.Ack(msg.Offset)

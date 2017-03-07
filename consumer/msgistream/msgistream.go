@@ -37,7 +37,7 @@ type Factory interface {
 type T interface {
 	// Messages returns the read channel for the messages that are fetched from
 	// the topic partition.
-	Messages() <-chan *consumer.Message
+	Messages() <-chan consumer.Message
 
 	// Errors returns a read channel of errors that occurred during consuming,
 	// if enabled. By default, errors are logged and not returned over this
@@ -186,7 +186,7 @@ type msgIStream struct {
 	lag          int64
 	assignmentCh chan mapper.Executor
 	initErrorCh  chan error
-	messagesCh   chan *consumer.Message
+	messagesCh   chan consumer.Message
 	errorsCh     chan *Err
 	closingCh    chan none.T
 	wg           sync.WaitGroup
@@ -204,7 +204,7 @@ func (f *factory) spawnMsgIStream(namespace *actor.ID, id instanceID, offset int
 		id:           id,
 		assignmentCh: make(chan mapper.Executor, 1),
 		initErrorCh:  make(chan error),
-		messagesCh:   make(chan *consumer.Message, f.saramaCfg.ChannelBufferSize),
+		messagesCh:   make(chan consumer.Message, f.saramaCfg.ChannelBufferSize),
 		errorsCh:     make(chan *Err, f.saramaCfg.ChannelBufferSize),
 		closingCh:    make(chan none.T, 1),
 		offset:       offset,
@@ -215,7 +215,7 @@ func (f *factory) spawnMsgIStream(namespace *actor.ID, id instanceID, offset int
 }
 
 // implements `Factory`.
-func (mis *msgIStream) Messages() <-chan *consumer.Message {
+func (mis *msgIStream) Messages() <-chan consumer.Message {
 	return mis.messagesCh
 }
 
@@ -248,10 +248,10 @@ func (mis *msgIStream) run() {
 	var (
 		fetchResultCh       = make(chan fetchRes, 1)
 		nilOrFetchResultsCh <-chan fetchRes
-		nilOrMessagesCh     chan<- *consumer.Message
-		fetchedMessages     []*consumer.Message
+		nilOrMessagesCh     chan<- consumer.Message
+		fetchedMessages     []consumer.Message
 		err                 error
-		currMessage         *consumer.Message
+		currMessage         consumer.Message
 		currMessageIdx      int
 	)
 pullMessagesLoop:
@@ -340,7 +340,7 @@ func (mis *msgIStream) triggerOrScheduleReassign(reason string) {
 }
 
 // parseFetchResult parses a fetch response received a broker.
-func (mis *msgIStream) parseFetchResult(cid *actor.ID, fetchResult fetchRes) ([]*consumer.Message, error) {
+func (mis *msgIStream) parseFetchResult(cid *actor.ID, fetchResult fetchRes) ([]consumer.Message, error) {
 	if fetchResult.Err != nil {
 		return nil, fetchResult.Err
 	}
@@ -381,13 +381,13 @@ func (mis *msgIStream) parseFetchResult(cid *actor.ID, fetchResult fetchRes) ([]
 
 	// we got messages, reset our fetch size in case it was increased for a previous request
 	mis.fetchSize = mis.f.saramaCfg.Consumer.Fetch.Default
-	var fetchedMessages []*consumer.Message
+	var fetchedMessages []consumer.Message
 	for _, msgBlock := range block.MsgSet.Messages {
 		for _, msg := range msgBlock.Messages() {
 			if msg.Offset < mis.offset {
 				continue
 			}
-			consumerMessage := &consumer.Message{
+			consumerMessage := consumer.Message{
 				Topic:         mis.id.topic,
 				Partition:     mis.id.partition,
 				Key:           msg.Msg.Key,

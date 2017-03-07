@@ -201,10 +201,10 @@ func (s *PartitionCsmSuite) TestOfferedTooMany(c *C) {
 	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{sarama.OffsetOldest, ""}})
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgIStreamF, s.offsetMgrF)
 	defer pc.Stop()
-	var msg *consumer.Message
+	var msg consumer.Message
 
 	// Read and confirm offered messages up to the HWM+1 limit.
-	var messages []*consumer.Message
+	var messages []consumer.Message
 	for i := 0; i < 4; i++ {
 		msg = <-pc.Messages()
 		messages = append(messages, msg)
@@ -231,7 +231,7 @@ func (s *PartitionCsmSuite) TestOfferedTooMany(c *C) {
 
 	select {
 	case msg := <-pc.Messages():
-		c.Errorf("No messages should be available above HWM limit: %d", msg.Offset)
+		c.Errorf("No messages should be available above HWM limit: %v", msg)
 	case <-time.After(200 * time.Millisecond):
 	}
 }
@@ -283,7 +283,7 @@ func (s *PartitionCsmSuite) TestSparseAckedAfterStop(c *C) {
 
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgIStreamF, s.offsetMgrF)
 
-	var messages []*consumer.Message
+	var messages []consumer.Message
 	for i := 0; i < 10; i++ {
 		msg := <-pc.Messages()
 		sendEOffered(msg)
@@ -348,7 +348,7 @@ func (s *PartitionCsmSuite) TestMaxRetriesReached(c *C) {
 		sendEAcked(msgI)
 		// ...but retried message is not.
 		msg1_i := <-pc.Messages()
-		c.Assert(msg1_i, Equals, msg1, Commentf("got: %d, want: %d", msg1_i.Offset, msg1.Offset))
+		c.Assert(msg1_i, DeepEquals, msg1, Commentf("got: %d, want: %d", msg1_i.Offset, msg1.Offset))
 		sendEOffered(msg1)
 	}
 	// Expire offer of the retried message one last time.
@@ -425,7 +425,7 @@ func (s *PartitionCsmSuite) TestRetryNoMoreMessages(c *C) {
 	// offered.
 	for i := 0; i < 4; i++ {
 		msg1_i := <-pc.Messages()
-		c.Assert(msg1_i, Equals, msg1, Commentf("got: %d, want: %d", msg1_i.Offset, msg1.Offset))
+		c.Assert(msg1_i, DeepEquals, msg1, Commentf("got: %d, want: %d", msg1_i.Offset, msg1.Offset))
 		sendEOffered(msg1)
 	}
 
@@ -441,10 +441,10 @@ func (s *PartitionCsmSuite) TestRetryNoMoreMessages(c *C) {
 	c.Assert(offsettrac.SparseAcks2Str(offsetsAfter[partition]), Equals, "")
 }
 
-func sendEOffered(msg *consumer.Message) {
+func sendEOffered(msg consumer.Message) {
 	msg.EventsCh <- consumer.Event{consumer.ETOffered, msg.Offset}
 }
 
-func sendEAcked(msg *consumer.Message) {
+func sendEAcked(msg consumer.Message) {
 	msg.EventsCh <- consumer.Event{consumer.ETAcked, msg.Offset}
 }

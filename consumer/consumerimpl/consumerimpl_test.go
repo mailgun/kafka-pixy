@@ -296,7 +296,7 @@ func (s *ConsumerSuite) TestRebalanceOnLeave(c *C) {
 	log.Infof("*** GIVEN 1")
 	// Consume the first message to make the consumer join the group and
 	// subscribe to the topic.
-	consumed := make([]map[string][]*consumer.Message, 3)
+	consumed := make([]map[string][]consumer.Message, 3)
 	for i := 0; i < 3; i++ {
 		consumed[i] = s.consume(c, consumers[i], "g1", "test.4", 1)
 	}
@@ -358,7 +358,7 @@ func (s *ConsumerSuite) TestRebalanceOnLeave(c *C) {
 // assigned to it are redistributed among active consumers.
 func (s *ConsumerSuite) TestRebalanceOnTimeout(c *C) {
 	var wg sync.WaitGroup
-	consumed := make([]map[string][]*consumer.Message, 2)
+	consumed := make([]map[string][]consumer.Message, 2)
 
 	s.kh.ResetOffsets("g1", "test.4")
 	s.kh.PutMessages("timeout", "test.4", map[string]int{"A": 10, "B": 10})
@@ -514,13 +514,12 @@ func (s *ConsumerSuite) TestInvalidTopic(c *C) {
 	defer sc.Stop()
 
 	// When
-	consMsg, err := sc.Consume("g1", "no-such-topic")
+	_, err = sc.Consume("g1", "no-such-topic")
 
 	// Then
 	if _, ok := err.(consumer.ErrRequestTimeout); !ok {
 		c.Errorf("ErrConsumerRequestTimeout is expected")
 	}
-	c.Assert(consMsg, IsNil)
 }
 
 // A topic that has a lot of partitions can be consumed.
@@ -616,8 +615,7 @@ func (s *ConsumerSuite) TestTopicTimeout(c *C) {
 	c.Assert(len(consumedTest1ByCons1["A"]), Equals, 1)
 	consumedTest4ByCons1 := s.consume(c, cons1, "g1", "test.4", 1)
 	c.Assert(len(consumedTest4ByCons1["B"]), Equals, 1)
-	msg, err := cons2.Consume("g1", "test.1")
-	c.Assert(msg, IsNil)
+	_, err = cons2.Consume("g1", "test.1")
 	c.Assert(err, FitsTypeOf, consumer.ErrRequestTimeout(fmt.Errorf("")))
 
 	delay := (5000 * time.Millisecond) - time.Now().Sub(start)
@@ -627,8 +625,7 @@ func (s *ConsumerSuite) TestTopicTimeout(c *C) {
 	log.Infof("*** GIVEN 2:")
 	consumedTest4ByCons1 = s.consume(c, cons1, "g1", "test.4", 1, consumedTest4ByCons1)
 	c.Assert(len(consumedTest4ByCons1["B"]), Equals, 2)
-	msg, err = cons2.Consume("g1", "test.1")
-	c.Assert(msg, IsNil)
+	_, err = cons2.Consume("g1", "test.1")
 	c.Assert(err, FitsTypeOf, consumer.ErrRequestTimeout(fmt.Errorf("")))
 
 	// When: wait for the cons1 subscription to test.1 topic to expire.
@@ -645,23 +642,23 @@ func (s *ConsumerSuite) TestTopicTimeout(c *C) {
 	c.Assert(len(consumedTest4ByCons1["B"]), Equals, 3)
 }
 
-func assertMsg(c *C, consMsg *consumer.Message, prodMsg *sarama.ProducerMessage) {
+func assertMsg(c *C, consMsg consumer.Message, prodMsg *sarama.ProducerMessage) {
 	c.Assert(sarama.StringEncoder(consMsg.Value), Equals, prodMsg.Value)
 	c.Assert(consMsg.Offset, Equals, prodMsg.Offset)
 }
 
-func (s *ConsumerSuite) compareMsg(consMsg *consumer.Message, prodMsg *sarama.ProducerMessage) bool {
+func (s *ConsumerSuite) compareMsg(consMsg consumer.Message, prodMsg *sarama.ProducerMessage) bool {
 	return sarama.StringEncoder(consMsg.Value) == prodMsg.Value.(sarama.Encoder) && consMsg.Offset == prodMsg.Offset
 }
 
 const consumeAll = -1
 
 func (s *ConsumerSuite) consume(c *C, sc *t, group, topic string, count int,
-	extend ...map[string][]*consumer.Message) map[string][]*consumer.Message {
+	extend ...map[string][]consumer.Message) map[string][]consumer.Message {
 
-	var consumed map[string][]*consumer.Message
+	var consumed map[string][]consumer.Message
 	if len(extend) == 0 {
-		consumed = make(map[string][]*consumer.Message)
+		consumed = make(map[string][]consumer.Message)
 	} else {
 		consumed = extend[0]
 	}
@@ -683,7 +680,7 @@ func (s *ConsumerSuite) consume(c *C, sc *t, group, topic string, count int,
 	return consumed
 }
 
-func logConsumed(sc *t, msg *consumer.Message) {
+func logConsumed(sc *t, msg consumer.Message) {
 	log.Infof("*** consumed: by=%s, topic=%s, partition=%d, offset=%d, message=%s",
 		sc.namespace.String(), msg.Topic, msg.Partition, msg.Offset, msg.Value)
 }

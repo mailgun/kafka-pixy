@@ -36,7 +36,7 @@ type Request struct {
 }
 
 type Response struct {
-	Msg *consumer.Message
+	Msg consumer.Message
 	Err error
 }
 
