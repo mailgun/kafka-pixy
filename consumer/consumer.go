@@ -1,5 +1,15 @@
 package consumer
 
+const (
+	// An event of this type should be sent to the message events channel
+	// when the message is offered to a client.
+	ETOffered eventType = iota
+
+	// An event of this type should be sent to the message events channel
+	// when the message is acknowledged by a client.
+	ETAcked
+)
+
 type T interface {
 	// Consume consumes a message from the specified topic on behalf of the
 	// specified consumer group. If there are no more new messages in the topic
@@ -27,8 +37,19 @@ type Message struct {
 	Partition     int32
 	Offset        int64
 	HighWaterMark int64
-	AckCh         chan<- *Message
+	EventsCh      chan<- Event
 }
+
+func Ack(offset int64) Event {
+	return Event{ETAcked, offset}
+}
+
+type Event struct {
+	T      eventType
+	Offset int64
+}
+
+type eventType int
 
 type (
 	ErrSetup           error

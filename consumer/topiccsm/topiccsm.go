@@ -20,29 +20,31 @@ import (
 // implements `dispatcher.Tier`.
 // implements `multiplexer.Out`.
 type T struct {
-	actorID       *actor.ID
-	cfg           *config.Proxy
-	group         string
-	topic         string
-	lifespanCh    chan<- *T
-	assignmentsCh chan []int32
-	requestsCh    chan dispatcher.Request
-	messagesCh    chan *consumer.Message
-	wg            sync.WaitGroup
+	actorID    *actor.ID
+	cfg        *config.Proxy
+	group      string
+	topic      string
+	lifespanCh chan<- *T
+	requestsCh chan dispatcher.Request
+	messagesCh chan *consumer.Message
+	wg         sync.WaitGroup
 }
 
 // Creates a topic consumer instance. It should be explicitly started in
 // accordance with the `dispatcher.Tier` contract.
 func New(namespace *actor.ID, group, topic string, cfg *config.Proxy, lifespanCh chan<- *T) *T {
 	return &T{
-		actorID:       namespace.NewChild(fmt.Sprintf("T:%s", topic)),
-		cfg:           cfg,
-		group:         group,
-		topic:         topic,
-		lifespanCh:    lifespanCh,
-		assignmentsCh: make(chan []int32),
-		requestsCh:    make(chan dispatcher.Request, cfg.Consumer.ChannelBufferSize),
-		messagesCh:    make(chan *consumer.Message),
+		actorID:    namespace.NewChild(fmt.Sprintf("T:%s", topic)),
+		cfg:        cfg,
+		group:      group,
+		topic:      topic,
+		lifespanCh: lifespanCh,
+		requestsCh: make(chan dispatcher.Request, cfg.Consumer.ChannelBufferSize),
+
+		// Messages channel must be non-buffered. Otherwise we might end up
+		// buffering a message from a partition that no longer belongs to this
+		// consumer group member.
+		messagesCh: make(chan *consumer.Message),
 	}
 }
 
@@ -102,6 +104,7 @@ func (tc *T) run() {
 
 		select {
 		case msg := <-tc.messagesCh:
+			msg.EventsCh <- consumer.Event{consumer.ETOffered, msg.Offset}
 			consumeReq.ResponseCh <- dispatcher.Response{Msg: msg}
 		case <-time.After(ttl):
 			consumeReq.ResponseCh <- timeoutResult

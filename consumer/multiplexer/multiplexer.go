@@ -31,10 +31,6 @@ type In interface {
 	// Read messages should NOT be considered as consumed by the input.
 	Messages() <-chan *consumer.Message
 
-	// Offers returns a channel that multiplexer sends messages read from
-	// Messages() channel when they are actually offered to a consumer.
-	Offers() chan<- *consumer.Message
-
 	// Stop signals the input to stop and blocks waiting for its goroutines to
 	// complete.
 	Stop()
@@ -200,21 +196,10 @@ reset:
 		inputIdx = selectInput(inputIdx, sortedIns)
 		// Block until the output reads the next message of the selected input
 		// or a stop signal is received.
-
-		// FIXME: Remove this when acks are coming from API servers.
-		ackCh := sortedIns[inputIdx].nextMsg.AckCh
-
 		select {
 		case <-m.stopCh:
 			return
 		case m.output.Messages() <- sortedIns[inputIdx].nextMsg:
-			sortedIns[inputIdx].Offers() <- sortedIns[inputIdx].nextMsg
-
-			// FIXME: Remove this when acks are coming from API servers.
-			if ackCh != nil {
-				ackCh <- sortedIns[inputIdx].nextMsg
-			}
-
 			sortedIns[inputIdx].nextMsg = nil
 		}
 	}

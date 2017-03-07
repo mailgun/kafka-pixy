@@ -125,7 +125,7 @@ func (s *PartitionCsmSuite) TestMustBeOfferedToProceed(c *C) {
 		c.Error("Message must not be available until previous is offered")
 	case <-time.After(200 * time.Millisecond):
 	}
-	pc.Offers() <- msg
+	sendEOffered(msg)
 
 	// Then
 	<-pc.Messages()
@@ -170,9 +170,9 @@ func (s *PartitionCsmSuite) TestSparseAckedNotRead(c *C) {
 		c.Assert(msg.Offset, Equals, base+int64(i))
 
 		// Confirm offered to get fetching going
-		pc.Offers() <- msg
+		sendEOffered(msg)
 		// Acknowledge to speed up the partition consumer stop.
-		msg.AckCh <- msg
+		sendEAcked(msg)
 	}
 }
 
@@ -184,9 +184,9 @@ func (s *PartitionCsmSuite) TestOfferIvalid(c *C) {
 	defer pc.Stop()
 
 	// When
-	_, ok := <-pc.Messages()
+	msg, ok := <-pc.Messages()
 	c.Assert(ok, Equals, true)
-	pc.Offers() <- &consumer.Message{}
+	msg.EventsCh <- consumer.Event{consumer.ETOffered, msg.Offset + 1}
 
 	// Then
 	_, ok = <-pc.Messages()
@@ -208,7 +208,8 @@ func (s *PartitionCsmSuite) TestOfferedTooMany(c *C) {
 	for i := 0; i < 4; i++ {
 		msg = <-pc.Messages()
 		messages = append(messages, msg)
-		pc.Offers() <- msg // Confirm offered to get fetching going.
+		// Confirm offered to get fetching going.
+		sendEOffered(msg)
 	}
 
 	// No more message should be returned.
@@ -219,13 +220,14 @@ func (s *PartitionCsmSuite) TestOfferedTooMany(c *C) {
 	}
 
 	// Acknowledge some message.
-	messages[1].AckCh <- messages[1]
+	sendEAcked(messages[1])
 
 	// Total number of pending offered messages is 1 short of HWM limit. So we
 	// should be able to read just one message.
 	msg = <-pc.Messages()
 	messages = append(messages, msg)
-	pc.Offers() <- msg // Confirm offered to get fetching going.
+	// Confirm offered to get fetching going.
+	sendEOffered(msg)
 
 	select {
 	case msg := <-pc.Messages():
@@ -258,9 +260,9 @@ func (s *PartitionCsmSuite) TestSparseAckedCommitted(c *C) {
 	// When
 	for _, shouldAck := range acks {
 		msg := <-pc.Messages()
-		pc.Offers() <- msg
+		sendEOffered(msg)
 		if shouldAck {
-			msg.AckCh <- msg
+			sendEAcked(msg)
 		}
 	}
 	pc.Stop()
@@ -284,22 +286,22 @@ func (s *PartitionCsmSuite) TestSparseAckedAfterStop(c *C) {
 	var messages []*consumer.Message
 	for i := 0; i < 10; i++ {
 		msg := <-pc.Messages()
-		pc.Offers() <- msg
+		sendEOffered(msg)
 		messages = append(messages, msg)
 	}
 
-	messages[7].AckCh <- messages[7]
-	messages[1].AckCh <- messages[1]
-	messages[8].AckCh <- messages[8]
+	sendEAcked(messages[7])
+	sendEAcked(messages[1])
+	sendEAcked(messages[8])
 
 	// When
 	go pc.Stop() // Stop asynchronously.
 	time.Sleep(100 * time.Millisecond)
 
-	messages[3].AckCh <- messages[3]
-	messages[4].AckCh <- messages[4]
-	messages[6].AckCh <- messages[6]
-	messages[0].AckCh <- messages[0]
+	sendEAcked(messages[3])
+	sendEAcked(messages[4])
+	sendEAcked(messages[6])
+	sendEAcked(messages[0])
 
 	// Wait for partition consumer to stop.
 	for {
@@ -327,12 +329,12 @@ func (s *PartitionCsmSuite) TestMaxRetriesReached(c *C) {
 
 	// Read and confirm offer of 2 messages
 	msg0 := <-pc.Messages()
-	pc.Offers() <- msg0
+	sendEOffered(msg0)
 	msg1 := <-pc.Messages()
-	pc.Offers() <- msg1
+	sendEOffered(msg1)
 
 	// Acknowledge only the first one
-	msg0.AckCh <- msg0
+	sendEAcked(msg0)
 
 	// The logic is so that the even when an offer is expired, at first a
 	// freshly fetched message is offered, and then retries follow.
@@ -342,19 +344,19 @@ func (s *PartitionCsmSuite) TestMaxRetriesReached(c *C) {
 		// Newly fetched message is acknowledged...
 		msgI := <-pc.Messages()
 		c.Assert(msgI.Offset, Equals, base+int64(i))
-		pc.Offers() <- msgI
-		msgI.AckCh <- msgI
+		sendEOffered(msgI)
+		sendEAcked(msgI)
 		// ...but retried message is not.
 		msg1_i := <-pc.Messages()
 		c.Assert(msg1_i, Equals, msg1, Commentf("got: %d, want: %d", msg1_i.Offset, msg1.Offset))
-		pc.Offers() <- msg1
+		sendEOffered(msg1)
 	}
 	// Expire offer of the retried message one last time.
 	time.Sleep(100 * time.Millisecond)
 	msgI := <-pc.Messages()
 	c.Assert(msgI.Offset, Equals, base+int64(4))
-	pc.Offers() <- msgI
-	msgI.AckCh <- msgI
+	sendEOffered(msgI)
+	sendEAcked(msgI)
 
 	// Wait for partition consumer to stop.
 	for {
@@ -383,18 +385,18 @@ func (s *PartitionCsmSuite) TestSeveralMessageReties(c *C) {
 	// Read and confirm offered several messages, but do not ack them.
 	for i := 0; i < 7; i++ {
 		msg := <-pc.Messages()
-		pc.Offers() <- msg
+		sendEOffered(msg)
 	}
 	// Wait for all offers to expire...
 	time.Sleep(100 * time.Millisecond)
 	// ...first message we read is not a retry and this is ok...
 	msg := <-pc.Messages()
-	pc.Offers() <- msg
+	sendEOffered(msg)
 	c.Assert(msg.Offset, Equals, offsetsBefore[partition]+int64(7))
 	// ...but following 7 are.
 	for i := 0; i < 7; i++ {
 		msg := <-pc.Messages()
-		pc.Offers() <- msg
+		sendEOffered(msg)
 		c.Assert(msg.Offset, Equals, offsetsBefore[partition]+int64(i))
 	}
 }
@@ -402,7 +404,7 @@ func (s *PartitionCsmSuite) TestSeveralMessageReties(c *C) {
 func (s *PartitionCsmSuite) TestRetryNoMoreMessages(c *C) {
 	newestOffsets := s.kh.GetNewestOffsets(topic)
 	offsetBefore := newestOffsets[partition] - int64(2)
-	s.cfg.Consumer.RebalanceDelay = 100 * time.Millisecond
+	s.cfg.Consumer.RebalanceDelay = 200 * time.Millisecond
 	retriesEmergencyBreak = 4
 	retriesHighWaterMark = 1
 	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{Val: offsetBefore}})
@@ -411,20 +413,20 @@ func (s *PartitionCsmSuite) TestRetryNoMoreMessages(c *C) {
 
 	// Read and confirm offer of 2 messages
 	msg0 := <-pc.Messages()
-	pc.Offers() <- msg0
+	sendEOffered(msg0)
 	msg1 := <-pc.Messages()
-	pc.Offers() <- msg1
+	sendEOffered(msg1)
 
 	// Acknowledge only the first one.
 	time.Sleep(100 * time.Millisecond)
-	msg0.AckCh <- msg0
+	sendEAcked(msg0)
 
 	// Since there are no more messages in the partition, then only retries are
 	// offered.
 	for i := 0; i < 4; i++ {
 		msg1_i := <-pc.Messages()
 		c.Assert(msg1_i, Equals, msg1, Commentf("got: %d, want: %d", msg1_i.Offset, msg1.Offset))
-		pc.Offers() <- msg1
+		sendEOffered(msg1)
 	}
 
 	// Wait for partition consumer to stop.
@@ -437,4 +439,12 @@ func (s *PartitionCsmSuite) TestRetryNoMoreMessages(c *C) {
 	offsetsAfter := s.kh.GetCommittedOffsets(group, topic)
 	c.Assert(offsetsAfter[partition].Val, Equals, offsetBefore+int64(1))
 	c.Assert(offsettrac.RangesToStr(offsetsAfter[partition]), Equals, "")
+}
+
+func sendEOffered(msg *consumer.Message) {
+	msg.EventsCh <- consumer.Event{consumer.ETOffered, msg.Offset}
+}
+
+func sendEAcked(msg *consumer.Message) {
+	msg.EventsCh <- consumer.Event{consumer.ETAcked, msg.Offset}
 }

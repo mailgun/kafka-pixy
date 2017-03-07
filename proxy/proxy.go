@@ -87,7 +87,11 @@ func (p *T) AsyncProduce(topic string, key, message sarama.Encoder) {
 // available for consumption. In that case the user should back off a bit
 // and then repeat the request.
 func (p *T) Consume(group, topic string) (*consumer.Message, error) {
-	return p.cons.Consume(group, topic)
+	msg, err := p.cons.Consume(group, topic)
+	if err == nil {
+		msg.EventsCh <- consumer.Ack(msg.Offset)
+	}
+	return msg, err
 }
 
 // GetGroupOffsets for every partition of the specified topic it returns the

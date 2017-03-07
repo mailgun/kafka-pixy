@@ -14,6 +14,7 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer/offsettrac"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
+	"github.com/pkg/errors"
 )
 
 var (
@@ -45,8 +46,7 @@ type T struct {
 	msgIStreamF msgistream.Factory
 	offsetMgrF  offsetmgr.Factory
 	messagesCh  chan *consumer.Message
-	offersCh    chan *consumer.Message
-	acksCh      chan *consumer.Message
+	eventsCh    chan consumer.Event
 	stopCh      chan none.T
 	wg          sync.WaitGroup
 
@@ -68,8 +68,7 @@ func Spawn(namespace *actor.ID, group, topic string, partition int32, cfg *confi
 		msgIStreamF: msgIStreamF,
 		offsetMgrF:  offsetMgrF,
 		messagesCh:  make(chan *consumer.Message, 1),
-		offersCh:    make(chan *consumer.Message),
-		acksCh:      make(chan *consumer.Message),
+		eventsCh:    make(chan consumer.Event, 1),
 		stopCh:      make(chan none.T),
 	}
 	actor.Spawn(pc.actorID, &pc.wg, pc.run)
@@ -86,11 +85,6 @@ func (pc *T) Messages() <-chan *consumer.Message {
 	return pc.messagesCh
 }
 
-// implements `multiplexer.In`
-func (pc *T) Offers() chan<- *consumer.Message {
-	return pc.offersCh
-}
-
 func (pc *T) run() {
 	defer close(pc.messagesCh)
 	defer pc.groupMember.ClaimPartition(pc.actorID, pc.topic, pc.partition, pc.stopCh)()
@@ -98,8 +92,7 @@ func (pc *T) run() {
 	om, err := pc.offsetMgrF.SpawnOffsetManager(pc.actorID, pc.group, pc.topic, pc.partition)
 	if err != nil {
 		// Must never happen!
-		log.Errorf("<%s> failed to spawn offset manager: err=(%s)", pc.actorID, err)
-		return
+		panic(errors.Wrapf(err, "<%s> failed to spawn offset manager", pc.actorID))
 	}
 	defer func() {
 		if om != nil {
@@ -120,8 +113,7 @@ func (pc *T) run() {
 	mis, realOffsetVal, err := pc.msgIStreamF.SpawnMessageIStream(pc.actorID, pc.topic, pc.partition, committedOffset.Val)
 	if err != nil {
 		// Must never happen!
-		log.Errorf("<%s> failed to start message stream: offset=%d, err=(%s)", pc.actorID, committedOffset.Val, err)
-		return
+		panic(errors.Wrapf(err, "<%s> failed to start message stream, offset=%d", pc.actorID, committedOffset.Val))
 	}
 	defer mis.Stop()
 
@@ -151,7 +143,7 @@ func (pc *T) run() {
 			if ot.IsAcked(msg) {
 				continue
 			}
-			msg.AckCh = pc.acksCh
+			msg.EventsCh = pc.eventsCh
 			pc.notifyTestFetched()
 			nilOrIStreamMessagesCh = nil
 			nilOrMessagesCh = pc.messagesCh
@@ -174,37 +166,40 @@ func (pc *T) run() {
 			nilOrMessagesCh = pc.messagesCh
 		case nilOrMessagesCh <- msg:
 			nilOrMessagesCh = nil
-		case offeredMsg := <-pc.offersCh:
-			if offeredMsg != msg {
-				// Must never happen!
-				log.Errorf("<%s> invalid offered: %d, expected=%d", pc.actorID, offeredMsg.Offset, msg.Offset)
-				goto wait4Ack
-			}
-			offeredCount := ot.OnOffered(offeredMsg)
-			msg, retryNo = ot.NextRetry()
-			if msg != nil {
-				if retryNo > retriesEmergencyBreak {
-					log.Errorf("<%s> too many retries: offset=%d", pc.actorID, msg.Offset)
-					goto wait4Ack
+		case event := <-pc.eventsCh:
+			switch event.T {
+			case consumer.ETOffered:
+				if event.Offset != msg.Offset {
+					// Must never happen!
+					panic(errors.Wrapf(err, "<%s> invalid offer offset %d, want=%d", pc.actorID, event.Offset, msg.Offset))
 				}
-				if retryNo > retriesHighWaterMark {
-					log.Warningf("<%s> retries above HWM: %d, offset=%d", pc.actorID, retryNo, msg.Offset)
+				offeredCount := ot.OnOffered(msg)
+				msg, retryNo = ot.NextRetry()
+				if msg != nil {
+					log.Warningf("<%s> retrying: offset=%d, no=%d", pc.actorID, msg.Offset, retryNo)
+					if retryNo > retriesEmergencyBreak {
+						log.Errorf("<%s> too many retries: offset=%d", pc.actorID, msg.Offset)
+						goto wait4Ack
+					}
+					if retryNo > retriesHighWaterMark {
+						log.Warningf("<%s> retries above HWM: %d, offset=%d", pc.actorID, retryNo, msg.Offset)
+					}
+					nilOrMessagesCh = pc.messagesCh
+					continue
 				}
-				nilOrMessagesCh = pc.messagesCh
-				continue
-			}
-			if offeredCount > offeredHighWaterMark {
-				log.Warningf("<%s> offered count above HWM: %d", pc.actorID, offeredCount)
-				nilOrIStreamMessagesCh = nil
-			} else {
-				nilOrIStreamMessagesCh = mis.Messages()
-			}
-		case ackedMsg := <-pc.acksCh:
-			var offeredCount int
-			submittedOffset, offeredCount = ot.OnAcked(ackedMsg.Offset)
-			om.SubmitOffset(submittedOffset)
-			if msg == nil && offeredCount <= offeredHighWaterMark {
-				nilOrIStreamMessagesCh = mis.Messages()
+				if offeredCount > offeredHighWaterMark {
+					log.Warningf("<%s> offered count above HWM: %d", pc.actorID, offeredCount)
+					nilOrIStreamMessagesCh = nil
+				} else {
+					nilOrIStreamMessagesCh = mis.Messages()
+				}
+			case consumer.ETAcked:
+				var offeredCount int
+				submittedOffset, offeredCount = ot.OnAcked(event.Offset)
+				om.SubmitOffset(submittedOffset)
+				if msg == nil && offeredCount <= offeredHighWaterMark {
+					nilOrIStreamMessagesCh = mis.Messages()
+				}
 			}
 		case committedOffset = <-om.CommittedOffsets():
 		case <-pc.stopCh:
@@ -214,9 +209,11 @@ func (pc *T) run() {
 wait4Ack:
 	for ok, timeout := ot.ShouldWait4Ack(); ok; ok, timeout = ot.ShouldWait4Ack() {
 		select {
-		case ackedMsg := <-pc.acksCh:
-			submittedOffset, _ = ot.OnAcked(ackedMsg.Offset)
-			om.SubmitOffset(submittedOffset)
+		case event := <-pc.eventsCh:
+			if event.T == consumer.ETAcked {
+				submittedOffset, _ = ot.OnAcked(event.Offset)
+				om.SubmitOffset(submittedOffset)
+			}
 		case <-time.After(timeout):
 			goto done
 		}
