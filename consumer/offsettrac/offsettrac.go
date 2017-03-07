@@ -41,9 +41,9 @@ type T struct {
 	offers       []offer
 }
 
-// RangesToStr returns human readable representation of sparsely committed
+// SparseAcks2Str returns human readable representation of sparsely committed
 // ranges encoded in the specified offset metadata.
-func RangesToStr(offset offsetmgr.Offset) string {
+func SparseAcks2Str(offset offsetmgr.Offset) string {
 	var buf bytes.Buffer
 	ackRanges, _ := decodeAckRanges(offset.Val, offset.Meta)
 	for i, ar := range ackRanges {

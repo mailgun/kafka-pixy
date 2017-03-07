@@ -120,12 +120,12 @@ func (pc *T) run() {
 	// If the real initial offset is not what had been committed then adjust.
 	if committedOffset.Val != realOffsetVal {
 		log.Errorf("<%s> invalid initial offset: %d, sparseAcks=%s",
-			pc.actorID, committedOffset.Val, offsettrac.RangesToStr(committedOffset))
+			pc.actorID, committedOffset.Val, offsettrac.SparseAcks2Str(committedOffset))
 		submittedOffset = offsetmgr.Offset{Val: realOffsetVal, Meta: ""}
 		om.SubmitOffset(submittedOffset)
 	}
 	log.Infof("<%s> initialized: offset=%d, sparseAcks=%s",
-		pc.actorID, submittedOffset.Val, offsettrac.RangesToStr(submittedOffset))
+		pc.actorID, submittedOffset.Val, offsettrac.SparseAcks2Str(submittedOffset))
 	pc.notifyTestInitialized(submittedOffset)
 	ot := offsettrac.New(pc.actorID, submittedOffset, pc.cfg.Consumer.RebalanceDelay)
 
@@ -228,10 +228,10 @@ done:
 	om = nil
 	if committedOffset != submittedOffset {
 		log.Errorf("<%s> failed to commit offset: %d, sparseAcks=%s",
-			pc.actorID, submittedOffset.Val, offsettrac.RangesToStr(submittedOffset))
+			pc.actorID, submittedOffset.Val, offsettrac.SparseAcks2Str(submittedOffset))
 	}
 	log.Infof("<%s> last committed offset: %d, sparceAcks=%s",
-		pc.actorID, committedOffset.Val, offsettrac.RangesToStr(committedOffset))
+		pc.actorID, committedOffset.Val, offsettrac.SparseAcks2Str(committedOffset))
 }
 
 func (pc *T) Stop() {

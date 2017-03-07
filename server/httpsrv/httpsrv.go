@@ -16,6 +16,8 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/admin"
 	"github.com/mailgun/kafka-pixy/consumer"
+	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
+	"github.com/mailgun/kafka-pixy/consumer/offsettrac"
 	"github.com/mailgun/kafka-pixy/prettyfmt"
 	"github.com/mailgun/kafka-pixy/proxy"
 	"github.com/mailgun/log"
@@ -262,23 +264,25 @@ func (s *T) handleGetOffsets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	partitionOffsetView := make([]partitionOffsetView, len(partitionOffsets))
+	offsetViews := make([]partitionOffsetView, len(partitionOffsets))
 	for i, po := range partitionOffsets {
-		partitionOffsetView[i].Partition = po.Partition
-		partitionOffsetView[i].Begin = po.Begin
-		partitionOffsetView[i].End = po.End
-		partitionOffsetView[i].Count = po.End - po.Begin
-		partitionOffsetView[i].Offset = po.Offset
+		offsetViews[i].Partition = po.Partition
+		offsetViews[i].Begin = po.Begin
+		offsetViews[i].End = po.End
+		offsetViews[i].Count = po.End - po.Begin
+		offsetViews[i].Offset = po.Offset
 		if po.Offset == sarama.OffsetNewest {
-			partitionOffsetView[i].Lag = 0
+			offsetViews[i].Lag = 0
 		} else if po.Offset == sarama.OffsetOldest {
-			partitionOffsetView[i].Lag = po.End - po.Begin
+			offsetViews[i].Lag = po.End - po.Begin
 		} else {
-			partitionOffsetView[i].Lag = po.End - po.Offset
+			offsetViews[i].Lag = po.End - po.Offset
 		}
-		partitionOffsetView[i].Metadata = po.Metadata
+		offsetViews[i].Metadata = po.Metadata
+		offset := offsetmgr.Offset{Val: po.Offset, Meta: po.Metadata}
+		offsetViews[i].SparseAcks = offsettrac.SparseAcks2Str(offset)
 	}
-	respondWithJSON(w, http.StatusOK, partitionOffsetView)
+	respondWithJSON(w, http.StatusOK, offsetViews)
 }
 
 // handleGetOffsets is an HTTP request handler for `POST /topic/{topic}/offsets`
@@ -406,13 +410,14 @@ type consumeHTTPResponse struct {
 }
 
 type partitionOffsetView struct {
-	Partition int32  `json:"partition"`
-	Begin     int64  `json:"begin"`
-	End       int64  `json:"end"`
-	Count     int64  `json:"count"`
-	Offset    int64  `json:"offset"`
-	Lag       int64  `json:"lag"`
-	Metadata  string `json:"metadata,omitempty"`
+	Partition  int32  `json:"partition"`
+	Begin      int64  `json:"begin"`
+	End        int64  `json:"end"`
+	Count      int64  `json:"count"`
+	Offset     int64  `json:"offset"`
+	Lag        int64  `json:"lag"`
+	Metadata   string `json:"metadata,omitempty"`
+	SparseAcks string `json:"sparse_acks,omitempty"`
 }
 
 type errorHTTPResponse struct {

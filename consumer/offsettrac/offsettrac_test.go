@@ -71,7 +71,7 @@ func (s *OffsetTrackerSuite) TestOnAckedRanges(c *C) {
 
 		// Then
 		c.Assert(offset.Val, Equals, tc.committed, Commentf("case: %d", i))
-		c.Assert(RangesToStr(offset), Equals, tc.ranges, Commentf("case: %d", i))
+		c.Assert(SparseAcks2Str(offset), Equals, tc.ranges, Commentf("case: %d", i))
 		if tc.skipSymmetryCheck {
 			continue
 		}
@@ -260,7 +260,7 @@ func (s *OffsetTrackerSuite) TestOfferAckLoop(c *C) {
 			var offset offsetmgr.Offset
 			offset, count = ot.OnAcked(tc.offset)
 			c.Assert(offset.Val, Equals, tc.committed, Commentf("case: %d", i))
-			c.Assert(RangesToStr(offset), Equals, tc.ranges, Commentf("case: %d", i))
+			c.Assert(SparseAcks2Str(offset), Equals, tc.ranges, Commentf("case: %d", i))
 		}
 		// Then
 		c.Assert(count, Equals, tc.count, Commentf("case: %d", i))

@@ -155,7 +155,7 @@ func (s *PartitionCsmSuite) TestSparseAckedNotRead(c *C) {
 			initOffset, _ = ot.OnAcked(base + int64(i))
 		}
 	}
-	c.Assert(offsettrac.RangesToStr(initOffset), Equals, "1-4,6-7")
+	c.Assert(offsettrac.SparseAcks2Str(initOffset), Equals, "1-4,6-7")
 	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{initOffset})
 
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgIStreamF, s.offsetMgrF)
@@ -270,7 +270,7 @@ func (s *PartitionCsmSuite) TestSparseAckedCommitted(c *C) {
 	// Then
 	offsetsAfter := s.kh.GetCommittedOffsets(group, topic)
 	c.Assert(offsetsAfter[partition].Val, Equals, offsetsBefore[partition]+1)
-	c.Assert(offsettrac.RangesToStr(offsetsAfter[partition]), Equals, "1-4,6-8")
+	c.Assert(offsettrac.SparseAcks2Str(offsetsAfter[partition]), Equals, "1-4,6-8")
 }
 
 // When a partition consumer is signalled to stop it waits at most
@@ -312,7 +312,7 @@ func (s *PartitionCsmSuite) TestSparseAckedAfterStop(c *C) {
 	// Then
 	offsetsAfter := s.kh.GetCommittedOffsets(group, topic)
 	c.Assert(offsetsAfter[partition].Val, Equals, offsetsBefore[partition]+2)
-	c.Assert(offsettrac.RangesToStr(offsetsAfter[partition]), Equals, "1-3,4-7")
+	c.Assert(offsettrac.SparseAcks2Str(offsetsAfter[partition]), Equals, "1-3,4-7")
 }
 
 // If the max retries limit is reached for a message that results in
@@ -367,7 +367,7 @@ func (s *PartitionCsmSuite) TestMaxRetriesReached(c *C) {
 	// Then
 	offsetsAfter := s.kh.GetCommittedOffsets(group, topic)
 	c.Assert(offsetsAfter[partition].Val, Equals, offsetsBefore[partition]+1)
-	c.Assert(offsettrac.RangesToStr(offsetsAfter[partition]), Equals, "1-6")
+	c.Assert(offsettrac.SparseAcks2Str(offsetsAfter[partition]), Equals, "1-6")
 }
 
 // When several offers are expired they are retried in the same order they
@@ -438,7 +438,7 @@ func (s *PartitionCsmSuite) TestRetryNoMoreMessages(c *C) {
 	// Then
 	offsetsAfter := s.kh.GetCommittedOffsets(group, topic)
 	c.Assert(offsetsAfter[partition].Val, Equals, offsetBefore+int64(1))
-	c.Assert(offsettrac.RangesToStr(offsetsAfter[partition]), Equals, "")
+	c.Assert(offsettrac.SparseAcks2Str(offsetsAfter[partition]), Equals, "")
 }
 
 func sendEOffered(msg *consumer.Message) {
