@@ -41,9 +41,9 @@ type T struct {
 	offers       []offer
 }
 
-// RangesToStr returns human readable representation of sparsely committed
+// SparseAcks2Str returns human readable representation of sparsely committed
 // ranges encoded in the specified offset metadata.
-func RangesToStr(offset offsetmgr.Offset) string {
+func SparseAcks2Str(offset offsetmgr.Offset) string {
 	var buf bytes.Buffer
 	ackRanges, _ := decodeAckRanges(offset.Val, offset.Meta)
 	for i, ar := range ackRanges {
@@ -77,7 +77,7 @@ func New(actorID *actor.ID, offset offsetmgr.Offset, offerTimeout time.Duration)
 // OnOffered should be called when a message has been offered to a consumer. It
 // returns the total number of offered messages. It is callers responsibility
 // to ensure that the number of offered message does not grow too large.
-func (ot *T) OnOffered(msg *consumer.Message) int {
+func (ot *T) OnOffered(msg consumer.Message) int {
 	offersCount := len(ot.offers)
 	// Ignore messages that has already been acknowledged
 	if ot.IsAcked(msg) {
@@ -109,10 +109,10 @@ func (ot *T) OnOffered(msg *consumer.Message) int {
 }
 
 // OnAcked should be called when a message has been acknowledged by a consumer.
-// It returns an offset to be submitted and a total number of pending messages.
-func (ot *T) OnAcked(msg *consumer.Message) (offsetmgr.Offset, int) {
-	ot.removeOffer(msg)
-	ot.addAckedOffset(msg.Offset)
+// It returns an offset to be submitted and a total number of offered messages.
+func (ot *T) OnAcked(offset int64) (offsetmgr.Offset, int) {
+	ot.removeOffer(offset)
+	ot.updateAckRanges(offset)
 	var err error
 	ot.offset.Meta, err = encodeAckRanges(ot.offset.Val, ot.ackRanges)
 	if err != nil {
@@ -121,23 +121,23 @@ func (ot *T) OnAcked(msg *consumer.Message) (offsetmgr.Offset, int) {
 	return ot.offset, len(ot.offers)
 }
 
-func (ot *T) removeOffer(msg *consumer.Message) {
+func (ot *T) removeOffer(offset int64) {
 	offersCount := len(ot.offers)
 	i := sort.Search(offersCount, func(i int) bool {
-		return ot.offers[i].msg.Offset >= msg.Offset
+		return ot.offers[i].msg.Offset >= offset
 	})
-	if i >= offersCount || ot.offers[i].msg.Offset != msg.Offset {
-		log.Errorf("<%s> unknown message acked: offset=%d", ot.actorID, msg.Offset)
+	if i >= offersCount || ot.offers[i].msg.Offset != offset {
+		log.Errorf("<%s> unknown message acked: offset=%d", ot.actorID, offset)
 		return
 	}
 	offersCount -= 1
 	copy(ot.offers[i:offersCount], ot.offers[i+1:])
-	ot.offers[offersCount].msg = nil // Makes it subject for garbage collection.
+	ot.offers[offersCount].msg = consumer.Message{} // Makes it subject for garbage collection.
 	ot.offers = ot.offers[:offersCount]
 }
 
 // IsAcked tells if a message has already been acknowledged.
-func (ot *T) IsAcked(msg *consumer.Message) bool {
+func (ot *T) IsAcked(msg consumer.Message) bool {
 	if msg.Offset < ot.offset.Val {
 		return true
 	}
@@ -154,17 +154,17 @@ func (ot *T) IsAcked(msg *consumer.Message) bool {
 
 // NextRetry returns a next message to be retried along with the retry attempt
 // number. If there are no messages to be retried then nil is returned.
-func (ot *T) NextRetry() (*consumer.Message, int) {
+func (ot *T) NextRetry() (consumer.Message, int, bool) {
 	now := time.Now()
 	return ot.nextRetry(now)
 }
-func (ot *T) nextRetry(now time.Time) (*consumer.Message, int) {
+func (ot *T) nextRetry(now time.Time) (consumer.Message, int, bool) {
 	for i := range ot.offers {
 		o := &ot.offers[i]
 		if o.deadline.Before(now) {
 			o.deadline = now.Add(ot.offerTimeout)
 			o.retryNo += 1
-			return o.msg, o.retryNo
+			return o.msg, o.retryNo, true
 		}
 		// When we reach the first never retried offer with a deadline set in
 		// the future it is guaranteed that all further offers in the list have
@@ -173,10 +173,10 @@ func (ot *T) nextRetry(now time.Time) (*consumer.Message, int) {
 		// doing it. However the offset tracker API allows any order. So the
 		// following logic is not valid in general case.
 		if o.retryNo == 0 {
-			return nil, -1
+			return consumer.Message{}, -1, false
 		}
 	}
-	return nil, -1
+	return consumer.Message{}, -1, false
 }
 
 // ShouldWait4Ack tells whether there are messages that acknowledgments are
@@ -188,7 +188,10 @@ func (ot *T) ShouldWait4Ack() (bool, time.Duration) {
 func (ot *T) shouldWait4Ack(now time.Time) (bool, time.Duration) {
 	for _, o := range ot.offers {
 		if o.deadline.After(now) {
-			return true, o.deadline.Sub(now)
+			timeout := o.deadline.Sub(now)
+			log.Infof("<%s> waiting for acks: count=%d, offset=%d, timeout=%v",
+				ot.actorID, len(ot.offers), o.offset, timeout)
+			return true, timeout
 		}
 	}
 	// Complain about all not acknowledged messages before giving up.
@@ -198,14 +201,14 @@ func (ot *T) shouldWait4Ack(now time.Time) (bool, time.Duration) {
 	return false, 0
 }
 
-func (ot *T) addAckedOffset(ackedOffset int64) {
+func (ot *T) updateAckRanges(offset int64) {
 	ackRangesCount := len(ot.ackRanges)
-	if ackedOffset < ot.offset.Val {
-		log.Errorf("<%s> ack before committed: offset=%d", ot.actorID, ackedOffset)
+	if offset < ot.offset.Val {
+		log.Errorf("<%s> ack before committed: offset=%d", ot.actorID, offset)
 		return
 	}
-	if ackedOffset == ot.offset.Val {
-		if ackRangesCount > 0 && ackedOffset == ot.ackRanges[0].from-1 {
+	if offset == ot.offset.Val {
+		if ackRangesCount > 0 && offset == ot.ackRanges[0].from-1 {
 			ot.offset.Val = ot.ackRanges[0].to
 			ot.ackRanges = ot.ackRanges[1:]
 			return
@@ -214,22 +217,22 @@ func (ot *T) addAckedOffset(ackedOffset int64) {
 		return
 	}
 	for i := range ot.ackRanges {
-		if ackedOffset < ot.ackRanges[i].from {
-			if ackedOffset == ot.ackRanges[i].from-1 {
+		if offset < ot.ackRanges[i].from {
+			if offset == ot.ackRanges[i].from-1 {
 				ot.ackRanges[i].from -= 1
 				return
 			}
 			ot.ackRanges = append(ot.ackRanges, ackRange{})
 			copy(ot.ackRanges[i+1:], ot.ackRanges[i:ackRangesCount])
-			ot.ackRanges[i] = newAckRange(ackedOffset)
+			ot.ackRanges[i] = newAckRange(offset)
 			return
 		}
-		if ackedOffset < ot.ackRanges[i].to {
-			log.Errorf("<%s> duplicate ack: offset=%d", ot.actorID, ackedOffset)
+		if offset < ot.ackRanges[i].to {
+			log.Errorf("<%s> duplicate ack: offset=%d", ot.actorID, offset)
 			return
 		}
-		if ackedOffset == ot.ackRanges[i].to {
-			if ackRangesCount > i+1 && ackedOffset == ot.ackRanges[i+1].from-1 {
+		if offset == ot.ackRanges[i].to {
+			if ackRangesCount > i+1 && offset == ot.ackRanges[i+1].from-1 {
 				ot.ackRanges[i+1].from = ot.ackRanges[i].from
 				ackRangesCount -= 1
 				copy(ot.ackRanges[i:ackRangesCount], ot.ackRanges[i+1:])
@@ -240,11 +243,11 @@ func (ot *T) addAckedOffset(ackedOffset int64) {
 			return
 		}
 	}
-	ot.ackRanges = append(ot.ackRanges, newAckRange(ackedOffset))
+	ot.ackRanges = append(ot.ackRanges, newAckRange(offset))
 	return
 }
 
-func (ot *T) newOffer(msg *consumer.Message) offer {
+func (ot *T) newOffer(msg consumer.Message) offer {
 	return offer{msg, msg.Offset, 0, time.Now().Add(ot.offerTimeout)}
 }
 
@@ -331,7 +334,7 @@ func decodeDelta(base int64, b []byte) (int64, error) {
 }
 
 type offer struct {
-	msg      *consumer.Message
+	msg      consumer.Message
 	offset   int64
 	retryNo  int
 	deadline time.Time

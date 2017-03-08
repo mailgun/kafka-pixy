@@ -66,12 +66,12 @@ func (s *OffsetTrackerSuite) TestOnAckedRanges(c *C) {
 		/* 17 */ {offset: 4495, committed: 312, ranges: "86-88,4183-4185"},
 	} {
 		// When
-		offset, _ := ot.OnAcked(&consumer.Message{Offset: tc.offset})
+		offset, _ := ot.OnAcked(tc.offset)
 		ot2 := New(s.ns, offset, -1)
 
 		// Then
 		c.Assert(offset.Val, Equals, tc.committed, Commentf("case: %d", i))
-		c.Assert(RangesToStr(offset), Equals, tc.ranges, Commentf("case: %d", i))
+		c.Assert(SparseAcks2Str(offset), Equals, tc.ranges, Commentf("case: %d", i))
 		if tc.skipSymmetryCheck {
 			continue
 		}
@@ -203,7 +203,7 @@ func (s *OffsetTrackerSuite) TestIsAcked(c *C) {
 		/* 15 */ {offset: 314, isAcked: false},
 	} {
 		// When/Then
-		c.Assert(ot.IsAcked(&consumer.Message{Offset: tc.offset}),
+		c.Assert(ot.IsAcked(consumer.Message{Offset: tc.offset}),
 			Equals, tc.isAcked, Commentf("case: %d", i))
 	}
 }
@@ -255,21 +255,21 @@ func (s *OffsetTrackerSuite) TestOfferAckLoop(c *C) {
 		// When
 		switch tc.act {
 		case doOff:
-			count = ot.OnOffered(&consumer.Message{Offset: tc.offset})
+			count = ot.OnOffered(consumer.Message{Offset: tc.offset})
 		case doAck:
 			var offset offsetmgr.Offset
-			offset, count = ot.OnAcked(&consumer.Message{Offset: tc.offset})
+			offset, count = ot.OnAcked(tc.offset)
 			c.Assert(offset.Val, Equals, tc.committed, Commentf("case: %d", i))
-			c.Assert(RangesToStr(offset), Equals, tc.ranges, Commentf("case: %d", i))
+			c.Assert(SparseAcks2Str(offset), Equals, tc.ranges, Commentf("case: %d", i))
 		}
 		// Then
 		c.Assert(count, Equals, tc.count, Commentf("case: %d", i))
 	}
 }
 
-func (s *OffsetTrackerSuite) TestNestRetry(c *C) {
+func (s *OffsetTrackerSuite) TestNextRetry(c *C) {
 	ot := New(s.ns, offsetmgr.Offset{Val: 300}, 5*time.Second)
-	msgs := []*consumer.Message{
+	msgs := []consumer.Message{
 		{Offset: 301},
 		{Offset: 302},
 		{Offset: 303},
@@ -310,22 +310,22 @@ func (s *OffsetTrackerSuite) TestNestRetry(c *C) {
 	} {
 		// When
 		now := begin.Add(time.Duration(tc.millis) * time.Millisecond)
-		msg, retryCount := ot.nextRetry(now)
+		msg, retryCount, ok := ot.nextRetry(now)
 
 		// Then
-		if msg == nil {
-			c.Assert(tc.offset, Equals, int64(0), Commentf("case: %d", i))
-			c.Assert(retryCount, Equals, -1, Commentf("case: %d", i))
-		} else {
+		if ok {
 			c.Assert(msg.Offset, Equals, tc.offset, Commentf("case: %d", i))
 			c.Assert(retryCount, Equals, tc.retryCount, Commentf("case: %d", i))
+		} else {
+			c.Assert(tc.offset, Equals, int64(0), Commentf("case: %d", i))
+			c.Assert(retryCount, Equals, -1, Commentf("case: %d", i))
 		}
 	}
 }
 
 func (s *OffsetTrackerSuite) TestShouldWait4Ack(c *C) {
 	ot := New(s.ns, offsetmgr.Offset{Val: 300}, -1)
-	msgs := []*consumer.Message{
+	msgs := []consumer.Message{
 		{Offset: 301},
 		{Offset: 302},
 		{Offset: 303},

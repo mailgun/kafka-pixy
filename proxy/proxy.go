@@ -3,6 +3,7 @@ package proxy
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
@@ -11,6 +12,17 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/consumer/consumerimpl"
 	"github.com/mailgun/kafka-pixy/producer"
+	"github.com/mailgun/log"
+	"github.com/pkg/errors"
+)
+
+const (
+	initEventsChMapCapacity = 256
+)
+
+var (
+	noAck   = ack{partition: -1}
+	autoAck = ack{partition: -2}
 )
 
 // T implements a proxy to a particular Kafka/ZooKeeper cluster.
@@ -20,13 +32,56 @@ type T struct {
 	prod    *producer.T
 	cons    consumer.T
 	adm     *admin.T
+
+	// FIXME: We never remove stale elements from eventsChMap. It is sort of ok
+	// FIXME: since the number of group/topic/partition combinations is fairly
+	// FIXME: limited and should not cause any significant system memory usage.
+	eventsChMapMu sync.RWMutex
+	eventsChMap   map[eventsChID]chan<- consumer.Event
+}
+
+type ack struct {
+	partition int32
+	offset    int64
+}
+
+// Ack creates an acknowledgement instance from a partition and an offset.
+// Note that group and topic are not included. Respective values that are
+// passed to proxy.Consume function along with the ack are gonna be used.
+func Ack(partition int32, offset int64) (ack, error) {
+	if partition < 0 {
+		return ack{}, errors.Errorf("bad partition: %d", partition)
+	}
+	if offset < 0 {
+		return ack{}, errors.Errorf("bad offset: %d", offset)
+	}
+	return ack{partition, offset}, nil
+}
+
+// NoAck returns an ack value that should be passed to proxy.Consume function
+// when a caller does not want to acknowledge anything.
+func NoAck() ack {
+	return noAck
+}
+
+// AutoAck returns an ack value that should be passed to proxy.Consume function
+// when a caller wants the consumed message to be acknowledged immediately.
+func AutoAck() ack {
+	return autoAck
+}
+
+type eventsChID struct {
+	group     string
+	topic     string
+	partition int32
 }
 
 // Spawn creates a proxy instance and starts its internal goroutines.
 func Spawn(namespace *actor.ID, name string, cfg *config.Proxy) (*T, error) {
 	p := T{
-		actorID: namespace.NewChild(name),
-		cfg:     cfg,
+		actorID:     namespace.NewChild(name),
+		cfg:         cfg,
+		eventsChMap: make(map[eventsChID]chan<- consumer.Event, initEventsChMapCapacity),
 	}
 	var err error
 
@@ -86,8 +141,37 @@ func (p *T) AsyncProduce(topic string, key, message sarama.Encoder) {
 // `ErrBufferOverflow` or `ErrRequestTimeout` even when there are messages
 // available for consumption. In that case the user should back off a bit
 // and then repeat the request.
-func (p *T) Consume(group, topic string) (*consumer.Message, error) {
-	return p.cons.Consume(group, topic)
+func (p *T) Consume(group, topic string, ack ack) (consumer.Message, error) {
+	if ack != noAck && ack != autoAck {
+		p.eventsChMapMu.RLock()
+		eventsChID := eventsChID{group, topic, ack.partition}
+		eventsCh, ok := p.eventsChMap[eventsChID]
+		p.eventsChMapMu.RUnlock()
+		if ok {
+			go func() {
+				select {
+				case eventsCh <- consumer.Ack(ack.offset):
+				case <-time.After(p.cfg.Consumer.LongPollingTimeout):
+					log.Errorf("<%s> ack timeout: partition=%d, offset=%d",
+						p.actorID, ack.partition, ack.offset)
+				}
+			}()
+		}
+	}
+	msg, err := p.cons.Consume(group, topic)
+	if err != nil {
+		return consumer.Message{}, err
+	}
+
+	eventsChID := eventsChID{group, topic, msg.Partition}
+	p.eventsChMapMu.Lock()
+	p.eventsChMap[eventsChID] = msg.EventsCh
+	p.eventsChMapMu.Unlock()
+
+	if ack == autoAck {
+		msg.EventsCh <- consumer.Ack(msg.Offset)
+	}
+	return msg, nil
 }
 
 // GetGroupOffsets for every partition of the specified topic it returns the

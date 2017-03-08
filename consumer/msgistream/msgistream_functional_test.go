@@ -10,23 +10,23 @@ import (
 	. "gopkg.in/check.v1"
 )
 
-type MessageStreamFuncSuite struct {
+type MsgIStreamFuncSuite struct {
 	ns *actor.ID
 	kh *kafkahelper.T
 }
 
-var _ = Suite(&MessageStreamFuncSuite{})
+var _ = Suite(&MsgIStreamFuncSuite{})
 
-func (s *MessageStreamFuncSuite) SetUpSuite(c *C) {
+func (s *MsgIStreamFuncSuite) SetUpSuite(c *C) {
 	testhelpers.InitLogging(c)
 	s.kh = kafkahelper.New(c)
 }
 
-func (s *MessageStreamFuncSuite) TearDownSuite(c *C) {
+func (s *MsgIStreamFuncSuite) TearDownSuite(c *C) {
 	s.kh.Close()
 }
 
-func (s *MessageStreamFuncSuite) SetUpTest(c *C) {
+func (s *MsgIStreamFuncSuite) SetUpTest(c *C) {
 	s.ns = actor.RootID.NewChild("T")
 }
 
@@ -39,7 +39,7 @@ func (s *MessageStreamFuncSuite) SetUpTest(c *C) {
 //
 // IMPORTANT: The topic/key of the two sets of the generated messages had been
 // selected so that both sets end up in partitions that has the same leader.
-func (s *MessageStreamFuncSuite) TestSlacker(c *C) {
+func (s *MsgIStreamFuncSuite) TestSlacker(c *C) {
 	// {topic: "test.1", key: "foo"} and {topic: "test.4": key: "bar"} have
 	// the same broker #9093 as a leader.
 	producedTest1 := s.kh.PutMessages("slacker", "test.1", map[string]int{"foo": 11})
