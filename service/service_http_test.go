@@ -358,10 +358,10 @@ func (s *ServiceHTTPSuite) TestConsumeSingleMessage(c *C) {
 	s.kh.ResetOffsets("foo", "test.4")
 	produced := s.kh.PutMessages("service.consume", "test.4", map[string]int{"B": 1})
 	svc, _ := Spawn(s.cfg)
-	defer svc.Stop()
 
 	// When
 	r, err := s.unixClient.Get("http://_/topics/test.4/messages?group=foo")
+	svc.Stop()
 
 	// Then
 	c.Assert(err, IsNil)
@@ -371,6 +371,9 @@ func (s *ServiceHTTPSuite) TestConsumeSingleMessage(c *C) {
 	c.Assert(ParseBase64(c, body["value"].(string)), Equals, ProdMsgVal(produced["B"][0]))
 	c.Assert(int(body["partition"].(float64)), Equals, 3)
 	c.Assert(int64(body["offset"].(float64)), Equals, produced["B"][0].Offset)
+
+	offsetsAfter := s.kh.GetCommittedOffsets("foo", "test.4")
+	c.Assert(offsetsAfter[3].Val, Equals, produced["B"][0].Offset+1)
 }
 
 // If offsets for a group that does not exist are requested then -1 is returned

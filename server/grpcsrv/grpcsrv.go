@@ -98,7 +98,7 @@ func (s *T) Consume(ctx context.Context, req *pb.ConsReq) (*pb.ConsRes, error) {
 		return nil, err
 	}
 
-	consMsg, err := pxy.Consume(req.Group, req.Topic, proxy.NoAck())
+	consMsg, err := pxy.Consume(req.Group, req.Topic, proxy.AutoAck())
 	if err != nil {
 		return nil, err
 	}

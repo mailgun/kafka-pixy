@@ -194,7 +194,6 @@ func (s *ServiceGRPCSuite) TestProduceInvalidProxy(c *C) {
 
 func (s *ServiceGRPCSuite) TestConsumeSingleMessage(c *C) {
 	svc, err := Spawn(s.cfg)
-	defer svc.Stop()
 	c.Assert(err, IsNil)
 
 	s.kh.ResetOffsets("foo", "test.4")
@@ -213,6 +212,7 @@ func (s *ServiceGRPCSuite) TestConsumeSingleMessage(c *C) {
 	// When
 	consReq := pb.ConsReq{Topic: "test.4", Group: "foo"}
 	consRes, err := s.clt.Consume(ctx, &consReq)
+	svc.Stop()
 
 	// Then
 	c.Assert(err, IsNil)
@@ -222,6 +222,9 @@ func (s *ServiceGRPCSuite) TestConsumeSingleMessage(c *C) {
 		KeyValue:  prodReq.KeyValue,
 		Message:   prodReq.Message,
 	})
+
+	offsetsAfter := s.kh.GetCommittedOffsets("foo", "test.4")
+	c.Assert(offsetsAfter[prodRes.Partition].Val, Equals, prodRes.Offset+1)
 }
 
 func (s *ServiceGRPCSuite) TestConsumeExplicitProxy(c *C) {
