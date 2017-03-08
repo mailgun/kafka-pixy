@@ -310,8 +310,8 @@ Command line parameters that Kafka-Pixy accepts are listed below:
  config         | Path to a YAML configuration file.
  kafkaPeers     | Comma separated list of Kafka brokers. Note that these are just seed brokers. The rest brokers are discovered automatically. (Default **localhost:9092**)
  zookeeperPeers | Comma separated list of ZooKeeper nodes followed by optional chroot. (Default **localhost:2181**)
- grpcAddr       | TCP address that the HTTP API should listen. (Default **0.0.0.0:19092**)
- tcpAddr        | TCP address that the HTTP API should listen. (Default **0.0.0.0:19092**)
+ grpcAddr       | TCP address that the gRPC API should listen on. (Default **0.0.0.0:19091**)
+ tcpAddr        | TCP address that the HTTP API should listen on. (Default **0.0.0.0:19092**)
  unixAddr       | Unix Domain Socket that the HTTP API should listen on. If not specified then the service will not listen on a Unix Domain Socket.
  pidFile        | Name of a pid file to create. If not specified then a pid file is not created.
 
