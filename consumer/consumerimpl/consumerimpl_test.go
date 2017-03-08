@@ -459,50 +459,6 @@ func (s *ConsumerSuite) TestTooManyRequestsError(c *C) {
 	log.Infof("*** ErrTooMannyRequests was returned %d times", tooManyRequestsCount)
 }
 
-// This test makes an attempt to exercise the code path where a message is
-// received when a down stream dispatch tier is being stopped due to
-// registration timeout, in that case a successor tier is created that will be
-// started as soon as the original one is completely shutdown.
-//
-// Note that rebalancing sometimes may take longer then long polling timeout,
-// so occasionally ErrRequestTimeout can be returned.
-//
-// It is impossible to see from the service behavior if the expected code path
-// has been exercised by the test. The only way to check that is through the
-// code coverage reports.
-func (s *ConsumerSuite) TestRequestDuringTimeout(c *C) {
-	// Given
-	s.kh.ResetOffsets("g1", "test.4")
-	s.kh.PutMessages("join", "test.4", map[string]int{"A": 30})
-
-	cfg := testhelpers.NewTestProxyCfg("consumer-1")
-	cfg.Consumer.RegistrationTimeout = 200 * time.Millisecond
-	cfg.Consumer.ChannelBufferSize = 1
-	sc, err := Spawn(s.ns, cfg)
-	c.Assert(err, IsNil)
-	defer sc.Stop()
-
-	// When/Then
-	for i := 0; i < 10; i++ {
-		for j := 0; j < 3; j++ {
-			begin := time.Now()
-			log.Infof("*** consuming...")
-			consMsg, err := sc.Consume("g1", "test.4")
-			if err != nil {
-				if _, ok := err.(consumer.ErrRequestTimeout); !ok {
-					c.Errorf("Expected err to be nil or ErrRequestTimeout, got: %v", err)
-					continue
-				}
-				log.Infof("*** consume timed out")
-				continue
-			}
-			log.Infof("*** consumed: in=%s, by=%s, topic=%s, partition=%d, offset=%d, message=%s",
-				time.Now().Sub(begin), sc.namespace.String(), consMsg.Topic, consMsg.Partition, consMsg.Offset, consMsg.Value)
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-}
-
 // If an attempt is made to consume from a topic that does not exist then the
 // request times out after `Config.Consumer.LongPollingTimeout`.
 func (s *ConsumerSuite) TestInvalidTopic(c *C) {

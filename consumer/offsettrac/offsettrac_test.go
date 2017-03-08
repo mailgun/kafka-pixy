@@ -267,7 +267,7 @@ func (s *OffsetTrackerSuite) TestOfferAckLoop(c *C) {
 	}
 }
 
-func (s *OffsetTrackerSuite) TestNestRetry(c *C) {
+func (s *OffsetTrackerSuite) TestNextRetry(c *C) {
 	ot := New(s.ns, offsetmgr.Offset{Val: 300}, 5*time.Second)
 	msgs := []consumer.Message{
 		{Offset: 301},

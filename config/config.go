@@ -2,7 +2,6 @@ package config
 
 import (
 	"crypto/rand"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -10,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pkg/errors"
 	"gopkg.in/yaml.v2"
 )
 
@@ -85,6 +85,10 @@ type Proxy struct {
 		// consumer group or subscription for a topic in the absence of
 		// requests to the consumer group or topic.
 		RegistrationTimeout time.Duration `yaml:"registration_timeout"`
+
+		// Period of time that Kafka-Pixy should wait for an acknowledgement
+		// before retrying. It must be less then RegistrationTimeout.
+		AckTimeout time.Duration `yaml:"ack_timeout"`
 
 		// If a request to a Kafka-Pixy fails for any reason, then it should
 		// wait this long before retrying.
@@ -201,6 +205,8 @@ func (p *Proxy) validate() error {
 		return errors.New("Consumer.LongPollingTimeout must be > 0")
 	case p.Consumer.RegistrationTimeout <= 0:
 		return errors.New("Consumer.RegistrationTimeout must be > 0")
+	case p.Consumer.AckTimeout >= p.Consumer.RegistrationTimeout:
+		return errors.New("Consumer.AckTimeout must be < Consumer.RegistrationTimeout")
 	case p.Consumer.BackOffTimeout <= 0:
 		return errors.New("Consumer.BackOffTimeout must be > 0")
 	case p.Consumer.RebalanceDelay <= 0:
@@ -231,6 +237,7 @@ func defaultProxyWithClientID(clientID string) *Proxy {
 	c.Consumer.ChannelBufferSize = 64
 	c.Consumer.LongPollingTimeout = 3 * time.Second
 	c.Consumer.RegistrationTimeout = 20 * time.Second
+	c.Consumer.AckTimeout = 15 * time.Second
 	c.Consumer.BackOffTimeout = 500 * time.Millisecond
 	c.Consumer.RebalanceDelay = 250 * time.Millisecond
 	c.Consumer.OffsetsCommitInterval = 500 * time.Millisecond

@@ -51,7 +51,6 @@ func (s *PartitionCsmSuite) SetUpSuite(c *C) {
 
 func (s *PartitionCsmSuite) SetUpTest(c *C) {
 	s.cfg = testhelpers.NewTestProxyCfg("test")
-	s.cfg.Consumer.RebalanceDelay = 1 * time.Second
 	s.ns = actor.RootID.NewChild("T")
 	s.groupMember = groupmember.Spawn(s.ns, group, memberID, s.cfg, s.kh.KazooClt())
 	var err error
@@ -198,6 +197,7 @@ func (s *PartitionCsmSuite) TestOfferIvalid(c *C) {
 // number of offered messages drops below offeredHighWaterMark threshold.
 func (s *PartitionCsmSuite) TestOfferedTooMany(c *C) {
 	offeredHighWaterMark = 3
+	s.cfg.Consumer.AckTimeout = 500 * time.Millisecond
 	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{sarama.OffsetOldest, ""}})
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgIStreamF, s.offsetMgrF)
 	defer pc.Stop()
@@ -240,7 +240,6 @@ func (s *PartitionCsmSuite) TestOfferedTooMany(c *C) {
 // the committed offset metadata.
 func (s *PartitionCsmSuite) TestSparseAckedCommitted(c *C) {
 	offsetsBefore := s.kh.GetOldestOffsets(topic)
-	s.cfg.Consumer.RebalanceDelay = 200 * time.Millisecond
 	acks := []bool{
 		/* 0 */ true,
 		/* 1 */ false,
@@ -274,11 +273,11 @@ func (s *PartitionCsmSuite) TestSparseAckedCommitted(c *C) {
 }
 
 // When a partition consumer is signalled to stop it waits at most
-// Consumer.RebalanceDelay for acks to arrive, and then commits whatever it has
+// Consumer.AckTimeout for acks to arrive, and then commits whatever it has
 // gotten and terminates.
 func (s *PartitionCsmSuite) TestSparseAckedAfterStop(c *C) {
 	offsetsBefore := s.kh.GetOldestOffsets(topic)
-	s.cfg.Consumer.RebalanceDelay = 300 * time.Millisecond
+	s.cfg.Consumer.AckTimeout = 300 * time.Millisecond
 	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{Val: sarama.OffsetOldest}})
 
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgIStreamF, s.offsetMgrF)
@@ -320,7 +319,7 @@ func (s *PartitionCsmSuite) TestSparseAckedAfterStop(c *C) {
 // committed to reflect sparsely acknowledged regions.
 func (s *PartitionCsmSuite) TestMaxRetriesReached(c *C) {
 	offsetsBefore := s.kh.GetOldestOffsets(topic)
-	s.cfg.Consumer.RebalanceDelay = 100 * time.Millisecond
+	s.cfg.Consumer.AckTimeout = 100 * time.Millisecond
 	retriesEmergencyBreak = 4
 	retriesHighWaterMark = 1
 	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{Val: sarama.OffsetOldest}})
@@ -374,7 +373,7 @@ func (s *PartitionCsmSuite) TestMaxRetriesReached(c *C) {
 // were offered.
 func (s *PartitionCsmSuite) TestSeveralMessageReties(c *C) {
 	offsetsBefore := s.kh.GetOldestOffsets(topic)
-	s.cfg.Consumer.RebalanceDelay = 100 * time.Millisecond
+	s.cfg.Consumer.AckTimeout = 100 * time.Millisecond
 	retriesEmergencyBreak = 4
 	retriesHighWaterMark = 1
 	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{Val: sarama.OffsetOldest}})
@@ -404,7 +403,7 @@ func (s *PartitionCsmSuite) TestSeveralMessageReties(c *C) {
 func (s *PartitionCsmSuite) TestRetryNoMoreMessages(c *C) {
 	newestOffsets := s.kh.GetNewestOffsets(topic)
 	offsetBefore := newestOffsets[partition] - int64(2)
-	s.cfg.Consumer.RebalanceDelay = 200 * time.Millisecond
+	s.cfg.Consumer.AckTimeout = 200 * time.Millisecond
 	retriesEmergencyBreak = 4
 	retriesHighWaterMark = 1
 	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{Val: offsetBefore}})

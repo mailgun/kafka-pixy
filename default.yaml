@@ -71,6 +71,10 @@ proxies:
       # consumer group or topic.
       registration_timeout: 20s
 
+      # Period of time that Kafka-Pixy should wait for an acknowledgement
+      # before retrying. It must be less then registration_timeout.
+      ack_timeout: 15s
+
       # If a request to a Kafka-Pixy fails for any reason, then it should wait this
       # long before retrying.
       backoff_timeout: 500ms

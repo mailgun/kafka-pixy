@@ -127,7 +127,7 @@ func (pc *T) run() {
 	log.Infof("<%s> initialized: offset=%d, sparseAcks=%s",
 		pc.actorID, submittedOffset.Val, offsettrac.SparseAcks2Str(submittedOffset))
 	pc.notifyTestInitialized(submittedOffset)
-	ot := offsettrac.New(pc.actorID, submittedOffset, pc.cfg.Consumer.RebalanceDelay)
+	ot := offsettrac.New(pc.actorID, submittedOffset, pc.cfg.Consumer.AckTimeout)
 
 	var (
 		nilOrIStreamMessagesCh = mis.Messages()

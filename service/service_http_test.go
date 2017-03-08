@@ -14,9 +14,11 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Shopify/sarama"
+	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/server/httpsrv"
 	"github.com/mailgun/kafka-pixy/testhelpers"
@@ -25,6 +27,7 @@ import (
 )
 
 type ServiceHTTPSuite struct {
+	ns         *actor.ID
 	cfg        *config.App
 	kh         *kafkahelper.T
 	unixClient *http.Client
@@ -38,6 +41,7 @@ func (s *ServiceHTTPSuite) SetUpSuite(c *C) {
 }
 
 func (s *ServiceHTTPSuite) SetUpTest(c *C) {
+	s.ns = actor.RootID.NewChild("T")
 	s.cfg = &config.App{Proxies: make(map[string]*config.Proxy)}
 	s.cfg.TCPAddr = "127.0.0.1:19092"
 	s.cfg.UnixAddr = path.Join(os.TempDir(), "kafka-pixy.sock")
@@ -583,36 +587,47 @@ func (s *ServiceHTTPSuite) TestGetTopicConsumersOne(c *C) {
 // a topic consumer report includes members of all consumer groups consuming
 // the topic.
 func (s *ServiceHTTPSuite) TestGetAllTopicConsumers(c *C) {
-	// Given
+	var wg sync.WaitGroup
 	s.kh.ResetOffsets("foo", "test.4")
 	s.kh.ResetOffsets("bar", "test.1")
 	s.kh.ResetOffsets("bazz", "test.4")
 	s.kh.PutMessages("get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1})
 	s.kh.PutMessages("get.consumers", "test.1", map[string]int{"D": 1})
 
-	svc1 := spawnTestService(c, 55501)
-	defer svc1.Stop()
-	svc2 := spawnTestService(c, 55502)
-	defer svc2.Stop()
-	svc3 := spawnTestService(c, 55503)
-	defer svc3.Stop()
-
-	_, err := s.tcpClient.Get("http://127.0.0.1:55501/topics/test.4/messages?group=foo")
-	c.Assert(err, IsNil)
-	_, err = s.tcpClient.Get("http://127.0.0.1:55502/topics/test.4/messages?group=foo")
-	c.Assert(err, IsNil)
-	_, err = s.tcpClient.Get("http://127.0.0.1:55503/topics/test.4/messages?group=foo")
-	c.Assert(err, IsNil)
-
-	_, err = s.tcpClient.Get("http://127.0.0.1:55501/topics/test.1/messages?group=bar")
-	c.Assert(err, IsNil)
-
-	_, err = s.tcpClient.Get("http://127.0.0.1:55502/topics/test.1/messages?group=bar")
-	c.Assert(err, IsNil)
-	for i := 0; i < 3; i++ {
-		_, err = s.tcpClient.Get("http://127.0.0.1:55502/topics/test.4/messages?group=bazz")
-		c.Assert(err, IsNil)
+	svc := make([]*T, 3)
+	for i := range svc {
+		i := i
+		actor.Spawn(s.ns.NewChild("spawn_svc"), &wg, func() {
+			svc[i] = spawnTestService(c, 55501+i)
+		})
 	}
+	wg.Wait()
+	defer svc[0].Stop()
+	defer svc[1].Stop()
+	defer svc[2].Stop()
+
+	for _, r := range []struct {
+		port  int
+		group string
+		topic string
+	}{
+		{port: 55501, group: "foo", topic: "test.4"},
+		{port: 55502, group: "foo", topic: "test.4"},
+		{port: 55503, group: "foo", topic: "test.4"},
+		{port: 55501, group: "bar", topic: "test.1"},
+		{port: 55502, group: "bar", topic: "test.1"},
+		{port: 55502, group: "bazz", topic: "test.4"},
+		{port: 55502, group: "bazz", topic: "test.4"},
+		{port: 55502, group: "bazz", topic: "test.4"},
+	} {
+		r := r
+		actor.Spawn(s.ns.NewChild("get"), &wg, func() {
+			_, err := s.tcpClient.Get(fmt.Sprintf(
+				"http://127.0.0.1:%d/topics/%s/messages?group=%s", r.port, r.topic, r.group))
+			c.Assert(err, IsNil)
+		})
+	}
+	wg.Wait()
 
 	// When
 	r, err := s.tcpClient.Get("http://127.0.0.1:55501/topics/test.4/consumers")
