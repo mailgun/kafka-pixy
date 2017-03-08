@@ -1,9 +1,6 @@
 package partitioncsm
 
 import (
-	"testing"
-	"time"
-
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
@@ -16,13 +13,16 @@ import (
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
 	"github.com/mailgun/log"
 	. "gopkg.in/check.v1"
+	"sync"
+	"testing"
+	"time"
 )
 
 const (
 	group     = "test_group"
 	topic     = "test.1"
-	memberID  = "test_member"
 	partition = 0
+	memberID  = "test_member"
 )
 
 type PartitionCsmSuite struct {
@@ -440,10 +440,55 @@ func (s *PartitionCsmSuite) TestRetryNoMoreMessages(c *C) {
 	c.Assert(offsettrac.SparseAcks2Str(offsetsAfter[partition]), Equals, "")
 }
 
+func (s *PartitionCsmSuite) TestAckedOnStop(c *C) {
+	offsetBefore := s.kh.GetNewestOffsets(topic)[partition] - 10
+	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{Val: offsetBefore}})
+	s.cfg.Consumer.AckTimeout = 200 * time.Millisecond
+	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgIStreamF, s.offsetMgrF)
+
+	// Read and confirm offer of 2 messages
+	msg0 := <-pc.Messages()
+	sendEOffered(msg0)
+	time.Sleep(100 * time.Millisecond)
+	msg1 := <-pc.Messages()
+	sendEOffered(msg1)
+
+	// When
+	var wg sync.WaitGroup
+	actor.Spawn(s.ns.NewChild("brake"), &wg, pc.Stop)
+	defer wg.Wait()
+	time.Sleep(100 * time.Millisecond)
+
+	// Acknowledge only the first one.
+	sendEAcked(msg0)
+	sendEAcked(msg1)
+
+	// Wait for partition consumer to stop.
+	for {
+		if _, ok := <-pc.Messages(); !ok {
+			break
+		}
+	}
+	// Then
+	offsetsAfter := s.kh.GetCommittedOffsets(group, topic)
+	c.Assert(offsetsAfter[partition].Val, Equals, offsetBefore+2)
+	c.Assert(offsettrac.SparseAcks2Str(offsetsAfter[partition]), Equals, "")
+}
+
 func sendEOffered(msg consumer.Message) {
-	msg.EventsCh <- consumer.Event{consumer.ETOffered, msg.Offset}
+	log.Infof("*** sending `offered`: offset=%d", msg.Offset)
+	select {
+	case msg.EventsCh <- consumer.Event{consumer.ETOffered, msg.Offset}:
+	case <-time.After(500 * time.Millisecond):
+		log.Infof("*** timeout sending `offered`: offset=%d", msg.Offset)
+	}
 }
 
 func sendEAcked(msg consumer.Message) {
-	msg.EventsCh <- consumer.Event{consumer.ETAcked, msg.Offset}
+	log.Infof("*** sending `acked`: offset=%d", msg.Offset)
+	select {
+	case msg.EventsCh <- consumer.Event{consumer.ETAcked, msg.Offset}:
+	case <-time.After(500 * time.Millisecond):
+		log.Infof("*** timeout sending `acked`: offset=%d", msg.Offset)
+	}
 }

@@ -188,7 +188,10 @@ func (ot *T) ShouldWait4Ack() (bool, time.Duration) {
 func (ot *T) shouldWait4Ack(now time.Time) (bool, time.Duration) {
 	for _, o := range ot.offers {
 		if o.deadline.After(now) {
-			return true, o.deadline.Sub(now)
+			timeout := o.deadline.Sub(now)
+			log.Infof("<%s> waiting for acks: count=%d, offset=%d, timeout=%v",
+				ot.actorID, len(ot.offers), o.offset, timeout)
+			return true, timeout
 		}
 	}
 	// Complain about all not acknowledged messages before giving up.

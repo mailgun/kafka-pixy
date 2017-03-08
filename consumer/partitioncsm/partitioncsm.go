@@ -217,10 +217,9 @@ wait4Ack:
 				om.SubmitOffset(submittedOffset)
 			}
 		case <-time.After(timeout):
-			goto done
+			continue
 		}
 	}
-done:
 	om.Stop()
 	// Drain committed offsets.
 	for committedOffset = range om.CommittedOffsets() {
