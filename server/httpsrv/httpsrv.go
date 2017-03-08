@@ -215,7 +215,7 @@ func (s *T) handleConsume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	consMsg, err := pxy.Consume(group, topic)
+	consMsg, err := pxy.Consume(group, topic, proxy.NoAck())
 	if err != nil {
 		var status int
 		switch err.(type) {
