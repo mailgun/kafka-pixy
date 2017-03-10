@@ -98,11 +98,21 @@ func (s *T) Consume(ctx context.Context, req *pb.ConsReq) (*pb.ConsRes, error) {
 		return nil, err
 	}
 
-	consMsg, err := pxy.Consume(req.Group, req.Topic, proxy.AutoAck())
+	var ack proxy.Ack
+	if req.NoAck {
+		ack = proxy.NoAck()
+	} else if req.AutoAck {
+		ack = proxy.AutoAck()
+	} else {
+		if ack, err = proxy.NewAck(req.AckPartition, req.AckOffset); err != nil {
+			return nil, errors.Wrap(err, "invalid ack")
+		}
+	}
+
+	consMsg, err := pxy.Consume(req.Group, req.Topic, ack)
 	if err != nil {
 		return nil, err
 	}
-
 	res := pb.ConsRes{
 		Partition: consMsg.Partition,
 		Offset:    consMsg.Offset,
@@ -113,8 +123,23 @@ func (s *T) Consume(ctx context.Context, req *pb.ConsReq) (*pb.ConsRes, error) {
 	} else {
 		res.KeyValue = consMsg.Key
 	}
-
 	return &res, nil
+}
+
+func (s *T) Ack(ctx context.Context, req *pb.AckReq) (*pb.AckRes, error) {
+	pxy, err := s.proxySet.Get(req.Proxy)
+	if err != nil {
+		return nil, err
+	}
+
+	ack, err := proxy.NewAck(req.Partition, req.Offset)
+	if err != nil {
+		return nil, errors.Wrap(err, "invalid ack")
+	}
+	if err = pxy.Ack(req.Group, req.Topic, ack); err != nil {
+		return nil, errors.Wrap(err, "ack failed")
+	}
+	return &pb.AckRes{}, nil
 }
 
 func keyEncoderFor(prodReq *pb.ProdReq) sarama.Encoder {

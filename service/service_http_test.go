@@ -20,6 +20,7 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
+	pb "github.com/mailgun/kafka-pixy/gen/golang"
 	"github.com/mailgun/kafka-pixy/server/httpsrv"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
@@ -353,27 +354,78 @@ func (s *ServiceHTTPSuite) TestConsumeInvalidTopic(c *C) {
 	c.Assert(body["error"], Equals, "long polling timeout")
 }
 
-func (s *ServiceHTTPSuite) TestConsumeSingleMessage(c *C) {
-	// Given
+// By default auto-ack mode is assumed when consuming.
+func (s *ServiceHTTPSuite) TestConsumeAutoAck(c *C) {
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
+
 	s.kh.ResetOffsets("foo", "test.4")
-	produced := s.kh.PutMessages("service.consume", "test.4", map[string]int{"B": 1})
-	svc, _ := Spawn(s.cfg)
+	produced := s.kh.PutMessages("auto-ack", "test.4", map[string]int{"A": 17, "B": 19, "C": 23, "D": 29})
+	consumed := make(map[string][]*pb.ConsRes)
+	offsetsBefore := s.kh.GetCommittedOffsets("foo", "test.4")
 
 	// When
-	r, err := s.unixClient.Get("http://_/topics/test.4/messages?group=foo")
+	for i := 0; i < 88; i++ {
+		res, err := s.unixClient.Get("http://_/topics/test.4/messages?group=foo")
+		c.Assert(err, IsNil, Commentf("failed to consume message #%d", i))
+		consRes := ParseConsRes(c, res)
+		key := string(consRes.KeyValue)
+		consumed[key] = append(consumed[key], consRes)
+	}
 	svc.Stop()
 
 	// Then
-	c.Assert(err, IsNil)
-	c.Assert(r.StatusCode, Equals, http.StatusOK)
-	body := ParseJSONBody(c, r).(map[string]interface{})
-	c.Assert(ParseBase64(c, body["key"].(string)), Equals, "B")
-	c.Assert(ParseBase64(c, body["value"].(string)), Equals, ProdMsgVal(produced["B"][0]))
-	c.Assert(int(body["partition"].(float64)), Equals, 3)
-	c.Assert(int64(body["offset"].(float64)), Equals, produced["B"][0].Offset)
-
 	offsetsAfter := s.kh.GetCommittedOffsets("foo", "test.4")
-	c.Assert(offsetsAfter[3].Val, Equals, produced["B"][0].Offset+1)
+	c.Assert(offsetsAfter[0].Val, Equals, offsetsBefore[0].Val+17)
+	c.Assert(offsetsAfter[1].Val, Equals, offsetsBefore[1].Val+29)
+	c.Assert(offsetsAfter[2].Val, Equals, offsetsBefore[2].Val+23)
+	c.Assert(offsetsAfter[3].Val, Equals, offsetsBefore[3].Val+19)
+
+	assertMsgs(c, consumed, produced)
+}
+
+func (s *ServiceHTTPSuite) TestConsumeExplicitAck(c *C) {
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
+
+	s.kh.ResetOffsets("foo", "test.4")
+	produced := s.kh.PutMessages("explicit-ack", "test.4", map[string]int{"A": 17, "B": 19, "C": 23, "D": 29})
+	consumed := make(map[string][]*pb.ConsRes)
+	offsetsBefore := s.kh.GetCommittedOffsets("foo", "test.4")
+
+	// When:
+
+	// First message has to be consumed with noAck.
+	res, err := s.unixClient.Get("http://_/topics/test.4/messages?group=foo&noAck")
+	c.Assert(err, IsNil, Commentf("failed to consume first message"))
+	consRes := ParseConsRes(c, res)
+	key := string(consRes.KeyValue)
+	consumed[key] = append(consumed[key], consRes)
+	// Whenever a message is consumed previous one is acked.
+	for i := 1; i < 88; i++ {
+		url := fmt.Sprintf("http://_/topics/test.4/messages?group=foo&ackPartition=%d&ackOffset=%d",
+			consRes.Partition, consRes.Offset)
+		res, err := s.unixClient.Get(url)
+		consRes = ParseConsRes(c, res)
+		c.Assert(err, IsNil, Commentf("failed to consume message #%d", i))
+		key := string(consRes.KeyValue)
+		consumed[key] = append(consumed[key], consRes)
+	}
+	// Ack last message.
+	url := fmt.Sprintf("http://_/topics/test.4/messages?group=foo&partition=%d&offset=%d",
+		consRes.Partition, consRes.Offset)
+	_, err = s.unixClient.Post(url, "text/plain", nil)
+	c.Assert(err, IsNil, Commentf("failed ack last message"))
+	svc.Stop()
+
+	// Then
+	offsetsAfter := s.kh.GetCommittedOffsets("foo", "test.4")
+	c.Assert(offsetsAfter[0].Val, Equals, offsetsBefore[0].Val+17)
+	c.Assert(offsetsAfter[1].Val, Equals, offsetsBefore[1].Val+29)
+	c.Assert(offsetsAfter[2].Val, Equals, offsetsBefore[2].Val+23)
+	c.Assert(offsetsAfter[3].Val, Equals, offsetsBefore[3].Val+19)
+
+	assertMsgs(c, consumed, produced)
 }
 
 // If offsets for a group that does not exist are requested then -1 is returned
@@ -843,6 +895,16 @@ func ParseJSONBody(c *C, res *http.Response) interface{} {
 	return parsedBody
 }
 
+func ParseConsRes(c *C, res *http.Response) *pb.ConsRes {
+	body := ParseJSONBody(c, res).(map[string]interface{})
+	return &pb.ConsRes{
+		KeyValue:  []byte(ParseBase64(c, body["key"].(string))),
+		Message:   []byte(ParseBase64(c, body["value"].(string))),
+		Partition: int32(body["partition"].(float64)),
+		Offset:    int64(body["offset"].(float64)),
+	}
+}
+
 func ParseBase64(c *C, encoded string) string {
 	decoder := base64.NewDecoder(base64.StdEncoding, strings.NewReader(encoded))
 	decoded, err := ioutil.ReadAll(decoder)
@@ -851,8 +913,4 @@ func ParseBase64(c *C, encoded string) string {
 		return ""
 	}
 	return string(decoded)
-}
-
-func ProdMsgVal(prodMsg *sarama.ProducerMessage) string {
-	return string(prodMsg.Value.(sarama.StringEncoder))
 }

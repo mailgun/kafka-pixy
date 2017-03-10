@@ -19,7 +19,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   name='grpc.proto',
   package='',
   syntax='proto3',
-  serialized_pb=_b('\n\ngrpc.proto\"v\n\x07ProdReq\x12\r\n\x05proxy\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\x11\n\tkey_value\x18\x03 \x01(\x0c\x12\x15\n\rkey_undefined\x18\x04 \x01(\x08\x12\x0f\n\x07message\x18\x05 \x01(\x0c\x12\x12\n\nasync_mode\x18\x06 \x01(\x08\",\n\x07ProdRes\x12\x11\n\tpartition\x18\x01 \x01(\x05\x12\x0e\n\x06offset\x18\x02 \x01(\x03\"6\n\x07\x43onsReq\x12\r\n\x05proxy\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\r\n\x05group\x18\x03 \x01(\t\"g\n\x07\x43onsRes\x12\x11\n\tpartition\x18\x01 \x01(\x05\x12\x0e\n\x06offset\x18\x02 \x01(\x03\x12\x11\n\tkey_value\x18\x03 \x01(\x0c\x12\x15\n\rkey_undefined\x18\x04 \x01(\x08\x12\x0f\n\x07message\x18\x05 \x01(\x0c\x32M\n\tKafkaPixy\x12\x1f\n\x07Produce\x12\x08.ProdReq\x1a\x08.ProdRes\"\x00\x12\x1f\n\x07\x43onsume\x12\x08.ConsReq\x1a\x08.ConsRes\"\x00\x42\x04Z\x02pbb\x06proto3')
+  serialized_pb=_b('\n\ngrpc.proto\"v\n\x07ProdReq\x12\r\n\x05proxy\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\x11\n\tkey_value\x18\x03 \x01(\x0c\x12\x15\n\rkey_undefined\x18\x04 \x01(\x08\x12\x0f\n\x07message\x18\x05 \x01(\x0c\x12\x12\n\nasync_mode\x18\x06 \x01(\x08\",\n\x07ProdRes\x12\x11\n\tpartition\x18\x01 \x01(\x05\x12\x0e\n\x06offset\x18\x02 \x01(\x03\"\x83\x01\n\x07\x43onsReq\x12\r\n\x05proxy\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\r\n\x05group\x18\x03 \x01(\t\x12\x15\n\rack_partition\x18\x04 \x01(\x05\x12\x12\n\nack_offset\x18\x05 \x01(\x03\x12\x0e\n\x06no_ack\x18\x06 \x01(\x08\x12\x10\n\x08\x61uto_ack\x18\x07 \x01(\x08\"g\n\x07\x43onsRes\x12\x11\n\tpartition\x18\x01 \x01(\x05\x12\x0e\n\x06offset\x18\x02 \x01(\x03\x12\x11\n\tkey_value\x18\x03 \x01(\x0c\x12\x15\n\rkey_undefined\x18\x04 \x01(\x08\x12\x0f\n\x07message\x18\x05 \x01(\x0c\"X\n\x06\x41\x63kReq\x12\r\n\x05proxy\x18\x01 \x01(\t\x12\r\n\x05group\x18\x02 \x01(\t\x12\r\n\x05topic\x18\x03 \x01(\t\x12\x11\n\tpartition\x18\x04 \x01(\x05\x12\x0e\n\x06offset\x18\x05 \x01(\x03\"\x08\n\x06\x41\x63kRes2h\n\tKafkaPixy\x12\x1f\n\x07Produce\x12\x08.ProdReq\x1a\x08.ProdRes\"\x00\x12\x1f\n\x07\x43onsume\x12\x08.ConsReq\x1a\x08.ConsRes\"\x00\x12\x19\n\x03\x41\x63k\x12\x07.AckReq\x1a\x07.AckRes\"\x00\x42\x04Z\x02pbb\x06proto3')
 )
 _sym_db.RegisterFileDescriptor(DESCRIPTOR)
 
@@ -158,6 +158,34 @@ _CONSREQ = _descriptor.Descriptor(
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       options=None),
+    _descriptor.FieldDescriptor(
+      name='ack_partition', full_name='ConsReq.ack_partition', index=3,
+      number=4, type=5, cpp_type=1, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='ack_offset', full_name='ConsReq.ack_offset', index=4,
+      number=5, type=3, cpp_type=2, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='no_ack', full_name='ConsReq.no_ack', index=5,
+      number=6, type=8, cpp_type=7, label=1,
+      has_default_value=False, default_value=False,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='auto_ack', full_name='ConsReq.auto_ack', index=6,
+      number=7, type=8, cpp_type=7, label=1,
+      has_default_value=False, default_value=False,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
   ],
   extensions=[
   ],
@@ -170,8 +198,8 @@ _CONSREQ = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=180,
-  serialized_end=234,
+  serialized_start=181,
+  serialized_end=312,
 )
 
 
@@ -229,14 +257,99 @@ _CONSRES = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=236,
-  serialized_end=339,
+  serialized_start=314,
+  serialized_end=417,
+)
+
+
+_ACKREQ = _descriptor.Descriptor(
+  name='AckReq',
+  full_name='AckReq',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='proxy', full_name='AckReq.proxy', index=0,
+      number=1, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='group', full_name='AckReq.group', index=1,
+      number=2, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='topic', full_name='AckReq.topic', index=2,
+      number=3, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='partition', full_name='AckReq.partition', index=3,
+      number=4, type=5, cpp_type=1, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='offset', full_name='AckReq.offset', index=4,
+      number=5, type=3, cpp_type=2, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=419,
+  serialized_end=507,
+)
+
+
+_ACKRES = _descriptor.Descriptor(
+  name='AckRes',
+  full_name='AckRes',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=509,
+  serialized_end=517,
 )
 
 DESCRIPTOR.message_types_by_name['ProdReq'] = _PRODREQ
 DESCRIPTOR.message_types_by_name['ProdRes'] = _PRODRES
 DESCRIPTOR.message_types_by_name['ConsReq'] = _CONSREQ
 DESCRIPTOR.message_types_by_name['ConsRes'] = _CONSRES
+DESCRIPTOR.message_types_by_name['AckReq'] = _ACKREQ
+DESCRIPTOR.message_types_by_name['AckRes'] = _ACKRES
 
 ProdReq = _reflection.GeneratedProtocolMessageType('ProdReq', (_message.Message,), dict(
   DESCRIPTOR = _PRODREQ,
@@ -265,6 +378,20 @@ ConsRes = _reflection.GeneratedProtocolMessageType('ConsRes', (_message.Message,
   # @@protoc_insertion_point(class_scope:ConsRes)
   ))
 _sym_db.RegisterMessage(ConsRes)
+
+AckReq = _reflection.GeneratedProtocolMessageType('AckReq', (_message.Message,), dict(
+  DESCRIPTOR = _ACKREQ,
+  __module__ = 'grpc_pb2'
+  # @@protoc_insertion_point(class_scope:AckReq)
+  ))
+_sym_db.RegisterMessage(AckReq)
+
+AckRes = _reflection.GeneratedProtocolMessageType('AckRes', (_message.Message,), dict(
+  DESCRIPTOR = _ACKRES,
+  __module__ = 'grpc_pb2'
+  # @@protoc_insertion_point(class_scope:AckRes)
+  ))
+_sym_db.RegisterMessage(AckRes)
 
 
 DESCRIPTOR.has_options = True
@@ -297,6 +424,11 @@ try:
           request_serializer=ConsReq.SerializeToString,
           response_deserializer=ConsRes.FromString,
           )
+      self.Ack = channel.unary_unary(
+          '/KafkaPixy/Ack',
+          request_serializer=AckReq.SerializeToString,
+          response_deserializer=AckRes.FromString,
+          )
 
 
   class KafkaPixyServicer(object):
@@ -307,6 +439,11 @@ try:
       raise NotImplementedError('Method not implemented!')
 
     def Consume(self, request, context):
+      context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+      context.set_details('Method not implemented!')
+      raise NotImplementedError('Method not implemented!')
+
+    def Ack(self, request, context):
       context.set_code(grpc.StatusCode.UNIMPLEMENTED)
       context.set_details('Method not implemented!')
       raise NotImplementedError('Method not implemented!')
@@ -324,6 +461,11 @@ try:
             request_deserializer=ConsReq.FromString,
             response_serializer=ConsRes.SerializeToString,
         ),
+        'Ack': grpc.unary_unary_rpc_method_handler(
+            servicer.Ack,
+            request_deserializer=AckReq.FromString,
+            response_serializer=AckRes.SerializeToString,
+        ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
         'KafkaPixy', rpc_method_handlers)
@@ -340,6 +482,8 @@ try:
       context.code(beta_interfaces.StatusCode.UNIMPLEMENTED)
     def Consume(self, request, context):
       context.code(beta_interfaces.StatusCode.UNIMPLEMENTED)
+    def Ack(self, request, context):
+      context.code(beta_interfaces.StatusCode.UNIMPLEMENTED)
 
 
   class BetaKafkaPixyStub(object):
@@ -354,6 +498,9 @@ try:
     def Consume(self, request, timeout, metadata=None, with_call=False, protocol_options=None):
       raise NotImplementedError()
     Consume.future = None
+    def Ack(self, request, timeout, metadata=None, with_call=False, protocol_options=None):
+      raise NotImplementedError()
+    Ack.future = None
 
 
   def beta_create_KafkaPixy_server(servicer, pool=None, pool_size=None, default_timeout=None, maximum_timeout=None):
@@ -363,14 +510,17 @@ try:
     file not marked beta) for all further purposes. This function was
     generated only to ease transition from grpcio<0.15.0 to grpcio>=0.15.0"""
     request_deserializers = {
+      ('KafkaPixy', 'Ack'): AckReq.FromString,
       ('KafkaPixy', 'Consume'): ConsReq.FromString,
       ('KafkaPixy', 'Produce'): ProdReq.FromString,
     }
     response_serializers = {
+      ('KafkaPixy', 'Ack'): AckRes.SerializeToString,
       ('KafkaPixy', 'Consume'): ConsRes.SerializeToString,
       ('KafkaPixy', 'Produce'): ProdRes.SerializeToString,
     }
     method_implementations = {
+      ('KafkaPixy', 'Ack'): face_utilities.unary_unary_inline(servicer.Ack),
       ('KafkaPixy', 'Consume'): face_utilities.unary_unary_inline(servicer.Consume),
       ('KafkaPixy', 'Produce'): face_utilities.unary_unary_inline(servicer.Produce),
     }
@@ -385,14 +535,17 @@ try:
     file not marked beta) for all further purposes. This function was
     generated only to ease transition from grpcio<0.15.0 to grpcio>=0.15.0"""
     request_serializers = {
+      ('KafkaPixy', 'Ack'): AckReq.SerializeToString,
       ('KafkaPixy', 'Consume'): ConsReq.SerializeToString,
       ('KafkaPixy', 'Produce'): ProdReq.SerializeToString,
     }
     response_deserializers = {
+      ('KafkaPixy', 'Ack'): AckRes.FromString,
       ('KafkaPixy', 'Consume'): ConsRes.FromString,
       ('KafkaPixy', 'Produce'): ProdRes.FromString,
     }
     cardinalities = {
+      'Ack': cardinality.Cardinality.UNARY_UNARY,
       'Consume': cardinality.Cardinality.UNARY_UNARY,
       'Produce': cardinality.Cardinality.UNARY_UNARY,
     }

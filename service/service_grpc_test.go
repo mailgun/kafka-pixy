@@ -192,39 +192,102 @@ func (s *ServiceGRPCSuite) TestProduceInvalidProxy(c *C) {
 	c.Assert(res, IsNil)
 }
 
-func (s *ServiceGRPCSuite) TestConsumeSingleMessage(c *C) {
+// Offsets of messages consumed in auto-ack mode are properly committed.
+func (s *ServiceGRPCSuite) TestConsumeAutoAck(c *C) {
 	svc, err := Spawn(s.cfg)
 	c.Assert(err, IsNil)
 
 	s.kh.ResetOffsets("foo", "test.4")
+	produced := s.kh.PutMessages("auto-ack", "test.4", map[string]int{"A": 17, "B": 19, "C": 23, "D": 29})
+	consumed := make(map[string][]*pb.ConsRes)
+	offsetsBefore := s.kh.GetCommittedOffsets("foo", "test.4")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	prodReq := pb.ProdReq{
-		Topic:    "test.4",
-		KeyValue: []byte("bar"),
-		Message:  []byte(fmt.Sprintf("msg%d", rand.Int())),
-	}
-	prodRes, err := s.clt.Produce(ctx, &prodReq, grpc.FailFast(false))
-	c.Assert(err, IsNil)
-
 	// When
-	consReq := pb.ConsReq{Topic: "test.4", Group: "foo"}
-	consRes, err := s.clt.Consume(ctx, &consReq)
+	for i := 0; i < 88; i++ {
+		req := pb.ConsReq{
+			Topic:   "test.4",
+			Group:   "foo",
+			AutoAck: true,
+		}
+		res, err := s.clt.Consume(ctx, &req)
+		c.Assert(err, IsNil, Commentf("failed to consume message #%d", i))
+		key := string(res.KeyValue)
+		consumed[key] = append(consumed[key], res)
+	}
 	svc.Stop()
 
 	// Then
-	c.Assert(err, IsNil)
-	c.Assert(*consRes, DeepEquals, pb.ConsRes{
-		Partition: prodRes.Partition,
-		Offset:    prodRes.Offset,
-		KeyValue:  prodReq.KeyValue,
-		Message:   prodReq.Message,
-	})
-
 	offsetsAfter := s.kh.GetCommittedOffsets("foo", "test.4")
-	c.Assert(offsetsAfter[prodRes.Partition].Val, Equals, prodRes.Offset+1)
+	c.Assert(offsetsAfter[0].Val, Equals, offsetsBefore[0].Val+17)
+	c.Assert(offsetsAfter[1].Val, Equals, offsetsBefore[1].Val+29)
+	c.Assert(offsetsAfter[2].Val, Equals, offsetsBefore[2].Val+23)
+	c.Assert(offsetsAfter[3].Val, Equals, offsetsBefore[3].Val+19)
+
+	assertMsgs(c, consumed, produced)
+}
+
+// This test shows how message consumption loop with explicit acks should look
+// like.
+func (s *ServiceGRPCSuite) TestConsumeExplicitAck(c *C) {
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
+
+	s.kh.ResetOffsets("foo", "test.4")
+	produced := s.kh.PutMessages("explicit-ack", "test.4", map[string]int{"A": 17, "B": 19, "C": 23, "D": 29})
+	consumed := make(map[string][]*pb.ConsRes)
+	offsetsBefore := s.kh.GetCommittedOffsets("foo", "test.4")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	// When:
+
+	// First message has to be consumed with NoAck set to true.
+	req := pb.ConsReq{
+		Topic: "test.4",
+		Group: "foo",
+		NoAck: true,
+	}
+	res, err := s.clt.Consume(ctx, &req)
+	c.Assert(err, IsNil, Commentf("failed to consume first message"))
+	key := string(res.KeyValue)
+	consumed[key] = append(consumed[key], res)
+	// Whenever a message is consumed previous one is acked.
+	for i := 1; i < 88; i++ {
+		req = pb.ConsReq{
+			Topic:        "test.4",
+			Group:        "foo",
+			AckPartition: res.Partition,
+			AckOffset:    res.Offset,
+		}
+		res, err = s.clt.Consume(ctx, &req)
+		c.Assert(err, IsNil, Commentf("failed to consume message #%d", i))
+		key := string(res.KeyValue)
+		consumed[key] = append(consumed[key], res)
+	}
+	// Ack last message.
+	ackReq := pb.AckReq{
+		Topic:     "test.4",
+		Group:     "foo",
+		Partition: res.Partition,
+		Offset:    res.Offset,
+	}
+	_, err = s.clt.Ack(ctx, &ackReq)
+	c.Assert(err, IsNil, Commentf("failed ack last message"))
+
+	svc.Stop()
+
+	// Then
+	offsetsAfter := s.kh.GetCommittedOffsets("foo", "test.4")
+	c.Assert(offsetsAfter[0].Val, Equals, offsetsBefore[0].Val+17)
+	c.Assert(offsetsAfter[1].Val, Equals, offsetsBefore[1].Val+29)
+	c.Assert(offsetsAfter[2].Val, Equals, offsetsBefore[2].Val+23)
+	c.Assert(offsetsAfter[3].Val, Equals, offsetsBefore[3].Val+19)
+
+	assertMsgs(c, consumed, produced)
 }
 
 func (s *ServiceGRPCSuite) TestConsumeExplicitProxy(c *C) {

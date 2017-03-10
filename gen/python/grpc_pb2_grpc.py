@@ -24,6 +24,11 @@ class KafkaPixyStub(object):
         request_serializer=grpc__pb2.ConsReq.SerializeToString,
         response_deserializer=grpc__pb2.ConsRes.FromString,
         )
+    self.Ack = channel.unary_unary(
+        '/KafkaPixy/Ack',
+        request_serializer=grpc__pb2.AckReq.SerializeToString,
+        response_deserializer=grpc__pb2.AckRes.FromString,
+        )
 
 
 class KafkaPixyServicer(object):
@@ -34,6 +39,11 @@ class KafkaPixyServicer(object):
     raise NotImplementedError('Method not implemented!')
 
   def Consume(self, request, context):
+    context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+    context.set_details('Method not implemented!')
+    raise NotImplementedError('Method not implemented!')
+
+  def Ack(self, request, context):
     context.set_code(grpc.StatusCode.UNIMPLEMENTED)
     context.set_details('Method not implemented!')
     raise NotImplementedError('Method not implemented!')
@@ -50,6 +60,11 @@ def add_KafkaPixyServicer_to_server(servicer, server):
           servicer.Consume,
           request_deserializer=grpc__pb2.ConsReq.FromString,
           response_serializer=grpc__pb2.ConsRes.SerializeToString,
+      ),
+      'Ack': grpc.unary_unary_rpc_method_handler(
+          servicer.Ack,
+          request_deserializer=grpc__pb2.AckReq.FromString,
+          response_serializer=grpc__pb2.AckRes.SerializeToString,
       ),
   }
   generic_handler = grpc.method_handlers_generic_handler(

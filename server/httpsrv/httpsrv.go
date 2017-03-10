@@ -34,11 +34,16 @@ const (
 	hdrContentType   = "Content-Type"
 
 	// HTTP request parameters.
-	prmProxy = "proxy"
-	prmTopic = "topic"
-	prmKey   = "key"
-	prmSync  = "sync"
-	prmGroup = "group"
+	prmProxy        = "proxy"
+	prmTopic        = "topic"
+	prmKey          = "key"
+	prmSync         = "sync"
+	prmGroup        = "group"
+	prmNoAck        = "noAck"
+	prmAckPartition = "ackPartition"
+	prmPartition    = "partition"
+	prmAckOffset    = "ackOffset"
+	prmOffset       = "offset"
 )
 
 var (
@@ -88,17 +93,22 @@ func New(addr string, proxySet *proxy.Set) (*T, error) {
 	// Configure the API request handlers.
 	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), hs.handleProduce).Methods("POST")
 	router.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", prmTopic), hs.handleProduce).Methods("POST")
-	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), hs.handleProduce).Methods("POST")
-	router.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", prmTopic), hs.handleProduce).Methods("POST")
-	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), hs.handleProduce).Methods("POST")
-	router.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", prmTopic), hs.handleConsume).Methods("GET")
+
 	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), hs.handleConsume).Methods("GET")
-	router.HandleFunc(fmt.Sprintf("/topics/{%s}/offsets", prmTopic), hs.handleGetOffsets).Methods("GET")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", prmTopic), hs.handleConsume).Methods("GET")
+
+	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/acks", prmProxy, prmTopic), hs.handleConsume).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/acks", prmTopic), hs.handleConsume).Methods("POST")
+
 	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/offsets", prmProxy, prmTopic), hs.handleGetOffsets).Methods("GET")
-	router.HandleFunc(fmt.Sprintf("/topics/{%s}/offsets", prmTopic), hs.handleSetOffsets).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/offsets", prmTopic), hs.handleGetOffsets).Methods("GET")
+
 	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/offsets", prmProxy, prmTopic), hs.handleSetOffsets).Methods("POST")
-	router.HandleFunc(fmt.Sprintf("/topics/{%s}/consumers", prmTopic), hs.handleGetTopicConsumers).Methods("GET")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/offsets", prmTopic), hs.handleSetOffsets).Methods("POST")
+
 	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/consumers", prmProxy, prmTopic), hs.handleGetTopicConsumers).Methods("GET")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/consumers", prmTopic), hs.handleGetTopicConsumers).Methods("GET")
+
 	router.HandleFunc("/_ping", hs.handlePing).Methods("GET")
 	return hs, nil
 }
@@ -214,8 +224,13 @@ func (s *T) handleConsume(w http.ResponseWriter, r *http.Request) {
 		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
 		return
 	}
+	ack, err := parseAck(r, true)
+	if err != nil {
+		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		return
+	}
 
-	consMsg, err := pxy.Consume(group, topic, proxy.AutoAck())
+	consMsg, err := pxy.Consume(group, topic, ack)
 	if err != nil {
 		var status int
 		switch err.(type) {
@@ -236,6 +251,35 @@ func (s *T) handleConsume(w http.ResponseWriter, r *http.Request) {
 		Partition: consMsg.Partition,
 		Offset:    consMsg.Offset,
 	})
+}
+
+// handleConsume is an HTTP request handler for `GET /topic/{topic}/messages`
+func (s *T) handleAck(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+
+	pxy, err := s.getProxy(r)
+	if err != nil {
+		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		return
+	}
+	topic := mux.Vars(r)[prmTopic]
+	group, err := getGroupParam(r, false)
+	if err != nil {
+		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		return
+	}
+	ack, err := parseAck(r, true)
+	if err != nil {
+		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		return
+	}
+
+	err = pxy.Ack(group, topic, ack)
+	if err != nil {
+		respondWithJSON(w, http.StatusInternalServerError, errorHTTPResponse{err.Error()})
+		return
+	}
+	respondWithJSON(w, http.StatusOK, EmptyResponse)
 }
 
 // handleGetOffsets is an HTTP request handler for `GET /topic/{topic}/offsets`
@@ -472,4 +516,44 @@ func toEncoderPreservingNil(b []byte) sarama.Encoder {
 		return sarama.StringEncoder(b)
 	}
 	return nil
+}
+
+func parseAck(r *http.Request, isConsReq bool) (proxy.Ack, error) {
+	var partitionPrmName, offsetPrmName string
+	if isConsReq {
+		partitionPrmName = prmAckPartition
+		offsetPrmName = prmAckOffset
+	} else {
+		partitionPrmName = prmPartition
+		offsetPrmName = prmOffset
+	}
+
+	_, noAck := mux.Vars(r)[prmNoAck]
+	if noAck {
+		return proxy.NoAck(), nil
+	}
+	var err error
+	var partition int64
+	partitionStr, partitionOk := mux.Vars(r)[partitionPrmName]
+	if partitionOk {
+		partition, err = strconv.ParseInt(partitionStr, 10, 32)
+		if err == nil || partition < 0 {
+			return proxy.NoAck(), errors.Wrapf(err, "bad %s: %s", partitionPrmName, partitionStr)
+		}
+	}
+	var offset int64
+	offsetStr, offsetOk := mux.Vars(r)[offsetPrmName]
+	if offsetOk {
+		offset, err = strconv.ParseInt(offsetStr, 10, 64)
+		if err == nil || offset < 0 {
+			return proxy.NoAck(), errors.Wrapf(err, "bad %s: %s", offsetPrmName, offsetStr)
+		}
+	}
+	if partitionOk && offsetOk {
+		return proxy.NewAck(int32(partition), offset)
+	}
+	if !partitionOk && !offsetOk {
+		return proxy.AutoAck(), nil
+	}
+	return proxy.NoAck(), errors.Errorf("%s and %s either both should be provided or neither", partitionPrmName, offsetPrmName)
 }
