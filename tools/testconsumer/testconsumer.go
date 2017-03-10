@@ -3,24 +3,23 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
-	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
+	pb "github.com/mailgun/kafka-pixy/gen/golang"
 	"github.com/mailgun/kafka-pixy/prettyfmt"
+	"github.com/pkg/errors"
+	"golang.org/x/net/context"
+	"google.golang.org/grpc"
 )
 
 const (
-	reportingPeriod    = 5 * time.Second
-	backOffTimeout     = 3 * time.Second
-	longPollingTimeout = 4 * time.Second
+	reportingPeriod = 1 * time.Second
 )
 
 var (
-	pixyAddr    string
+	grpcAddr    string
 	group       string
 	topic       string
 	threads     int
@@ -29,191 +28,118 @@ var (
 )
 
 func init() {
-	flag.StringVar(&pixyAddr, "addr", "localhost:19092", "either unix domain socker or TCP address")
-	flag.StringVar(&group, "group", "test", "the name of the consumer group")
-	flag.StringVar(&topic, "topic", "test", "the name of the topic")
-	flag.IntVar(&threads, "threads", 1, "number of concurrent producer threads")
-	flag.IntVar(&count, "count", 10000, "number of messages to consume")
+	flag.StringVar(&grpcAddr, "addr", "localhost:19091", "gRPC server address")
+	flag.StringVar(&group, "group", "test", "name of the consumer group")
+	flag.StringVar(&topic, "topic", "test", "name of the topic")
+	flag.IntVar(&threads, "threads", 1, "number of concurrent consumer threads")
+	flag.IntVar(&count, "count", 10000, "number of messages to consume by all threads")
 	flag.BoolVar(&waitForMore, "wait", false, "should wait for more messages when the end of the topic is reached")
 	flag.Parse()
 }
 
-type progress struct {
-	count int
-	bytes int64
-}
-
 func main() {
-	mf := SpawnMessageFetcher(pixyAddr, topic, group)
-	progressCh := make(chan progress)
+	progressCh := make(chan int, 100*threads)
+
+	cltConn, err := grpc.Dial(grpcAddr, grpc.WithInsecure())
+	if err != nil {
+		panic(errors.Wrap(err, "failed to dial gRPC server"))
+	}
+	clt := pb.NewKafkaPixyClient(cltConn)
+
 	go func() {
 		var wg sync.WaitGroup
 		chunkSize := count / threads
-		for i := 0; i < threads; i++ {
+		for tid := 0; tid < threads; tid++ {
+			tid := tid
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-
-				var recentProgress progress
-				checkpoint := time.Now()
-				for j := 1; j < chunkSize; j++ {
-					select {
-					case msg, ok := <-mf.Messages():
-						if !ok {
-							goto done
-						}
-
-						recentProgress.count += 1
-						recentProgress.bytes += int64(len(msg))
-						now := time.Now()
-						if now.Sub(checkpoint) > reportingPeriod {
-							checkpoint = now
-							progressCh <- recentProgress
-							recentProgress.count, recentProgress.bytes = 0, 0
-						}
-					case <-time.After(longPollingTimeout):
-						if waitForMore {
+				startedAt := time.Now()
+				// Consume first message.
+				req := pb.ConsReq{
+					Topic: topic,
+					Group: group,
+					NoAck: true,
+				}
+				var res *pb.ConsRes
+				for {
+					res, err = clt.Consume(context.Background(), &req)
+					if err != nil {
+						if int(grpc.Code(err)) == http.StatusRequestTimeout && waitForMore {
 							continue
 						}
-						goto done
+						panic(errors.Wrap(err, "failed to consume first"))
 					}
+					break
 				}
-			done:
-				progressCh <- recentProgress
+				fmt.Printf("First message consumed: thread=%d, took=%v, res=%+v\n", tid, time.Now().Sub(startedAt), res)
+				progressCh <- len(res.Message)
+				// Run consume+ack loop.
+				ackPartition := res.Partition
+				ackOffset := res.Offset
+				for i := 1; i < chunkSize; i++ {
+					req := pb.ConsReq{
+						Topic:        topic,
+						Group:        group,
+						AckPartition: ackPartition,
+						AckOffset:    ackOffset,
+					}
+					res, err = clt.Consume(context.Background(), &req)
+					if err != nil {
+						if int(grpc.Code(err)) == http.StatusRequestTimeout && waitForMore {
+							continue
+						}
+						panic(errors.Wrapf(err, "failed to consume: thread=%d, no=%d", tid, i))
+					}
+					ackPartition = res.Partition
+					ackOffset = res.Offset
+					progressCh <- len(res.Message)
+
+				}
+				// Ack the last consumed message.
+				ackReq := pb.AckReq{
+					Topic:     topic,
+					Group:     group,
+					Partition: ackPartition,
+					Offset:    ackOffset,
+				}
+				_, err = clt.Ack(context.Background(), &ackReq)
+				if err != nil {
+					panic(errors.Wrapf(err, "failed to ack last: thread=%d", tid))
+				}
 			}()
 		}
 		wg.Wait()
-
-		go func() {
-			mf.Stop()
-		}()
-		// Read the remaining fetched but not processed messages.
-		var lastProgress progress
-		for msg := range mf.Messages() {
-			lastProgress.bytes = int64(len(msg))
-			lastProgress.count += 1
-		}
-		progressCh <- lastProgress
 		close(progressCh)
 	}()
 
 	begin := time.Now()
 	checkpoint := begin
-	var totalProgress progress
-	for progress := range progressCh {
-		totalProgress.count += progress.count
-		totalProgress.bytes += progress.bytes
+	var count, totalCount int
+	var bytes, totalBytes int64
+	for msgSize := range progressCh {
+		count += 1
+		bytes += int64(msgSize)
 		now := time.Now()
-		totalTook := now.Sub(begin)
 		took := now.Sub(checkpoint)
-		checkpoint = now
-		tookSec := float64(took) / float64(time.Second)
-		fmt.Printf("Consuming... %d(%s) for %s at %dmsg(%s)/sec\n",
-			totalProgress.count, prettyfmt.Bytes(totalProgress.bytes), totalTook,
-			int64(float64(progress.count)/tookSec),
-			prettyfmt.Bytes(int64(float64(progress.bytes)/tookSec)))
-	}
-	took := time.Now().Sub(begin)
-	tookSec := float64(took) / float64(time.Second)
-	fmt.Printf("Consumed %d(%s) for %s at %dmsg(%s)/sec\n",
-		totalProgress.count, prettyfmt.Bytes(totalProgress.bytes), took,
-		int64(float64(totalProgress.count)/tookSec),
-		prettyfmt.Bytes(int64(float64(totalProgress.bytes)/tookSec)))
-}
-
-type MessageFetcher struct {
-	url       string
-	httpClt   http.Client
-	messages  chan []byte
-	closingCh chan struct{}
-	wg        sync.WaitGroup
-}
-
-func SpawnMessageFetcher(addr, topic, group string) *MessageFetcher {
-	useUnixDomainSocket := false
-	var baseURL string
-	if strings.HasPrefix(addr, "/") {
-		fmt.Printf("Using UDS client for %s\n", addr)
-		baseURL = "http://_"
-		useUnixDomainSocket = true
-	} else {
-		fmt.Printf("Using net client for %s\n", addr)
-		baseURL = fmt.Sprintf("http://%s", addr)
-	}
-	url := fmt.Sprintf("%s/topics/%s/messages?group=%s", baseURL, topic, group)
-
-	var httpClt http.Client
-	if useUnixDomainSocket {
-		dial := func(proto, ignoredAddr string) (net.Conn, error) {
-			return net.Dial("unix", addr)
+		if now.Sub(checkpoint) > reportingPeriod {
+			totalTook := now.Sub(begin)
+			totalCount += count
+			totalBytes += bytes
+			tookSec := float64(took) / float64(time.Second)
+			fmt.Printf("\rConsuming... %d(%s) for %s at %dmsg(%s)/sec             ",
+				totalCount, prettyfmt.Bytes(totalBytes), totalTook,
+				int64(float64(count)/tookSec),
+				prettyfmt.Bytes(int64(float64(bytes)/tookSec)))
+			count = 0
+			bytes = 0
+			checkpoint = now
 		}
-		httpClt.Transport = &http.Transport{Dial: dial}
 	}
-
-	mf := &MessageFetcher{
-		url:       url,
-		httpClt:   httpClt,
-		messages:  make(chan []byte),
-		closingCh: make(chan struct{}),
-	}
-
-	mf.wg.Add(1)
-	go func() {
-		defer mf.wg.Done()
-		for {
-			message, err := mf.fetchMessage()
-			if err != nil {
-				fmt.Printf("Failed to fetch a message: err=(%s)\n", err)
-				select {
-				case <-mf.closingCh:
-					return
-				case <-time.After(backOffTimeout):
-				}
-				continue
-			}
-			if message != nil {
-				mf.messages <- message
-			}
-			select {
-			case <-mf.closingCh:
-				return
-			default:
-			}
-		}
-	}()
-
-	return mf
-}
-
-func (mf *MessageFetcher) Messages() <-chan []byte {
-	return mf.messages
-}
-
-func (mf *MessageFetcher) Stop() {
-	close(mf.closingCh)
-	mf.wg.Wait()
-	close(mf.messages)
-}
-
-func (mf *MessageFetcher) fetchMessage() ([]byte, error) {
-	res, err := mf.httpClt.Get(mf.url)
-	if err != nil {
-		if res != nil && res.Body != nil {
-			res.Body.Close()
-		}
-		return nil, fmt.Errorf("Request failed: err=(%s)", err)
-	}
-	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to read response body: err=(%s)", err)
-	}
-	res.Body.Close()
-	if res.StatusCode == http.StatusRequestTimeout {
-		return nil, nil
-	}
-	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Error returned: code=%d, content=%s", res.StatusCode, body)
-	}
-	return body, nil
+	totalTook := time.Now().Sub(begin)
+	totalTookSec := float64(totalTook) / float64(time.Second)
+	fmt.Printf("\rConsumed %d(%s) for %s at %dmsg(%s)/sec             \n",
+		totalCount, prettyfmt.Bytes(totalBytes), totalTook,
+		int64(float64(totalCount)/totalTookSec),
+		prettyfmt.Bytes(int64(float64(totalBytes)/totalTookSec)))
 }
