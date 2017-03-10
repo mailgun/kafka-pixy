@@ -3,15 +3,18 @@ package grpcsrv
 import (
 	"fmt"
 	"net"
+	"net/http"
 	"sync"
 
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
+	"github.com/mailgun/kafka-pixy/consumer"
 	pb "github.com/mailgun/kafka-pixy/gen/golang"
 	"github.com/mailgun/kafka-pixy/proxy"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 )
 
 const (
@@ -76,7 +79,7 @@ func (s *T) Stop() {
 func (s *T) Produce(ctx context.Context, req *pb.ProdReq) (*pb.ProdRes, error) {
 	pxy, err := s.proxySet.Get(req.Proxy)
 	if err != nil {
-		return nil, err
+		return nil, grpc.Errorf(codes.InvalidArgument, err.Error())
 	}
 
 	if req.AsyncMode {
@@ -86,7 +89,12 @@ func (s *T) Produce(ctx context.Context, req *pb.ProdReq) (*pb.ProdRes, error) {
 
 	prodMsg, err := pxy.Produce(req.Topic, keyEncoderFor(req), sarama.StringEncoder(req.Message))
 	if err != nil {
-		return nil, err
+		switch err {
+		case sarama.ErrUnknownTopicOrPartition:
+			return nil, grpc.Errorf(codes.Code(http.StatusNotFound), err.Error())
+		default:
+			return nil, grpc.Errorf(codes.Code(http.StatusInternalServerError), err.Error())
+		}
 	}
 	return &pb.ProdRes{Partition: prodMsg.Partition, Offset: prodMsg.Offset}, nil
 }
@@ -95,7 +103,7 @@ func (s *T) Produce(ctx context.Context, req *pb.ProdReq) (*pb.ProdRes, error) {
 func (s *T) Consume(ctx context.Context, req *pb.ConsReq) (*pb.ConsRes, error) {
 	pxy, err := s.proxySet.Get(req.Proxy)
 	if err != nil {
-		return nil, err
+		return nil, grpc.Errorf(codes.InvalidArgument, err.Error())
 	}
 
 	var ack proxy.Ack
@@ -105,13 +113,20 @@ func (s *T) Consume(ctx context.Context, req *pb.ConsReq) (*pb.ConsRes, error) {
 		ack = proxy.AutoAck()
 	} else {
 		if ack, err = proxy.NewAck(req.AckPartition, req.AckOffset); err != nil {
-			return nil, errors.Wrap(err, "invalid ack")
+			return nil, grpc.Errorf(codes.InvalidArgument, errors.Wrap(err, "invalid ack").Error())
 		}
 	}
 
 	consMsg, err := pxy.Consume(req.Group, req.Topic, ack)
 	if err != nil {
-		return nil, err
+		switch err.(type) {
+		case consumer.ErrRequestTimeout:
+			return nil, grpc.Errorf(codes.Code(http.StatusRequestTimeout), err.Error())
+		case consumer.ErrTooManyRequests:
+			return nil, grpc.Errorf(codes.Code(http.StatusTooManyRequests), err.Error())
+		default:
+			return nil, grpc.Errorf(codes.Code(http.StatusInternalServerError), err.Error())
+		}
 	}
 	res := pb.ConsRes{
 		Partition: consMsg.Partition,
@@ -129,15 +144,15 @@ func (s *T) Consume(ctx context.Context, req *pb.ConsReq) (*pb.ConsRes, error) {
 func (s *T) Ack(ctx context.Context, req *pb.AckReq) (*pb.AckRes, error) {
 	pxy, err := s.proxySet.Get(req.Proxy)
 	if err != nil {
-		return nil, err
+		return nil, grpc.Errorf(codes.InvalidArgument, err.Error())
 	}
 
 	ack, err := proxy.NewAck(req.Partition, req.Offset)
 	if err != nil {
-		return nil, errors.Wrap(err, "invalid ack")
+		return nil, grpc.Errorf(codes.InvalidArgument, errors.Wrap(err, "invalid ack").Error())
 	}
 	if err = pxy.Ack(req.Group, req.Topic, ack); err != nil {
-		return nil, errors.Wrap(err, "ack failed")
+		return nil, grpc.Errorf(codes.Code(http.StatusInternalServerError), err.Error())
 	}
 	return &pb.AckRes{}, nil
 }

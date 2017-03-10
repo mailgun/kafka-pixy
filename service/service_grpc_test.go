@@ -188,7 +188,7 @@ func (s *ServiceGRPCSuite) TestProduceInvalidProxy(c *C) {
 
 	// Then
 	c.Assert(grpc.ErrorDesc(err), Equals, "proxy `invalid` does not exist")
-	c.Assert(grpc.Code(err), Equals, codes.Unknown)
+	c.Assert(grpc.Code(err), Equals, codes.InvalidArgument)
 	c.Assert(res, IsNil)
 }
 
@@ -374,6 +374,6 @@ func (s *ServiceGRPCSuite) TestConsumeInvalidProxy(c *C) {
 
 	// Then
 	c.Assert(grpc.ErrorDesc(err), Equals, "proxy `invalid` does not exist")
-	c.Assert(grpc.Code(err), Equals, codes.Unknown)
+	c.Assert(grpc.Code(err), Equals, codes.InvalidArgument)
 	c.Assert(consRes, IsNil)
 }
