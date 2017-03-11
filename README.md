@@ -17,6 +17,10 @@ to give it a try.
 
 #### Key Features:
 
+- **At Least Once Guarantee**: The main feature of Kafka-Pixy is that
+  it guarantees at-least-once message delivery. The guarantee is
+  achieved via combination of synchronous production and explicit
+  acknowledgement of consumed messages;
 - **Dual API**: Kafka-Pixy provides two types of API:
   - [gRPC](http://www.grpc.io/docs/guides/)
   ([Protocol Buffers](https://developers.google.com/protocol-buffers/docs/overview)
@@ -32,13 +36,8 @@ to give it a try.
 - **Aggregation**: Kafka works best when messages are read/written in
   batches, but from application standpoint it is easier to deal with
   individual message read/writes. Kafka-Pixy provides message based API
-  to clients, but internally it collects them in batches and submits
-  them the way Kafka likes it the best. This behavior plays very well
-  with the microservices architecture, where there are usually many
-  tiny assorted service instances running on one beefy physical host.
-  So Kafka-Pixy installed on that host would aggregate messages from
-  all the service instances, herby effectively using the network
-  bandwidth.
+  to clients, but internally it aggregates requests and sends them to
+  Kafka in batches.
 - **Locality**: Kafka-Pixy is intended to run on the same host as the
   applications using it. Remember that it provides only message based
   API - no batching, therefore using it over network is suboptimal.
@@ -59,55 +58,54 @@ language of your choice.
 
 ## HTTP API
 
-Each API endpoint has two variants which differ by `/proxies/<proxy>` prefix.
-The one with the proxy prefix is to be used when multiple clusters are
-configured. The one without the prefix operates on the default cluster, the one
-that is mentioned first in the YAML configuration file.
+**It is highly recommended to use gRPC API for production/consumption.
+The HTTP API is only provided for quick tests and operational purposes.**
+
+Each API endpoint has two variants which differ by `/cluster/<proxy>`
+prefix. The one with the proxy prefix is to be used when multiple
+clusters are configured. The one without the prefix operates on the
+default cluster (the one that is mentioned first in the YAML
+configuration file).
 
 ### Produce
 
 ```
-POST /topics/<topic>/messages?key=<key>
-POST /proxies/<proxy>/topics/<topic>/messages?key=<key>
+POST /topics/<topic>/messages
+POST /proxies/<proxy>/topics/<topic>/messages
 ```
 
-Submits a message to the specified **topic** using the hash of the specified
-**key** to determine the partition that the message should go to. The content
-type can be either `text/plain` or `application/json`.
+Writes a message to a topic on a particular cluster. the message should
+be send as the body of the request which can be either `text/plain` or
+or `application/json`.
 
-By default a message is submitted to Kafka asynchronously, that is the HTTP
-request completes as soon as the proxy gets the message, and actual message
-submission to Kafka is performed afterwards. In this case the successful
-completion of the HTTP request does not guarantee that the message will ever
-get into Kafka, although the proxy will do its best to make that happen (retry
-several times and such). If delivery guarantee is of priority over request
-execution time, then synchronous delivery may be requested specifying the
-**sync** parameter (exact value does not matter). In this case the request
-blocks until the message is submitted to all in-sync replicas
-(see [Kafka Documentation](http://kafka.apache.org/documentation.html) search
-for to "Availability and Durability Guarantees"). If the returned HTTP
-status code is anything but 200 OK then the message has not been submitted to
-Kafka and the response body contains the error details.
+ Parameter | Opt | Description
+-----------|-----|------------------------------------------------------
+ proxy     | yes | The name of a proxy to produce to. By default the proxy that is mentioned first in the config file.
+ topic     |     | The name of a topic to produce to
+ key       | yes | A string that hash is used to determine a partition to produce to. By default a random partition is selected.
+ sync      | yes | A flag (value is ignored) that makes Kafka-Pixy wait for all ISR to confirm write before sending a response back. By default a response is sent immediatelly after the request is received.
 
-If **key** is not specified then the message is submitted to a random shard.
-Note that it is not the same as specifying an empty key value, for empty string
-is a valid key value, and therefore all messages with an empty key value go to
-the same shard.
+By default the message is written to Kafka asynchronously, that is the
+HTTP request completes as soon as Kafka-Pixy reads the request from the
+wire, and production to Kafka is performed on the background. Therefore
+it is not guarantee that the message will ever get into Kafka. To ensure
+that a request returns **200 OK** after the message is written to all
+in-sync replicas pass **sync** flag in your request.
 
-E.g. if a Kafka-Pixy processes has been started with the `--tcpAddr=0.0.0.0:8080`
+E.g. if a Kafka-Pixy process has been started with the `--tcpAddr=0.0.0.0:8080`
 argument, then you can test it using **curl** as follows:
 
 ```
 curl -X POST localhost:8080/topics/foo/messages?key=bar&sync \
-  -H 'Content-Type: application/json' \
-  -d '{"bar": "bazz"}'
+  -H 'Content-Type: text/plain' \
+  -d 'Good news everyone!'
 ```
 
-If the message is submitted asynchronously then the response will be an empty
-json object `{}`.
+If the message is submitted asynchronously then the response will be an
+empty json object `{}`.
  
-If the message is submitted synchronously then in case of success (HTTP status
-**200**) the response will be like:
+If the message is submitted synchronously then in case of success (HTTP
+status **200**) the response will be like:
 
 ```
 {
@@ -116,7 +114,8 @@ If the message is submitted synchronously then in case of success (HTTP status
 }
 ```
 
-In case of failure (HTTP statuses **404** and **500**) the response will be.
+In case of failure (HTTP statuses **404** and **500**) the response
+will be:
 
 ```
 {
@@ -127,29 +126,49 @@ In case of failure (HTTP statuses **404** and **500**) the response will be.
 ### Consume
 
 ```
-GET /topics/<topic>/messages?group=<group>
-GET /proxies/<proxy>/topics/<topic>/messages?group=<group>
+GET /topics/<topic>/messages
+GET /proxies/<proxy>/topics/<topic>/messages
 ```
 
-Consumes a message from the specified **topic** on behalf of the specified
-consumer **group**.
+Consumes a message from a topic of a particular cluster as a member of
+a particular consumer group. A message previously consumed from the same
+topic can be optionally acknowledged.
+
+ Parameter    | Opt | Description
+--------------|-----|------------------------------------------------------
+ proxy        | yes | The name of a proxy to produce to. By default the proxy that is mentioned first in the config file is used.
+ topic        |     | The name of a topic to produce to.
+ group        |     | The name of a consumer group.
+ noAck        | yes | A flag (value is ignored) that no message should be acknowledged. For default behaviour read below.
+ ackPartition | yes | A partition number that the acknowledged message was consumed from. For default behaviour read below.
+ ackOffset    | yes | An offset of the acknowledged message. For default behaviour read below.
+
+If **noAck** is defined in a request then no message is acknowledged
+by the request. If a request defines both **ackPartition** and
+**ackOffset** parameters then a message previously consumed from the
+same topic from the specified partition with the specified offset is
+acknowledged by the request. If none of the ack relates parameters is
+specified then the request will acknowledge the message consumed in this
+requests if any. It is called `auto-ack` mode.
+
+When a message is consumed as a member of a consume group for the first
+time, Kafka-Pixy joins the consumer group and subscribes to the topic.
+All Kafka-Pixy instances that are currently members of that group and
+subscribed to that topic distribute partitions between themselves, so
+that each Kafka-Pixy instance gets a subset of partitions for exclusive
+consumption (Read more about what the Kafka consumer groups
+[here](http://kafka.apache.org/documentation.html#intro_consumers)).
+
+If a Kafka-Pixy instance has not received consume requests for a topic for
+[registration timeout](https://github.com/mailgun/kafka-pixy/blob/master/default.yaml#L72),
+then it unsubscribes from the topic, and the topic partitions are
+redistributed among Kafka-Pixy instances that are still consuming from it.
  
-When a message is consumed on behalf of a consume group for the first time,
-the Kafka-Pixy instance joins the consumer group and subscribes to the topic.
-All Kafka-Pixy instances that are currently members of that group and subscribed
-to that topic divide topic partitions among themselves, so that each Kafka-Pixy
-instance gets a subset of partitions for exclusive consumption (Read more about
-what the Kafka consumer groups [here](http://kafka.apache.org/documentation.html#intro_consumers)).
-If a Kafka-Pixy instance has not consumed from a particular topic on behalf of
-a particular consumer group for 20 seconds (the value is not configurable yet),
-then it unsubscribes from the topic on behalf of that group, and the topic
-partitions are redistributed among Kafka-Pixy instances that are still
-subscribed to the topic.
- 
-If there are no new messages in the topic the request will block waiting for 3 seconds.
+If there are no unread messages in the topic the request will block
+waiting for [long polling timeout](https://github.com/mailgun/kafka-pixy/blob/master/default.yaml#L67).
 If there are no messages produced during this long poll waiting then the request
-will return **408** Request Timeout error, otherwise the response will be a JSON
-document of the following structure:
+will return **408 Request Timeout** error, otherwise the response will
+be a JSON document of the following structure:
 
 ```
 {
@@ -169,16 +188,39 @@ e.g.:
 }
 ```
 
+### Acknowledge
+
+```
+POST /topics/<topic>/messages
+POST /proxies/<proxy>/topics/<topic>/messages
+```
+
+Acknowledges a previously consumed message.
+
+ Parameter | Opt | Description
+-----------|-----|------------------------------------------------------
+ proxy     | yes | The name of a proxy to produce to. By default the proxy that is mentioned first in the config file is used.
+ topic     |     | The name of a topic to produce to.
+ group     |     | The name of a consumer group.
+ partition |     | A partition number that the acknowledged message was consumed from.
+ offset    |     | An offset of the acknowledged message.
+
 ### Get Offsets
  
 ```
-GET /topics/<topic>/offsets?group=<group>
-GET /proxies/<proxy>/topics/<topic>/offsets?group=<group>
+GET /topics/<topic>/offsets
+GET /proxies/<proxy>/topics/<topic>/offsets
 ```
 
 Returns offset information for all partitions of the specified **topic**
 including the next offset to be consumed by the specified consumer group. The
 structure of the returned JSON document is as follows:
+
+ Parameter | Opt | Description
+-----------|-----|------------------------------------------------------
+ proxy     | yes | The name of a proxy to produce to. By default the proxy that is mentioned first in the config file is used.
+ topic     |     | The name of a topic to produce to.
+ group     |     | The name of a consumer group.
 
 ```
 [
@@ -198,13 +240,19 @@ structure of the returned JSON document is as follows:
 ### Set Offsets
 
 ```
-POST /topics/<topic>/offsets?group=<group>
-POST /proxies/<proxy>/topics/<topic>/offsets?group=<group>
+POST /topics/<topic>/offsets
+POST /proxies/<proxy>/topics/<topic>/offsets
 ```
 
 Sets offsets to be consumed from the specified topic by a particular consumer
 group. The request content should be a list of JSON objects, where each object
 defines an offset to be set for a particular partition:
+
+ Parameter | Opt | Description
+-----------|-----|------------------------------------------------------
+ proxy     | yes | The name of a proxy to produce to. By default the proxy that is mentioned first in the config file is used.
+ topic     |     | The name of a topic to produce to.
+ group     |     | The name of a consumer group.
 
 ```
 [
@@ -227,14 +275,17 @@ group inactivity on all Kafka-Pixy working with the Kafka cluster.
 ### List Consumers
 
 ```
-GET /topics/<topic>/consumers[?group=<group>]
-GET /proxies/<topic>/topics/<topic>/consumers[?group=<group>]
+GET /topics/<topic>/consumers
+GET /proxies/<topic>/topics/<topic>/consumers
 ```
 
-Returns a list of consumers that are subscribed to the specified **topic**
-along with a list of partitions assigned to each consumer. If **group** is not
-specified then information is provided for all consumer groups subscribed to
-the **topic**.
+Returns a list of consumers that are subscribed to a topic.
+
+ Parameter | Opt | Description
+-----------|-----|------------------------------------------------------
+ proxy     | yes | The name of a proxy to produce to. By default the proxy that is mentioned first in the config file is used.
+ topic     |     | The name of a topic to produce to.
+ group     | yes | The name of a consumer group. By default returns data for all known consumer groups subscribed to the topic.
 
 e.g.:
 
@@ -275,19 +326,6 @@ yields:
   }
 }
 ```
-
-## Delivery Guarantees
-
-If a Kafka-Pixy instance dies (crashes or gets brutally killed with SIGKILL, or
-entire host running a Kafka-Pixy instance goes down, you name it), then
-some **asynchronously** produced messages can be lost, but **synchronously**
-produced messages are never lost. Some messages consumed just before the death
-can be consumed for the second time later either from the restarted Kafka-Pixy
-instance on the same host or a Kafka-Pixy instance running on another host.
-
-A message is considered to be consumed by Kafka-Pixy if it is successfully sent
-over network in an HTTP response body. So if a client application dies before
-the message is processed, then it will be lost. 
 
 ## Configuration
 

@@ -1,6 +1,10 @@
 package partitioncsm
 
 import (
+	"sync"
+	"testing"
+	"time"
+
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
@@ -13,9 +17,6 @@ import (
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
 	"github.com/mailgun/log"
 	. "gopkg.in/check.v1"
-	"sync"
-	"testing"
-	"time"
 )
 
 const (

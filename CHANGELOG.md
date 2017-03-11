@@ -1,9 +1,14 @@
 # Changelog
 
+#### Version 0.13.0 (TBD)
+
+Implemented:
+* At-Least-Once delivery guarantee via synchronous production and
+  explicit acknowledgement of consumed messages.
+
 #### Version 0.12.0 (2017-02-21)
 
 Implemented:
-
 * [#81](https://github.com/mailgun/kafka-pixy/pull/81) Added capability
   to proxy to multiple Kafka/ZooKeeper clusters.
 * [#16](https://github.com/mailgun/kafka-pixy/issues/16) A YAML
@@ -13,7 +18,6 @@ Implemented:
   gRPC API.
 
 Fixed:
-
 * [#83](https://github.com/mailgun/kafka-pixy/issues/83) Panic in
   partition multiplexer.
 * [#85](https://github.com/mailgun/kafka-pixy/pull/85) Another panic in
@@ -22,7 +26,6 @@ Fixed:
 #### Version 0.11.1 (2016-08-11)
 
 Bug fix release.
-
 * [#64](https://github.com/mailgun/kafka-pixy/issues/64) Panic in group
   consumer.
 * [#66](https://github.com/mailgun/kafka-pixy/issues/66) Group consumer

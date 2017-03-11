@@ -155,8 +155,7 @@ func (ot *T) IsAcked(msg consumer.Message) bool {
 // NextRetry returns a next message to be retried along with the retry attempt
 // number. If there are no messages to be retried then nil is returned.
 func (ot *T) NextRetry() (consumer.Message, int, bool) {
-	now := time.Now()
-	return ot.nextRetry(now)
+	return ot.nextRetry(time.Now())
 }
 func (ot *T) nextRetry(now time.Time) (consumer.Message, int, bool) {
 	for i := range ot.offers {
@@ -182,8 +181,7 @@ func (ot *T) nextRetry(now time.Time) (consumer.Message, int, bool) {
 // ShouldWait4Ack tells whether there are messages that acknowledgments are
 // worth waiting for, and if so returns a timeout for that wait.
 func (ot *T) ShouldWait4Ack() (bool, time.Duration) {
-	now := time.Now()
-	return ot.shouldWait4Ack(now)
+	return ot.shouldWait4Ack(time.Now())
 }
 func (ot *T) shouldWait4Ack(now time.Time) (bool, time.Duration) {
 	for _, o := range ot.offers {

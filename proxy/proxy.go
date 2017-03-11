@@ -21,8 +21,8 @@ const (
 )
 
 var (
-	noAck   = ack{partition: -1}
-	autoAck = ack{partition: -2}
+	noAck   = Ack{partition: -1}
+	autoAck = Ack{partition: -2}
 )
 
 // T implements a proxy to a particular Kafka/ZooKeeper cluster.
@@ -40,33 +40,33 @@ type T struct {
 	eventsChMap   map[eventsChID]chan<- consumer.Event
 }
 
-type ack struct {
+type Ack struct {
 	partition int32
 	offset    int64
 }
 
-// Ack creates an acknowledgement instance from a partition and an offset.
+// NewAck creates an acknowledgement instance from a partition and an offset.
 // Note that group and topic are not included. Respective values that are
 // passed to proxy.Consume function along with the ack are gonna be used.
-func Ack(partition int32, offset int64) (ack, error) {
+func NewAck(partition int32, offset int64) (Ack, error) {
 	if partition < 0 {
-		return ack{}, errors.Errorf("bad partition: %d", partition)
+		return Ack{}, errors.Errorf("bad partition: %d", partition)
 	}
 	if offset < 0 {
-		return ack{}, errors.Errorf("bad offset: %d", offset)
+		return Ack{}, errors.Errorf("bad offset: %d", offset)
 	}
-	return ack{partition, offset}, nil
+	return Ack{partition, offset}, nil
 }
 
 // NoAck returns an ack value that should be passed to proxy.Consume function
 // when a caller does not want to acknowledge anything.
-func NoAck() ack {
+func NoAck() Ack {
 	return noAck
 }
 
 // AutoAck returns an ack value that should be passed to proxy.Consume function
 // when a caller wants the consumed message to be acknowledged immediately.
-func AutoAck() ack {
+func AutoAck() Ack {
 	return autoAck
 }
 
@@ -141,7 +141,7 @@ func (p *T) AsyncProduce(topic string, key, message sarama.Encoder) {
 // `ErrBufferOverflow` or `ErrRequestTimeout` even when there are messages
 // available for consumption. In that case the user should back off a bit
 // and then repeat the request.
-func (p *T) Consume(group, topic string, ack ack) (consumer.Message, error) {
+func (p *T) Consume(group, topic string, ack Ack) (consumer.Message, error) {
 	if ack != noAck && ack != autoAck {
 		p.eventsChMapMu.RLock()
 		eventsChID := eventsChID{group, topic, ack.partition}
@@ -172,6 +172,22 @@ func (p *T) Consume(group, topic string, ack ack) (consumer.Message, error) {
 		msg.EventsCh <- consumer.Ack(msg.Offset)
 	}
 	return msg, nil
+}
+
+func (p *T) Ack(group, topic string, ack Ack) error {
+	eventsChID := eventsChID{group, topic, ack.partition}
+	p.eventsChMapMu.RLock()
+	eventsCh, ok := p.eventsChMap[eventsChID]
+	p.eventsChMapMu.RUnlock()
+	if !ok {
+		return errors.New("acks channel missing")
+	}
+	select {
+	case eventsCh <- consumer.Ack(ack.offset):
+	case <-time.After(p.cfg.Consumer.LongPollingTimeout):
+		return errors.New("ack timeout")
+	}
+	return nil
 }
 
 // GetGroupOffsets for every partition of the specified topic it returns the

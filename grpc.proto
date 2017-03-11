@@ -4,6 +4,7 @@ option go_package = "pb";
 service KafkaPixy {
     rpc Produce (ProdReq) returns (ProdRes) {}
     rpc Consume (ConsReq) returns (ConsRes) {}
+    rpc Ack (AckReq) returns (AckRes) {}
 }
 
 message ProdReq {
@@ -24,6 +25,10 @@ message ConsReq {
     string proxy = 1;
     string topic = 2;
     string group = 3;
+    int32 ack_partition = 4;
+    int64 ack_offset = 5;
+    bool no_ack = 6;
+    bool auto_ack = 7;
 }
 
 message ConsRes {
@@ -33,3 +38,13 @@ message ConsRes {
     bool key_undefined = 4;
     bytes message = 5;
 }
+
+message AckReq {
+    string proxy = 1;
+    string group = 2;
+    string topic = 3;
+    int32 partition = 4;
+    int64 offset = 5;
+}
+
+message AckRes {}
