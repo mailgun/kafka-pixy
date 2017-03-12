@@ -6,7 +6,7 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
-	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
+	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	. "gopkg.in/check.v1"
 )

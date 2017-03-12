@@ -6,7 +6,7 @@ import (
 
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/consumer"
-	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
+	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/pkg/errors"
 	. "gopkg.in/check.v1"
 )

@@ -14,10 +14,10 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer/groupmember"
 	"github.com/mailgun/kafka-pixy/consumer/msgistream"
 	"github.com/mailgun/kafka-pixy/consumer/multiplexer"
-	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
 	"github.com/mailgun/kafka-pixy/consumer/partitioncsm"
 	"github.com/mailgun/kafka-pixy/consumer/topiccsm"
 	"github.com/mailgun/kafka-pixy/none"
+	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/log"
 	"github.com/wvanbergen/kazoo-go"
 )

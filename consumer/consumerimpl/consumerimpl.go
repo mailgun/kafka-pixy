@@ -10,7 +10,7 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/consumer/dispatcher"
 	"github.com/mailgun/kafka-pixy/consumer/groupcsm"
-	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
+	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/wvanbergen/kazoo-go"
 )
 
