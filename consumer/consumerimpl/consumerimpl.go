@@ -52,15 +52,7 @@ func Spawn(namespace *actor.ID, cfg *config.Proxy, offsetMgrF offsetmgr.Factory)
 		return nil, consumer.ErrSetup(fmt.Errorf("failed to create Kafka client for message streams: err=(%v)", err))
 	}
 
-	kazooCfg := kazoo.NewConfig()
-	kazooCfg.Chroot = cfg.ZooKeeper.Chroot
-	// ZooKeeper documentation says following about the session timeout: "The
-	// current (ZooKeeper) implementation requires that the timeout be a
-	// minimum of 2 times the tickTime (as set in the server configuration) and
-	// a maximum of 20 times the tickTime". The default tickTime is 2 seconds.
-	// See http://zookeeper.apache.org/doc/trunk/zookeeperProgrammers.html#ch_zkSessions
-	kazooCfg.Timeout = 15 * time.Second
-	kazooClt, err := kazoo.NewKazoo(cfg.ZooKeeper.SeedPeers, kazooCfg)
+	kazooClt, err := kazoo.NewKazoo(cfg.ZooKeeper.SeedPeers, cfg.KazooCfg())
 	if err != nil {
 		return nil, consumer.ErrSetup(fmt.Errorf("failed to create kazoo.Kazoo: err=(%v)", err))
 	}
