@@ -24,8 +24,10 @@ func Test(t *testing.T) {
 }
 
 type ConsumerSuite struct {
-	ns *actor.ID
-	kh *kafkahelper.T
+	ns  *actor.ID
+	cfg *config.Proxy
+	kh  *kafkahelper.T
+	omf offsetmgr.Factory
 }
 
 var _ = Suite(&ConsumerSuite{})
@@ -33,14 +35,20 @@ var _ = Suite(&ConsumerSuite{})
 func (s *ConsumerSuite) SetUpSuite(c *C) {
 	testhelpers.InitLogging(c)
 	s.kh = kafkahelper.New(c)
+
+	cfg := testhelpers.NewTestProxyCfg("omf")
+	tid := actor.RootID.NewChild("omf")
+	s.omf = offsetmgr.SpawnFactory(tid, cfg, s.kh.KafkaClt())
 }
 
 func (s *ConsumerSuite) TearDownSuite(*C) {
+	s.omf.Stop()
 	s.kh.Close()
 }
 
 func (s *ConsumerSuite) SetUpTest(*C) {
 	s.ns = actor.RootID.NewChild("T")
+	s.cfg = testhelpers.NewTestProxyCfg("c1")
 	partitioncsm.FirstMessageFetchedCh = make(chan *partitioncsm.T, 100)
 }
 
@@ -59,7 +67,7 @@ func (s *ConsumerSuite) TestInitialOffsetTooLarge(c *C) {
 	om.SubmitOffset(offsetmgr.Offset{newestOffsets[0] + 100, ""})
 	om.Stop()
 
-	sc, err := Spawn(s.ns, testhelpers.NewTestProxyCfg("g1"))
+	sc, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
 	defer sc.Stop()
 
@@ -82,7 +90,7 @@ func (s *ConsumerSuite) TestSinglePartitionTopic(c *C) {
 	s.kh.ResetOffsets("g1", "test.1")
 	produced := s.kh.PutMessages("single", "test.1", map[string]int{"": 3})
 
-	sc, err := Spawn(s.ns, testhelpers.NewTestProxyCfg("consumer-1"))
+	sc, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
 	defer sc.Stop()
 
@@ -98,8 +106,7 @@ func (s *ConsumerSuite) TestSequentialConsume(c *C) {
 	s.kh.ResetOffsets("g1", "test.1")
 	produced := s.kh.PutMessages("sequencial", "test.1", map[string]int{"": 3})
 
-	cfg := testhelpers.NewTestProxyCfg("consumer-1")
-	sc1, err := Spawn(s.ns, cfg)
+	sc1, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
 	log.Infof("*** GIVEN 1")
 	consumed := s.consume(c, sc1, "g1", "test.1", 2)
@@ -109,7 +116,7 @@ func (s *ConsumerSuite) TestSequentialConsume(c *C) {
 	// When: one consumer stopped and another one takes its place.
 	log.Infof("*** WHEN")
 	sc1.Stop()
-	sc2, err := Spawn(s.ns, cfg)
+	sc2, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
 	defer sc2.Stop()
 
@@ -127,7 +134,7 @@ func (s *ConsumerSuite) TestMultiplePartitions(c *C) {
 	s.kh.PutMessages("multiple.partitions", "test.4", map[string]int{"A": 100, "B": 100})
 
 	log.Infof("*** GIVEN 1")
-	sc, err := Spawn(s.ns, testhelpers.NewTestProxyCfg("consumer-1"))
+	sc, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
 	defer sc.Stop()
 
@@ -155,7 +162,7 @@ func (s *ConsumerSuite) TestMultipleTopics(c *C) {
 	produced4 := s.kh.PutMessages("multiple.topics", "test.4", map[string]int{"B": 1, "C": 1})
 
 	log.Infof("*** GIVEN 1")
-	sc, err := Spawn(s.ns, testhelpers.NewTestProxyCfg("consumer-1"))
+	sc, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
 	defer sc.Stop()
 
@@ -181,7 +188,7 @@ func (s *ConsumerSuite) TestMultipleGroups(c *C) {
 	s.kh.PutMessages("multi", "test.4", map[string]int{"A": 10, "B": 10, "C": 10})
 
 	log.Infof("*** GIVEN 1")
-	sc, err := Spawn(s.ns, testhelpers.NewTestProxyCfg("consumer-1"))
+	sc, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
 	defer sc.Stop()
 
@@ -204,7 +211,7 @@ func (s *ConsumerSuite) TestTooFewPartitions(c *C) {
 	s.kh.ResetOffsets("g1", "test.1")
 	produced := s.kh.PutMessages("few", "test.1", map[string]int{"": 3})
 
-	sc1, err := Spawn(s.ns, testhelpers.NewTestProxyCfg("consumer-1"))
+	sc1, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
 	defer sc1.Stop()
 	log.Infof("*** GIVEN 1")
@@ -214,7 +221,7 @@ func (s *ConsumerSuite) TestTooFewPartitions(c *C) {
 
 	// When:
 	log.Infof("*** WHEN")
-	sc2, err := Spawn(s.ns, testhelpers.NewTestProxyCfg("consumer-2"))
+	sc2, err := Spawn(s.ns, testhelpers.NewTestProxyCfg("c2"), s.omf)
 	c.Assert(err, IsNil)
 	defer sc2.Stop()
 	_, err = sc2.Consume("g1", "test.1")
@@ -236,7 +243,7 @@ func (s *ConsumerSuite) TestRebalanceOnJoin(c *C) {
 	s.kh.ResetOffsets("g1", "test.4")
 	s.kh.PutMessages("join", "test.4", map[string]int{"A": 10, "B": 10})
 
-	sc1, err := Spawn(s.ns, testhelpers.NewTestProxyCfg("consumer-1"))
+	sc1, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
 	defer sc1.Stop()
 
@@ -257,7 +264,7 @@ func (s *ConsumerSuite) TestRebalanceOnJoin(c *C) {
 
 	// When: another consumer joins the group rebalancing occurs.
 	log.Infof("*** WHEN")
-	sc2, err := Spawn(s.ns, testhelpers.NewTestProxyCfg("consumer-2"))
+	sc2, err := Spawn(s.ns, testhelpers.NewTestProxyCfg("c2"), s.omf)
 	c.Assert(err, IsNil)
 	defer sc2.Stop()
 
@@ -287,7 +294,7 @@ func (s *ConsumerSuite) TestRebalanceOnLeave(c *C) {
 	var err error
 	consumers := make([]*t, 3)
 	for i := 0; i < 3; i++ {
-		consumers[i], err = Spawn(s.ns, testhelpers.NewTestProxyCfg(fmt.Sprintf("consumer-%d", i)))
+		consumers[i], err = Spawn(s.ns, testhelpers.NewTestProxyCfg(fmt.Sprintf("c%d", i)), s.omf)
 		c.Assert(err, IsNil)
 	}
 	defer consumers[0].Stop()
@@ -363,13 +370,13 @@ func (s *ConsumerSuite) TestRebalanceOnTimeout(c *C) {
 	s.kh.ResetOffsets("g1", "test.4")
 	s.kh.PutMessages("timeout", "test.4", map[string]int{"A": 10, "B": 10})
 
-	sc0, err := Spawn(s.ns, testhelpers.NewTestProxyCfg("consumer-1"))
+	sc0, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
 	defer sc0.Stop()
 
-	cfg2 := testhelpers.NewTestProxyCfg("consumer-2")
+	cfg2 := testhelpers.NewTestProxyCfg("c2")
 	cfg2.Consumer.RegistrationTimeout = 500 * time.Millisecond
-	sc1, err := Spawn(s.ns, cfg2)
+	sc1, err := Spawn(s.ns, cfg2, s.omf)
 	c.Assert(err, IsNil)
 	defer sc1.Stop()
 
@@ -430,9 +437,8 @@ func (s *ConsumerSuite) TestTooManyRequestsError(c *C) {
 	s.kh.ResetOffsets("g1", "test.1")
 	s.kh.PutMessages("join", "test.1", map[string]int{"A": 30})
 
-	cfg := testhelpers.NewTestProxyCfg("consumer-1")
-	cfg.Consumer.ChannelBufferSize = 1
-	sc, err := Spawn(s.ns, cfg)
+	s.cfg.Consumer.ChannelBufferSize = 1
+	sc, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
 	defer sc.Stop()
 
@@ -463,9 +469,8 @@ func (s *ConsumerSuite) TestTooManyRequestsError(c *C) {
 // request times out after `Config.Consumer.LongPollingTimeout`.
 func (s *ConsumerSuite) TestInvalidTopic(c *C) {
 	// Given
-	cfg := testhelpers.NewTestProxyCfg("consumer-1")
-	cfg.Consumer.LongPollingTimeout = 1 * time.Second
-	sc, err := Spawn(s.ns, cfg)
+	s.cfg.Consumer.LongPollingTimeout = 1 * time.Second
+	sc, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
 	defer sc.Stop()
 
@@ -483,8 +488,7 @@ func (s *ConsumerSuite) TestLotsOfPartitions(c *C) {
 	// Given
 	s.kh.ResetOffsets("g1", "test.64")
 
-	cfg := testhelpers.NewTestProxyCfg("consumer-1")
-	sc, err := Spawn(s.ns, cfg)
+	sc, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
 	defer sc.Stop()
 
@@ -514,8 +518,7 @@ func (s *ConsumerSuite) TestNewGroup(c *C) {
 	s.kh.PutMessages("rand", "test.1", map[string]int{"A1": 1})
 
 	group := fmt.Sprintf("g%d", time.Now().Unix())
-	cfg := testhelpers.NewTestProxyCfg(group)
-	sc, err := Spawn(s.ns, cfg)
+	sc, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
 
 	// The very first consumption of a group is terminated by timeout because
@@ -531,7 +534,7 @@ func (s *ConsumerSuite) TestNewGroup(c *C) {
 	// Then: message produced after that will be consumed by the new consumer
 	// instance from the same group.
 	produced := s.kh.PutMessages("rand", "test.1", map[string]int{"A2": 1})
-	sc, err = Spawn(s.ns, cfg)
+	sc, err = Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
 	defer sc.Stop()
 	msg, err = sc.Consume(group, "test.1")
@@ -549,17 +552,16 @@ func (s *ConsumerSuite) TestTopicTimeout(c *C) {
 	s.kh.PutMessages("expire", "test.1", map[string]int{"A": 10})
 	s.kh.PutMessages("expire", "test.4", map[string]int{"B": 10})
 
-	cfg1 := testhelpers.NewTestProxyCfg("c1")
-	cfg1.Consumer.LongPollingTimeout = 3000 * time.Millisecond
-	cfg1.Consumer.RegistrationTimeout = 10000 * time.Millisecond
-	cons1, err := Spawn(s.ns, cfg1)
+	s.cfg.Consumer.LongPollingTimeout = 3000 * time.Millisecond
+	s.cfg.Consumer.RegistrationTimeout = 10000 * time.Millisecond
+	cons1, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
 	defer cons1.Stop()
 
 	cfg2 := testhelpers.NewTestProxyCfg("c2")
 	cfg2.Consumer.LongPollingTimeout = 3000 * time.Millisecond
 	cfg2.Consumer.RegistrationTimeout = 10000 * time.Millisecond
-	cons2, err := Spawn(s.ns, cfg2)
+	cons2, err := Spawn(s.ns, cfg2, s.omf)
 	c.Assert(err, IsNil)
 	defer cons2.Stop()
 

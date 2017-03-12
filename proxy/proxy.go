@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/consumer/consumerimpl"
+	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/producer"
 	"github.com/mailgun/log"
 	"github.com/pkg/errors"
@@ -27,11 +27,13 @@ var (
 
 // T implements a proxy to a particular Kafka/ZooKeeper cluster.
 type T struct {
-	actorID *actor.ID
-	cfg     *config.Proxy
-	prod    *producer.T
-	cons    consumer.T
-	adm     *admin.T
+	actorID    *actor.ID
+	cfg        *config.Proxy
+	producer   *producer.T
+	kafkaClt   sarama.Client
+	offsetMgrF offsetmgr.Factory
+	consumer   consumer.T
+	admin      *admin.T
 
 	// FIXME: We never remove stale elements from eventsChMap. It is sort of ok
 	// FIXME: since the number of group/topic/partition combinations is fairly
@@ -85,14 +87,24 @@ func Spawn(namespace *actor.ID, name string, cfg *config.Proxy) (*T, error) {
 	}
 	var err error
 
-	if p.prod, err = producer.Spawn(p.actorID, cfg); err != nil {
-		return nil, fmt.Errorf("failed to spawn producer, err=(%s)", err)
+	saramaCfg := sarama.NewConfig()
+	saramaCfg.ClientID = cfg.ClientID
+	saramaCfg.ChannelBufferSize = cfg.Consumer.ChannelBufferSize
+	saramaCfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
+	saramaCfg.Consumer.Retry.Backoff = cfg.Consumer.BackOffTimeout
+	saramaCfg.Consumer.Fetch.Default = 1024 * 1024
+	if p.kafkaClt, err = sarama.NewClient(cfg.Kafka.SeedPeers, saramaCfg); err != nil {
+		return nil, errors.Wrap(err, "failed to create Kafka client")
 	}
-	if p.cons, err = consumerimpl.Spawn(p.actorID, cfg); err != nil {
-		return nil, fmt.Errorf("failed to spawn consumer, err=(%s)", err)
+	p.offsetMgrF = offsetmgr.SpawnFactory(p.actorID, cfg, p.kafkaClt)
+	if p.producer, err = producer.Spawn(p.actorID, cfg); err != nil {
+		return nil, errors.Wrap(err, "failed to spawn producer")
 	}
-	if p.adm, err = admin.Spawn(p.actorID, cfg); err != nil {
-		return nil, fmt.Errorf("failed to spawn admin, err=(%s)", err)
+	if p.consumer, err = consumerimpl.Spawn(p.actorID, cfg, p.offsetMgrF); err != nil {
+		return nil, errors.Wrap(err, "failed to spawn consumer")
+	}
+	if p.admin, err = admin.Spawn(p.actorID, cfg); err != nil {
+		return nil, errors.Wrap(err, "failed to spawn admin")
 	}
 	return &p, nil
 }
@@ -100,16 +112,22 @@ func Spawn(namespace *actor.ID, name string, cfg *config.Proxy) (*T, error) {
 // Stop terminates the proxy instances synchronously.
 func (p *T) Stop() {
 	var wg sync.WaitGroup
-	if p.prod != nil {
-		actor.Spawn(p.actorID.NewChild("producer_stop"), &wg, p.prod.Stop)
+	if p.producer != nil {
+		actor.Spawn(p.actorID.NewChild("producer_stop"), &wg, p.producer.Stop)
 	}
-	if p.cons != nil {
-		actor.Spawn(p.actorID.NewChild("consumer_stop"), &wg, p.cons.Stop)
+	if p.consumer != nil {
+		actor.Spawn(p.actorID.NewChild("consumer_stop"), &wg, p.consumer.Stop)
 	}
-	if p.adm != nil {
-		actor.Spawn(p.actorID.NewChild("admin_stop"), &wg, p.adm.Stop)
+	if p.admin != nil {
+		actor.Spawn(p.actorID.NewChild("admin_stop"), &wg, p.admin.Stop)
 	}
 	wg.Wait()
+	if p.offsetMgrF != nil {
+		p.offsetMgrF.Stop()
+	}
+	if p.kafkaClt != nil {
+		p.kafkaClt.Close()
+	}
 }
 
 // Produce submits a message to the specified `topic` of the Kafka cluster
@@ -121,13 +139,13 @@ func (p *T) Stop() {
 // Errors usually indicate a catastrophic failure of the Kafka cluster, or
 // missing topic if there cluster is not configured to auto create topics.
 func (p *T) Produce(topic string, key, message sarama.Encoder) (*sarama.ProducerMessage, error) {
-	return p.prod.Produce(topic, key, message)
+	return p.producer.Produce(topic, key, message)
 }
 
 // AsyncProduce is an asynchronously counterpart of the `Produce` function.
 // Errors are silently ignored.
 func (p *T) AsyncProduce(topic string, key, message sarama.Encoder) {
-	p.prod.AsyncProduce(topic, key, message)
+	p.producer.AsyncProduce(topic, key, message)
 }
 
 // Consume consumes a message from the specified topic on behalf of the
@@ -158,7 +176,7 @@ func (p *T) Consume(group, topic string, ack Ack) (consumer.Message, error) {
 			}()
 		}
 	}
-	msg, err := p.cons.Consume(group, topic)
+	msg, err := p.consumer.Consume(group, topic)
 	if err != nil {
 		return consumer.Message{}, err
 	}
@@ -194,24 +212,24 @@ func (p *T) Ack(group, topic string, ack Ack) error {
 // current offset range along with the latest offset and metadata committed by
 // the specified consumer group.
 func (p *T) GetGroupOffsets(group, topic string) ([]admin.PartitionOffset, error) {
-	return p.adm.GetGroupOffsets(group, topic)
+	return p.admin.GetGroupOffsets(group, topic)
 }
 
 // SetGroupOffsets commits specific offset values along with metadata for a list
 // of partitions of a particular topic on behalf of the specified group.
 func (p *T) SetGroupOffsets(group, topic string, offsets []admin.PartitionOffset) error {
-	return p.adm.SetGroupOffsets(group, topic, offsets)
+	return p.admin.SetGroupOffsets(group, topic, offsets)
 }
 
 // GetTopicConsumers returns client-id -> consumed-partitions-list mapping
 // for a clients from a particular consumer group and a particular topic.
 func (p *T) GetTopicConsumers(group, topic string) (map[string][]int32, error) {
-	return p.adm.GetTopicConsumers(group, topic)
+	return p.admin.GetTopicConsumers(group, topic)
 }
 
 // GetAllTopicConsumers returns group -> client-id -> consumed-partitions-list
 // mapping for a particular topic. Warning, the function performs scan of all
 // consumer groups registered in ZooKeeper and therefore can take a lot of time.
 func (p *T) GetAllTopicConsumers(topic string) (map[string]map[string][]int32, error) {
-	return p.adm.GetAllTopicConsumers(topic)
+	return p.admin.GetAllTopicConsumers(topic)
 }

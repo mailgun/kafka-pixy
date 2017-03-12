@@ -93,8 +93,9 @@ func (s *ServiceHTTPSuite) TestInvalidKafkaPeers(c *C) {
 	svc, err := Spawn(s.cfg)
 
 	// Then
-	c.Assert(err.Error(), Equals,
-		"failed to spawn proxy, name=pxyD: failed to spawn producer, err=(failed to create sarama.Client, err=(kafka: client has run out of available brokers to talk to (Is your cluster reachable?)))")
+	c.Assert(err.Error(), Equals, "failed to spawn proxy, name=pxyD: "+
+		"failed to create Kafka client: "+
+		"kafka: client has run out of available brokers to talk to (Is your cluster reachable?)")
 	c.Assert(svc, IsNil)
 }
 
