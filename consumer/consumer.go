@@ -52,7 +52,6 @@ type Event struct {
 type eventType int
 
 type (
-	ErrSetup           error
 	ErrTooManyRequests error
 	ErrRequestTimeout  error
 )

@@ -9,7 +9,6 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
-	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/consumer/dispatcher"
 	"github.com/mailgun/kafka-pixy/consumer/groupmember"
 	"github.com/mailgun/kafka-pixy/consumer/msgistream"
@@ -19,6 +18,7 @@ import (
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/log"
+	"github.com/pkg/errors"
 	"github.com/wvanbergen/kazoo-go"
 )
 
@@ -98,7 +98,7 @@ func (gc *T) Start(stoppedCh chan<- dispatcher.Tier) {
 		gc.msgIStreamF, err = msgistream.SpawnFactory(gc.supActorID, gc.kafkaClt)
 		if err != nil {
 			// Must never happen.
-			panic(consumer.ErrSetup(fmt.Errorf("failed to create sarama.Consumer: err=(%v)", err)))
+			panic(errors.Wrap(err, "failed to create sarama.Consumer"))
 		}
 		gc.groupMember = groupmember.Spawn(gc.supActorID, gc.group, gc.cfg.ClientID, gc.cfg, gc.kazooClt)
 		var manageWg sync.WaitGroup
@@ -289,7 +289,7 @@ func (gc *T) resolvePartitions(subscriptions map[string][]string) (
 	for topic := range subscribedTopics {
 		topicPartitions, err := gc.fetchTopicPartitionsFn(topic)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get partition list: topic=%s, err=(%s)", topic, err)
+			return nil, errors.Wrapf(err, "failed to get partition list, topic=%s", topic)
 		}
 		subscribersToPartitions := assignTopicPartitions(topicPartitions, topicsToMembers[topic])
 		assignedTopicPartitions := subscribersToPartitions[gc.cfg.ClientID]

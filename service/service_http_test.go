@@ -24,6 +24,7 @@ import (
 	"github.com/mailgun/kafka-pixy/server/httpsrv"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
+	"github.com/pkg/errors"
 	. "gopkg.in/check.v1"
 )
 
@@ -150,7 +151,7 @@ func (s *ServiceHTTPSuite) TestProduceNilKey(c *C) {
 	delta1 := offsetsAfter[1] - offsetsBefore[1]
 	imbalance := int(math.Abs(float64(delta1 - delta0)))
 	if imbalance > 20 {
-		panic(fmt.Errorf("Too high imbalance: %v != %v", delta0, delta1))
+		panic(errors.Errorf("Too high imbalance: %v != %v", delta0, delta1))
 	}
 }
 

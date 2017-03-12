@@ -1,7 +1,6 @@
 package consumerimpl
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/Shopify/sarama"
@@ -11,6 +10,7 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer/dispatcher"
 	"github.com/mailgun/kafka-pixy/consumer/groupcsm"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
+	"github.com/pkg/errors"
 	"github.com/wvanbergen/kazoo-go"
 )
 
@@ -49,12 +49,12 @@ func Spawn(namespace *actor.ID, cfg *config.Proxy, offsetMgrF offsetmgr.Factory)
 
 	kafkaClt, err := sarama.NewClient(cfg.Kafka.SeedPeers, saramaCfg)
 	if err != nil {
-		return nil, consumer.ErrSetup(fmt.Errorf("failed to create Kafka client for message streams: err=(%v)", err))
+		return nil, errors.Wrap(err, "failed to create Kafka client for message streams")
 	}
 
 	kazooClt, err := kazoo.NewKazoo(cfg.ZooKeeper.SeedPeers, cfg.KazooCfg())
 	if err != nil {
-		return nil, consumer.ErrSetup(fmt.Errorf("failed to create kazoo.Kazoo: err=(%v)", err))
+		return nil, errors.Wrap(err, "failed to create kazoo.Kazoo")
 	}
 
 	c := &t{
