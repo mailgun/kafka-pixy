@@ -28,6 +28,7 @@ type T struct {
 func New(c *C) *T {
 	kh := &T{ns: actor.RootID.NewChild("kafka_helper"), c: c}
 	cfg := sarama.NewConfig()
+	cfg.Producer.RequiredAcks = sarama.WaitForAll
 	cfg.Producer.Flush.Messages = 1
 	cfg.Producer.Return.Successes = true
 	cfg.Producer.Return.Errors = true
