@@ -56,14 +56,14 @@ func main() {
 				defer wg.Done()
 				startedAt := time.Now()
 				// Consume first message.
-				req := pb.ConsReq{
+				req := pb.ConsNAckReq{
 					Topic: topic,
 					Group: group,
 					NoAck: true,
 				}
 				var res *pb.ConsRes
 				for {
-					res, err = clt.Consume(context.Background(), &req)
+					res, err = clt.ConsumeNAck(context.Background(), &req)
 					if err != nil {
 						if int(grpc.Code(err)) == http.StatusRequestTimeout && waitForMore {
 							continue
@@ -78,13 +78,13 @@ func main() {
 				ackPartition := res.Partition
 				ackOffset := res.Offset
 				for i := 1; i < chunkSize; i++ {
-					req := pb.ConsReq{
+					req := pb.ConsNAckReq{
 						Topic:        topic,
 						Group:        group,
 						AckPartition: ackPartition,
 						AckOffset:    ackOffset,
 					}
-					res, err = clt.Consume(context.Background(), &req)
+					res, err = clt.ConsumeNAck(context.Background(), &req)
 					if err != nil {
 						if int(grpc.Code(err)) == http.StatusRequestTimeout && waitForMore {
 							continue

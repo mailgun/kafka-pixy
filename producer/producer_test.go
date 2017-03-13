@@ -1,7 +1,6 @@
 package producer
 
 import (
-	"fmt"
 	"strconv"
 	"testing"
 
@@ -10,6 +9,7 @@ import (
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
+	"github.com/pkg/errors"
 	. "gopkg.in/check.v1"
 )
 
@@ -127,7 +127,7 @@ func (s *ProducerSuite) TestAsyncProduceNilKey(c *C) {
 	delta0 := offsetsAfter[0] - offsetsBefore[0]
 	delta1 := offsetsAfter[1] - offsetsBefore[1]
 	if delta0 == 0 || delta1 == 0 {
-		panic(fmt.Errorf("Too high imbalance: %v != %v", delta0, delta1))
+		panic(errors.Errorf("Too high imbalance: %v != %v", delta0, delta1))
 	}
 }
 

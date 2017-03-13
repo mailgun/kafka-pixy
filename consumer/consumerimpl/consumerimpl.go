@@ -1,7 +1,6 @@
 package consumerimpl
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/Shopify/sarama"
@@ -10,7 +9,8 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/consumer/dispatcher"
 	"github.com/mailgun/kafka-pixy/consumer/groupcsm"
-	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
+	"github.com/mailgun/kafka-pixy/offsetmgr"
+	"github.com/pkg/errors"
 	"github.com/wvanbergen/kazoo-go"
 )
 
@@ -27,18 +27,17 @@ import (
 // implements `consumer.T`.
 // implements `dispatcher.Factory`.
 type t struct {
-	namespace            *actor.ID
-	cfg                  *config.Proxy
-	dispatcher           *dispatcher.T
-	kafkaClt4MsgIStreams sarama.Client
-	kafkaClt4OffsetMgrs  sarama.Client
-	kazooClt             *kazoo.Kazoo
-	offsetMgrF           offsetmgr.Factory
+	namespace  *actor.ID
+	cfg        *config.Proxy
+	dispatcher *dispatcher.T
+	kafkaClt   sarama.Client
+	kazooClt   *kazoo.Kazoo
+	offsetMgrF offsetmgr.Factory
 }
 
 // Spawn creates a consumer instance with the specified configuration and
 // starts all its goroutines.
-func Spawn(namespace *actor.ID, cfg *config.Proxy) (*t, error) {
+func Spawn(namespace *actor.ID, cfg *config.Proxy, offsetMgrF offsetmgr.Factory) (*t, error) {
 	saramaCfg := sarama.NewConfig()
 	saramaCfg.ClientID = cfg.ClientID
 	saramaCfg.ChannelBufferSize = cfg.Consumer.ChannelBufferSize
@@ -48,37 +47,22 @@ func Spawn(namespace *actor.ID, cfg *config.Proxy) (*t, error) {
 
 	namespace = namespace.NewChild("cons")
 
-	kafkaClt4MsgIStreams, err := sarama.NewClient(cfg.Kafka.SeedPeers, saramaCfg)
+	kafkaClt, err := sarama.NewClient(cfg.Kafka.SeedPeers, saramaCfg)
 	if err != nil {
-		return nil, consumer.ErrSetup(fmt.Errorf("failed to create Kafka client for message streams: err=(%v)", err))
-	}
-	kafkaClt4OffsetMgrs, err := sarama.NewClient(cfg.Kafka.SeedPeers, saramaCfg)
-	if err != nil {
-		return nil, consumer.ErrSetup(fmt.Errorf("failed to create Kafka client for offset managers: err=(%v)", err))
+		return nil, errors.Wrap(err, "failed to create Kafka client for message streams")
 	}
 
-	kazooCfg := kazoo.NewConfig()
-	kazooCfg.Chroot = cfg.ZooKeeper.Chroot
-	// ZooKeeper documentation says following about the session timeout: "The
-	// current (ZooKeeper) implementation requires that the timeout be a
-	// minimum of 2 times the tickTime (as set in the server configuration) and
-	// a maximum of 20 times the tickTime". The default tickTime is 2 seconds.
-	// See http://zookeeper.apache.org/doc/trunk/zookeeperProgrammers.html#ch_zkSessions
-	kazooCfg.Timeout = 15 * time.Second
-	kazooClt, err := kazoo.NewKazoo(cfg.ZooKeeper.SeedPeers, kazooCfg)
+	kazooClt, err := kazoo.NewKazoo(cfg.ZooKeeper.SeedPeers, cfg.KazooCfg())
 	if err != nil {
-		return nil, consumer.ErrSetup(fmt.Errorf("failed to create kazoo.Kazoo: err=(%v)", err))
+		return nil, errors.Wrap(err, "failed to create kazoo.Kazoo")
 	}
-
-	offsetMgrFactory := offsetmgr.SpawnFactory(namespace, cfg, kafkaClt4OffsetMgrs)
 
 	c := &t{
-		namespace:            namespace,
-		cfg:                  cfg,
-		kafkaClt4MsgIStreams: kafkaClt4MsgIStreams,
-		kafkaClt4OffsetMgrs:  kafkaClt4OffsetMgrs,
-		offsetMgrF:           offsetMgrFactory,
-		kazooClt:             kazooClt,
+		namespace:  namespace,
+		cfg:        cfg,
+		kafkaClt:   kafkaClt,
+		offsetMgrF: offsetMgrF,
+		kazooClt:   kazooClt,
 	}
 	c.dispatcher = dispatcher.New(c.namespace, c, c.cfg)
 	c.dispatcher.Start()
@@ -96,10 +80,8 @@ func (c *t) Consume(group, topic string) (consumer.Message, error) {
 // implements `consumer.T`
 func (c *t) Stop() {
 	c.dispatcher.Stop()
-	c.offsetMgrF.Stop()
 	c.kazooClt.Close()
-	c.kafkaClt4OffsetMgrs.Close()
-	c.kafkaClt4MsgIStreams.Close()
+	c.kafkaClt.Close()
 }
 
 // implements `dispatcher.Factory`.
@@ -109,7 +91,7 @@ func (c *t) KeyOf(req dispatcher.Request) string {
 
 // implements `dispatcher.Factory`.
 func (c *t) NewTier(key string) dispatcher.Tier {
-	return groupcsm.New(c.namespace, key, c.cfg, c.kafkaClt4MsgIStreams, c.kazooClt, c.offsetMgrF)
+	return groupcsm.New(c.namespace, key, c.cfg, c.kafkaClt, c.kazooClt, c.offsetMgrF)
 }
 
 // String returns a string ID of this instance to be used in logs.

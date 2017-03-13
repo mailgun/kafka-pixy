@@ -9,6 +9,7 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/log"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -58,11 +59,11 @@ func Spawn(namespace *actor.ID, cfg *config.Proxy) (*T, error) {
 
 	saramaClient, err := sarama.NewClient(cfg.Kafka.SeedPeers, saramaCfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create sarama.Client, err=(%s)", err)
+		return nil, errors.Wrap(err, "failed to create sarama.Client")
 	}
 	saramaProducer, err := sarama.NewAsyncProducerFromClient(saramaClient)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create sarama.Producer, err=(%s)", err)
+		return nil, errors.Wrap(err, "failed to create sarama.Producer")
 	}
 
 	prodNamespace := namespace.NewChild("prod")

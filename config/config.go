@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/wvanbergen/kazoo-go"
 	"gopkg.in/yaml.v2"
 )
 
@@ -103,6 +104,18 @@ type Proxy struct {
 	} `yaml:"consumer"`
 }
 
+func (p *Proxy) KazooCfg() *kazoo.Config {
+	kazooCfg := kazoo.NewConfig()
+	kazooCfg.Chroot = p.ZooKeeper.Chroot
+	// ZooKeeper documentation says following about the session timeout: "The
+	// current (ZooKeeper) implementation requires that the timeout be a
+	// minimum of 2 times the tickTime (as set in the server configuration) and
+	// a maximum of 20 times the tickTime". The default tickTime is 2 seconds.
+	// See http://zookeeper.apache.org/doc/trunk/zookeeperProgrammers.html#ch_zkSessions
+	kazooCfg.Timeout = 15 * time.Second
+	return kazooCfg
+}
+
 // DefaultApp returns default application configuration where default proxy has
 // the specified alias.
 func DefaultApp(alias string) *App {
@@ -143,7 +156,7 @@ func FromYAMLFile(filename string) (*App, error) {
 func FromYAML(data []byte) (*App, error) {
 	var prob proxyProb
 	if err := yaml.Unmarshal(data, &prob); err != nil {
-		return nil, fmt.Errorf("failed to parse config: err=(%s)", err)
+		return nil, errors.Wrap(err, "failed to parse config")
 	}
 
 	appCfg := newApp()
@@ -152,7 +165,7 @@ func FromYAML(data []byte) (*App, error) {
 	for _, proxyItem := range prob.Proxies {
 		proxyAlias, ok := proxyItem.Key.(string)
 		if !ok {
-			return nil, fmt.Errorf("invalid cluster alias: %v", proxyAlias)
+			return nil, errors.Errorf("invalid cluster alias, %v", proxyAlias)
 		}
 		// A hack with marshaling and unmarshaled of a Proxy structure is used
 		// here to preserve default values. If we try to unmarshal entire App
@@ -163,7 +176,7 @@ func FromYAML(data []byte) (*App, error) {
 		}
 		proxyCfg := defaultProxyWithClientID(clientID)
 		if err := yaml.Unmarshal(encodedProxyCfg, proxyCfg); err != nil {
-			return nil, fmt.Errorf("failed to parse proxy config: alias=%s, err=(%s)", proxyAlias, err)
+			return nil, errors.Wrapf(err, "failed to parse proxy config, alias=%s", proxyAlias)
 		}
 		appCfg.Proxies[proxyAlias] = proxyCfg
 		if appCfg.DefaultProxy == "" {
@@ -172,7 +185,7 @@ func FromYAML(data []byte) (*App, error) {
 	}
 
 	if err := appCfg.validate(); err != nil {
-		return nil, fmt.Errorf("invalid config parameter: err=(%s)", err)
+		return nil, errors.Wrap(err, "invalid config parameter")
 	}
 	return appCfg, nil
 }
@@ -183,7 +196,7 @@ func (a *App) validate() error {
 	}
 	for proxyAlias, proxyCfg := range a.Proxies {
 		if err := proxyCfg.validate(); err != nil {
-			return fmt.Errorf("invalid config: proxy=%s, err=(%s)", proxyAlias, err)
+			return errors.Wrapf(err, "invalid config, proxy=%s", proxyAlias)
 		}
 	}
 	return nil

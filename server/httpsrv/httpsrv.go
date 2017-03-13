@@ -16,8 +16,8 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/admin"
 	"github.com/mailgun/kafka-pixy/consumer"
-	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
 	"github.com/mailgun/kafka-pixy/consumer/offsettrac"
+	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/prettyfmt"
 	"github.com/mailgun/kafka-pixy/proxy"
 	"github.com/mailgun/log"
@@ -300,7 +300,7 @@ func (s *T) handleGetOffsets(w http.ResponseWriter, r *http.Request) {
 
 	partitionOffsets, err := pxy.GetGroupOffsets(group, topic)
 	if err != nil {
-		if err, ok := err.(admin.ErrQuery); ok && err.Cause() == sarama.ErrUnknownTopicOrPartition {
+		if err = errors.Cause(err); err == sarama.ErrUnknownTopicOrPartition {
 			respondWithJSON(w, http.StatusNotFound, errorHTTPResponse{"Unknown topic"})
 			return
 		}
@@ -368,7 +368,7 @@ func (s *T) handleSetOffsets(w http.ResponseWriter, r *http.Request) {
 
 	err = pxy.SetGroupOffsets(group, topic, partitionOffsets)
 	if err != nil {
-		if err, ok := err.(admin.ErrQuery); ok && err.Cause() == sarama.ErrUnknownTopicOrPartition {
+		if err = errors.Cause(err); err == sarama.ErrUnknownTopicOrPartition {
 			respondWithJSON(w, http.StatusNotFound, errorHTTPResponse{"Unknown topic"})
 			return
 		}

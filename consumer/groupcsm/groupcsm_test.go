@@ -158,6 +158,6 @@ func (s *GroupConsumerSuite) TestResolvePartitionsError(c *C) {
 	topicsToPartitions, err := gc.resolvePartitions(map[string][]string{"c": {"t1"}})
 
 	// Then
-	c.Assert(err.Error(), Equals, "failed to get partition list: topic=t1, err=(Kaboom!)")
+	c.Assert(err.Error(), Equals, "failed to get partition list, topic=t1: Kaboom!")
 	c.Assert(topicsToPartitions, IsNil)
 }

@@ -9,7 +9,7 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
-	"github.com/mailgun/kafka-pixy/consumer/offsetmgr"
+	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/log"
 	"github.com/wvanbergen/kazoo-go"
@@ -28,6 +28,7 @@ type T struct {
 func New(c *C) *T {
 	kh := &T{ns: actor.RootID.NewChild("kafka_helper"), c: c}
 	cfg := sarama.NewConfig()
+	cfg.Producer.RequiredAcks = sarama.WaitForAll
 	cfg.Producer.Flush.Messages = 1
 	cfg.Producer.Return.Successes = true
 	cfg.Producer.Return.Errors = true

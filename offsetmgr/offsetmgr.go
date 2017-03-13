@@ -1,7 +1,6 @@
 package offsetmgr
 
 import (
-	"errors"
 	"math"
 	"sync"
 	"time"
@@ -11,6 +10,7 @@ import (
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer/mapper"
 	"github.com/mailgun/log"
+	"github.com/pkg/errors"
 )
 
 // Factory provides a method to spawn offset manager instances to commit
@@ -123,7 +123,7 @@ func (f *factory) SpawnOffsetManager(namespace *actor.ID, group, topic string, p
 	f.childrenLock.Lock()
 	defer f.childrenLock.Unlock()
 	if _, ok := f.children[id]; ok {
-		return nil, sarama.ConfigurationError("This group/topic/partition is already being managed")
+		return nil, errors.Errorf("offset manager %v already exists", id)
 	}
 	om := f.spawnOffsetManager(namespace, id)
 	f.mapper.WorkerSpawned() <- om

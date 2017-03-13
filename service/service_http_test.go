@@ -24,6 +24,7 @@ import (
 	"github.com/mailgun/kafka-pixy/server/httpsrv"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
+	"github.com/pkg/errors"
 	. "gopkg.in/check.v1"
 )
 
@@ -93,8 +94,9 @@ func (s *ServiceHTTPSuite) TestInvalidKafkaPeers(c *C) {
 	svc, err := Spawn(s.cfg)
 
 	// Then
-	c.Assert(err.Error(), Equals,
-		"failed to spawn proxy, name=pxyD: failed to spawn producer, err=(failed to create sarama.Client, err=(kafka: client has run out of available brokers to talk to (Is your cluster reachable?)))")
+	c.Assert(err.Error(), Equals, "failed to spawn proxy, name=pxyD: "+
+		"failed to create Kafka client: "+
+		"kafka: client has run out of available brokers to talk to (Is your cluster reachable?)")
 	c.Assert(svc, IsNil)
 }
 
@@ -149,7 +151,7 @@ func (s *ServiceHTTPSuite) TestProduceNilKey(c *C) {
 	delta1 := offsetsAfter[1] - offsetsBefore[1]
 	imbalance := int(math.Abs(float64(delta1 - delta0)))
 	if imbalance > 20 {
-		panic(fmt.Errorf("Too high imbalance: %v != %v", delta0, delta1))
+		panic(errors.Errorf("Too high imbalance: %v != %v", delta0, delta1))
 	}
 }
 

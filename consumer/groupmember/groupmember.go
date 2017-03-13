@@ -1,7 +1,6 @@
 package groupmember
 
 import (
-	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -10,6 +9,7 @@ import (
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
+	"github.com/pkg/errors"
 	"github.com/samuel/go-zookeeper/zk"
 	"github.com/wvanbergen/kazoo-go"
 )
@@ -230,7 +230,7 @@ func (gm *T) fetchSubscriptions(members []*kazoo.ConsumergroupInstance) (map[str
 		var registration *kazoo.Registration
 		registration, err := member.Registration()
 		for err != nil {
-			return nil, fmt.Errorf("failed to fetch registration: member=%s, err=(%s)", member.ID, err)
+			return nil, errors.Wrapf(err, "failed to fetch registration, member=%s", member.ID)
 		}
 		// Sort topics to ensure deterministic output.
 		topics := make([]string, 0, len(registration.Subscription))
@@ -246,13 +246,13 @@ func (gm *T) submitTopics(topics []string) error {
 	if gm.topics != nil {
 		err := gm.groupMemberZNode.Deregister()
 		if err != nil && err != kazoo.ErrInstanceNotRegistered {
-			return fmt.Errorf("failed to deregister: err=(%s)", err)
+			return errors.Wrap(err, "failed to deregister")
 		}
 	}
 	gm.topics = nil
 	err := gm.groupMemberZNode.Register(topics)
 	for err != nil {
-		return fmt.Errorf("failed to register: err=(%s)", err)
+		return errors.Wrap(err, "failed to register")
 	}
 	gm.topics = topics
 	return nil

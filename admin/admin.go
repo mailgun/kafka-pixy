@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -11,29 +10,13 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/pkg/errors"
 	"github.com/samuel/go-zookeeper/zk"
 )
 
 type (
-	ErrSetup        error
 	ErrInvalidParam error
-	ErrQuery        struct {
-		err  error
-		desc string
-	}
 )
-
-func NewErrQuery(err error, format string, v ...interface{}) ErrQuery {
-	return ErrQuery{err, fmt.Sprintf(format, v...)}
-}
-
-func (e ErrQuery) Error() string {
-	return fmt.Sprintf("%s, err=(%s)", e.desc, e.err)
-}
-
-func (e ErrQuery) Cause() error {
-	return e.err
-}
 
 const (
 	ProtocolVer1 = 1 // Supported by Kafka v0.8.2 and later
@@ -93,7 +76,7 @@ func (a *T) GetGroupOffsets(group, topic string) ([]PartitionOffset, error) {
 	}
 	partitions, err := kafkaClt.Partitions(topic)
 	if err != nil {
-		return nil, NewErrQuery(err, "failed to get topic partitions")
+		return nil, errors.Wrap(err, "failed to get topic partitions")
 	}
 
 	// Figure out distribution of partitions among brokers.
@@ -101,7 +84,7 @@ func (a *T) GetGroupOffsets(group, topic string) ([]PartitionOffset, error) {
 	for i, p := range partitions {
 		broker, err := kafkaClt.Leader(topic, p)
 		if err != nil {
-			return nil, NewErrQuery(err, "failed to get partition leader: partition=%d", p)
+			return nil, errors.Wrapf(err, "failed to get partition leader, partition=%d", p)
 		}
 		brokerToPartitions[broker] = append(brokerToPartitions[broker], indexedPartition{i, p})
 	}
@@ -110,7 +93,7 @@ func (a *T) GetGroupOffsets(group, topic string) ([]PartitionOffset, error) {
 	// they are leaders for.
 	offsets := make([]PartitionOffset, len(partitions))
 	var wg sync.WaitGroup
-	errorsCh := make(chan ErrQuery, len(brokerToPartitions))
+	errorsCh := make(chan error, len(brokerToPartitions))
 	for broker, brokerPartitions := range brokerToPartitions {
 		broker, brokerPartitions := broker, brokerPartitions
 		var reqNewest sarama.OffsetRequest
@@ -123,23 +106,23 @@ func (a *T) GetGroupOffsets(group, topic string) ([]PartitionOffset, error) {
 		actor.Spawn(actorID, &wg, func() {
 			resOldest, err := broker.GetAvailableOffsets(&reqOldest)
 			if err != nil {
-				errorsCh <- NewErrQuery(err, "failed to fetch oldest offset: broker=%v", broker.ID())
+				errorsCh <- errors.Wrapf(err, "failed to fetch oldest offset, broker=%v", broker.ID())
 				return
 			}
 			resNewest, err := broker.GetAvailableOffsets(&reqNewest)
 			if err != nil {
-				errorsCh <- NewErrQuery(err, "failed to fetch newest offset: broker=%v", broker.ID())
+				errorsCh <- errors.Wrapf(err, "failed to fetch newest offset, broker=%v", broker.ID())
 				return
 			}
 			for _, xp := range brokerPartitions {
 				begin, err := getOffsetResult(resOldest, topic, xp.partition)
 				if err != nil {
-					errorsCh <- NewErrQuery(err, "failed to fetch oldest offset: broker=%v", broker.ID())
+					errorsCh <- errors.Wrapf(err, "failed to fetch oldest offset, broker=%v", broker.ID())
 					return
 				}
 				end, err := getOffsetResult(resNewest, topic, xp.partition)
 				if err != nil {
-					errorsCh <- NewErrQuery(err, "failed to fetch newest offset: broker=%v", broker.ID())
+					errorsCh <- errors.Wrapf(err, "failed to fetch newest offset, broker=%v", broker.ID())
 					return
 				}
 				offsets[xp.index].Partition = xp.partition
@@ -159,7 +142,7 @@ func (a *T) GetGroupOffsets(group, topic string) ([]PartitionOffset, error) {
 	// Fetch the last committed offsets for all partitions of the group/topic.
 	coordinator, err := kafkaClt.Coordinator(group)
 	if err != nil {
-		return nil, NewErrQuery(err, "failed to get coordinator")
+		return nil, errors.Wrapf(err, "failed to get coordinator")
 	}
 	req := sarama.OffsetFetchRequest{ConsumerGroup: group, Version: ProtocolVer1}
 	for _, p := range partitions {
@@ -167,12 +150,12 @@ func (a *T) GetGroupOffsets(group, topic string) ([]PartitionOffset, error) {
 	}
 	res, err := coordinator.FetchOffset(&req)
 	if err != nil {
-		return nil, NewErrQuery(err, "failed to fetch offsets")
+		return nil, errors.Wrapf(err, "failed to fetch offsets")
 	}
 	for i, p := range partitions {
 		block := res.GetBlock(topic, p)
 		if block == nil {
-			return nil, NewErrQuery(nil, "offset block is missing: partition=%d", p)
+			return nil, errors.Wrapf(nil, "offset block is missing, partition=%d", p)
 		}
 		offsets[i].Offset = block.Offset
 		offsets[i].Metadata = block.Metadata
@@ -190,7 +173,7 @@ func (a *T) SetGroupOffsets(group, topic string, offsets []PartitionOffset) erro
 	}
 	coordinator, err := kafkaClt.Coordinator(group)
 	if err != nil {
-		return NewErrQuery(err, "failed to get coordinator")
+		return errors.Wrapf(err, "failed to get coordinator")
 	}
 
 	req := sarama.OffsetCommitRequest{
@@ -203,11 +186,11 @@ func (a *T) SetGroupOffsets(group, topic string, offsets []PartitionOffset) erro
 	}
 	res, err := coordinator.CommitOffset(&req)
 	if err != nil {
-		return NewErrQuery(err, "failed to commit offsets")
+		return errors.Wrapf(err, "failed to commit offsets")
 	}
 	for p, err := range res.Errors[topic] {
 		if err != sarama.ErrNoError {
-			return NewErrQuery(err, "failed to commit offset: partition=%d", p)
+			return errors.Wrapf(err, "failed to commit offset, partition=%d", p)
 		}
 	}
 	return nil
@@ -227,19 +210,19 @@ func (a *T) GetTopicConsumers(group, topic string) (map[string][]int32, error) {
 		if err == zk.ErrNoNode {
 			return nil, ErrInvalidParam(errors.New("either group or topic is incorrect"))
 		}
-		return nil, NewErrQuery(err, "failed to fetch partition owners data")
+		return nil, errors.Wrapf(err, "failed to fetch partition owners data")
 	}
 
 	consumers := make(map[string][]int32)
 	for _, partitionNode := range partitionNodes {
 		partition, err := strconv.Atoi(partitionNode)
 		if err != nil {
-			return nil, NewErrQuery(err, "invalid partition id: %s", partitionNode)
+			return nil, errors.Wrapf(err, "invalid partition id, %s", partitionNode)
 		}
 		partitionPath := fmt.Sprintf("%s/%s", consumedPartitionsPath, partitionNode)
 		partitionNodeData, _, err := zkConn.Get(partitionPath)
 		if err != nil {
-			return nil, NewErrQuery(err, "failed to fetch partition owner")
+			return nil, errors.Wrapf(err, "failed to fetch partition owner")
 		}
 		clientID := string(partitionNodeData)
 		consumers[clientID] = append(consumers[clientID], int32(partition))
@@ -263,7 +246,7 @@ func (a *T) GetAllTopicConsumers(topic string) (map[string]map[string][]int32, e
 	groupsPath := fmt.Sprintf("%s/consumers", a.cfg.ZooKeeper.Chroot)
 	groups, _, err := kzConn.Children(groupsPath)
 	if err != nil {
-		return nil, NewErrQuery(err, "failed to fetch consumer groups")
+		return nil, errors.Wrapf(err, "failed to fetch consumer groups")
 	}
 
 	consumers := make(map[string]map[string][]int32)
@@ -273,7 +256,7 @@ func (a *T) GetAllTopicConsumers(topic string) (map[string]map[string][]int32, e
 			if _, ok := err.(ErrInvalidParam); ok {
 				continue
 			}
-			return nil, NewErrQuery(err, "failed to fetch group `%s` data", group)
+			return nil, errors.Wrapf(err, "failed to fetch group `%s` data", group)
 		}
 		if len(groupConsumers) > 0 {
 			consumers[group] = groupConsumers
@@ -295,7 +278,7 @@ func (a *T) lazyKafkaClt() (sarama.Client, error) {
 	if a.kafkaClt == nil {
 		var err error
 		if a.kafkaClt, err = sarama.NewClient(a.cfg.Kafka.SeedPeers, a.saramaConfig()); err != nil {
-			return nil, ErrSetup(fmt.Errorf("failed to create sarama.Client: err=(%v)", err))
+			return nil, errors.Wrap(err, "failed to create sarama.Client")
 		}
 	}
 	return a.kafkaClt, nil
@@ -307,7 +290,7 @@ func (a *T) lazyZKConn() (*zk.Conn, error) {
 	if a.zkConn == nil {
 		var err error
 		if a.zkConn, _, err = zk.Connect(a.cfg.ZooKeeper.SeedPeers, 1*time.Second); err != nil {
-			return nil, ErrSetup(fmt.Errorf("failed to create zk.Conn: err=(%v)", err))
+			return nil, errors.Wrap(err, "failed to create zk.Conn")
 		}
 	}
 	return a.zkConn, nil
@@ -316,13 +299,13 @@ func (a *T) lazyZKConn() (*zk.Conn, error) {
 func getOffsetResult(res *sarama.OffsetResponse, topic string, partition int32) (int64, error) {
 	block := res.GetBlock(topic, partition)
 	if block == nil {
-		return 0, fmt.Errorf("%s/%d: no data", topic, partition)
+		return 0, errors.Errorf("%s/%d, no data", topic, partition)
 	}
 	if block.Err != sarama.ErrNoError {
-		return 0, fmt.Errorf("%s/%d: fetch error: (%v)", topic, partition, block.Err)
+		return 0, errors.Wrapf(block.Err, "%s/%d, fetch error", topic, partition)
 	}
 	if len(block.Offsets) < 1 {
-		return 0, fmt.Errorf("%s/%d: no offset", topic, partition)
+		return 0, errors.Errorf("%s/%d, no offset", topic, partition)
 	}
 	return block.Offsets[0], nil
 }

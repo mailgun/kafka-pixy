@@ -1,7 +1,6 @@
 package config
 
 import (
-	"errors"
 	"testing"
 	"time"
 
@@ -28,7 +27,8 @@ func (s *ConfigSuite) TestFromYAMLNoProxies(c *C) {
 	_, err := FromYAML([]byte(""))
 
 	// Then
-	c.Assert(err.Error(), Equals, "invalid config parameter: err=(at least on proxy must be configured)")
+	c.Assert(err.Error(), Equals, "invalid config parameter: "+
+		"at least on proxy must be configured")
 }
 
 // Configuration fields that are not explicitly mentioned if the YAML data are
@@ -75,7 +75,9 @@ func (s *ConfigSuite) TestFromYAMLInvalid(c *C) {
 	_, err := FromYAML(data)
 
 	// Then
-	c.Assert(err, DeepEquals, errors.New("failed to parse proxy config: alias=default, err=(yaml: unmarshal errors:\n  line 7: cannot unmarshal !!str `Kaboom!` into time.Duration)"))
+	c.Assert(err.Error(), Equals, "failed to parse proxy config, alias=default: "+
+		"yaml: unmarshal errors:\n"+
+		"  line 7: cannot unmarshal !!str `Kaboom!` into time.Duration")
 }
 
 // The first proxy mentioned is returned as default.
