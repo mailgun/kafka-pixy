@@ -207,12 +207,12 @@ func (s *ServiceGRPCSuite) TestConsumeAutoAck(c *C) {
 
 	// When
 	for i := 0; i < 88; i++ {
-		req := pb.ConsReq{
+		req := pb.ConsNAckReq{
 			Topic:   "test.4",
 			Group:   "foo",
 			AutoAck: true,
 		}
-		res, err := s.clt.Consume(ctx, &req)
+		res, err := s.clt.ConsumeNAck(ctx, &req)
 		c.Assert(err, IsNil, Commentf("failed to consume message #%d", i))
 		key := string(res.KeyValue)
 		consumed[key] = append(consumed[key], res)
@@ -246,24 +246,24 @@ func (s *ServiceGRPCSuite) TestConsumeExplicitAck(c *C) {
 	// When:
 
 	// First message has to be consumed with NoAck set to true.
-	req := pb.ConsReq{
+	req := pb.ConsNAckReq{
 		Topic: "test.4",
 		Group: "foo",
 		NoAck: true,
 	}
-	res, err := s.clt.Consume(ctx, &req)
+	res, err := s.clt.ConsumeNAck(ctx, &req)
 	c.Assert(err, IsNil, Commentf("failed to consume first message"))
 	key := string(res.KeyValue)
 	consumed[key] = append(consumed[key], res)
 	// Whenever a message is consumed previous one is acked.
 	for i := 1; i < 88; i++ {
-		req = pb.ConsReq{
+		req = pb.ConsNAckReq{
 			Topic:        "test.4",
 			Group:        "foo",
 			AckPartition: res.Partition,
 			AckOffset:    res.Offset,
 		}
-		res, err = s.clt.Consume(ctx, &req)
+		res, err = s.clt.ConsumeNAck(ctx, &req)
 		c.Assert(err, IsNil, Commentf("failed to consume message #%d", i))
 		key := string(res.KeyValue)
 		consumed[key] = append(consumed[key], res)
@@ -309,8 +309,8 @@ func (s *ServiceGRPCSuite) TestConsumeExplicitProxy(c *C) {
 	c.Assert(err, IsNil)
 
 	// When
-	consReq := pb.ConsReq{Proxy: "pxyG", Topic: "test.4", Group: "foo"}
-	consRes, err := s.clt.Consume(ctx, &consReq)
+	consReq := pb.ConsNAckReq{Proxy: "pxyG", Topic: "test.4", Group: "foo"}
+	consRes, err := s.clt.ConsumeNAck(ctx, &consReq)
 
 	// Then
 	c.Assert(err, IsNil)
@@ -343,8 +343,8 @@ func (s *ServiceGRPCSuite) TestConsumeKeyUndefined(c *C) {
 	c.Assert(err, IsNil)
 
 	// When
-	consReq := pb.ConsReq{Topic: "test.4", Group: "foo"}
-	consRes, err := s.clt.Consume(ctx, &consReq)
+	consReq := pb.ConsNAckReq{Topic: "test.4", Group: "foo"}
+	consRes, err := s.clt.ConsumeNAck(ctx, &consReq)
 
 	// Then
 	c.Assert(err, IsNil)
@@ -366,11 +366,11 @@ func (s *ServiceGRPCSuite) TestConsumeInvalidProxy(c *C) {
 	defer cancel()
 
 	// When
-	consReq := pb.ConsReq{
+	consReq := pb.ConsNAckReq{
 		Proxy: "invalid",
 		Topic: fmt.Sprintf("non-existent-%d", rand.Int()),
 		Group: "foo"}
-	consRes, err := s.clt.Consume(ctx, &consReq, grpc.FailFast(false))
+	consRes, err := s.clt.ConsumeNAck(ctx, &consReq, grpc.FailFast(false))
 
 	// Then
 	c.Assert(grpc.ErrorDesc(err), Equals, "proxy `invalid` does not exist")

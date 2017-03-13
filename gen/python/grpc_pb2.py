@@ -19,7 +19,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   name='grpc.proto',
   package='',
   syntax='proto3',
-  serialized_pb=_b('\n\ngrpc.proto\"v\n\x07ProdReq\x12\r\n\x05proxy\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\x11\n\tkey_value\x18\x03 \x01(\x0c\x12\x15\n\rkey_undefined\x18\x04 \x01(\x08\x12\x0f\n\x07message\x18\x05 \x01(\x0c\x12\x12\n\nasync_mode\x18\x06 \x01(\x08\",\n\x07ProdRes\x12\x11\n\tpartition\x18\x01 \x01(\x05\x12\x0e\n\x06offset\x18\x02 \x01(\x03\"\x83\x01\n\x07\x43onsReq\x12\r\n\x05proxy\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\r\n\x05group\x18\x03 \x01(\t\x12\x15\n\rack_partition\x18\x04 \x01(\x05\x12\x12\n\nack_offset\x18\x05 \x01(\x03\x12\x0e\n\x06no_ack\x18\x06 \x01(\x08\x12\x10\n\x08\x61uto_ack\x18\x07 \x01(\x08\"g\n\x07\x43onsRes\x12\x11\n\tpartition\x18\x01 \x01(\x05\x12\x0e\n\x06offset\x18\x02 \x01(\x03\x12\x11\n\tkey_value\x18\x03 \x01(\x0c\x12\x15\n\rkey_undefined\x18\x04 \x01(\x08\x12\x0f\n\x07message\x18\x05 \x01(\x0c\"X\n\x06\x41\x63kReq\x12\r\n\x05proxy\x18\x01 \x01(\t\x12\r\n\x05group\x18\x02 \x01(\t\x12\r\n\x05topic\x18\x03 \x01(\t\x12\x11\n\tpartition\x18\x04 \x01(\x05\x12\x0e\n\x06offset\x18\x05 \x01(\x03\"\x08\n\x06\x41\x63kRes2h\n\tKafkaPixy\x12\x1f\n\x07Produce\x12\x08.ProdReq\x1a\x08.ProdRes\"\x00\x12\x1f\n\x07\x43onsume\x12\x08.ConsReq\x1a\x08.ConsRes\"\x00\x12\x19\n\x03\x41\x63k\x12\x07.AckReq\x1a\x07.AckRes\"\x00\x42\x04Z\x02pbb\x06proto3')
+  serialized_pb=_b('\n\ngrpc.proto\"v\n\x07ProdReq\x12\r\n\x05proxy\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\x11\n\tkey_value\x18\x03 \x01(\x0c\x12\x15\n\rkey_undefined\x18\x04 \x01(\x08\x12\x0f\n\x07message\x18\x05 \x01(\x0c\x12\x12\n\nasync_mode\x18\x06 \x01(\x08\",\n\x07ProdRes\x12\x11\n\tpartition\x18\x01 \x01(\x05\x12\x0e\n\x06offset\x18\x02 \x01(\x03\"\x87\x01\n\x0b\x43onsNAckReq\x12\r\n\x05proxy\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\r\n\x05group\x18\x03 \x01(\t\x12\x0e\n\x06no_ack\x18\x04 \x01(\x08\x12\x10\n\x08\x61uto_ack\x18\x05 \x01(\x08\x12\x15\n\rack_partition\x18\x06 \x01(\x05\x12\x12\n\nack_offset\x18\x07 \x01(\x03\"g\n\x07\x43onsRes\x12\x11\n\tpartition\x18\x01 \x01(\x05\x12\x0e\n\x06offset\x18\x02 \x01(\x03\x12\x11\n\tkey_value\x18\x03 \x01(\x0c\x12\x15\n\rkey_undefined\x18\x04 \x01(\x08\x12\x0f\n\x07message\x18\x05 \x01(\x0c\"X\n\x06\x41\x63kReq\x12\r\n\x05proxy\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\r\n\x05group\x18\x03 \x01(\t\x12\x11\n\tpartition\x18\x04 \x01(\x05\x12\x0e\n\x06offset\x18\x05 \x01(\x03\"\x08\n\x06\x41\x63kRes2p\n\tKafkaPixy\x12\x1f\n\x07Produce\x12\x08.ProdReq\x1a\x08.ProdRes\"\x00\x12\'\n\x0b\x43onsumeNAck\x12\x0c.ConsNAckReq\x1a\x08.ConsRes\"\x00\x12\x19\n\x03\x41\x63k\x12\x07.AckReq\x1a\x07.AckRes\"\x00\x42\x04Z\x02pbb\x06proto3')
 )
 _sym_db.RegisterFileDescriptor(DESCRIPTOR)
 
@@ -130,59 +130,59 @@ _PRODRES = _descriptor.Descriptor(
 )
 
 
-_CONSREQ = _descriptor.Descriptor(
-  name='ConsReq',
-  full_name='ConsReq',
+_CONSNACKREQ = _descriptor.Descriptor(
+  name='ConsNAckReq',
+  full_name='ConsNAckReq',
   filename=None,
   file=DESCRIPTOR,
   containing_type=None,
   fields=[
     _descriptor.FieldDescriptor(
-      name='proxy', full_name='ConsReq.proxy', index=0,
+      name='proxy', full_name='ConsNAckReq.proxy', index=0,
       number=1, type=9, cpp_type=9, label=1,
       has_default_value=False, default_value=_b("").decode('utf-8'),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       options=None),
     _descriptor.FieldDescriptor(
-      name='topic', full_name='ConsReq.topic', index=1,
+      name='topic', full_name='ConsNAckReq.topic', index=1,
       number=2, type=9, cpp_type=9, label=1,
       has_default_value=False, default_value=_b("").decode('utf-8'),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       options=None),
     _descriptor.FieldDescriptor(
-      name='group', full_name='ConsReq.group', index=2,
+      name='group', full_name='ConsNAckReq.group', index=2,
       number=3, type=9, cpp_type=9, label=1,
       has_default_value=False, default_value=_b("").decode('utf-8'),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       options=None),
     _descriptor.FieldDescriptor(
-      name='ack_partition', full_name='ConsReq.ack_partition', index=3,
-      number=4, type=5, cpp_type=1, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      options=None),
-    _descriptor.FieldDescriptor(
-      name='ack_offset', full_name='ConsReq.ack_offset', index=4,
-      number=5, type=3, cpp_type=2, label=1,
-      has_default_value=False, default_value=0,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      options=None),
-    _descriptor.FieldDescriptor(
-      name='no_ack', full_name='ConsReq.no_ack', index=5,
-      number=6, type=8, cpp_type=7, label=1,
+      name='no_ack', full_name='ConsNAckReq.no_ack', index=3,
+      number=4, type=8, cpp_type=7, label=1,
       has_default_value=False, default_value=False,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       options=None),
     _descriptor.FieldDescriptor(
-      name='auto_ack', full_name='ConsReq.auto_ack', index=6,
-      number=7, type=8, cpp_type=7, label=1,
+      name='auto_ack', full_name='ConsNAckReq.auto_ack', index=4,
+      number=5, type=8, cpp_type=7, label=1,
       has_default_value=False, default_value=False,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='ack_partition', full_name='ConsNAckReq.ack_partition', index=5,
+      number=6, type=5, cpp_type=1, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='ack_offset', full_name='ConsNAckReq.ack_offset', index=6,
+      number=7, type=3, cpp_type=2, label=1,
+      has_default_value=False, default_value=0,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       options=None),
@@ -199,7 +199,7 @@ _CONSREQ = _descriptor.Descriptor(
   oneofs=[
   ],
   serialized_start=181,
-  serialized_end=312,
+  serialized_end=316,
 )
 
 
@@ -257,8 +257,8 @@ _CONSRES = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=314,
-  serialized_end=417,
+  serialized_start=318,
+  serialized_end=421,
 )
 
 
@@ -277,14 +277,14 @@ _ACKREQ = _descriptor.Descriptor(
       is_extension=False, extension_scope=None,
       options=None),
     _descriptor.FieldDescriptor(
-      name='group', full_name='AckReq.group', index=1,
+      name='topic', full_name='AckReq.topic', index=1,
       number=2, type=9, cpp_type=9, label=1,
       has_default_value=False, default_value=_b("").decode('utf-8'),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       options=None),
     _descriptor.FieldDescriptor(
-      name='topic', full_name='AckReq.topic', index=2,
+      name='group', full_name='AckReq.group', index=2,
       number=3, type=9, cpp_type=9, label=1,
       has_default_value=False, default_value=_b("").decode('utf-8'),
       message_type=None, enum_type=None, containing_type=None,
@@ -316,8 +316,8 @@ _ACKREQ = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=419,
-  serialized_end=507,
+  serialized_start=423,
+  serialized_end=511,
 )
 
 
@@ -340,13 +340,13 @@ _ACKRES = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=509,
-  serialized_end=517,
+  serialized_start=513,
+  serialized_end=521,
 )
 
 DESCRIPTOR.message_types_by_name['ProdReq'] = _PRODREQ
 DESCRIPTOR.message_types_by_name['ProdRes'] = _PRODRES
-DESCRIPTOR.message_types_by_name['ConsReq'] = _CONSREQ
+DESCRIPTOR.message_types_by_name['ConsNAckReq'] = _CONSNACKREQ
 DESCRIPTOR.message_types_by_name['ConsRes'] = _CONSRES
 DESCRIPTOR.message_types_by_name['AckReq'] = _ACKREQ
 DESCRIPTOR.message_types_by_name['AckRes'] = _ACKRES
@@ -365,12 +365,12 @@ ProdRes = _reflection.GeneratedProtocolMessageType('ProdRes', (_message.Message,
   ))
 _sym_db.RegisterMessage(ProdRes)
 
-ConsReq = _reflection.GeneratedProtocolMessageType('ConsReq', (_message.Message,), dict(
-  DESCRIPTOR = _CONSREQ,
+ConsNAckReq = _reflection.GeneratedProtocolMessageType('ConsNAckReq', (_message.Message,), dict(
+  DESCRIPTOR = _CONSNACKREQ,
   __module__ = 'grpc_pb2'
-  # @@protoc_insertion_point(class_scope:ConsReq)
+  # @@protoc_insertion_point(class_scope:ConsNAckReq)
   ))
-_sym_db.RegisterMessage(ConsReq)
+_sym_db.RegisterMessage(ConsNAckReq)
 
 ConsRes = _reflection.GeneratedProtocolMessageType('ConsRes', (_message.Message,), dict(
   DESCRIPTOR = _CONSRES,
@@ -419,9 +419,9 @@ try:
           request_serializer=ProdReq.SerializeToString,
           response_deserializer=ProdRes.FromString,
           )
-      self.Consume = channel.unary_unary(
-          '/KafkaPixy/Consume',
-          request_serializer=ConsReq.SerializeToString,
+      self.ConsumeNAck = channel.unary_unary(
+          '/KafkaPixy/ConsumeNAck',
+          request_serializer=ConsNAckReq.SerializeToString,
           response_deserializer=ConsRes.FromString,
           )
       self.Ack = channel.unary_unary(
@@ -434,16 +434,84 @@ try:
   class KafkaPixyServicer(object):
 
     def Produce(self, request, context):
+      """Produce writes a message to a Kafka topic.
+
+      If ProdReq.async_mode is false (default value) then the request will
+      block until the message is written to all ISR. In this case the respose
+      will contain the partition and offset of the message. This has to be
+      used to achive at-least-once deliverability guarantee.
+      If ProdReq.async_mode is true, then Kafka-Pixy returns immediately after
+      it gets the request and performs write on the backgroud. This mode
+      ensures highest throughput but messages can be lost, e.g. if the host
+      crashes before Kafka-Pixy has a chance to complete write.
+
+      Hash of ProdReq.key_value is used to determine a partition that the
+      message should be written to. If you want a message to go to an random
+      partition then set ProdReq.key_undefined to true. Note that if both
+      ProdReq.key_undefined and ProdReq.key_value are left default, which is
+      empty string and false respectively, then messages will be consitently
+      written to a partiticular partition selected by the hash of an empty
+      string.
+
+      gRPC error codes:
+      * 3: invalid argument, see the status description for details;
+      * 404: topic does not exist (if Kafka cluster is not configured to
+      automatically create topics);
+      * 500: internal error, see the status description and logs for details;
+      """
       context.set_code(grpc.StatusCode.UNIMPLEMENTED)
       context.set_details('Method not implemented!')
       raise NotImplementedError('Method not implemented!')
 
-    def Consume(self, request, context):
+    def ConsumeNAck(self, request, context):
+      """Consume reads a message from a topic and optionally acknowledges a
+      message previously consumed from the same topic.
+
+      Requests are performed in long polling fation, that is if all available
+      messages have been consumed then the request will block for
+      config.yaml:proxies.<proxy>.consumer.long_polling_timeout waiting for
+      new messages. If no new messages is produced while waiting the request
+      will return gRPC error with 408 status code.
+
+      To consume the first message set ConsNAckReq.no_ack to true, since there
+      is no message to acknowledge at this point. In the second and all
+      subsequent calls of the method set ConsNAckReq.ack_partition and
+      ConsNAckReq.ack_offset to the respective values of ConsRes returned by
+      the previous method call. To acknowledge the last consumed message before
+      teminating the application call Ack method.
+
+      If a message is not acknowledged within
+      config.yaml:proxies.<proxy>.consumer.ack_timeout the it will be returned
+      by Kafka-Pixy in ConsRes again possibly to another application.
+
+      If at-least-once delivery guarantee and retries are not desirable, then
+      you can set ConsNAckReq.auto_ack to true and Kafka-Pixy will acknowledge
+      messages automatically before returning them in ConsRes.
+
+      gRPC error codes:
+      * 3: invalid argument, see the status description for details;
+      * 408: long polling timeout. It just means that all message has been
+      consumed. Just keep calling this method in a loop;
+      * 429: too many consume requests. Either reduce the number of consuming
+      threads or increase
+      config.yaml:proxies.<proxy>.consumer.channel_buffer_size;
+      * 500: internal error, see the status description and logs for details;
+      """
       context.set_code(grpc.StatusCode.UNIMPLEMENTED)
       context.set_details('Method not implemented!')
       raise NotImplementedError('Method not implemented!')
 
     def Ack(self, request, context):
+      """Ack acknowledges a message earlier consumed from a topic.
+
+      This method is provided solely to acknowledge the last consumed message
+      before the application terminates. In all other cases ConsumeNAck should
+      be used.
+
+      gRPC error codes:
+      * 3: invalid argument, see the status description for details;
+      * 500: internal error, see the status description and logs for details;
+      """
       context.set_code(grpc.StatusCode.UNIMPLEMENTED)
       context.set_details('Method not implemented!')
       raise NotImplementedError('Method not implemented!')
@@ -456,9 +524,9 @@ try:
             request_deserializer=ProdReq.FromString,
             response_serializer=ProdRes.SerializeToString,
         ),
-        'Consume': grpc.unary_unary_rpc_method_handler(
-            servicer.Consume,
-            request_deserializer=ConsReq.FromString,
+        'ConsumeNAck': grpc.unary_unary_rpc_method_handler(
+            servicer.ConsumeNAck,
+            request_deserializer=ConsNAckReq.FromString,
             response_serializer=ConsRes.SerializeToString,
         ),
         'Ack': grpc.unary_unary_rpc_method_handler(
@@ -479,10 +547,78 @@ try:
     file not marked beta) for all further purposes. This class was generated
     only to ease transition from grpcio<0.15.0 to grpcio>=0.15.0."""
     def Produce(self, request, context):
+      """Produce writes a message to a Kafka topic.
+
+      If ProdReq.async_mode is false (default value) then the request will
+      block until the message is written to all ISR. In this case the respose
+      will contain the partition and offset of the message. This has to be
+      used to achive at-least-once deliverability guarantee.
+      If ProdReq.async_mode is true, then Kafka-Pixy returns immediately after
+      it gets the request and performs write on the backgroud. This mode
+      ensures highest throughput but messages can be lost, e.g. if the host
+      crashes before Kafka-Pixy has a chance to complete write.
+
+      Hash of ProdReq.key_value is used to determine a partition that the
+      message should be written to. If you want a message to go to an random
+      partition then set ProdReq.key_undefined to true. Note that if both
+      ProdReq.key_undefined and ProdReq.key_value are left default, which is
+      empty string and false respectively, then messages will be consitently
+      written to a partiticular partition selected by the hash of an empty
+      string.
+
+      gRPC error codes:
+      * 3: invalid argument, see the status description for details;
+      * 404: topic does not exist (if Kafka cluster is not configured to
+      automatically create topics);
+      * 500: internal error, see the status description and logs for details;
+      """
       context.code(beta_interfaces.StatusCode.UNIMPLEMENTED)
-    def Consume(self, request, context):
+    def ConsumeNAck(self, request, context):
+      """Consume reads a message from a topic and optionally acknowledges a
+      message previously consumed from the same topic.
+
+      Requests are performed in long polling fation, that is if all available
+      messages have been consumed then the request will block for
+      config.yaml:proxies.<proxy>.consumer.long_polling_timeout waiting for
+      new messages. If no new messages is produced while waiting the request
+      will return gRPC error with 408 status code.
+
+      To consume the first message set ConsNAckReq.no_ack to true, since there
+      is no message to acknowledge at this point. In the second and all
+      subsequent calls of the method set ConsNAckReq.ack_partition and
+      ConsNAckReq.ack_offset to the respective values of ConsRes returned by
+      the previous method call. To acknowledge the last consumed message before
+      teminating the application call Ack method.
+
+      If a message is not acknowledged within
+      config.yaml:proxies.<proxy>.consumer.ack_timeout the it will be returned
+      by Kafka-Pixy in ConsRes again possibly to another application.
+
+      If at-least-once delivery guarantee and retries are not desirable, then
+      you can set ConsNAckReq.auto_ack to true and Kafka-Pixy will acknowledge
+      messages automatically before returning them in ConsRes.
+
+      gRPC error codes:
+      * 3: invalid argument, see the status description for details;
+      * 408: long polling timeout. It just means that all message has been
+      consumed. Just keep calling this method in a loop;
+      * 429: too many consume requests. Either reduce the number of consuming
+      threads or increase
+      config.yaml:proxies.<proxy>.consumer.channel_buffer_size;
+      * 500: internal error, see the status description and logs for details;
+      """
       context.code(beta_interfaces.StatusCode.UNIMPLEMENTED)
     def Ack(self, request, context):
+      """Ack acknowledges a message earlier consumed from a topic.
+
+      This method is provided solely to acknowledge the last consumed message
+      before the application terminates. In all other cases ConsumeNAck should
+      be used.
+
+      gRPC error codes:
+      * 3: invalid argument, see the status description for details;
+      * 500: internal error, see the status description and logs for details;
+      """
       context.code(beta_interfaces.StatusCode.UNIMPLEMENTED)
 
 
@@ -493,12 +629,80 @@ try:
     file not marked beta) for all further purposes. This class was generated
     only to ease transition from grpcio<0.15.0 to grpcio>=0.15.0."""
     def Produce(self, request, timeout, metadata=None, with_call=False, protocol_options=None):
+      """Produce writes a message to a Kafka topic.
+
+      If ProdReq.async_mode is false (default value) then the request will
+      block until the message is written to all ISR. In this case the respose
+      will contain the partition and offset of the message. This has to be
+      used to achive at-least-once deliverability guarantee.
+      If ProdReq.async_mode is true, then Kafka-Pixy returns immediately after
+      it gets the request and performs write on the backgroud. This mode
+      ensures highest throughput but messages can be lost, e.g. if the host
+      crashes before Kafka-Pixy has a chance to complete write.
+
+      Hash of ProdReq.key_value is used to determine a partition that the
+      message should be written to. If you want a message to go to an random
+      partition then set ProdReq.key_undefined to true. Note that if both
+      ProdReq.key_undefined and ProdReq.key_value are left default, which is
+      empty string and false respectively, then messages will be consitently
+      written to a partiticular partition selected by the hash of an empty
+      string.
+
+      gRPC error codes:
+      * 3: invalid argument, see the status description for details;
+      * 404: topic does not exist (if Kafka cluster is not configured to
+      automatically create topics);
+      * 500: internal error, see the status description and logs for details;
+      """
       raise NotImplementedError()
     Produce.future = None
-    def Consume(self, request, timeout, metadata=None, with_call=False, protocol_options=None):
+    def ConsumeNAck(self, request, timeout, metadata=None, with_call=False, protocol_options=None):
+      """Consume reads a message from a topic and optionally acknowledges a
+      message previously consumed from the same topic.
+
+      Requests are performed in long polling fation, that is if all available
+      messages have been consumed then the request will block for
+      config.yaml:proxies.<proxy>.consumer.long_polling_timeout waiting for
+      new messages. If no new messages is produced while waiting the request
+      will return gRPC error with 408 status code.
+
+      To consume the first message set ConsNAckReq.no_ack to true, since there
+      is no message to acknowledge at this point. In the second and all
+      subsequent calls of the method set ConsNAckReq.ack_partition and
+      ConsNAckReq.ack_offset to the respective values of ConsRes returned by
+      the previous method call. To acknowledge the last consumed message before
+      teminating the application call Ack method.
+
+      If a message is not acknowledged within
+      config.yaml:proxies.<proxy>.consumer.ack_timeout the it will be returned
+      by Kafka-Pixy in ConsRes again possibly to another application.
+
+      If at-least-once delivery guarantee and retries are not desirable, then
+      you can set ConsNAckReq.auto_ack to true and Kafka-Pixy will acknowledge
+      messages automatically before returning them in ConsRes.
+
+      gRPC error codes:
+      * 3: invalid argument, see the status description for details;
+      * 408: long polling timeout. It just means that all message has been
+      consumed. Just keep calling this method in a loop;
+      * 429: too many consume requests. Either reduce the number of consuming
+      threads or increase
+      config.yaml:proxies.<proxy>.consumer.channel_buffer_size;
+      * 500: internal error, see the status description and logs for details;
+      """
       raise NotImplementedError()
-    Consume.future = None
+    ConsumeNAck.future = None
     def Ack(self, request, timeout, metadata=None, with_call=False, protocol_options=None):
+      """Ack acknowledges a message earlier consumed from a topic.
+
+      This method is provided solely to acknowledge the last consumed message
+      before the application terminates. In all other cases ConsumeNAck should
+      be used.
+
+      gRPC error codes:
+      * 3: invalid argument, see the status description for details;
+      * 500: internal error, see the status description and logs for details;
+      """
       raise NotImplementedError()
     Ack.future = None
 
@@ -511,17 +715,17 @@ try:
     generated only to ease transition from grpcio<0.15.0 to grpcio>=0.15.0"""
     request_deserializers = {
       ('KafkaPixy', 'Ack'): AckReq.FromString,
-      ('KafkaPixy', 'Consume'): ConsReq.FromString,
+      ('KafkaPixy', 'ConsumeNAck'): ConsNAckReq.FromString,
       ('KafkaPixy', 'Produce'): ProdReq.FromString,
     }
     response_serializers = {
       ('KafkaPixy', 'Ack'): AckRes.SerializeToString,
-      ('KafkaPixy', 'Consume'): ConsRes.SerializeToString,
+      ('KafkaPixy', 'ConsumeNAck'): ConsRes.SerializeToString,
       ('KafkaPixy', 'Produce'): ProdRes.SerializeToString,
     }
     method_implementations = {
       ('KafkaPixy', 'Ack'): face_utilities.unary_unary_inline(servicer.Ack),
-      ('KafkaPixy', 'Consume'): face_utilities.unary_unary_inline(servicer.Consume),
+      ('KafkaPixy', 'ConsumeNAck'): face_utilities.unary_unary_inline(servicer.ConsumeNAck),
       ('KafkaPixy', 'Produce'): face_utilities.unary_unary_inline(servicer.Produce),
     }
     server_options = beta_implementations.server_options(request_deserializers=request_deserializers, response_serializers=response_serializers, thread_pool=pool, thread_pool_size=pool_size, default_timeout=default_timeout, maximum_timeout=maximum_timeout)
@@ -536,17 +740,17 @@ try:
     generated only to ease transition from grpcio<0.15.0 to grpcio>=0.15.0"""
     request_serializers = {
       ('KafkaPixy', 'Ack'): AckReq.SerializeToString,
-      ('KafkaPixy', 'Consume'): ConsReq.SerializeToString,
+      ('KafkaPixy', 'ConsumeNAck'): ConsNAckReq.SerializeToString,
       ('KafkaPixy', 'Produce'): ProdReq.SerializeToString,
     }
     response_deserializers = {
       ('KafkaPixy', 'Ack'): AckRes.FromString,
-      ('KafkaPixy', 'Consume'): ConsRes.FromString,
+      ('KafkaPixy', 'ConsumeNAck'): ConsRes.FromString,
       ('KafkaPixy', 'Produce'): ProdRes.FromString,
     }
     cardinalities = {
       'Ack': cardinality.Cardinality.UNARY_UNARY,
-      'Consume': cardinality.Cardinality.UNARY_UNARY,
+      'ConsumeNAck': cardinality.Cardinality.UNARY_UNARY,
       'Produce': cardinality.Cardinality.UNARY_UNARY,
     }
     stub_options = beta_implementations.stub_options(host=host, metadata_transformer=metadata_transformer, request_serializers=request_serializers, response_deserializers=response_deserializers, thread_pool=pool, thread_pool_size=pool_size)

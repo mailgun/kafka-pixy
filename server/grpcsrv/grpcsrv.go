@@ -99,8 +99,8 @@ func (s *T) Produce(ctx context.Context, req *pb.ProdReq) (*pb.ProdRes, error) {
 	return &pb.ProdRes{Partition: prodMsg.Partition, Offset: prodMsg.Offset}, nil
 }
 
-// Consume implements pb.KafkaPixyServer
-func (s *T) Consume(ctx context.Context, req *pb.ConsReq) (*pb.ConsRes, error) {
+// ConsumeNAck implements pb.KafkaPixyServer
+func (s *T) ConsumeNAck(ctx context.Context, req *pb.ConsNAckReq) (*pb.ConsRes, error) {
 	pxy, err := s.proxySet.Get(req.Proxy)
 	if err != nil {
 		return nil, grpc.Errorf(codes.InvalidArgument, err.Error())
