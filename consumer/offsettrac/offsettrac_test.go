@@ -7,7 +7,6 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
-	"github.com/pkg/errors"
 	. "gopkg.in/check.v1"
 )
 
@@ -36,10 +35,9 @@ func (s *OffsetTrackerSuite) SetUpTest(c *C) {
 func (s *OffsetTrackerSuite) TestOnAckedRanges(c *C) {
 	ot := New(s.ns, offsetmgr.Offset{Val: 300}, -1)
 	for i, tc := range []struct {
-		offset            int64
-		committed         int64
-		ranges            string
-		skipSymmetryCheck bool
+		offset    int64
+		committed int64
+		ranges    string
 	}{
 		/*  0 */ {offset: 299, committed: 300, ranges: ""},
 		/*  1 */ {offset: 300, committed: 301, ranges: ""},
@@ -58,12 +56,8 @@ func (s *OffsetTrackerSuite) TestOnAckedRanges(c *C) {
 		/* 13 */ {offset: 301, committed: 312, ranges: ""},
 		/* 14 */ {offset: 398, committed: 312, ranges: "86-87"},
 		/* 15 */ {offset: 399, committed: 312, ranges: "86-88"},
-		//        delta is greater then 4095, so large deltas cannot be
-		//        represented in the selected encoding algorithm. That must
-		//        never happen in production, but to be thorough we need to
-		//        handle this case somehow, so we just drop all range info.
-		/* 16 */ {offset: 4496, committed: 312, ranges: "", skipSymmetryCheck: true},
-		/* 17 */ {offset: 4495, committed: 312, ranges: "86-88,4183-4185"},
+		/* 16 */ {offset: 4496, committed: 312, ranges: "86-88,4184-4185"},
+		/* 17 */ {offset: 0x7FFFFFFFFFFFFFFE, committed: 312, ranges: "86-88,4184-4185,9223372036854775494-9223372036854775495"},
 	} {
 		// When
 		offset, _ := ot.OnAcked(tc.offset)
@@ -72,9 +66,6 @@ func (s *OffsetTrackerSuite) TestOnAckedRanges(c *C) {
 		// Then
 		c.Assert(offset.Val, Equals, tc.committed, Commentf("case: %d", i))
 		c.Assert(SparseAcks2Str(offset), Equals, tc.ranges, Commentf("case: %d", i))
-		if tc.skipSymmetryCheck {
-			continue
-		}
 		// Both nil and empty slice ack ranges become nil when going through
 		// the encode/decode circle.
 		if ot.ackRanges == nil || len(ot.ackRanges) == 0 {
@@ -92,16 +83,13 @@ func (s *OffsetTrackerSuite) TestAckRangeEncodeDecode(c *C) {
 	}{
 		/* 0 */ {0, ackRange{1, 2}},
 		/* 1 */ {100, ackRange{101, 102}},
-		/* 2 */ {10000, ackRange{14095, 14100}},
-		/* 3 */ {10000, ackRange{10001, 14096}},
+		/* 2 */ {0, ackRange{0x7FFFFFFFFFFFFFFE, 0x7FFFFFFFFFFFFFFF}},
 	} {
 		var encoded []byte
-		var err error
 		var decoded ackRange
 
 		// When
-		encoded, err = tc.ar.encode(tc.base, encoded)
-		c.Assert(err, IsNil, Commentf("case: %d", i))
+		encoded = tc.ar.encode(tc.base, encoded)
 		decoded.decode(tc.base, encoded)
 
 		// Then
@@ -109,43 +97,24 @@ func (s *OffsetTrackerSuite) TestAckRangeEncodeDecode(c *C) {
 	}
 }
 
-func (s *OffsetTrackerSuite) TestAckRangeEncodeError(c *C) {
-	for i, tc := range []struct {
-		base int64
-		ar   ackRange
-		err  error
-	}{
-		/* 0 */ {10000, ackRange{14096, 14097},
-			errors.New("range `from` delta too big: 4096")},
-		/* 1 */ {10000, ackRange{10001, 14097},
-			errors.New("range `to` delta too big: 4096")},
-	} {
-		var encoded []byte
-		var err error
-
-		// When
-		encoded, err = tc.ar.encode(tc.base, encoded)
-
-		// Then
-		c.Assert(err.Error(), Equals, tc.err.Error(), Commentf("case: %d", i))
-	}
-}
-
 func (s *OffsetTrackerSuite) TestAckRangeDecodeError(c *C) {
 	var ar ackRange
 	for i, tc := range []struct {
 		encoded string
-		err     error
+		error   string
 	}{
-		/* 0 */ {"abc", errors.New("too few chars: 3")},
-		/* 1 */ {"ab@d", errors.New("bad `to` boundary: invalid char: @")},
-		/* 2 */ {"ABAA", errors.New("invalid range: {10001 10001}")},
+		/* 0 */ {"AA", "bad range: {10000 10000}"},
+		/* 1 */ {"0123456789012a", "bad `from` boundary: bad sequence: 0123456789012"},
+		/* 2 */ {"a0123456789012b", "bad `to` boundary: bad sequence: 0123456789012"},
+		/* 3 */ {"1@b", "bad `from` boundary: bad char: @"},
+		/* 3 */ {"a@b", "bad `to` boundary: bad char: @"},
 	} {
 		// When
-		_, err := ar.decode(10000, []byte(tc.encoded))
+		buf, err := ar.decode(10000, []byte(tc.encoded))
 
 		// Then
-		c.Assert(err.Error(), Equals, tc.err.Error(), Commentf("case: %d", i))
+		c.Assert(err.Error(), Equals, tc.error, Commentf("case: %d", i))
+		c.Assert(buf, IsNil, Commentf("case: %d", i))
 	}
 }
 
@@ -159,15 +128,15 @@ func (s *OffsetTrackerSuite) TestNewOffsetAdjusted(c *C) {
 			offsetmgr.Offset{1000, ""},
 		},
 		/* 1 */ {
-			offsetmgr.Offset{1000, "abra1234+/PS"},
-			offsetmgr.Offset{1000, "abra1234+/PS"},
+			offsetmgr.Offset{1000, "abra1234+/P"},
+			offsetmgr.Offset{1000, "abra1234+/P"},
 		},
 		/* 2 */ {
-			offsetmgr.Offset{1000, "abra1234+/P"},
+			offsetmgr.Offset{1000, "abra1234+/PS"},
 			offsetmgr.Offset{1000, ""},
 		},
 		/* 2 */ {
-			offsetmgr.Offset{1000, "abra1234+/@S"},
+			offsetmgr.Offset{1000, "a@b"},
 			offsetmgr.Offset{1000, ""},
 		},
 	} {
@@ -180,7 +149,7 @@ func (s *OffsetTrackerSuite) TestNewOffsetAdjusted(c *C) {
 }
 
 func (s *OffsetTrackerSuite) TestIsAcked(c *C) {
-	meta, _ := encodeAckRanges(301, []ackRange{
+	meta := encodeAckRanges(301, []ackRange{
 		{302, 305}, {307, 309}, {310, 313}})
 	offset := offsetmgr.Offset{301, meta}
 	ot := New(s.ns, offset, -1)

@@ -15,11 +15,11 @@ import (
 
 const (
 	base64EncodeMap = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-	maxDelta        = 0xFFF
 )
 
 var (
 	base64DecodeMap [256]byte
+	decodeShifts    [64/5 + 1]uint
 )
 
 func init() {
@@ -28,6 +28,9 @@ func init() {
 	}
 	for i := range base64EncodeMap {
 		base64DecodeMap[base64EncodeMap[i]] = byte(i)
+	}
+	for i := range decodeShifts {
+		decodeShifts[i] = uint(5 * i)
 	}
 }
 
@@ -113,11 +116,7 @@ func (ot *T) OnOffered(msg consumer.Message) int {
 func (ot *T) OnAcked(offset int64) (offsetmgr.Offset, int) {
 	ot.removeOffer(offset)
 	ot.updateAckRanges(offset)
-	var err error
-	ot.offset.Meta, err = encodeAckRanges(ot.offset.Val, ot.ackRanges)
-	if err != nil {
-		log.Errorf("<%s> failed to encode ack ranges: err=%+v", ot.actorID, err)
-	}
+	ot.offset.Meta = encodeAckRanges(ot.offset.Val, ot.ackRanges)
 	return ot.offset, len(ot.offers)
 }
 
@@ -249,37 +248,33 @@ func (ot *T) newOffer(msg consumer.Message) offer {
 	return offer{msg, msg.Offset, 0, time.Now().Add(ot.offerTimeout)}
 }
 
-func encodeAckRanges(base int64, ackRanges []ackRange) (string, error) {
+func encodeAckRanges(base int64, ackRanges []ackRange) string {
 	ackRangesCount := len(ackRanges)
 	if ackRangesCount == 0 {
-		return "", nil
+		return ""
 	}
-	var err error
 	buf := make([]byte, 0, ackRangesCount*4)
 	for _, ar := range ackRanges {
-		if buf, err = ar.encode(base, buf); err != nil {
-			return "", errors.Wrapf(err, "unsupported range: %+v", ar)
-		}
+		buf = ar.encode(base, buf)
 		base = ar.to
 	}
-	return string(buf), nil
+	return string(buf)
 }
 
 func decodeAckRanges(base int64, encoded string) ([]ackRange, error) {
 	if encoded == "" {
 		return nil, nil
 	}
-	if len(encoded)&0x3 != 0 {
-		return nil, errors.Errorf("too few chars: %d", len(encoded))
-	}
-	ackRanges := make([]ackRange, len(encoded)/4)
+	ackRanges := make([]ackRange, 0, len(encoded)/2)
 	var err error
 	buf := []byte(encoded)
-	for i := range ackRanges {
-		if buf, err = ackRanges[i].decode(base, buf); err != nil {
+	for i := 0; len(buf) > 0; i++ {
+		var ar ackRange
+		if buf, err = ar.decode(base, buf); err != nil {
 			return nil, errors.Wrapf(err, "bad encoding: %s", encoded)
 		}
-		base = ackRanges[i].to
+		base = ar.to
+		ackRanges = append(ackRanges, ar)
 	}
 	return ackRanges, nil
 }
@@ -288,26 +283,13 @@ func newAckRange(offset int64) ackRange {
 	return ackRange{offset, offset + 1}
 }
 
-func (ar *ackRange) encode(base int64, buf []byte) ([]byte, error) {
-	fromDlt := ar.from - base
-	if fromDlt > maxDelta {
-		return nil, errors.Errorf("range `from` delta too big: %d", fromDlt)
-	}
-	buf = encodeInt64(fromDlt, buf)
-
-	toDlt := ar.to - ar.from
-	if toDlt > maxDelta {
-		return nil, errors.Errorf("range `to` delta too big: %d", toDlt)
-	}
-	buf = encodeInt64(toDlt, buf)
-	return buf, nil
+func (ar *ackRange) encode(base int64, buf []byte) []byte {
+	buf = encodeInt64(ar.from-base, buf)
+	buf = encodeInt64(ar.to-ar.from, buf)
+	return buf
 }
 
 func (ar *ackRange) decode(base int64, buf []byte) ([]byte, error) {
-	if len(buf) < 4 {
-		return nil, errors.Errorf("too few chars: %d", len(buf))
-	}
-
 	delta, buf, err := decodeInt64(buf)
 	if err != nil {
 		return nil, errors.Wrap(err, "bad `from` boundary")
@@ -321,26 +303,33 @@ func (ar *ackRange) decode(base int64, buf []byte) ([]byte, error) {
 	ar.to = ar.from + delta
 
 	if ar.from >= ar.to || ar.from <= 0 {
-		return nil, errors.Errorf("invalid range: %v", *ar)
+		return nil, errors.Errorf("bad range: %v", *ar)
 	}
 	return buf, nil
 }
 
 func encodeInt64(n int64, buf []byte) []byte {
-	buf = append(buf, base64EncodeMap[n>>6&0x3F])
-	buf = append(buf, base64EncodeMap[n&0x3F])
-	return buf
+	var ci int64
+	for ci, n = n&0x1F, n>>5; n > 0; ci, n = n&0x1F, n>>5 {
+		buf = append(buf, base64EncodeMap[ci|0x20])
+	}
+	return append(buf, base64EncodeMap[ci])
 }
 
 func decodeInt64(buf []byte) (int64, []byte, error) {
-	var chr0, chr1 byte
-	if chr0 = base64DecodeMap[buf[0]]; chr0 == 0xFF {
-		return -1, nil, errors.Errorf("invalid char: %c", buf[0])
+	var n int64
+	i := 0
+	for ; i < len(buf) && i < len(decodeShifts); i++ {
+		ci := base64DecodeMap[buf[i]]
+		if ci == 0xFF {
+			return -1, nil, errors.Errorf("bad char: %c", buf[i])
+		}
+		n |= int64(ci) & 0x1F << decodeShifts[i]
+		if ci&0x20 == 0 {
+			return n, buf[i+1:], nil
+		}
 	}
-	if chr1 = base64DecodeMap[buf[1]]; chr1 == 0xFF {
-		return -1, nil, errors.Errorf("invalid char: %c", buf[1])
-	}
-	return int64(chr0)<<6 | int64(chr1), buf[2:], nil
+	return -1, nil, errors.Errorf("bad sequence: %s", string(buf[:i]))
 }
 
 type offer struct {

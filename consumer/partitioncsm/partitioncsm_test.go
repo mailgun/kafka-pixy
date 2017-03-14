@@ -131,8 +131,8 @@ func (s *PartitionCsmSuite) TestMustBeOfferedToProceed(c *C) {
 	<-pc.Messages()
 }
 
-// A message read from Messages() must be offered via Offered() before a next
-// one can be read from Messages().
+// If the initial offset has sparsely acked messages then they are not returned
+// from Messages() channel.
 func (s *PartitionCsmSuite) TestSparseAckedNotRead(c *C) {
 	ackedDlts := []bool{
 		/* 0 */ false,
@@ -145,7 +145,7 @@ func (s *PartitionCsmSuite) TestSparseAckedNotRead(c *C) {
 		/* 7 */ false,
 		/* 8 */ false,
 	}
-	// Make initial offset that has sparsely acked ranges
+	// Make initial offset that has sparsely acked ranges.
 	oldestOffsets := s.kh.GetOldestOffsets(topic)
 	base := oldestOffsets[partition]
 	ot := offsettrac.New(s.ns, offsetmgr.Offset{Val: base}, -1)
@@ -161,7 +161,7 @@ func (s *PartitionCsmSuite) TestSparseAckedNotRead(c *C) {
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgIStreamF, s.offsetMgrF)
 	defer pc.Stop()
 
-	// When/Then
+	// When/Then: only messages that has not been acked previously are returned.
 	for i, acked := range ackedDlts {
 		if acked {
 			continue
