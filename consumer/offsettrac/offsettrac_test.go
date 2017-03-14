@@ -86,7 +86,6 @@ func (s *OffsetTrackerSuite) TestOnAckedRanges(c *C) {
 }
 
 func (s *OffsetTrackerSuite) TestAckRangeEncodeDecode(c *C) {
-	encoded := make([]byte, 4)
 	for i, tc := range []struct {
 		base int64
 		ar   ackRange
@@ -96,10 +95,12 @@ func (s *OffsetTrackerSuite) TestAckRangeEncodeDecode(c *C) {
 		/* 2 */ {10000, ackRange{14095, 14100}},
 		/* 3 */ {10000, ackRange{10001, 14096}},
 	} {
+		var encoded []byte
+		var err error
 		var decoded ackRange
 
 		// When
-		err := tc.ar.encode(tc.base, encoded)
+		encoded, err = tc.ar.encode(tc.base, encoded)
 		c.Assert(err, IsNil, Commentf("case: %d", i))
 		decoded.decode(tc.base, encoded)
 
@@ -109,7 +110,6 @@ func (s *OffsetTrackerSuite) TestAckRangeEncodeDecode(c *C) {
 }
 
 func (s *OffsetTrackerSuite) TestAckRangeEncodeError(c *C) {
-	encoded := make([]byte, 4)
 	for i, tc := range []struct {
 		base int64
 		ar   ackRange
@@ -120,8 +120,11 @@ func (s *OffsetTrackerSuite) TestAckRangeEncodeError(c *C) {
 		/* 1 */ {10000, ackRange{10001, 14097},
 			errors.New("range `to` delta too big: 4096")},
 	} {
+		var encoded []byte
+		var err error
+
 		// When
-		err := tc.ar.encode(tc.base, encoded)
+		encoded, err = tc.ar.encode(tc.base, encoded)
 
 		// Then
 		c.Assert(err.Error(), Equals, tc.err.Error(), Commentf("case: %d", i))
@@ -139,7 +142,7 @@ func (s *OffsetTrackerSuite) TestAckRangeDecodeError(c *C) {
 		/* 2 */ {"ABAA", errors.New("invalid range: {10001 10001}")},
 	} {
 		// When
-		err := ar.decode(10000, []byte(tc.encoded))
+		_, err := ar.decode(10000, []byte(tc.encoded))
 
 		// Then
 		c.Assert(err.Error(), Equals, tc.err.Error(), Commentf("case: %d", i))

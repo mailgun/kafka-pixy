@@ -254,9 +254,10 @@ func encodeAckRanges(base int64, ackRanges []ackRange) (string, error) {
 	if ackRangesCount == 0 {
 		return "", nil
 	}
-	buf := make([]byte, ackRangesCount*4)
-	for i, ar := range ackRanges {
-		if err := ar.encode(base, buf[i*4:]); err != nil {
+	var err error
+	buf := make([]byte, 0, ackRangesCount*4)
+	for _, ar := range ackRanges {
+		if buf, err = ar.encode(base, buf); err != nil {
 			return "", errors.Wrapf(err, "unsupported range: %+v", ar)
 		}
 		base = ar.to
@@ -272,9 +273,10 @@ func decodeAckRanges(base int64, encoded string) ([]ackRange, error) {
 		return nil, errors.Errorf("too few chars: %d", len(encoded))
 	}
 	ackRanges := make([]ackRange, len(encoded)/4)
+	var err error
 	buf := []byte(encoded)
 	for i := range ackRanges {
-		if err := ackRanges[i].decode(base, buf[i*4:]); err != nil {
+		if buf, err = ackRanges[i].decode(base, buf); err != nil {
 			return nil, errors.Wrapf(err, "bad encoding: %s", encoded)
 		}
 		base = ackRanges[i].to
@@ -286,49 +288,59 @@ func newAckRange(offset int64) ackRange {
 	return ackRange{offset, offset + 1}
 }
 
-func (ar *ackRange) encode(base int64, b []byte) error {
+func (ar *ackRange) encode(base int64, buf []byte) ([]byte, error) {
 	fromDlt := ar.from - base
 	if fromDlt > maxDelta {
-		return errors.Errorf("range `from` delta too big: %d", fromDlt)
+		return nil, errors.Errorf("range `from` delta too big: %d", fromDlt)
 	}
-	b[0] = base64EncodeMap[fromDlt>>6&0x3F]
-	b[1] = base64EncodeMap[fromDlt&0x3F]
+	buf = encodeInt64(fromDlt, buf)
 
 	toDlt := ar.to - ar.from
 	if toDlt > maxDelta {
-		return errors.Errorf("range `to` delta too big: %d", toDlt)
+		return nil, errors.Errorf("range `to` delta too big: %d", toDlt)
 	}
-	b[2] = base64EncodeMap[toDlt>>6&0x3F]
-	b[3] = base64EncodeMap[toDlt&0x3F]
-	return nil
+	buf = encodeInt64(toDlt, buf)
+	return buf, nil
 }
 
-func (ar *ackRange) decode(base int64, b []byte) error {
-	if len(b) < 4 {
-		return errors.Errorf("too few chars: %d", len(b))
+func (ar *ackRange) decode(base int64, buf []byte) ([]byte, error) {
+	if len(buf) < 4 {
+		return nil, errors.Errorf("too few chars: %d", len(buf))
 	}
-	var err error
-	if ar.from, err = decodeDelta(base, b); err != nil {
-		return errors.Wrap(err, "bad `from` boundary")
+
+	delta, buf, err := decodeInt64(buf)
+	if err != nil {
+		return nil, errors.Wrap(err, "bad `from` boundary")
 	}
-	if ar.to, err = decodeDelta(ar.from, b[2:]); err != nil {
-		return errors.Wrap(err, "bad `to` boundary")
+	ar.from = base + delta
+
+	delta, buf, err = decodeInt64(buf)
+	if err != nil {
+		return nil, errors.Wrap(err, "bad `to` boundary")
 	}
+	ar.to = ar.from + delta
+
 	if ar.from >= ar.to || ar.from <= 0 {
-		return errors.Errorf("invalid range: %v", *ar)
+		return nil, errors.Errorf("invalid range: %v", *ar)
 	}
-	return nil
+	return buf, nil
 }
 
-func decodeDelta(base int64, b []byte) (int64, error) {
+func encodeInt64(n int64, buf []byte) []byte {
+	buf = append(buf, base64EncodeMap[n>>6&0x3F])
+	buf = append(buf, base64EncodeMap[n&0x3F])
+	return buf
+}
+
+func decodeInt64(buf []byte) (int64, []byte, error) {
 	var chr0, chr1 byte
-	if chr0 = base64DecodeMap[b[0]]; chr0 == 0xFF {
-		return -1, errors.Errorf("invalid char: %c", b[0])
+	if chr0 = base64DecodeMap[buf[0]]; chr0 == 0xFF {
+		return -1, nil, errors.Errorf("invalid char: %c", buf[0])
 	}
-	if chr1 = base64DecodeMap[b[1]]; chr1 == 0xFF {
-		return -1, errors.Errorf("invalid char: %c", b[1])
+	if chr1 = base64DecodeMap[buf[1]]; chr1 == 0xFF {
+		return -1, nil, errors.Errorf("invalid char: %c", buf[1])
 	}
-	return base + (int64(chr0)<<6 | int64(chr1)), nil
+	return int64(chr0)<<6 | int64(chr1), buf[2:], nil
 }
 
 type offer struct {
