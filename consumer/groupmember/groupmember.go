@@ -84,7 +84,7 @@ func (gm *T) ClaimPartition(claimerActorID *actor.ID, topic string, partition in
 		logFailureFn("<%s> failed to claim partition: via=%s, retries=%d, took=%s, err=(%s)",
 			claimerActorID, gm.actorID, retries, millisSince(beginAt), err)
 		select {
-		case <-time.After(gm.cfg.Consumer.BackOffTimeout):
+		case <-time.After(gm.cfg.Consumer.RetryBackoff):
 		case <-cancelCh:
 			return func() {}
 		}
@@ -103,7 +103,7 @@ func (gm *T) ClaimPartition(claimerActorID *actor.ID, topic string, partition in
 			}
 			logFailureFn("<%s> failed to release partition: via=%s, retries=%d, took=%s, err=(%s)",
 				claimerActorID, gm.actorID, retries, millisSince(beginAt), err)
-			<-time.After(gm.cfg.Consumer.BackOffTimeout)
+			<-time.After(gm.cfg.Consumer.RetryBackoff)
 			err = gm.groupMemberZNode.ReleasePartition(topic, partition)
 		}
 		log.Infof("<%s> partition released: via=%s, retries=%d, took=%s",
@@ -126,7 +126,7 @@ func (gm *T) run() {
 	for err != nil {
 		log.Errorf("<%s> failed to create a group znode: err=(%s)", gm.actorID, err)
 		select {
-		case <-time.After(gm.cfg.Consumer.BackOffTimeout):
+		case <-time.After(gm.cfg.Consumer.RetryBackoff):
 		case <-gm.stopCh:
 			return
 		}
@@ -139,7 +139,7 @@ func (gm *T) run() {
 		err := gm.groupMemberZNode.Deregister()
 		for err != nil && err != kazoo.ErrInstanceNotRegistered {
 			log.Errorf("<%s> failed to deregister: err=(%s)", gm.actorID, err)
-			<-time.After(gm.cfg.Consumer.BackOffTimeout)
+			<-time.After(gm.cfg.Consumer.RetryBackoff)
 			err = gm.groupMemberZNode.Deregister()
 		}
 	}()
@@ -174,7 +174,7 @@ func (gm *T) run() {
 		if shouldSubmitTopics {
 			if err = gm.submitTopics(pendingTopics); err != nil {
 				log.Errorf("<%s> failed to submit topics: err=(%s)", gm.actorID, err)
-				nilOrTimeoutCh = time.After(gm.cfg.Consumer.BackOffTimeout)
+				nilOrTimeoutCh = time.After(gm.cfg.Consumer.RetryBackoff)
 				continue
 			}
 			log.Infof("<%s> submitted: topics=%v", gm.actorID, pendingTopics)
@@ -186,7 +186,7 @@ func (gm *T) run() {
 			members, nilOrGroupUpdatedCh, err = gm.groupZNode.WatchInstances()
 			if err != nil {
 				log.Errorf("<%s> failed to watch members: err=(%s)", gm.actorID, err)
-				nilOrTimeoutCh = time.After(gm.cfg.Consumer.BackOffTimeout)
+				nilOrTimeoutCh = time.After(gm.cfg.Consumer.RetryBackoff)
 				continue
 			}
 			shouldFetchMembers = false
@@ -202,7 +202,7 @@ func (gm *T) run() {
 			pendingSubscriptions, err = gm.fetchSubscriptions(members)
 			if err != nil {
 				log.Errorf("<%s> failed to fetch subscriptions: err=(%s)", gm.actorID, err)
-				nilOrTimeoutCh = time.After(gm.cfg.Consumer.BackOffTimeout)
+				nilOrTimeoutCh = time.After(gm.cfg.Consumer.RetryBackoff)
 				continue
 			}
 			shouldFetchSubscriptions = false

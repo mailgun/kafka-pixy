@@ -9,9 +9,35 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Shopify/sarama"
 	"github.com/pkg/errors"
 	"github.com/wvanbergen/kazoo-go"
 	"gopkg.in/yaml.v2"
+)
+
+const (
+	CompressionNone   = "none"
+	CompressionGZIP   = "gzip"
+	CompressionSnappy = "snappy"
+
+	ProdAckNoResponse = "no_response"
+	ProdAckWait4Local = "wait_for_local"
+	ProdAckWait4All   = "wait_for_all"
+)
+
+var (
+	compressionCodecs    = []string{CompressionNone, CompressionGZIP, CompressionSnappy}
+	compressionCodecsMap = map[string]sarama.CompressionCodec{
+		CompressionNone:   sarama.CompressionNone,
+		CompressionGZIP:   sarama.CompressionGZIP,
+		CompressionSnappy: sarama.CompressionSnappy,
+	}
+	producerAcks    = []string{ProdAckNoResponse, ProdAckWait4Local, ProdAckWait4All}
+	producerAcksMap = map[string]sarama.RequiredAcks{
+		ProdAckNoResponse: sarama.NoResponse,
+		ProdAckWait4Local: sarama.WaitForLocal,
+		ProdAckWait4All:   sarama.WaitForAll,
+	}
 )
 
 // App defines Kafka-Pixy application configuration. It mirrors the structure
@@ -67,6 +93,24 @@ type Proxy struct {
 		// Size of all buffered channels created by the producer module.
 		ChannelBufferSize int `yaml:"channel_buffer_size"`
 
+		// The type of compression to use on messages.
+		Compression string `yaml:"compression"`
+
+		// The best-effort number of bytes needed to trigger a flush.
+		FlushBytes int `yaml:"flush_bytes"`
+
+		// The best-effort frequency of flushes.
+		FlushFrequency time.Duration `yaml:"flush_frequency"`
+
+		// How long to wait for the cluster to settle between retries.
+		RetryBackoff time.Duration `yaml:"retry_backoff"`
+
+		// The total number of times to retry sending a message.
+		RetryMax int `yaml:"retry_max"`
+
+		// The level of acknowledgement reliability needed from the broker.
+		RequiredAcks string `yaml:"required_acks"`
+
 		// Period of time that Kafka-Pixy should keep trying to submit buffered
 		// messages to Kafka. It is recommended to make it large enough to survive
 		// a ZooKeeper leader election in your setup.
@@ -75,32 +119,39 @@ type Proxy struct {
 
 	Consumer struct {
 
+		// Period of time that Kafka-Pixy should wait for an acknowledgement
+		// before retrying. It must be less then RegistrationTimeout.
+		AckTimeout time.Duration `yaml:"ack_timeout"`
+
 		// Size of all buffered channels created by the consumer module.
 		ChannelBufferSize int `yaml:"channel_buffer_size"`
+
+		// The default number of message bytes to fetch from the broker in each
+		// request. This should be larger than the majority of your messages,
+		// or else the consumer will spend a lot of time negotiating sizes and
+		// not actually consuming.
+		FetchBytes int `yaml:"fetch_bytes"`
 
 		// Consume request will wait at most this long until a message from the
 		// specified group/topic becomes available.
 		LongPollingTimeout time.Duration `yaml:"long_polling_timeout"`
+
+		// How frequently to commit offsets to Kafka.
+		OffsetsCommitInterval time.Duration `yaml:"offsets_commit_interval"`
+
+		// Kafka-Pixy should wait this long after it gets notification that a
+		// consumer joined/left a consumer group it is a member of before
+		// rebalancing.
+		RebalanceDelay time.Duration `yaml:"rebalance_delay"`
 
 		// Period of time that Kafka-Pixy should keep registration with a
 		// consumer group or subscription for a topic in the absence of
 		// requests to the consumer group or topic.
 		RegistrationTimeout time.Duration `yaml:"registration_timeout"`
 
-		// Period of time that Kafka-Pixy should wait for an acknowledgement
-		// before retrying. It must be less then RegistrationTimeout.
-		AckTimeout time.Duration `yaml:"ack_timeout"`
-
 		// If a request to a Kafka-Pixy fails for any reason, then it should
 		// wait this long before retrying.
-		BackOffTimeout time.Duration `yaml:"backoff_timeout"`
-
-		// Consumer should wait this long after it gets notification that a
-		// consumer joined/left its consumer group before starting rebalancing.
-		RebalanceDelay time.Duration `yaml:"rebalance_delay"`
-
-		// How frequently to commit offsets to Kafka.
-		OffsetsCommitInterval time.Duration `yaml:"offsets_commit_interval"`
+		RetryBackoff time.Duration `yaml:"retry_backoff"`
 	} `yaml:"consumer"`
 }
 
@@ -114,6 +165,20 @@ func (p *Proxy) KazooCfg() *kazoo.Config {
 	// See http://zookeeper.apache.org/doc/trunk/zookeeperProgrammers.html#ch_zkSessions
 	kazooCfg.Timeout = 15 * time.Second
 	return kazooCfg
+}
+
+// SaramaProdCfg returns a config for sarama producer.
+func (p *Proxy) SaramaProdCfg() *sarama.Config {
+	saramaCfg := sarama.NewConfig()
+	saramaCfg.ChannelBufferSize = p.Producer.ChannelBufferSize
+	saramaCfg.ClientID = p.ClientID
+	saramaCfg.Producer.Compression = compressionCodecsMap[p.Producer.Compression]
+	saramaCfg.Producer.Flush.Frequency = p.Producer.FlushFrequency
+	saramaCfg.Producer.Flush.Bytes = p.Producer.FlushBytes
+	saramaCfg.Producer.Retry.Backoff = p.Producer.RetryBackoff
+	saramaCfg.Producer.Retry.Max = p.Producer.RetryMax
+	saramaCfg.Producer.RequiredAcks = producerAcksMap[p.Producer.RequiredAcks]
+	return saramaCfg
 }
 
 // DefaultApp returns default application configuration where default proxy has
@@ -207,25 +272,41 @@ func (p *Proxy) validate() error {
 	switch {
 	case p.Producer.ChannelBufferSize <= 0:
 		return errors.New("Producer.ChannelBufferSize must be > 0")
+	case p.Producer.FlushBytes < 0:
+		return errors.New("Producer.FlushBytes must be >= 0")
+	case p.Producer.FlushFrequency < 0:
+		return errors.New("Producer.FlushFrequency must be >= 0")
+	case p.Producer.RetryBackoff <= 0:
+		return errors.New("Producer.RetryBackoff must be > 0")
+	case p.Producer.RetryMax <= 0:
+		return errors.New("Producer.RetryMax must be > 0")
 	case p.Producer.ShutdownTimeout < 0:
 		return errors.New("Producer.ShutdownTimeout must be >= 0")
 	}
+	if _, ok := compressionCodecsMap[p.Producer.Compression]; !ok {
+		return errors.Errorf("Producer.Compression must be one of: %v", compressionCodecs)
+	}
+	if _, ok := producerAcksMap[p.Producer.RequiredAcks]; !ok {
+		return errors.Errorf("Producer.RequiredAcks must be one of: %v", producerAcks)
+	}
 	// Validate the Consumer parameters.
 	switch {
-	case p.Consumer.ChannelBufferSize <= 0:
-		return errors.New("Consumer.ChannelBufferSize must be > 0")
-	case p.Consumer.LongPollingTimeout <= 0:
-		return errors.New("Consumer.LongPollingTimeout must be > 0")
-	case p.Consumer.RegistrationTimeout <= 0:
-		return errors.New("Consumer.RegistrationTimeout must be > 0")
 	case p.Consumer.AckTimeout >= p.Consumer.RegistrationTimeout:
 		return errors.New("Consumer.AckTimeout must be < Consumer.RegistrationTimeout")
-	case p.Consumer.BackOffTimeout <= 0:
-		return errors.New("Consumer.BackOffTimeout must be > 0")
-	case p.Consumer.RebalanceDelay <= 0:
-		return errors.New("Consumer.RebalanceDelay must be > 0")
+	case p.Consumer.ChannelBufferSize <= 0:
+		return errors.New("Consumer.ChannelBufferSize must be > 0")
+	case p.Consumer.FetchBytes <= 0:
+		return errors.New("Consumer.FetchBytes must be > 0")
+	case p.Consumer.LongPollingTimeout <= 0:
+		return errors.New("Consumer.LongPollingTimeout must be > 0")
 	case p.Consumer.OffsetsCommitInterval <= 0:
 		return errors.New("Consumer.OffsetsCommitInterval must be > 0")
+	case p.Consumer.RebalanceDelay <= 0:
+		return errors.New("Consumer.RebalanceDelay must be > 0")
+	case p.Consumer.RegistrationTimeout <= 0:
+		return errors.New("Consumer.RegistrationTimeout must be > 0")
+	case p.Consumer.RetryBackoff <= 0:
+		return errors.New("Consumer.RetryBackoff must be > 0")
 	}
 	return nil
 }
@@ -245,15 +326,22 @@ func defaultProxyWithClientID(clientID string) *Proxy {
 	c.Kafka.SeedPeers = []string{"localhost:9092"}
 
 	c.Producer.ChannelBufferSize = 4096
+	c.Producer.Compression = CompressionSnappy
+	c.Producer.FlushFrequency = 500 * time.Millisecond
+	c.Producer.FlushBytes = 1024 * 1024
+	c.Producer.RequiredAcks = ProdAckWait4All
+	c.Producer.RetryBackoff = 10 * time.Second
+	c.Producer.RetryMax = 6
 	c.Producer.ShutdownTimeout = 30 * time.Second
 
-	c.Consumer.ChannelBufferSize = 64
-	c.Consumer.LongPollingTimeout = 3 * time.Second
-	c.Consumer.RegistrationTimeout = 20 * time.Second
 	c.Consumer.AckTimeout = 15 * time.Second
-	c.Consumer.BackOffTimeout = 500 * time.Millisecond
-	c.Consumer.RebalanceDelay = 250 * time.Millisecond
+	c.Consumer.ChannelBufferSize = 64
+	c.Consumer.FetchBytes = 1024 * 1024
+	c.Consumer.LongPollingTimeout = 3 * time.Second
 	c.Consumer.OffsetsCommitInterval = 500 * time.Millisecond
+	c.Consumer.RebalanceDelay = 250 * time.Millisecond
+	c.Consumer.RegistrationTimeout = 20 * time.Second
+	c.Consumer.RetryBackoff = 500 * time.Millisecond
 	return c
 }
 

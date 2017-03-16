@@ -317,7 +317,7 @@ func (om *offsetMgr) run() {
 		case <-om.nilOrReassignRetryTimerCh:
 			om.f.mapper.WorkerReassign() <- om
 			log.Infof("<%s> reassign triggered by timeout", om.actorID)
-			om.nilOrReassignRetryTimerCh = time.After(om.f.cfg.Consumer.BackOffTimeout)
+			om.nilOrReassignRetryTimerCh = time.After(om.f.cfg.Consumer.RetryBackoff)
 		}
 	}
 }
@@ -327,14 +327,14 @@ func (om *offsetMgr) triggerOrScheduleReassign(err error, reason string) {
 	om.assignedBrokerRequestsCh = nil
 	om.nilOrBrokerRequestsCh = nil
 	now := time.Now().UTC()
-	if now.Sub(om.lastReassignTime) > om.f.cfg.Consumer.BackOffTimeout {
+	if now.Sub(om.lastReassignTime) > om.f.cfg.Consumer.RetryBackoff {
 		log.Infof("<%s> trigger reassign: reason=%s, err=(%s)", om.actorID, reason, err)
 		om.lastReassignTime = now
 		om.f.mapper.WorkerReassign() <- om
 	} else {
 		log.Infof("<%s> schedule reassign: reason=%s, err=(%s)", om.actorID, reason, err)
 	}
-	om.nilOrReassignRetryTimerCh = time.After(om.f.cfg.Consumer.BackOffTimeout)
+	om.nilOrReassignRetryTimerCh = time.After(om.f.cfg.Consumer.RetryBackoff)
 }
 
 func (om *offsetMgr) fetchInitialOffset(conn *sarama.Broker) (Offset, error) {
@@ -471,7 +471,7 @@ offsetCommitLoop:
 			// Ignore submit requests for awhile after a connection failure to
 			// allow the Kafka cluster some time to recuperate. Ignored requests
 			// will be retried by originating partition offset managers.
-			if time.Now().UTC().Sub(lastErrTime) < be.cfg.Consumer.BackOffTimeout {
+			if time.Now().UTC().Sub(lastErrTime) < be.cfg.Consumer.RetryBackoff {
 				continue offsetCommitLoop
 			}
 			nilOrBatchRequestsCh = nil

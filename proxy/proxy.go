@@ -90,9 +90,6 @@ func Spawn(namespace *actor.ID, name string, cfg *config.Proxy) (*T, error) {
 	saramaCfg := sarama.NewConfig()
 	saramaCfg.ClientID = cfg.ClientID
 	saramaCfg.ChannelBufferSize = cfg.Consumer.ChannelBufferSize
-	saramaCfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
-	saramaCfg.Consumer.Retry.Backoff = cfg.Consumer.BackOffTimeout
-	saramaCfg.Consumer.Fetch.Default = 1024 * 1024
 	if p.kafkaClt, err = sarama.NewClient(cfg.Kafka.SeedPeers, saramaCfg); err != nil {
 		return nil, errors.Wrap(err, "failed to create Kafka client")
 	}
