@@ -8,17 +8,18 @@ tcp_addr: 0.0.0.0:19092
 # Listening on a unix domain socket is disabled by default.
 # unix_addr: "/var/run/kafka-pixy.sock"
 
-# An arbitrary number of proxies to different Kafka/ZooKeeper clusters can be
+# An arbitrary number of proxies to different Kafka+ZooKeeper clusters can be
 # configured.
 proxies:
 
-  # The name of this parameter defines an alias to be used in `/proxy/<alias>`
-  # prefixed API calls to access a particular Kafka/ZooKeeper cluster that
+  # The name of this parameter defines an alias to be used in `/clusters/<cluster>`
+  # prefixed API calls to access a particular Kafka+ZooKeeper cluster that
   # configuration is provided as a value of this parameter.
   #
-  # Note that naming a proxy `default` does not make it default. The default
-  # proxy is the one that is listed first in the `proxies` section. The default
-  # proxy is used in API calls that do not start with `/proxy/<alias>` prefix.
+  # Note that naming a cluster `default` does not make it default. The default
+  # cluster is the one that is listed first in the `proxies` section. The
+  # default cluster is used in API calls that do not start with
+  # `/clusters/<cluster>` prefix.
   default:
 
     # Unique ID that identifies a Kafka-Pixy instance in both ZooKeeper and

@@ -56,12 +56,12 @@ func main() {
 				defer wg.Done()
 				startedAt := time.Now()
 				// Consume first message.
-				req := pb.ConsNAckReq{
+				req := pb.ConsNAckRq{
 					Topic: topic,
 					Group: group,
 					NoAck: true,
 				}
-				var res *pb.ConsRes
+				var res *pb.ConsRs
 				for {
 					res, err = clt.ConsumeNAck(context.Background(), &req)
 					if err != nil {
@@ -78,7 +78,7 @@ func main() {
 				ackPartition := res.Partition
 				ackOffset := res.Offset
 				for i := 1; i < chunkSize; i++ {
-					req := pb.ConsNAckReq{
+					req := pb.ConsNAckRq{
 						Topic:        topic,
 						Group:        group,
 						AckPartition: ackPartition,
@@ -97,7 +97,7 @@ func main() {
 
 				}
 				// Ack the last consumed message.
-				ackReq := pb.AckReq{
+				ackReq := pb.AckRq{
 					Topic:     topic,
 					Group:     group,
 					Partition: ackPartition,

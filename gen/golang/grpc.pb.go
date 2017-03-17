@@ -9,12 +9,12 @@ It is generated from these files:
 	grpc.proto
 
 It has these top-level messages:
-	ProdReq
-	ProdRes
-	ConsNAckReq
-	ConsRes
-	AckReq
-	AckRes
+	ProdRq
+	ProdRs
+	ConsNAckRq
+	ConsRs
+	AckRq
+	AckRs
 */
 package pb
 
@@ -38,10 +38,10 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
 
-type ProdReq struct {
-	// Name of a proxy (Kafka cluster) to operate on. Default proxy is used by
+type ProdRq struct {
+	// Name of a Kafka cluster to operate on. Default proxy is used by
 	// default.
-	Proxy string `protobuf:"bytes,1,opt,name=proxy" json:"proxy,omitempty"`
+	Cluster string `protobuf:"bytes,1,opt,name=cluster" json:"cluster,omitempty"`
 	// Name of a topic to produce to.
 	Topic string `protobuf:"bytes,2,opt,name=topic" json:"topic,omitempty"`
 	// Hash of the key is used to determine the partition to produce to. By
@@ -62,54 +62,54 @@ type ProdReq struct {
 	AsyncMode bool `protobuf:"varint,6,opt,name=async_mode,json=asyncMode" json:"async_mode,omitempty"`
 }
 
-func (m *ProdReq) Reset()                    { *m = ProdReq{} }
-func (m *ProdReq) String() string            { return proto.CompactTextString(m) }
-func (*ProdReq) ProtoMessage()               {}
-func (*ProdReq) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{0} }
+func (m *ProdRq) Reset()                    { *m = ProdRq{} }
+func (m *ProdRq) String() string            { return proto.CompactTextString(m) }
+func (*ProdRq) ProtoMessage()               {}
+func (*ProdRq) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{0} }
 
-func (m *ProdReq) GetProxy() string {
+func (m *ProdRq) GetCluster() string {
 	if m != nil {
-		return m.Proxy
+		return m.Cluster
 	}
 	return ""
 }
 
-func (m *ProdReq) GetTopic() string {
+func (m *ProdRq) GetTopic() string {
 	if m != nil {
 		return m.Topic
 	}
 	return ""
 }
 
-func (m *ProdReq) GetKeyValue() []byte {
+func (m *ProdRq) GetKeyValue() []byte {
 	if m != nil {
 		return m.KeyValue
 	}
 	return nil
 }
 
-func (m *ProdReq) GetKeyUndefined() bool {
+func (m *ProdRq) GetKeyUndefined() bool {
 	if m != nil {
 		return m.KeyUndefined
 	}
 	return false
 }
 
-func (m *ProdReq) GetMessage() []byte {
+func (m *ProdRq) GetMessage() []byte {
 	if m != nil {
 		return m.Message
 	}
 	return nil
 }
 
-func (m *ProdReq) GetAsyncMode() bool {
+func (m *ProdRq) GetAsyncMode() bool {
 	if m != nil {
 		return m.AsyncMode
 	}
 	return false
 }
 
-type ProdRes struct {
+type ProdRs struct {
 	// Partition the message was written to. The value only makes sense if
 	// ProdReq.async_mode was false.
 	Partition int32 `protobuf:"varint,1,opt,name=partition" json:"partition,omitempty"`
@@ -118,29 +118,29 @@ type ProdRes struct {
 	Offset int64 `protobuf:"varint,2,opt,name=offset" json:"offset,omitempty"`
 }
 
-func (m *ProdRes) Reset()                    { *m = ProdRes{} }
-func (m *ProdRes) String() string            { return proto.CompactTextString(m) }
-func (*ProdRes) ProtoMessage()               {}
-func (*ProdRes) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{1} }
+func (m *ProdRs) Reset()                    { *m = ProdRs{} }
+func (m *ProdRs) String() string            { return proto.CompactTextString(m) }
+func (*ProdRs) ProtoMessage()               {}
+func (*ProdRs) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{1} }
 
-func (m *ProdRes) GetPartition() int32 {
+func (m *ProdRs) GetPartition() int32 {
 	if m != nil {
 		return m.Partition
 	}
 	return 0
 }
 
-func (m *ProdRes) GetOffset() int64 {
+func (m *ProdRs) GetOffset() int64 {
 	if m != nil {
 		return m.Offset
 	}
 	return 0
 }
 
-type ConsNAckReq struct {
-	// Name of a proxy (Kafka cluster) to operate on. Default proxy is used by
+type ConsNAckRq struct {
+	// Name of a Kafka cluster to operate on. Default proxy is used by
 	// default.
-	Proxy string `protobuf:"bytes,1,opt,name=proxy" json:"proxy,omitempty"`
+	Cluster string `protobuf:"bytes,1,opt,name=cluster" json:"cluster,omitempty"`
 	// Name of a topic to produce to.
 	Topic string `protobuf:"bytes,2,opt,name=topic" json:"topic,omitempty"`
 	// Name of a consumer group.
@@ -157,61 +157,61 @@ type ConsNAckReq struct {
 	AckOffset    int64 `protobuf:"varint,7,opt,name=ack_offset,json=ackOffset" json:"ack_offset,omitempty"`
 }
 
-func (m *ConsNAckReq) Reset()                    { *m = ConsNAckReq{} }
-func (m *ConsNAckReq) String() string            { return proto.CompactTextString(m) }
-func (*ConsNAckReq) ProtoMessage()               {}
-func (*ConsNAckReq) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{2} }
+func (m *ConsNAckRq) Reset()                    { *m = ConsNAckRq{} }
+func (m *ConsNAckRq) String() string            { return proto.CompactTextString(m) }
+func (*ConsNAckRq) ProtoMessage()               {}
+func (*ConsNAckRq) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{2} }
 
-func (m *ConsNAckReq) GetProxy() string {
+func (m *ConsNAckRq) GetCluster() string {
 	if m != nil {
-		return m.Proxy
+		return m.Cluster
 	}
 	return ""
 }
 
-func (m *ConsNAckReq) GetTopic() string {
+func (m *ConsNAckRq) GetTopic() string {
 	if m != nil {
 		return m.Topic
 	}
 	return ""
 }
 
-func (m *ConsNAckReq) GetGroup() string {
+func (m *ConsNAckRq) GetGroup() string {
 	if m != nil {
 		return m.Group
 	}
 	return ""
 }
 
-func (m *ConsNAckReq) GetNoAck() bool {
+func (m *ConsNAckRq) GetNoAck() bool {
 	if m != nil {
 		return m.NoAck
 	}
 	return false
 }
 
-func (m *ConsNAckReq) GetAutoAck() bool {
+func (m *ConsNAckRq) GetAutoAck() bool {
 	if m != nil {
 		return m.AutoAck
 	}
 	return false
 }
 
-func (m *ConsNAckReq) GetAckPartition() int32 {
+func (m *ConsNAckRq) GetAckPartition() int32 {
 	if m != nil {
 		return m.AckPartition
 	}
 	return 0
 }
 
-func (m *ConsNAckReq) GetAckOffset() int64 {
+func (m *ConsNAckRq) GetAckOffset() int64 {
 	if m != nil {
 		return m.AckOffset
 	}
 	return 0
 }
 
-type ConsRes struct {
+type ConsRs struct {
 	// Partition the message was read from.
 	Partition int32 `protobuf:"varint,1,opt,name=partition" json:"partition,omitempty"`
 	// Offset of the read message in the partition.
@@ -225,50 +225,50 @@ type ConsRes struct {
 	Message []byte `protobuf:"bytes,5,opt,name=message,proto3" json:"message,omitempty"`
 }
 
-func (m *ConsRes) Reset()                    { *m = ConsRes{} }
-func (m *ConsRes) String() string            { return proto.CompactTextString(m) }
-func (*ConsRes) ProtoMessage()               {}
-func (*ConsRes) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{3} }
+func (m *ConsRs) Reset()                    { *m = ConsRs{} }
+func (m *ConsRs) String() string            { return proto.CompactTextString(m) }
+func (*ConsRs) ProtoMessage()               {}
+func (*ConsRs) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{3} }
 
-func (m *ConsRes) GetPartition() int32 {
+func (m *ConsRs) GetPartition() int32 {
 	if m != nil {
 		return m.Partition
 	}
 	return 0
 }
 
-func (m *ConsRes) GetOffset() int64 {
+func (m *ConsRs) GetOffset() int64 {
 	if m != nil {
 		return m.Offset
 	}
 	return 0
 }
 
-func (m *ConsRes) GetKeyValue() []byte {
+func (m *ConsRs) GetKeyValue() []byte {
 	if m != nil {
 		return m.KeyValue
 	}
 	return nil
 }
 
-func (m *ConsRes) GetKeyUndefined() bool {
+func (m *ConsRs) GetKeyUndefined() bool {
 	if m != nil {
 		return m.KeyUndefined
 	}
 	return false
 }
 
-func (m *ConsRes) GetMessage() []byte {
+func (m *ConsRs) GetMessage() []byte {
 	if m != nil {
 		return m.Message
 	}
 	return nil
 }
 
-type AckReq struct {
+type AckRq struct {
 	// Name of a proxy (Kafka cluster) to operate on. Default proxy is used by
 	// default.
-	Proxy string `protobuf:"bytes,1,opt,name=proxy" json:"proxy,omitempty"`
+	Cluster string `protobuf:"bytes,1,opt,name=cluster" json:"cluster,omitempty"`
 	// Name of a topic to produce to.
 	Topic string `protobuf:"bytes,2,opt,name=topic" json:"topic,omitempty"`
 	// Name of a consumer group.
@@ -279,61 +279,61 @@ type AckReq struct {
 	Offset int64 `protobuf:"varint,5,opt,name=offset" json:"offset,omitempty"`
 }
 
-func (m *AckReq) Reset()                    { *m = AckReq{} }
-func (m *AckReq) String() string            { return proto.CompactTextString(m) }
-func (*AckReq) ProtoMessage()               {}
-func (*AckReq) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{4} }
+func (m *AckRq) Reset()                    { *m = AckRq{} }
+func (m *AckRq) String() string            { return proto.CompactTextString(m) }
+func (*AckRq) ProtoMessage()               {}
+func (*AckRq) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{4} }
 
-func (m *AckReq) GetProxy() string {
+func (m *AckRq) GetCluster() string {
 	if m != nil {
-		return m.Proxy
+		return m.Cluster
 	}
 	return ""
 }
 
-func (m *AckReq) GetTopic() string {
+func (m *AckRq) GetTopic() string {
 	if m != nil {
 		return m.Topic
 	}
 	return ""
 }
 
-func (m *AckReq) GetGroup() string {
+func (m *AckRq) GetGroup() string {
 	if m != nil {
 		return m.Group
 	}
 	return ""
 }
 
-func (m *AckReq) GetPartition() int32 {
+func (m *AckRq) GetPartition() int32 {
 	if m != nil {
 		return m.Partition
 	}
 	return 0
 }
 
-func (m *AckReq) GetOffset() int64 {
+func (m *AckRq) GetOffset() int64 {
 	if m != nil {
 		return m.Offset
 	}
 	return 0
 }
 
-type AckRes struct {
+type AckRs struct {
 }
 
-func (m *AckRes) Reset()                    { *m = AckRes{} }
-func (m *AckRes) String() string            { return proto.CompactTextString(m) }
-func (*AckRes) ProtoMessage()               {}
-func (*AckRes) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{5} }
+func (m *AckRs) Reset()                    { *m = AckRs{} }
+func (m *AckRs) String() string            { return proto.CompactTextString(m) }
+func (*AckRs) ProtoMessage()               {}
+func (*AckRs) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{5} }
 
 func init() {
-	proto.RegisterType((*ProdReq)(nil), "ProdReq")
-	proto.RegisterType((*ProdRes)(nil), "ProdRes")
-	proto.RegisterType((*ConsNAckReq)(nil), "ConsNAckReq")
-	proto.RegisterType((*ConsRes)(nil), "ConsRes")
-	proto.RegisterType((*AckReq)(nil), "AckReq")
-	proto.RegisterType((*AckRes)(nil), "AckRes")
+	proto.RegisterType((*ProdRq)(nil), "ProdRq")
+	proto.RegisterType((*ProdRs)(nil), "ProdRs")
+	proto.RegisterType((*ConsNAckRq)(nil), "ConsNAckRq")
+	proto.RegisterType((*ConsRs)(nil), "ConsRs")
+	proto.RegisterType((*AckRq)(nil), "AckRq")
+	proto.RegisterType((*AckRs)(nil), "AckRs")
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -367,11 +367,9 @@ type KafkaPixyClient interface {
 	// string.
 	//
 	// gRPC error codes:
-	//  * 3: invalid argument, see the status description for details;
-	//  * 404: topic does not exist (if Kafka cluster is not configured to
-	//         automatically create topics);
-	//  * 500: internal error, see the status description and logs for details;
-	Produce(ctx context.Context, in *ProdReq, opts ...grpc.CallOption) (*ProdRes, error)
+	//  * Invalid Argument (3): see the status description for details;
+	//  * Internal (13): see the status description and logs for details;
+	Produce(ctx context.Context, in *ProdRq, opts ...grpc.CallOption) (*ProdRs, error)
 	// Consume reads a message from a topic and optionally acknowledges a
 	// message previously consumed from the same topic.
 	//
@@ -397,14 +395,15 @@ type KafkaPixyClient interface {
 	// messages automatically before returning them in ConsRes.
 	//
 	// gRPC error codes:
-	//  * 3: invalid argument, see the status description for details;
-	//  * 408: long polling timeout. It just means that all message has been
-	//         consumed. Just keep calling this method in a loop;
-	//  * 429: too many consume requests. Either reduce the number of consuming
-	//         threads or increase
-	//         config.yaml:proxies.<proxy>.consumer.channel_buffer_size;
-	//  * 500: internal error, see the status description and logs for details;
-	ConsumeNAck(ctx context.Context, in *ConsNAckReq, opts ...grpc.CallOption) (*ConsRes, error)
+	//  * Not Found (5): It just means that all message has been consumed and
+	//    the long polling timeout has elaspsed. Just keep calling this method
+	//    in a loop;
+	//  * Resource Exhausted (8): too many consume requests. Either reduce the
+	//    number of consuming threads or increase
+	//    config.yaml:proxies.<proxy>.consumer.channel_buffer_size;
+	//  * Invalid Argument (3): see the status description for details;
+	//  * Internal (13): see the status description and logs for details;
+	ConsumeNAck(ctx context.Context, in *ConsNAckRq, opts ...grpc.CallOption) (*ConsRs, error)
 	// Ack acknowledges a message earlier consumed from a topic.
 	//
 	// This method is provided solely to acknowledge the last consumed message
@@ -412,9 +411,9 @@ type KafkaPixyClient interface {
 	// be used.
 	//
 	// gRPC error codes:
-	//  * 3: invalid argument, see the status description for details;
-	//  * 500: internal error, see the status description and logs for details;
-	Ack(ctx context.Context, in *AckReq, opts ...grpc.CallOption) (*AckRes, error)
+	//  * Invalid Argument (3): see the status description for details;
+	//  * Internal (13): see the status description and logs for details;
+	Ack(ctx context.Context, in *AckRq, opts ...grpc.CallOption) (*AckRs, error)
 }
 
 type kafkaPixyClient struct {
@@ -425,8 +424,8 @@ func NewKafkaPixyClient(cc *grpc.ClientConn) KafkaPixyClient {
 	return &kafkaPixyClient{cc}
 }
 
-func (c *kafkaPixyClient) Produce(ctx context.Context, in *ProdReq, opts ...grpc.CallOption) (*ProdRes, error) {
-	out := new(ProdRes)
+func (c *kafkaPixyClient) Produce(ctx context.Context, in *ProdRq, opts ...grpc.CallOption) (*ProdRs, error) {
+	out := new(ProdRs)
 	err := grpc.Invoke(ctx, "/KafkaPixy/Produce", in, out, c.cc, opts...)
 	if err != nil {
 		return nil, err
@@ -434,8 +433,8 @@ func (c *kafkaPixyClient) Produce(ctx context.Context, in *ProdReq, opts ...grpc
 	return out, nil
 }
 
-func (c *kafkaPixyClient) ConsumeNAck(ctx context.Context, in *ConsNAckReq, opts ...grpc.CallOption) (*ConsRes, error) {
-	out := new(ConsRes)
+func (c *kafkaPixyClient) ConsumeNAck(ctx context.Context, in *ConsNAckRq, opts ...grpc.CallOption) (*ConsRs, error) {
+	out := new(ConsRs)
 	err := grpc.Invoke(ctx, "/KafkaPixy/ConsumeNAck", in, out, c.cc, opts...)
 	if err != nil {
 		return nil, err
@@ -443,8 +442,8 @@ func (c *kafkaPixyClient) ConsumeNAck(ctx context.Context, in *ConsNAckReq, opts
 	return out, nil
 }
 
-func (c *kafkaPixyClient) Ack(ctx context.Context, in *AckReq, opts ...grpc.CallOption) (*AckRes, error) {
-	out := new(AckRes)
+func (c *kafkaPixyClient) Ack(ctx context.Context, in *AckRq, opts ...grpc.CallOption) (*AckRs, error) {
+	out := new(AckRs)
 	err := grpc.Invoke(ctx, "/KafkaPixy/Ack", in, out, c.cc, opts...)
 	if err != nil {
 		return nil, err
@@ -475,11 +474,9 @@ type KafkaPixyServer interface {
 	// string.
 	//
 	// gRPC error codes:
-	//  * 3: invalid argument, see the status description for details;
-	//  * 404: topic does not exist (if Kafka cluster is not configured to
-	//         automatically create topics);
-	//  * 500: internal error, see the status description and logs for details;
-	Produce(context.Context, *ProdReq) (*ProdRes, error)
+	//  * Invalid Argument (3): see the status description for details;
+	//  * Internal (13): see the status description and logs for details;
+	Produce(context.Context, *ProdRq) (*ProdRs, error)
 	// Consume reads a message from a topic and optionally acknowledges a
 	// message previously consumed from the same topic.
 	//
@@ -505,14 +502,15 @@ type KafkaPixyServer interface {
 	// messages automatically before returning them in ConsRes.
 	//
 	// gRPC error codes:
-	//  * 3: invalid argument, see the status description for details;
-	//  * 408: long polling timeout. It just means that all message has been
-	//         consumed. Just keep calling this method in a loop;
-	//  * 429: too many consume requests. Either reduce the number of consuming
-	//         threads or increase
-	//         config.yaml:proxies.<proxy>.consumer.channel_buffer_size;
-	//  * 500: internal error, see the status description and logs for details;
-	ConsumeNAck(context.Context, *ConsNAckReq) (*ConsRes, error)
+	//  * Not Found (5): It just means that all message has been consumed and
+	//    the long polling timeout has elaspsed. Just keep calling this method
+	//    in a loop;
+	//  * Resource Exhausted (8): too many consume requests. Either reduce the
+	//    number of consuming threads or increase
+	//    config.yaml:proxies.<proxy>.consumer.channel_buffer_size;
+	//  * Invalid Argument (3): see the status description for details;
+	//  * Internal (13): see the status description and logs for details;
+	ConsumeNAck(context.Context, *ConsNAckRq) (*ConsRs, error)
 	// Ack acknowledges a message earlier consumed from a topic.
 	//
 	// This method is provided solely to acknowledge the last consumed message
@@ -520,9 +518,9 @@ type KafkaPixyServer interface {
 	// be used.
 	//
 	// gRPC error codes:
-	//  * 3: invalid argument, see the status description for details;
-	//  * 500: internal error, see the status description and logs for details;
-	Ack(context.Context, *AckReq) (*AckRes, error)
+	//  * Invalid Argument (3): see the status description for details;
+	//  * Internal (13): see the status description and logs for details;
+	Ack(context.Context, *AckRq) (*AckRs, error)
 }
 
 func RegisterKafkaPixyServer(s *grpc.Server, srv KafkaPixyServer) {
@@ -530,7 +528,7 @@ func RegisterKafkaPixyServer(s *grpc.Server, srv KafkaPixyServer) {
 }
 
 func _KafkaPixy_Produce_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ProdReq)
+	in := new(ProdRq)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -542,13 +540,13 @@ func _KafkaPixy_Produce_Handler(srv interface{}, ctx context.Context, dec func(i
 		FullMethod: "/KafkaPixy/Produce",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(KafkaPixyServer).Produce(ctx, req.(*ProdReq))
+		return srv.(KafkaPixyServer).Produce(ctx, req.(*ProdRq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _KafkaPixy_ConsumeNAck_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ConsNAckReq)
+	in := new(ConsNAckRq)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -560,13 +558,13 @@ func _KafkaPixy_ConsumeNAck_Handler(srv interface{}, ctx context.Context, dec fu
 		FullMethod: "/KafkaPixy/ConsumeNAck",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(KafkaPixyServer).ConsumeNAck(ctx, req.(*ConsNAckReq))
+		return srv.(KafkaPixyServer).ConsumeNAck(ctx, req.(*ConsNAckRq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _KafkaPixy_Ack_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(AckReq)
+	in := new(AckRq)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -578,7 +576,7 @@ func _KafkaPixy_Ack_Handler(srv interface{}, ctx context.Context, dec func(inter
 		FullMethod: "/KafkaPixy/Ack",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(KafkaPixyServer).Ack(ctx, req.(*AckReq))
+		return srv.(KafkaPixyServer).Ack(ctx, req.(*AckRq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -607,31 +605,31 @@ var _KafkaPixy_serviceDesc = grpc.ServiceDesc{
 func init() { proto.RegisterFile("grpc.proto", fileDescriptor0) }
 
 var fileDescriptor0 = []byte{
-	// 406 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0xb4, 0x93, 0x4f, 0x8e, 0xd3, 0x30,
-	0x18, 0xc5, 0xeb, 0xb6, 0xf9, 0xf7, 0x91, 0x6e, 0xac, 0x82, 0xd2, 0x02, 0xa2, 0x4a, 0x17, 0x74,
-	0x95, 0x05, 0x1c, 0x00, 0x15, 0x96, 0x08, 0xa8, 0x22, 0xc1, 0x82, 0x4d, 0xe4, 0x3a, 0x4e, 0x15,
-	0x99, 0xc6, 0x26, 0x4e, 0x50, 0xb3, 0xe3, 0x1e, 0x5c, 0x82, 0x4b, 0xcc, 0xbd, 0x46, 0x76, 0x9c,
-	0xe9, 0x74, 0x31, 0x8b, 0x19, 0xcd, 0xec, 0xfc, 0xbe, 0x17, 0x4b, 0xef, 0xf7, 0xf9, 0x05, 0xe0,
-	0x50, 0x4b, 0x9a, 0xc8, 0x5a, 0x34, 0x22, 0xfe, 0x8f, 0xc0, 0xdb, 0xd5, 0x22, 0x4f, 0xd9, 0x6f,
-	0x3c, 0x07, 0x47, 0xd6, 0xe2, 0xd4, 0x45, 0x68, 0x85, 0x36, 0x41, 0xda, 0x0b, 0x3d, 0x6d, 0x84,
-	0x2c, 0x69, 0x34, 0xee, 0xa7, 0x46, 0xe0, 0x97, 0x10, 0x70, 0xd6, 0x65, 0x7f, 0xc8, 0xaf, 0x96,
-	0x45, 0x93, 0x15, 0xda, 0x84, 0xa9, 0xcf, 0x59, 0xf7, 0x43, 0x6b, 0xbc, 0x86, 0x99, 0x36, 0xdb,
-	0x2a, 0x67, 0x45, 0x59, 0xb1, 0x3c, 0x9a, 0xae, 0xd0, 0xc6, 0x4f, 0x43, 0xce, 0xba, 0xef, 0xc3,
-	0x0c, 0x47, 0xe0, 0x1d, 0x99, 0x52, 0xe4, 0xc0, 0x22, 0xc7, 0xdc, 0x1f, 0x24, 0x7e, 0x0d, 0x40,
-	0x54, 0x57, 0xd1, 0xec, 0x28, 0x72, 0x16, 0xb9, 0xe6, 0x6e, 0x60, 0x26, 0x5f, 0x44, 0xce, 0xe2,
-	0x0f, 0x43, 0x62, 0x85, 0x5f, 0x41, 0x20, 0x49, 0xdd, 0x94, 0x4d, 0x29, 0x2a, 0x93, 0xda, 0x49,
-	0xcf, 0x03, 0xfc, 0x02, 0x5c, 0x51, 0x14, 0x8a, 0x35, 0x26, 0xfa, 0x24, 0xb5, 0x2a, 0xbe, 0x42,
-	0xf0, 0xec, 0x93, 0xa8, 0xd4, 0xd7, 0x2d, 0xe5, 0xf7, 0xe5, 0x9e, 0x83, 0x73, 0xa8, 0x45, 0x2b,
-	0x0d, 0x73, 0x90, 0xf6, 0x02, 0x3f, 0x07, 0xb7, 0x12, 0x19, 0xa1, 0xdc, 0x92, 0x3a, 0x95, 0xd8,
-	0x52, 0x8e, 0x17, 0xe0, 0x93, 0xb6, 0xe9, 0x0d, 0xc7, 0x18, 0x9e, 0xd6, 0xda, 0x5a, 0xc3, 0x8c,
-	0x50, 0x9e, 0x9d, 0xd3, 0xbb, 0x26, 0x7d, 0x48, 0x28, 0xdf, 0xdd, 0x00, 0xe8, 0x45, 0x50, 0x9e,
-	0x59, 0x08, 0xcf, 0x40, 0x04, 0x84, 0xf2, 0x6f, 0x3d, 0xc7, 0x3f, 0x04, 0x9e, 0xe6, 0x78, 0xf0,
-	0x26, 0x9e, 0xf2, 0x15, 0xe3, 0xbf, 0x08, 0xdc, 0x47, 0x5b, 0xf0, 0x05, 0xde, 0xf4, 0x6e, 0x3c,
-	0xe7, 0xe2, 0xa1, 0x7d, 0x9b, 0x40, 0xbd, 0x93, 0x10, 0x7c, 0x26, 0x05, 0x27, 0xbb, 0xf2, 0xd4,
-	0xe1, 0x37, 0x7d, 0x81, 0x5a, 0xca, 0xb0, 0x9f, 0xd8, 0xf2, 0x2f, 0x87, 0x93, 0x8a, 0x47, 0xf8,
-	0x6d, 0xdf, 0x8f, 0xf6, 0xc8, 0x74, 0x45, 0x70, 0x98, 0xdc, 0x6a, 0xcb, 0xd2, 0x4f, 0xec, 0xce,
-	0xe3, 0x11, 0x5e, 0xc0, 0x44, 0x7f, 0xe0, 0x25, 0xd6, 0xb3, 0x07, 0x15, 0x8f, 0x3e, 0x4e, 0x7f,
-	0x8e, 0xe5, 0x7e, 0xef, 0x9a, 0xbf, 0xec, 0xfd, 0x75, 0x00, 0x00, 0x00, 0xff, 0xff, 0xdd, 0xc8,
-	0x65, 0x82, 0x73, 0x03, 0x00, 0x00,
+	// 408 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0xb4, 0x93, 0xc1, 0x8e, 0xd3, 0x30,
+	0x10, 0x86, 0xeb, 0xb6, 0x76, 0x9a, 0x69, 0x7b, 0xb1, 0x0a, 0x84, 0x42, 0xa5, 0x2a, 0x15, 0x52,
+	0x4f, 0x39, 0xc0, 0x1d, 0xa9, 0x70, 0x44, 0x40, 0x15, 0x09, 0x0e, 0x5c, 0x22, 0xd7, 0x71, 0xaa,
+	0xe0, 0x36, 0x0e, 0x71, 0x82, 0xc8, 0x99, 0xb7, 0xd8, 0xd7, 0xd8, 0x97, 0xd8, 0xc7, 0x5a, 0xd9,
+	0x4e, 0xb7, 0xea, 0x61, 0x2f, 0xd5, 0xee, 0x29, 0xf9, 0xe7, 0x97, 0xe5, 0xf9, 0x7e, 0xcf, 0x00,
+	0xec, 0xab, 0x92, 0x47, 0x65, 0xa5, 0x6a, 0x15, 0xde, 0x22, 0x20, 0xdb, 0x4a, 0xa5, 0xf1, 0x1f,
+	0x1a, 0x80, 0xc7, 0x0f, 0x8d, 0xae, 0x45, 0x15, 0xa0, 0x25, 0x5a, 0xfb, 0xf1, 0x49, 0xd2, 0x19,
+	0xe0, 0x5a, 0x95, 0x39, 0x0f, 0xfa, 0xb6, 0xee, 0x04, 0x7d, 0x03, 0xbe, 0x14, 0x6d, 0xf2, 0x97,
+	0x1d, 0x1a, 0x11, 0x0c, 0x96, 0x68, 0x3d, 0x89, 0x47, 0x52, 0xb4, 0x3f, 0x8d, 0xa6, 0x2b, 0x98,
+	0x1a, 0xb3, 0x29, 0x52, 0x91, 0xe5, 0x85, 0x48, 0x83, 0xe1, 0x12, 0xad, 0x47, 0xf1, 0x44, 0x8a,
+	0xf6, 0xc7, 0xa9, 0x66, 0x6e, 0x3c, 0x0a, 0xad, 0xd9, 0x5e, 0x04, 0xd8, 0x9e, 0x3f, 0x49, 0xba,
+	0x00, 0x60, 0xba, 0x2d, 0x78, 0x72, 0x54, 0xa9, 0x08, 0x88, 0x3d, 0xeb, 0xdb, 0xca, 0x57, 0x95,
+	0x8a, 0xf0, 0x63, 0xd7, 0xb4, 0xa6, 0x6f, 0xc1, 0x2f, 0x59, 0x55, 0xe7, 0x75, 0xae, 0x0a, 0xdb,
+	0x36, 0x8e, 0xcf, 0x05, 0xfa, 0x12, 0x88, 0xca, 0x32, 0x2d, 0x6a, 0xdb, 0xf9, 0x20, 0xee, 0x54,
+	0x78, 0x87, 0x00, 0x3e, 0xab, 0x42, 0x7f, 0xdb, 0x70, 0x79, 0x05, 0xf9, 0x0c, 0xf0, 0xbe, 0x52,
+	0x4d, 0x69, 0xa9, 0xfd, 0xd8, 0x09, 0xfa, 0x02, 0x48, 0xa1, 0x12, 0xc6, 0x65, 0xc7, 0x8a, 0x0b,
+	0xb5, 0xe1, 0x92, 0xbe, 0x86, 0x11, 0x6b, 0x6a, 0x67, 0x60, 0x6b, 0x78, 0x46, 0x1b, 0x6b, 0x05,
+	0x53, 0xc6, 0x65, 0x72, 0x06, 0x20, 0x16, 0x60, 0xc2, 0xb8, 0xdc, 0x3e, 0x30, 0x98, 0x28, 0xb8,
+	0x4c, 0x3a, 0x0e, 0xcf, 0x72, 0xf8, 0x8c, 0xcb, 0xef, 0x0e, 0xe5, 0x06, 0x01, 0x31, 0x28, 0xd7,
+	0x66, 0xf1, 0x9c, 0xcf, 0x18, 0xfe, 0x47, 0x80, 0x9f, 0x32, 0xe2, 0x0b, 0xc2, 0xe1, 0xe3, 0x84,
+	0xf8, 0xe2, 0xb5, 0x3d, 0xd7, 0x84, 0x7e, 0xff, 0x1b, 0xfc, 0x2f, 0x2c, 0x93, 0x6c, 0x9b, 0xff,
+	0x6b, 0xe9, 0x02, 0x3c, 0x33, 0x43, 0x0d, 0x17, 0xd4, 0x8b, 0xdc, 0x0a, 0xcc, 0xbb, 0x1f, 0x1d,
+	0xf6, 0xe8, 0x3b, 0x18, 0x9b, 0x58, 0x9b, 0xa3, 0x30, 0x43, 0x42, 0xc7, 0xd1, 0x79, 0x5e, 0xe6,
+	0x5e, 0xe4, 0x12, 0x0f, 0x7b, 0xf4, 0x15, 0x0c, 0x8c, 0x4d, 0x22, 0xe7, 0xb8, 0xaf, 0x0e, 0x7b,
+	0x9f, 0x86, 0xbf, 0xfa, 0xe5, 0x6e, 0x47, 0xec, 0x96, 0x7d, 0xb8, 0x0f, 0x00, 0x00, 0xff, 0xff,
+	0x99, 0x37, 0x37, 0x47, 0x73, 0x03, 0x00, 0x00,
 }

@@ -54,13 +54,13 @@ type App struct {
 	UnixAddr string `yaml:"unix_addr"`
 
 	// An arbitrary number of proxies to different Kafka/ZooKeeper clusters can
-	// be configured.
+	// be configured. Each proxy configuration is identified by a cluster name.
 	Proxies map[string]*Proxy `yaml:"proxies"`
 
-	// Default proxy is the one to be used in API calls that do not start with
-	// prefix `/proxy/<alias>`. If it is not explicitly provided, then the one
-	// mentioned in the `Proxies` section first is assumed.
-	DefaultProxy string `yaml:"default_proxy"`
+	// Default cluster is the one to be used in API calls that do not start with
+	// prefix `/clusters/<cluster>`. If it is not explicitly provided, then the
+	// one mentioned in the `Proxies` section first is assumed.
+	DefaultCluster string `yaml:"default_cluster"`
 }
 
 // Proxy defines configuration of a proxy to a particular Kafka/ZooKeeper
@@ -182,16 +182,16 @@ func (p *Proxy) SaramaProdCfg() *sarama.Config {
 }
 
 // DefaultApp returns default application configuration where default proxy has
-// the specified alias.
-func DefaultApp(alias string) *App {
+// the specified cluster.
+func DefaultApp(cluster string) *App {
 	appCfg := newApp()
 	proxyCfg := DefaultProxy()
-	appCfg.Proxies[alias] = proxyCfg
-	appCfg.DefaultProxy = alias
+	appCfg.Proxies[cluster] = proxyCfg
+	appCfg.DefaultCluster = cluster
 	return appCfg
 }
 
-// DefaultProxy returns configuration used by default.
+// DefaultCluster returns configuration used by default.
 func DefaultProxy() *Proxy {
 	return defaultProxyWithClientID(newClientID())
 }
@@ -228,9 +228,9 @@ func FromYAML(data []byte) (*App, error) {
 	clientID := newClientID()
 
 	for _, proxyItem := range prob.Proxies {
-		proxyAlias, ok := proxyItem.Key.(string)
+		cluster, ok := proxyItem.Key.(string)
 		if !ok {
-			return nil, errors.Errorf("invalid cluster alias, %v", proxyAlias)
+			return nil, errors.Errorf("invalid cluster, %v", cluster)
 		}
 		// A hack with marshaling and unmarshaled of a Proxy structure is used
 		// here to preserve default values. If we try to unmarshal entire App
@@ -241,11 +241,11 @@ func FromYAML(data []byte) (*App, error) {
 		}
 		proxyCfg := defaultProxyWithClientID(clientID)
 		if err := yaml.Unmarshal(encodedProxyCfg, proxyCfg); err != nil {
-			return nil, errors.Wrapf(err, "failed to parse proxy config, alias=%s", proxyAlias)
+			return nil, errors.Wrapf(err, "failed to parse proxy config, cluster=%s", cluster)
 		}
-		appCfg.Proxies[proxyAlias] = proxyCfg
-		if appCfg.DefaultProxy == "" {
-			appCfg.DefaultProxy = proxyAlias
+		appCfg.Proxies[cluster] = proxyCfg
+		if appCfg.DefaultCluster == "" {
+			appCfg.DefaultCluster = cluster
 		}
 	}
 
@@ -259,9 +259,9 @@ func (a *App) validate() error {
 	if len(a.Proxies) == 0 {
 		return errors.New("at least on proxy must be configured")
 	}
-	for proxyAlias, proxyCfg := range a.Proxies {
+	for cluster, proxyCfg := range a.Proxies {
 		if err := proxyCfg.validate(); err != nil {
-			return errors.Wrapf(err, "invalid config, proxy=%s", proxyAlias)
+			return errors.Wrapf(err, "invalid config, cluster=%s", cluster)
 		}
 	}
 	return nil

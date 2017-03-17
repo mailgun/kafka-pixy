@@ -61,7 +61,7 @@ language of your choice.
 **It is highly recommended to use gRPC API for production/consumption.
 The HTTP API is only provided for quick tests and operational purposes.**
 
-Each API endpoint has two variants which differ by `/cluster/<proxy>`
+Each API endpoint has two variants which differ by `/cluster/<cluster>`
 prefix. The one with the proxy prefix is to be used when multiple
 clusters are configured. The one without the prefix operates on the
 default cluster (the one that is mentioned first in the YAML
@@ -71,7 +71,7 @@ configuration file).
 
 ```
 POST /topics/<topic>/messages
-POST /proxies/<proxy>/topics/<topic>/messages
+POST /clusters/<cluster>/topics/<topic>/messages
 ```
 
 Writes a message to a topic on a particular cluster. the message should
@@ -127,7 +127,7 @@ will be:
 
 ```
 GET /topics/<topic>/messages
-GET /proxies/<proxy>/topics/<topic>/messages
+GET /clusters/<cluster>/topics/<topic>/messages
 ```
 
 Consumes a message from a topic of a particular cluster as a member of
@@ -136,7 +136,7 @@ topic can be optionally acknowledged.
 
  Parameter    | Opt | Description
 --------------|-----|------------------------------------------------------
- proxy        | yes | The name of a proxy to produce to. By default the proxy that is mentioned first in the config file is used.
+ cluster      | yes | The name of a cluster to produce to. By default the cluster that is mentioned first in the `proxies` section of the config file is used.
  topic        |     | The name of a topic to produce to.
  group        |     | The name of a consumer group.
  noAck        | yes | A flag (value is ignored) that no message should be acknowledged. For default behaviour read below.
@@ -192,14 +192,14 @@ e.g.:
 
 ```
 POST /topics/<topic>/messages
-POST /proxies/<proxy>/topics/<topic>/messages
+POST /clusters/<cluster>/topics/<topic>/messages
 ```
 
 Acknowledges a previously consumed message.
 
  Parameter | Opt | Description
 -----------|-----|------------------------------------------------------
- proxy     | yes | The name of a proxy to produce to. By default the proxy that is mentioned first in the config file is used.
+ cluster   | yes | The name of a cluster to produce to. By default the cluster that is mentioned first in the `proxies` section of the config file is used.
  topic     |     | The name of a topic to produce to.
  group     |     | The name of a consumer group.
  partition |     | A partition number that the acknowledged message was consumed from.
@@ -209,7 +209,7 @@ Acknowledges a previously consumed message.
  
 ```
 GET /topics/<topic>/offsets
-GET /proxies/<proxy>/topics/<topic>/offsets
+GET /clusters/<cluster>/topics/<topic>/offsets
 ```
 
 Returns offset information for all partitions of the specified **topic**
@@ -218,7 +218,7 @@ structure of the returned JSON document is as follows:
 
  Parameter | Opt | Description
 -----------|-----|------------------------------------------------------
- proxy     | yes | The name of a proxy to produce to. By default the proxy that is mentioned first in the config file is used.
+ cluster   | yes | The name of a cluster to produce to. By default the cluster that is mentioned first in the `proxies` section of the config file is used.
  topic     |     | The name of a topic to produce to.
  group     |     | The name of a consumer group.
 
@@ -241,7 +241,7 @@ structure of the returned JSON document is as follows:
 
 ```
 POST /topics/<topic>/offsets
-POST /proxies/<proxy>/topics/<topic>/offsets
+POST /clusters/<cluster>/topics/<topic>/offsets
 ```
 
 Sets offsets to be consumed from the specified topic by a particular consumer
@@ -250,7 +250,7 @@ defines an offset to be set for a particular partition:
 
  Parameter | Opt | Description
 -----------|-----|------------------------------------------------------
- proxy     | yes | The name of a proxy to produce to. By default the proxy that is mentioned first in the config file is used.
+ cluster   | yes | The name of a cluster to produce to. By default the cluster that is mentioned first in the `proxies` section of the config file is used.
  topic     |     | The name of a topic to produce to.
  group     |     | The name of a consumer group.
 
@@ -276,7 +276,7 @@ group inactivity on all Kafka-Pixy working with the Kafka cluster.
 
 ```
 GET /topics/<topic>/consumers
-GET /proxies/<topic>/topics/<topic>/consumers
+GET /clusters/<topic>/topics/<topic>/consumers
 ```
 
 Returns a list of consumers that are subscribed to a topic.

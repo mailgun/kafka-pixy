@@ -76,32 +76,32 @@ func (s *T) Stop() {
 }
 
 // Produce implements pb.KafkaPixyServer
-func (s *T) Produce(ctx context.Context, req *pb.ProdReq) (*pb.ProdRes, error) {
-	pxy, err := s.proxySet.Get(req.Proxy)
+func (s *T) Produce(ctx context.Context, req *pb.ProdRq) (*pb.ProdRs, error) {
+	pxy, err := s.proxySet.Get(req.Cluster)
 	if err != nil {
 		return nil, grpc.Errorf(codes.InvalidArgument, err.Error())
 	}
 
 	if req.AsyncMode {
 		pxy.AsyncProduce(req.Topic, keyEncoderFor(req), sarama.StringEncoder(req.Message))
-		return &pb.ProdRes{Partition: -1, Offset: -1}, nil
+		return &pb.ProdRs{Partition: -1, Offset: -1}, nil
 	}
 
 	prodMsg, err := pxy.Produce(req.Topic, keyEncoderFor(req), sarama.StringEncoder(req.Message))
 	if err != nil {
 		switch err {
 		case sarama.ErrUnknownTopicOrPartition:
-			return nil, grpc.Errorf(codes.Code(http.StatusNotFound), err.Error())
+			return nil, grpc.Errorf(codes.InvalidArgument, err.Error())
 		default:
-			return nil, grpc.Errorf(codes.Code(http.StatusInternalServerError), err.Error())
+			return nil, grpc.Errorf(codes.Internal, err.Error())
 		}
 	}
-	return &pb.ProdRes{Partition: prodMsg.Partition, Offset: prodMsg.Offset}, nil
+	return &pb.ProdRs{Partition: prodMsg.Partition, Offset: prodMsg.Offset}, nil
 }
 
 // ConsumeNAck implements pb.KafkaPixyServer
-func (s *T) ConsumeNAck(ctx context.Context, req *pb.ConsNAckReq) (*pb.ConsRes, error) {
-	pxy, err := s.proxySet.Get(req.Proxy)
+func (s *T) ConsumeNAck(ctx context.Context, req *pb.ConsNAckRq) (*pb.ConsRs, error) {
+	pxy, err := s.proxySet.Get(req.Cluster)
 	if err != nil {
 		return nil, grpc.Errorf(codes.InvalidArgument, err.Error())
 	}
@@ -121,14 +121,14 @@ func (s *T) ConsumeNAck(ctx context.Context, req *pb.ConsNAckReq) (*pb.ConsRes, 
 	if err != nil {
 		switch err.(type) {
 		case consumer.ErrRequestTimeout:
-			return nil, grpc.Errorf(codes.Code(http.StatusRequestTimeout), err.Error())
+			return nil, grpc.Errorf(codes.NotFound, err.Error())
 		case consumer.ErrTooManyRequests:
-			return nil, grpc.Errorf(codes.Code(http.StatusTooManyRequests), err.Error())
+			return nil, grpc.Errorf(codes.ResourceExhausted, err.Error())
 		default:
-			return nil, grpc.Errorf(codes.Code(http.StatusInternalServerError), err.Error())
+			return nil, grpc.Errorf(codes.Internal, err.Error())
 		}
 	}
-	res := pb.ConsRes{
+	res := pb.ConsRs{
 		Partition: consMsg.Partition,
 		Offset:    consMsg.Offset,
 		Message:   consMsg.Value,
@@ -141,8 +141,8 @@ func (s *T) ConsumeNAck(ctx context.Context, req *pb.ConsNAckReq) (*pb.ConsRes, 
 	return &res, nil
 }
 
-func (s *T) Ack(ctx context.Context, req *pb.AckReq) (*pb.AckRes, error) {
-	pxy, err := s.proxySet.Get(req.Proxy)
+func (s *T) Ack(ctx context.Context, req *pb.AckRq) (*pb.AckRs, error) {
+	pxy, err := s.proxySet.Get(req.Cluster)
 	if err != nil {
 		return nil, grpc.Errorf(codes.InvalidArgument, err.Error())
 	}
@@ -154,10 +154,10 @@ func (s *T) Ack(ctx context.Context, req *pb.AckReq) (*pb.AckRes, error) {
 	if err = pxy.Ack(req.Group, req.Topic, ack); err != nil {
 		return nil, grpc.Errorf(codes.Code(http.StatusInternalServerError), err.Error())
 	}
-	return &pb.AckRes{}, nil
+	return &pb.AckRs{}, nil
 }
 
-func keyEncoderFor(prodReq *pb.ProdReq) sarama.Encoder {
+func keyEncoderFor(prodReq *pb.ProdRq) sarama.Encoder {
 	if prodReq.KeyUndefined {
 		return nil
 	}

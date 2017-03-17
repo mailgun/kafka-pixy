@@ -12,7 +12,7 @@ func Test(t *testing.T) {
 	TestingT(t)
 }
 
-func assertMsgs(c *C, consumed map[string][]*pb.ConsRes, produced map[string][]*sarama.ProducerMessage) {
+func assertMsgs(c *C, consumed map[string][]*pb.ConsRs, produced map[string][]*sarama.ProducerMessage) {
 	for key, prodMsgs := range produced {
 		for i, prodMsg := range prodMsgs {
 			consRess, ok := consumed[key]
