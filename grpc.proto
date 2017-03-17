@@ -31,7 +31,7 @@ service KafkaPixy {
     //
     // Requests are performed in long polling fation, that is if all available
     // messages have been consumed then the request will block for
-    // config.yaml:proxies.<proxy>.consumer.long_polling_timeout waiting for
+    // config.yaml:proxies.<cluster>.consumer.long_polling_timeout waiting for
     // new messages. If no new messages is produced while waiting the request
     // will return gRPC error with 408 status code.
     //
@@ -43,7 +43,7 @@ service KafkaPixy {
     // teminating the application call Ack method.
     //
     // If a message is not acknowledged within
-    // config.yaml:proxies.<proxy>.consumer.ack_timeout the it will be returned
+    // config.yaml:proxies.<cluster>.consumer.ack_timeout the it will be returned
     // by Kafka-Pixy in ConsRes again possibly to another application.
     //
     // If at-least-once delivery guarantee and retries are not desirable, then
@@ -56,7 +56,7 @@ service KafkaPixy {
     //    in a loop;
     //  * Resource Exhausted (8): too many consume requests. Either reduce the
     //    number of consuming threads or increase
-    //    config.yaml:proxies.<proxy>.consumer.channel_buffer_size;
+    //    config.yaml:proxies.<cluster>.consumer.channel_buffer_size;
     //  * Invalid Argument (3): see the status description for details;
     //  * Internal (13): see the status description and logs for details;
     rpc ConsumeNAck (ConsNAckRq) returns (ConsRs) {}

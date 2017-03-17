@@ -61,7 +61,7 @@ language of your choice.
 **It is highly recommended to use gRPC API for production/consumption.
 The HTTP API is only provided for quick tests and operational purposes.**
 
-Each API endpoint has two variants which differ by `/cluster/<cluster>`
+Each API endpoint has two variants which differ by `/clusters/<cluster>`
 prefix. The one with the proxy prefix is to be used when multiple
 clusters are configured. The one without the prefix operates on the
 default cluster (the one that is mentioned first in the YAML
@@ -80,7 +80,7 @@ or `application/json`.
 
  Parameter | Opt | Description
 -----------|-----|------------------------------------------------------
- proxy     | yes | The name of a proxy to produce to. By default the proxy that is mentioned first in the config file.
+ cluster   | yes | The name of a cluster to operate on. By default the cluster mentioned first in the `proxies` section of the config file is used.
  topic     |     | The name of a topic to produce to
  key       | yes | A string that hash is used to determine a partition to produce to. By default a random partition is selected.
  sync      | yes | A flag (value is ignored) that makes Kafka-Pixy wait for all ISR to confirm write before sending a response back. By default a response is sent immediatelly after the request is received.
@@ -136,7 +136,7 @@ topic can be optionally acknowledged.
 
  Parameter    | Opt | Description
 --------------|-----|------------------------------------------------------
- cluster      | yes | The name of a cluster to produce to. By default the cluster that is mentioned first in the `proxies` section of the config file is used.
+ cluster      | yes | The name of a cluster to operate on. By default the cluster mentioned first in the `proxies` section of the config file is used.
  topic        |     | The name of a topic to produce to.
  group        |     | The name of a consumer group.
  noAck        | yes | A flag (value is ignored) that no message should be acknowledged. For default behaviour read below.
@@ -199,7 +199,7 @@ Acknowledges a previously consumed message.
 
  Parameter | Opt | Description
 -----------|-----|------------------------------------------------------
- cluster   | yes | The name of a cluster to produce to. By default the cluster that is mentioned first in the `proxies` section of the config file is used.
+ cluster   | yes | The name of a cluster to operate on. By default the cluster mentioned first in the `proxies` section of the config file is used.
  topic     |     | The name of a topic to produce to.
  group     |     | The name of a consumer group.
  partition |     | A partition number that the acknowledged message was consumed from.
@@ -218,7 +218,7 @@ structure of the returned JSON document is as follows:
 
  Parameter | Opt | Description
 -----------|-----|------------------------------------------------------
- cluster   | yes | The name of a cluster to produce to. By default the cluster that is mentioned first in the `proxies` section of the config file is used.
+ cluster   | yes | The name of a cluster to operate on. By default the cluster mentioned first in the `proxies` section of the config file is used.
  topic     |     | The name of a topic to produce to.
  group     |     | The name of a consumer group.
 
@@ -250,7 +250,7 @@ defines an offset to be set for a particular partition:
 
  Parameter | Opt | Description
 -----------|-----|------------------------------------------------------
- cluster   | yes | The name of a cluster to produce to. By default the cluster that is mentioned first in the `proxies` section of the config file is used.
+ cluster   | yes | The name of a cluster to operate on. By default the cluster mentioned first in the `proxies` section of the config file is used.
  topic     |     | The name of a topic to produce to.
  group     |     | The name of a consumer group.
 
@@ -283,7 +283,7 @@ Returns a list of consumers that are subscribed to a topic.
 
  Parameter | Opt | Description
 -----------|-----|------------------------------------------------------
- proxy     | yes | The name of a proxy to produce to. By default the proxy that is mentioned first in the config file is used.
+ cluster   | yes | The name of a cluster to operate on. By default the cluster mentioned first in the `proxies` section of the config file is used.
  topic     |     | The name of a topic to produce to.
  group     | yes | The name of a consumer group. By default returns data for all known consumer groups subscribed to the topic.
 
