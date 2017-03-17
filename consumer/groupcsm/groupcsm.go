@@ -171,7 +171,7 @@ func (gc *T) runManager() {
 				if stopped {
 					goto done
 				}
-				nilOrRetryCh = time.After(gc.cfg.Consumer.BackOffTimeout)
+				nilOrRetryCh = time.After(gc.cfg.Consumer.RetryBackoff)
 				retryScheduled = true
 			}
 			if stopped {

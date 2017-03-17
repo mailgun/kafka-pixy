@@ -33,7 +33,7 @@ func (s *ServiceGRPCSuite) SetUpTest(c *C) {
 	s.cfg.GRPCAddr = "127.0.0.1:19091"
 	proxyCfg := testhelpers.NewTestProxyCfg("test_svc")
 	s.cfg.Proxies["pxyG"] = proxyCfg
-	s.cfg.DefaultProxy = "pxyG"
+	s.cfg.DefaultCluster = "pxyG"
 
 	var err error
 	s.cltConn, err = grpc.Dial(s.cfg.GRPCAddr, grpc.WithInsecure())
@@ -60,7 +60,7 @@ func (s *ServiceGRPCSuite) TestProduceWithKey(c *C) {
 
 	// When
 	for i := 0; i < 10; i++ {
-		req := pb.ProdReq{
+		req := pb.ProdRq{
 			Topic:     "test.4",
 			KeyValue:  []byte(fmt.Sprintf("%d", i)),
 			Message:   []byte("msg"),
@@ -68,7 +68,7 @@ func (s *ServiceGRPCSuite) TestProduceWithKey(c *C) {
 		}
 		res, err := s.clt.Produce(ctx, &req, grpc.FailFast(false))
 		c.Assert(err, IsNil)
-		c.Assert(*res, Equals, pb.ProdRes{Partition: -1, Offset: -1})
+		c.Assert(*res, Equals, pb.ProdRs{Partition: -1, Offset: -1})
 	}
 	// Stop service to make it commit asynchronously produced messages to Kafka.
 	svc.Stop()
@@ -92,7 +92,7 @@ func (s *ServiceGRPCSuite) TestProduceKeyUndefined(c *C) {
 
 	// When
 	for i := 0; i < 100; i++ {
-		req := pb.ProdReq{
+		req := pb.ProdRq{
 			Topic:        "test.4",
 			KeyUndefined: true,
 			Message:      []byte("msg"),
@@ -100,7 +100,7 @@ func (s *ServiceGRPCSuite) TestProduceKeyUndefined(c *C) {
 		}
 		res, err := s.clt.Produce(ctx, &req, grpc.FailFast(false))
 		c.Assert(err, IsNil)
-		c.Assert(*res, Equals, pb.ProdRes{Partition: -1, Offset: -1})
+		c.Assert(*res, Equals, pb.ProdRs{Partition: -1, Offset: -1})
 	}
 	// Stop service to make it commit asynchronously produced messages to Kafka.
 	svc.Stop()
@@ -125,14 +125,14 @@ func (s *ServiceGRPCSuite) TestProduceDefaultKey(c *C) {
 
 	// When
 	for i := 0; i < 10; i++ {
-		req := pb.ProdReq{
+		req := pb.ProdRq{
 			Topic:     "test.4",
 			Message:   []byte("msg"),
 			AsyncMode: true,
 		}
 		res, err := s.clt.Produce(ctx, &req, grpc.FailFast(false))
 		c.Assert(err, IsNil)
-		c.Assert(*res, Equals, pb.ProdRes{Partition: -1, Offset: -1})
+		c.Assert(*res, Equals, pb.ProdRs{Partition: -1, Offset: -1})
 	}
 	// Stop service to make it commit asynchronously produced messages to Kafka.
 	svc.Stop()
@@ -157,7 +157,7 @@ func (s *ServiceGRPCSuite) TestProduceSync(c *C) {
 	defer cancel()
 
 	// When
-	req := pb.ProdReq{
+	req := pb.ProdRq{
 		Topic:    "test.4",
 		KeyValue: []byte("bar"),
 		Message:  []byte("msg"),
@@ -166,7 +166,7 @@ func (s *ServiceGRPCSuite) TestProduceSync(c *C) {
 
 	// Then
 	c.Assert(err, IsNil)
-	c.Assert(*res, Equals, pb.ProdRes{Partition: 2, Offset: offsetsBefore[2]})
+	c.Assert(*res, Equals, pb.ProdRs{Partition: 2, Offset: offsetsBefore[2]})
 }
 
 func (s *ServiceGRPCSuite) TestProduceInvalidProxy(c *C) {
@@ -178,8 +178,8 @@ func (s *ServiceGRPCSuite) TestProduceInvalidProxy(c *C) {
 	defer cancel()
 
 	// When
-	req := pb.ProdReq{
-		Proxy:    "invalid",
+	req := pb.ProdRq{
+		Cluster:  "invalid",
 		Topic:    "test.4",
 		KeyValue: []byte("bar"),
 		Message:  []byte("msg"),
@@ -199,7 +199,7 @@ func (s *ServiceGRPCSuite) TestConsumeAutoAck(c *C) {
 
 	s.kh.ResetOffsets("foo", "test.4")
 	produced := s.kh.PutMessages("auto-ack", "test.4", map[string]int{"A": 17, "B": 19, "C": 23, "D": 29})
-	consumed := make(map[string][]*pb.ConsRes)
+	consumed := make(map[string][]*pb.ConsRs)
 	offsetsBefore := s.kh.GetCommittedOffsets("foo", "test.4")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -207,7 +207,7 @@ func (s *ServiceGRPCSuite) TestConsumeAutoAck(c *C) {
 
 	// When
 	for i := 0; i < 88; i++ {
-		req := pb.ConsNAckReq{
+		req := pb.ConsNAckRq{
 			Topic:   "test.4",
 			Group:   "foo",
 			AutoAck: true,
@@ -237,7 +237,7 @@ func (s *ServiceGRPCSuite) TestConsumeExplicitAck(c *C) {
 
 	s.kh.ResetOffsets("foo", "test.4")
 	produced := s.kh.PutMessages("explicit-ack", "test.4", map[string]int{"A": 17, "B": 19, "C": 23, "D": 29})
-	consumed := make(map[string][]*pb.ConsRes)
+	consumed := make(map[string][]*pb.ConsRs)
 	offsetsBefore := s.kh.GetCommittedOffsets("foo", "test.4")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -246,7 +246,7 @@ func (s *ServiceGRPCSuite) TestConsumeExplicitAck(c *C) {
 	// When:
 
 	// First message has to be consumed with NoAck set to true.
-	req := pb.ConsNAckReq{
+	req := pb.ConsNAckRq{
 		Topic: "test.4",
 		Group: "foo",
 		NoAck: true,
@@ -257,7 +257,7 @@ func (s *ServiceGRPCSuite) TestConsumeExplicitAck(c *C) {
 	consumed[key] = append(consumed[key], res)
 	// Whenever a message is consumed previous one is acked.
 	for i := 1; i < 88; i++ {
-		req = pb.ConsNAckReq{
+		req = pb.ConsNAckRq{
 			Topic:        "test.4",
 			Group:        "foo",
 			AckPartition: res.Partition,
@@ -269,7 +269,7 @@ func (s *ServiceGRPCSuite) TestConsumeExplicitAck(c *C) {
 		consumed[key] = append(consumed[key], res)
 	}
 	// Ack last message.
-	ackReq := pb.AckReq{
+	ackReq := pb.AckRq{
 		Topic:     "test.4",
 		Group:     "foo",
 		Partition: res.Partition,
@@ -300,7 +300,7 @@ func (s *ServiceGRPCSuite) TestConsumeExplicitProxy(c *C) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	prodReq := pb.ProdReq{
+	prodReq := pb.ProdRq{
 		Topic:    "test.4",
 		KeyValue: []byte("bar"),
 		Message:  []byte(fmt.Sprintf("msg%d", rand.Int())),
@@ -309,12 +309,12 @@ func (s *ServiceGRPCSuite) TestConsumeExplicitProxy(c *C) {
 	c.Assert(err, IsNil)
 
 	// When
-	consReq := pb.ConsNAckReq{Proxy: "pxyG", Topic: "test.4", Group: "foo"}
+	consReq := pb.ConsNAckRq{Cluster: "pxyG", Topic: "test.4", Group: "foo"}
 	consRes, err := s.clt.ConsumeNAck(ctx, &consReq)
 
 	// Then
 	c.Assert(err, IsNil)
-	c.Assert(*consRes, DeepEquals, pb.ConsRes{
+	c.Assert(*consRes, DeepEquals, pb.ConsRs{
 		Partition: prodRes.Partition,
 		Offset:    prodRes.Offset,
 		KeyValue:  prodReq.KeyValue,
@@ -334,7 +334,7 @@ func (s *ServiceGRPCSuite) TestConsumeKeyUndefined(c *C) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	prodReq := pb.ProdReq{
+	prodReq := pb.ProdRq{
 		Topic:        "test.4",
 		KeyUndefined: true,
 		Message:      []byte(fmt.Sprintf("msg-%d", rand.Int())),
@@ -343,12 +343,12 @@ func (s *ServiceGRPCSuite) TestConsumeKeyUndefined(c *C) {
 	c.Assert(err, IsNil)
 
 	// When
-	consReq := pb.ConsNAckReq{Topic: "test.4", Group: "foo"}
+	consReq := pb.ConsNAckRq{Topic: "test.4", Group: "foo"}
 	consRes, err := s.clt.ConsumeNAck(ctx, &consReq)
 
 	// Then
 	c.Assert(err, IsNil)
-	c.Assert(*consRes, DeepEquals, pb.ConsRes{
+	c.Assert(*consRes, DeepEquals, pb.ConsRs{
 		Partition:    prodRes.Partition,
 		Offset:       prodRes.Offset,
 		KeyUndefined: true,
@@ -357,7 +357,7 @@ func (s *ServiceGRPCSuite) TestConsumeKeyUndefined(c *C) {
 }
 
 func (s *ServiceGRPCSuite) TestConsumeInvalidProxy(c *C) {
-	s.cfg.Proxies[s.cfg.DefaultProxy].Consumer.LongPollingTimeout = 100 * time.Millisecond
+	s.cfg.Proxies[s.cfg.DefaultCluster].Consumer.LongPollingTimeout = 100 * time.Millisecond
 	svc, err := Spawn(s.cfg)
 	defer svc.Stop()
 	c.Assert(err, IsNil)
@@ -366,10 +366,10 @@ func (s *ServiceGRPCSuite) TestConsumeInvalidProxy(c *C) {
 	defer cancel()
 
 	// When
-	consReq := pb.ConsNAckReq{
-		Proxy: "invalid",
-		Topic: fmt.Sprintf("non-existent-%d", rand.Int()),
-		Group: "foo"}
+	consReq := pb.ConsNAckRq{
+		Cluster: "invalid",
+		Topic:   fmt.Sprintf("non-existent-%d", rand.Int()),
+		Group:   "foo"}
 	consRes, err := s.clt.ConsumeNAck(ctx, &consReq, grpc.FailFast(false))
 
 	// Then

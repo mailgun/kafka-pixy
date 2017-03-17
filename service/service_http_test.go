@@ -48,7 +48,7 @@ func (s *ServiceHTTPSuite) SetUpTest(c *C) {
 	s.cfg.TCPAddr = "127.0.0.1:19092"
 	s.cfg.UnixAddr = path.Join(os.TempDir(), "kafka-pixy.sock")
 	s.cfg.Proxies["pxyD"] = testhelpers.NewTestProxyCfg("test_svc")
-	s.cfg.DefaultProxy = "pxyD"
+	s.cfg.DefaultCluster = "pxyD"
 
 	os.Remove(s.cfg.UnixAddr)
 	s.kh = kafkahelper.New(c)
@@ -88,7 +88,7 @@ func (s *ServiceHTTPSuite) TestInvalidUnixAddr(c *C) {
 
 func (s *ServiceHTTPSuite) TestInvalidKafkaPeers(c *C) {
 	// Given
-	s.cfg.Proxies[s.cfg.DefaultProxy].Kafka.SeedPeers = []string{"localhost:12345"}
+	s.cfg.Proxies[s.cfg.DefaultCluster].Kafka.SeedPeers = []string{"localhost:12345"}
 
 	// When
 	svc, err := Spawn(s.cfg)
@@ -363,7 +363,7 @@ func (s *ServiceHTTPSuite) TestConsumeAutoAck(c *C) {
 
 	s.kh.ResetOffsets("foo", "test.4")
 	produced := s.kh.PutMessages("auto-ack", "test.4", map[string]int{"A": 17, "B": 19, "C": 23, "D": 29})
-	consumed := make(map[string][]*pb.ConsRes)
+	consumed := make(map[string][]*pb.ConsRs)
 	offsetsBefore := s.kh.GetCommittedOffsets("foo", "test.4")
 
 	// When
@@ -392,7 +392,7 @@ func (s *ServiceHTTPSuite) TestConsumeExplicitAck(c *C) {
 
 	s.kh.ResetOffsets("foo", "test.4")
 	produced := s.kh.PutMessages("explicit-ack", "test.4", map[string]int{"A": 17, "B": 19, "C": 23, "D": 29})
-	consumed := make(map[string][]*pb.ConsRes)
+	consumed := make(map[string][]*pb.ConsRs)
 	offsetsBefore := s.kh.GetCommittedOffsets("foo", "test.4")
 
 	// When:
@@ -765,14 +765,14 @@ func (s *ServiceHTTPSuite) TestExplicitProxyAPIEndpoints(c *C) {
 	defer svc.Stop()
 
 	// When/Then
-	r, err := s.unixClient.Post("http://_/proxies/pxyD/topics/test.1/messages?sync", "text/plain", strings.NewReader("Bazinga!"))
+	r, err := s.unixClient.Post("http://_/clusters/pxyD/topics/test.1/messages?sync", "text/plain", strings.NewReader("Bazinga!"))
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
 	body := ParseJSONBody(c, r).(map[string]interface{})
 	c.Assert(int(body["partition"].(float64)), Equals, 0)
 	prodOffset := int64(body["offset"].(float64))
 
-	r, err = s.unixClient.Get("http://_/proxies/pxyD/topics/test.1/messages?group=foo")
+	r, err = s.unixClient.Get("http://_/clusters/pxyD/topics/test.1/messages?group=foo")
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
 	body = ParseJSONBody(c, r).(map[string]interface{})
@@ -785,7 +785,7 @@ func spawnTestService(c *C, port int) *T {
 	cfg.UnixAddr = path.Join(os.TempDir(), fmt.Sprintf("kafka-pixy.%d.sock", port))
 	pxyAlias := fmt.Sprintf("pxy%d", port)
 	cfg.Proxies[pxyAlias] = testhelpers.NewTestProxyCfg(fmt.Sprintf("C%d", port))
-	cfg.DefaultProxy = pxyAlias
+	cfg.DefaultCluster = pxyAlias
 	os.Remove(cfg.UnixAddr)
 	cfg.TCPAddr = fmt.Sprintf("127.0.0.1:%d", port)
 	svc, err := Spawn(cfg)
@@ -897,9 +897,9 @@ func ParseJSONBody(c *C, res *http.Response) interface{} {
 	return parsedBody
 }
 
-func ParseConsRes(c *C, res *http.Response) *pb.ConsRes {
+func ParseConsRes(c *C, res *http.Response) *pb.ConsRs {
 	body := ParseJSONBody(c, res).(map[string]interface{})
-	return &pb.ConsRes{
+	return &pb.ConsRs{
 		KeyValue:  []byte(ParseBase64(c, body["key"].(string))),
 		Message:   []byte(ParseBase64(c, body["value"].(string))),
 		Partition: int32(body["partition"].(float64)),

@@ -8,17 +8,18 @@ tcp_addr: 0.0.0.0:19092
 # Listening on a unix domain socket is disabled by default.
 # unix_addr: "/var/run/kafka-pixy.sock"
 
-# An arbitrary number of proxies to different Kafka/ZooKeeper clusters can be
+# An arbitrary number of proxies to different Kafka+ZooKeeper clusters can be
 # configured.
 proxies:
 
-  # The name of this parameter defines an alias to be used in `/proxy/<alias>`
-  # prefixed API calls to access a particular Kafka/ZooKeeper cluster that
+  # The name of this parameter defines an alias to be used in `/clusters/<cluster>`
+  # prefixed API calls to access a particular Kafka+ZooKeeper cluster that
   # configuration is provided as a value of this parameter.
   #
-  # Note that naming a proxy `default` does not make it default. The default
-  # proxy is the one that is listed first in the `proxies` section. The default
-  # proxy is used in API calls that do not start with `/proxy/<alias>` prefix.
+  # Note that naming a cluster `default` does not make it default. The default
+  # cluster is the one that is listed first in the `proxies` section. The
+  # default cluster is used in API calls that do not start with
+  # `/clusters/<cluster>` prefix.
   default:
 
     # Unique ID that identifies a Kafka-Pixy instance in both ZooKeeper and
@@ -51,6 +52,32 @@ proxies:
       # Size of all buffered channels created by the producer module.
       channel_buffer_size: 4096
 
+      # The type of compression to use on messages. Allowed values are:
+      # none, gzip, snappy.
+      compression: snappy
+
+      # The best-effort number of bytes needed to trigger a flush.
+      flush_bytes: 1048576
+
+      # The best-effort frequency of flushes.
+      flush_frequency: 500ms
+
+      # How long to wait for the cluster to settle between retries.
+      retry_backoff: 10s
+
+      # The total number of times to retry sending a message before giving up.
+      retry_max: 6
+
+      # The level of acknowledgement reliability needed from the broker.
+      # Allowed values are:
+      #  * no_response:    the broker doesn't send any response, the TCP ACK
+      #                    is all you get.
+      #  * wait_for_local: the broker responds as soon as it commits to the
+      #                    local disk.
+      #  * wait_for_all:   the broker waits for all in-sync replicas to commit
+      #                    before responding.
+      required_acks: wait_for_all
+
       # Period of time that Kafka-Pixy should keep trying to submit buffered
       # messages to Kafka. It is recommended to make it large enough to survive
       # a ZooKeeper leader election in your setup.
@@ -59,29 +86,35 @@ proxies:
     # Consumer parameters section.
     consumer:
 
+      # Period of time that Kafka-Pixy should wait for an acknowledgement
+      # before retrying. It must be less then registration_timeout.
+      ack_timeout: 15s
+
       # Size of all buffered channels created by the consumer module.
       channel_buffer_size: 64
+
+      # The default number of message bytes to fetch from the broker in each
+      # request. This should be larger than the majority of your messages,
+      # or else the consumer will spend a lot of time negotiating sizes and
+      # not actually consuming.
+      fetch_bytes: 1048576
 
       # Consume request will wait at most this long until a message from the
       # specified group/topic becomes available.
       long_polling_timeout: 3s
+
+      # How frequently to commit offsets to Kafka.
+      offsets_commit_interval: 500ms
+
+      # Consumer should wait this long after it gets notification that a
+      # consumer joined/left its consumer group before starting rebalancing.
+      rebalance_delay: 250ms
 
       # Period of time that Kafka-Pixy should keep registration with a consumer
       # group or subscription for a topic in the absence of requests to the
       # consumer group or topic.
       registration_timeout: 20s
 
-      # Period of time that Kafka-Pixy should wait for an acknowledgement
-      # before retrying. It must be less then registration_timeout.
-      ack_timeout: 15s
-
       # If a request to a Kafka-Pixy fails for any reason, then it should wait this
       # long before retrying.
-      backoff_timeout: 500ms
-
-      # Consumer should wait this long after it gets notification that a
-      # consumer joined/left its consumer group before starting rebalancing.
-      rebalance_delay: 250ms
-
-      # How frequently to commit offsets to Kafka.
-      offsets_commit_interval: 500ms
+      retry_backoff: 500ms

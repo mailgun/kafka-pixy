@@ -45,17 +45,9 @@ type produceResult struct {
 
 // Spawn creates a producer instance and starts its internal goroutines.
 func Spawn(namespace *actor.ID, cfg *config.Proxy) (*T, error) {
-	saramaCfg := sarama.NewConfig()
-	saramaCfg.ChannelBufferSize = cfg.Producer.ChannelBufferSize
-	saramaCfg.ClientID = fmt.Sprintf("%s_producer", cfg.ClientID)
-	saramaCfg.Producer.RequiredAcks = sarama.WaitForAll
+	saramaCfg := cfg.SaramaProdCfg()
 	saramaCfg.Producer.Return.Successes = true
 	saramaCfg.Producer.Return.Errors = true
-	saramaCfg.Producer.Compression = sarama.CompressionSnappy
-	saramaCfg.Producer.Retry.Backoff = 10 * time.Second
-	saramaCfg.Producer.Retry.Max = 6
-	saramaCfg.Producer.Flush.Frequency = 500 * time.Millisecond
-	saramaCfg.Producer.Flush.Bytes = 1024 * 1024
 
 	saramaClient, err := sarama.NewClient(cfg.Kafka.SeedPeers, saramaCfg)
 	if err != nil {

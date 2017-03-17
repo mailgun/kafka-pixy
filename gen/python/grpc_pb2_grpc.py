@@ -16,18 +16,18 @@ class KafkaPixyStub(object):
     """
     self.Produce = channel.unary_unary(
         '/KafkaPixy/Produce',
-        request_serializer=grpc__pb2.ProdReq.SerializeToString,
-        response_deserializer=grpc__pb2.ProdRes.FromString,
+        request_serializer=grpc__pb2.ProdRq.SerializeToString,
+        response_deserializer=grpc__pb2.ProdRs.FromString,
         )
     self.ConsumeNAck = channel.unary_unary(
         '/KafkaPixy/ConsumeNAck',
-        request_serializer=grpc__pb2.ConsNAckReq.SerializeToString,
-        response_deserializer=grpc__pb2.ConsRes.FromString,
+        request_serializer=grpc__pb2.ConsNAckRq.SerializeToString,
+        response_deserializer=grpc__pb2.ConsRs.FromString,
         )
     self.Ack = channel.unary_unary(
         '/KafkaPixy/Ack',
-        request_serializer=grpc__pb2.AckReq.SerializeToString,
-        response_deserializer=grpc__pb2.AckRes.FromString,
+        request_serializer=grpc__pb2.AckRq.SerializeToString,
+        response_deserializer=grpc__pb2.AckRs.FromString,
         )
 
 
@@ -54,10 +54,8 @@ class KafkaPixyServicer(object):
     string.
 
     gRPC error codes:
-    * 3: invalid argument, see the status description for details;
-    * 404: topic does not exist (if Kafka cluster is not configured to
-    automatically create topics);
-    * 500: internal error, see the status description and logs for details;
+    * Invalid Argument (3): see the status description for details;
+    * Internal (13): see the status description and logs for details;
     """
     context.set_code(grpc.StatusCode.UNIMPLEMENTED)
     context.set_details('Method not implemented!')
@@ -89,13 +87,14 @@ class KafkaPixyServicer(object):
     messages automatically before returning them in ConsRes.
 
     gRPC error codes:
-    * 3: invalid argument, see the status description for details;
-    * 408: long polling timeout. It just means that all message has been
-    consumed. Just keep calling this method in a loop;
-    * 429: too many consume requests. Either reduce the number of consuming
-    threads or increase
+    * Not Found (5): It just means that all message has been consumed and
+    the long polling timeout has elaspsed. Just keep calling this method
+    in a loop;
+    * Resource Exhausted (8): too many consume requests. Either reduce the
+    number of consuming threads or increase
     config.yaml:proxies.<proxy>.consumer.channel_buffer_size;
-    * 500: internal error, see the status description and logs for details;
+    * Invalid Argument (3): see the status description for details;
+    * Internal (13): see the status description and logs for details;
     """
     context.set_code(grpc.StatusCode.UNIMPLEMENTED)
     context.set_details('Method not implemented!')
@@ -109,8 +108,8 @@ class KafkaPixyServicer(object):
     be used.
 
     gRPC error codes:
-    * 3: invalid argument, see the status description for details;
-    * 500: internal error, see the status description and logs for details;
+    * Invalid Argument (3): see the status description for details;
+    * Internal (13): see the status description and logs for details;
     """
     context.set_code(grpc.StatusCode.UNIMPLEMENTED)
     context.set_details('Method not implemented!')
@@ -121,18 +120,18 @@ def add_KafkaPixyServicer_to_server(servicer, server):
   rpc_method_handlers = {
       'Produce': grpc.unary_unary_rpc_method_handler(
           servicer.Produce,
-          request_deserializer=grpc__pb2.ProdReq.FromString,
-          response_serializer=grpc__pb2.ProdRes.SerializeToString,
+          request_deserializer=grpc__pb2.ProdRq.FromString,
+          response_serializer=grpc__pb2.ProdRs.SerializeToString,
       ),
       'ConsumeNAck': grpc.unary_unary_rpc_method_handler(
           servicer.ConsumeNAck,
-          request_deserializer=grpc__pb2.ConsNAckReq.FromString,
-          response_serializer=grpc__pb2.ConsRes.SerializeToString,
+          request_deserializer=grpc__pb2.ConsNAckRq.FromString,
+          response_serializer=grpc__pb2.ConsRs.SerializeToString,
       ),
       'Ack': grpc.unary_unary_rpc_method_handler(
           servicer.Ack,
-          request_deserializer=grpc__pb2.AckReq.FromString,
-          response_serializer=grpc__pb2.AckRes.SerializeToString,
+          request_deserializer=grpc__pb2.AckRq.FromString,
+          response_serializer=grpc__pb2.AckRs.SerializeToString,
       ),
   }
   generic_handler = grpc.method_handlers_generic_handler(

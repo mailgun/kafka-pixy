@@ -75,7 +75,7 @@ func (s *ConfigSuite) TestFromYAMLInvalid(c *C) {
 	_, err := FromYAML(data)
 
 	// Then
-	c.Assert(err.Error(), Equals, "failed to parse proxy config, alias=default: "+
+	c.Assert(err.Error(), Equals, "failed to parse proxy config, cluster=default: "+
 		"yaml: unmarshal errors:\n"+
 		"  line 7: cannot unmarshal !!str `Kaboom!` into time.Duration")
 }
@@ -96,7 +96,7 @@ func (s *ConfigSuite) TestFromYAMLDefault(c *C) {
 
 	// Then
 	c.Assert(err, IsNil)
-	c.Assert(appCfg.DefaultProxy, Equals, "foo")
+	c.Assert(appCfg.DefaultCluster, Equals, "foo")
 	c.Assert(appCfg.Proxies["foo"].ClientID, Equals, "foo_id")
 	c.Assert(appCfg.Proxies["bar"].ClientID, Equals, "bar_id")
 	c.Assert(appCfg.Proxies["bazz"].ClientID, Equals, "bazz_id")

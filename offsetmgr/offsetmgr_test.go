@@ -80,7 +80,7 @@ func (s *OffsetMgrSuite) TestInitialNoCoordinator(c *C) {
 	})
 
 	cfg := testhelpers.NewTestProxyCfg("c1")
-	cfg.Consumer.BackOffTimeout = 50 * time.Millisecond
+	cfg.Consumer.RetryBackoff = 50 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, nil)
 	c.Assert(err, IsNil)
@@ -114,7 +114,7 @@ func (s *OffsetMgrSuite) TestInitialFetchError(c *C) {
 	})
 
 	cfg := testhelpers.NewTestProxyCfg("c1")
-	cfg.Consumer.BackOffTimeout = 50 * time.Millisecond
+	cfg.Consumer.RetryBackoff = 50 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, nil)
 	c.Assert(err, IsNil)
@@ -151,7 +151,7 @@ func (s *OffsetMgrSuite) TestCommitError(c *C) {
 	})
 
 	cfg := testhelpers.NewTestProxyCfg("c1")
-	cfg.Consumer.BackOffTimeout = 1000 * time.Millisecond
+	cfg.Consumer.RetryBackoff = 1000 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, nil)
 	c.Assert(err, IsNil)
@@ -207,7 +207,7 @@ func (s *OffsetMgrSuite) TestCommitIncompleteResponse(c *C) {
 	})
 
 	cfg := testhelpers.NewTestProxyCfg("c1")
-	cfg.Consumer.BackOffTimeout = 1000 * time.Millisecond
+	cfg.Consumer.RetryBackoff = 1000 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, nil)
 	c.Assert(err, IsNil)
@@ -257,7 +257,7 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 	})
 
 	cfg := testhelpers.NewTestProxyCfg("c1")
-	cfg.Consumer.BackOffTimeout = 25 * time.Millisecond
+	cfg.Consumer.RetryBackoff = 25 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 100 * time.Millisecond
 	saramaCfg := sarama.NewConfig()
 	saramaCfg.Net.ReadTimeout = 10 * time.Millisecond
@@ -401,7 +401,7 @@ func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 	})
 
 	cfg := testhelpers.NewTestProxyCfg("c1")
-	cfg.Consumer.BackOffTimeout = 100 * time.Millisecond
+	cfg.Consumer.RetryBackoff = 100 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
 	saramaCfg := sarama.NewConfig()
 	saramaCfg.Net.ReadTimeout = 50 * time.Millisecond
@@ -427,7 +427,7 @@ func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 	<-om3.(*offsetMgr).testErrorsCh
 
 	// When
-	time.Sleep(cfg.Consumer.BackOffTimeout * 2)
+	time.Sleep(cfg.Consumer.RetryBackoff * 2)
 	log.Infof("*** Network recovering...")
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
@@ -511,7 +511,7 @@ func (s *OffsetMgrSuite) TestBugConnectionRestored(c *C) {
 	})
 
 	cfg := testhelpers.NewTestProxyCfg("c1")
-	cfg.Consumer.BackOffTimeout = 100 * time.Millisecond
+	cfg.Consumer.RetryBackoff = 100 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
 	saramaCfg := sarama.NewConfig()
 	saramaCfg.Net.ReadTimeout = 100 * time.Millisecond
@@ -539,7 +539,7 @@ func (s *OffsetMgrSuite) TestBugConnectionRestored(c *C) {
 	// client connection with broker2 from the broker end.
 	om.Stop()
 	broker2.Close()
-	time.Sleep(cfg.Consumer.BackOffTimeout * 2)
+	time.Sleep(cfg.Consumer.RetryBackoff * 2)
 
 	log.Infof("    GIVEN 3")
 	// Simulate broker restart. Make sure that the new instances listens on the

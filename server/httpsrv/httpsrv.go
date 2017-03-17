@@ -34,7 +34,7 @@ const (
 	hdrContentType   = "Content-Type"
 
 	// HTTP request parameters.
-	prmProxy        = "proxy"
+	prmCluster      = "cluster"
 	prmTopic        = "topic"
 	prmKey          = "key"
 	prmSync         = "sync"
@@ -91,22 +91,22 @@ func New(addr string, proxySet *proxy.Set) (*T, error) {
 		errorCh:    make(chan error, 1),
 	}
 	// Configure the API request handlers.
-	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), hs.handleProduce).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/clusters/{%s}/topics/{%s}/messages", prmCluster, prmTopic), hs.handleProduce).Methods("POST")
 	router.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", prmTopic), hs.handleProduce).Methods("POST")
 
-	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/messages", prmProxy, prmTopic), hs.handleConsume).Methods("GET")
+	router.HandleFunc(fmt.Sprintf("/clusters/{%s}/topics/{%s}/messages", prmCluster, prmTopic), hs.handleConsume).Methods("GET")
 	router.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", prmTopic), hs.handleConsume).Methods("GET")
 
-	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/acks", prmProxy, prmTopic), hs.handleConsume).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/clusters/{%s}/topics/{%s}/acks", prmCluster, prmTopic), hs.handleConsume).Methods("POST")
 	router.HandleFunc(fmt.Sprintf("/topics/{%s}/acks", prmTopic), hs.handleConsume).Methods("POST")
 
-	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/offsets", prmProxy, prmTopic), hs.handleGetOffsets).Methods("GET")
+	router.HandleFunc(fmt.Sprintf("/clusters/{%s}/topics/{%s}/offsets", prmCluster, prmTopic), hs.handleGetOffsets).Methods("GET")
 	router.HandleFunc(fmt.Sprintf("/topics/{%s}/offsets", prmTopic), hs.handleGetOffsets).Methods("GET")
 
-	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/offsets", prmProxy, prmTopic), hs.handleSetOffsets).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/clusters/{%s}/topics/{%s}/offsets", prmCluster, prmTopic), hs.handleSetOffsets).Methods("POST")
 	router.HandleFunc(fmt.Sprintf("/topics/{%s}/offsets", prmTopic), hs.handleSetOffsets).Methods("POST")
 
-	router.HandleFunc(fmt.Sprintf("/proxies/{%s}/topics/{%s}/consumers", prmProxy, prmTopic), hs.handleGetTopicConsumers).Methods("GET")
+	router.HandleFunc(fmt.Sprintf("/clusters/{%s}/topics/{%s}/consumers", prmCluster, prmTopic), hs.handleGetTopicConsumers).Methods("GET")
 	router.HandleFunc(fmt.Sprintf("/topics/{%s}/consumers", prmTopic), hs.handleGetTopicConsumers).Methods("GET")
 
 	router.HandleFunc("/_ping", hs.handlePing).Methods("GET")
@@ -140,8 +140,8 @@ func (s *T) Stop() {
 }
 
 func (s *T) getProxy(r *http.Request) (*proxy.T, error) {
-	pxyAlias := mux.Vars(r)[prmProxy]
-	return s.proxySet.Get(pxyAlias)
+	cluster := mux.Vars(r)[prmCluster]
+	return s.proxySet.Get(cluster)
 }
 
 // handleProduce is an HTTP request handler for `POST /topic/{topic}/messages`

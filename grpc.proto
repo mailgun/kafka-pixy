@@ -22,11 +22,9 @@ service KafkaPixy {
     // string.
     //
     // gRPC error codes:
-    //  * 3: invalid argument, see the status description for details;
-    //  * 404: topic does not exist (if Kafka cluster is not configured to
-    //         automatically create topics);
-    //  * 500: internal error, see the status description and logs for details;
-    rpc Produce (ProdReq) returns (ProdRes) {}
+    //  * Invalid Argument (3): see the status description for details;
+    //  * Internal (13): see the status description and logs for details;
+    rpc Produce (ProdRq) returns (ProdRs) {}
 
     // Consume reads a message from a topic and optionally acknowledges a
     // message previously consumed from the same topic.
@@ -53,14 +51,15 @@ service KafkaPixy {
     // messages automatically before returning them in ConsRes.
     //
     // gRPC error codes:
-    //  * 3: invalid argument, see the status description for details;
-    //  * 408: long polling timeout. It just means that all message has been
-    //         consumed. Just keep calling this method in a loop;
-    //  * 429: too many consume requests. Either reduce the number of consuming
-    //         threads or increase
-    //         config.yaml:proxies.<proxy>.consumer.channel_buffer_size;
-    //  * 500: internal error, see the status description and logs for details;
-    rpc ConsumeNAck (ConsNAckReq) returns (ConsRes) {}
+    //  * Not Found (5): It just means that all message has been consumed and
+    //    the long polling timeout has elaspsed. Just keep calling this method
+    //    in a loop;
+    //  * Resource Exhausted (8): too many consume requests. Either reduce the
+    //    number of consuming threads or increase
+    //    config.yaml:proxies.<proxy>.consumer.channel_buffer_size;
+    //  * Invalid Argument (3): see the status description for details;
+    //  * Internal (13): see the status description and logs for details;
+    rpc ConsumeNAck (ConsNAckRq) returns (ConsRs) {}
 
     // Ack acknowledges a message earlier consumed from a topic.
     //
@@ -69,15 +68,14 @@ service KafkaPixy {
     // be used.
     //
     // gRPC error codes:
-    //  * 3: invalid argument, see the status description for details;
-    //  * 500: internal error, see the status description and logs for details;
-    rpc Ack (AckReq) returns (AckRes) {}
+    //  * Invalid Argument (3): see the status description for details;
+    //  * Internal (13): see the status description and logs for details;
+    rpc Ack (AckRq) returns (AckRs) {}
 }
 
-message ProdReq {
-    // Name of a proxy (Kafka cluster) to operate on. Default proxy is used by
-    // default.
-    string proxy = 1;
+message ProdRq {
+    // Name of a Kafka cluster to operate on.
+    string cluster = 1;
 
     // Name of a topic to produce to.
     string topic = 2;
@@ -103,7 +101,7 @@ message ProdReq {
     bool async_mode = 6;
 }
 
-message ProdRes {
+message ProdRs {
     // Partition the message was written to. The value only makes sense if
     // ProdReq.async_mode was false.
     int32 partition = 1;
@@ -113,10 +111,9 @@ message ProdRes {
     int64 offset = 2;
 }
 
-message ConsNAckReq {
-    // Name of a proxy (Kafka cluster) to operate on. Default proxy is used by
-    // default.
-    string proxy = 1;
+message ConsNAckRq {
+    // Name of a Kafka cluster to operate on.
+    string cluster = 1;
 
     // Name of a topic to produce to.
     string topic = 2;
@@ -138,7 +135,7 @@ message ConsNAckReq {
     int64 ack_offset = 7;
 }
 
-message ConsRes {
+message ConsRs {
     // Partition the message was read from.
     int32 partition = 1;
 
@@ -156,10 +153,10 @@ message ConsRes {
     bytes message = 5;
 }
 
-message AckReq {
-    // Name of a proxy (Kafka cluster) to operate on. Default proxy is used by
-    // default.
-    string proxy = 1;
+message AckRq {
+    // Name of a Kafka cluster to operate on.
+    string cluster = 1;
+
     // Name of a topic to produce to.
     string topic = 2;
 
@@ -173,4 +170,4 @@ message AckReq {
     int64 offset = 5;
 }
 
-message AckRes {}
+message AckRs {}

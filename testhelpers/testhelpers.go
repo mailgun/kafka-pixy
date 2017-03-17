@@ -44,7 +44,7 @@ func NewTestProxyCfg(clientID string) *config.Proxy {
 	cfg.Kafka.SeedPeers = KafkaPeers
 	cfg.ZooKeeper.SeedPeers = ZookeeperPeers
 	cfg.Consumer.LongPollingTimeout = 3000 * time.Millisecond
-	cfg.Consumer.BackOffTimeout = 100 * time.Millisecond
+	cfg.Consumer.RetryBackoff = 100 * time.Millisecond
 	cfg.Consumer.RebalanceDelay = 100 * time.Millisecond
 	cfg.Consumer.AckTimeout = 100 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 100 * time.Millisecond

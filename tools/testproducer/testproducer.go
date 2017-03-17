@@ -67,7 +67,7 @@ func main() {
 				recentProgress := 0
 				checkpoint := time.Now()
 				for i := messageIndexBegin; i < messageIndexEnd; i++ {
-					req := pb.ProdReq{
+					req := pb.ProdRq{
 						Topic:     topic,
 						KeyValue:  []byte(strconv.Itoa(i)),
 						Message:   msg,
