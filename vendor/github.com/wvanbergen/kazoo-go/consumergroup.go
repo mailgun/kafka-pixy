@@ -420,13 +420,17 @@ func (cg *Consumergroup) ResetOffsets() error {
 			exists, stat, err := cg.kz.conn.Exists(partitionNode)
 			if exists {
 				if err = cg.kz.conn.Delete(partitionNode, stat.Version); err != nil {
-					return err
+					if err != zk.ErrNoNode {
+						return err
+					}
 				}
 			}
 		}
 
 		if err := cg.kz.conn.Delete(topicNode, stat.Version); err != nil {
-			return err
+			if err != zk.ErrNoNode {
+				return err
+			}
 		}
 	}
 

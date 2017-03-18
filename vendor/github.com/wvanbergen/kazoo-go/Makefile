@@ -69,13 +69,10 @@ errcheck:
 fmt:
 	@if [ -n "$$(go fmt ./...)" ]; then echo 'Please run go fmt on your code.' && exit 1; fi
 
-dependencies: dependencies/errcheck dependencies/vet dependencies/get
+dependencies: dependencies/errcheck dependencies/get
 
 dependencies/errcheck:
 	go get github.com/kisielk/errcheck
-
-dependencies/vet:
-	go get golang.org/x/tools/cmd/vet
 
 dependencies/get:
 	go get -t ./...

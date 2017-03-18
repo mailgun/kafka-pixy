@@ -62,7 +62,7 @@
 		},
 		{
 			"ImportPath": "github.com/wvanbergen/kazoo-go",
-			"Rev": "0f768712ae6f76454f987c3356177e138df258f8"
+			"Rev": "968957352185472eacb69215fa3dbfcfdbac1096"
 		},
 		{
 			"ImportPath": "golang.org/x/net/context",
