@@ -784,9 +784,9 @@ func (s *ServiceHTTPSuite) TestExplicitProxyAPIEndpoints(c *C) {
 func spawnTestService(c *C, port int) *T {
 	cfg := &config.App{Proxies: make(map[string]*config.Proxy)}
 	cfg.UnixAddr = path.Join(os.TempDir(), fmt.Sprintf("kafka-pixy.%d.sock", port))
-	pxyAlias := fmt.Sprintf("pxy%d", port)
-	cfg.Proxies[pxyAlias] = testhelpers.NewTestProxyCfg(fmt.Sprintf("C%d", port))
-	cfg.DefaultCluster = pxyAlias
+	cluster := fmt.Sprintf("pxy%d", port)
+	cfg.Proxies[cluster] = testhelpers.NewTestProxyCfg(fmt.Sprintf("C%d", port))
+	cfg.DefaultCluster = cluster
 	os.Remove(cfg.UnixAddr)
 	cfg.TCPAddr = fmt.Sprintf("127.0.0.1:%d", port)
 	svc, err := Spawn(cfg)

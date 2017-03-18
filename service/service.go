@@ -30,13 +30,13 @@ func Spawn(cfg *config.App) (*T, error) {
 		stopCh:  make(chan struct{}),
 	}
 
-	for pxyAlias, pxyCfg := range cfg.Proxies {
-		pxy, err := proxy.Spawn(actor.RootID, pxyAlias, pxyCfg)
+	for cluster, pxyCfg := range cfg.Proxies {
+		pxy, err := proxy.Spawn(actor.RootID, cluster, pxyCfg)
 		if err != nil {
 			s.stopProxies()
-			return nil, errors.Wrapf(err, "failed to spawn proxy, name=%s", pxyAlias)
+			return nil, errors.Wrapf(err, "failed to spawn proxy, name=%s", cluster)
 		}
-		s.proxies[pxyAlias] = pxy
+		s.proxies[cluster] = pxy
 	}
 
 	proxySet := proxy.NewSet(s.proxies, s.proxies[cfg.DefaultCluster])

@@ -10,7 +10,7 @@ type Set struct {
 	defaultPxy *T
 }
 
-// NewSet creates a proxy.Set from an alias to proxy map and a default proxy.
+// NewSet creates a proxy.Set from a cluster-to-proxy map and a default proxy.
 func NewSet(proxies map[string]*T, defaultPxy *T) *Set {
 	if len(proxies) < 1 {
 		panic("set must contain at least one proxy")
@@ -21,14 +21,14 @@ func NewSet(proxies map[string]*T, defaultPxy *T) *Set {
 	return &Set{proxies: proxies, defaultPxy: defaultPxy}
 }
 
-// Get returns a proxy with the specified alias or the default proxy if there
-// is no proxy with such alias.
-func (s *Set) Get(alias string) (*T, error) {
-	if alias == "" {
+// Get returns a proxy for a cluster name. If there is no proxy configured for
+// the cluster name, then the default proxy is returned.
+func (s *Set) Get(cluster string) (*T, error) {
+	if cluster == "" {
 		return s.defaultPxy, nil
 	}
-	if pxy := s.proxies[alias]; pxy != nil {
+	if pxy := s.proxies[cluster]; pxy != nil {
 		return pxy, nil
 	}
-	return nil, errors.Errorf("proxy `%s` does not exist", alias)
+	return nil, errors.Errorf("proxy `%s` does not exist", cluster)
 }
