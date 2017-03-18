@@ -501,7 +501,7 @@ func (s *ServiceHTTPSuite) TestSetOffsets(c *C) {
 }
 
 // Result of setting offsets for a non-existent topic depends on the Kafka
-// version. It is ok for 0.8, but error in 0.9.
+// version. It is ok for 0.8, but error for 0.9.x and higher.
 func (s *ServiceHTTPSuite) TestSetOffsetsNoSuchTopic(c *C) {
 	svc, err := Spawn(s.cfg)
 	c.Assert(err, IsNil)
@@ -513,17 +513,17 @@ func (s *ServiceHTTPSuite) TestSetOffsetsNoSuchTopic(c *C) {
 
 	// Then
 	kafkaVersion := os.Getenv("KAFKA_VERSION")
-	if strings.HasPrefix(kafkaVersion, "0.9") {
+	if strings.HasPrefix(kafkaVersion, "0.8") {
 		c.Assert(err, IsNil)
-		c.Assert(r.StatusCode, Equals, http.StatusNotFound)
-		body := ParseJSONBody(c, r).(map[string]interface{})
-		c.Assert(body["error"], Equals, "Unknown topic")
+		c.Assert(r.StatusCode, Equals, http.StatusOK)
+		c.Assert(ParseJSONBody(c, r), DeepEquals, httpsrv.EmptyResponse)
 		return
 	}
 
 	c.Assert(err, IsNil)
-	c.Assert(r.StatusCode, Equals, http.StatusOK)
-	c.Assert(ParseJSONBody(c, r), DeepEquals, httpsrv.EmptyResponse)
+	c.Assert(r.StatusCode, Equals, http.StatusNotFound)
+	body := ParseJSONBody(c, r).(map[string]interface{})
+	c.Assert(body["error"], Equals, "Unknown topic")
 }
 
 // Invalid body is detected and properly reported.
