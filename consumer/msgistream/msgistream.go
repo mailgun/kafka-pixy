@@ -383,8 +383,14 @@ func (mis *msgIStream) parseFetchResult(cid *actor.ID, fetchResult fetchRes) ([]
 	mis.fetchSize = mis.f.saramaCfg.Consumer.Fetch.Default
 	var fetchedMessages []consumer.Message
 	for _, msgBlock := range block.MsgSet.Messages {
+		lastMsgIdx := len(msgBlock.Messages()) - 1
+		baseOffset := msgBlock.Offset - msgBlock.Messages()[lastMsgIdx].Offset
 		for _, msg := range msgBlock.Messages() {
-			if msg.Offset < mis.offset {
+			offset := msg.Offset
+			if msg.Msg.Version >= 1 {
+				offset += baseOffset
+			}
+			if offset < mis.offset {
 				continue
 			}
 			consumerMessage := consumer.Message{
@@ -392,11 +398,12 @@ func (mis *msgIStream) parseFetchResult(cid *actor.ID, fetchResult fetchRes) ([]
 				Partition:     mis.id.partition,
 				Key:           msg.Msg.Key,
 				Value:         msg.Msg.Value,
-				Offset:        msg.Offset,
+				Offset:        offset,
+				Timestamp:     msg.Msg.Timestamp,
 				HighWaterMark: block.HighWaterMarkOffset,
 			}
 			fetchedMessages = append(fetchedMessages, consumerMessage)
-			mis.lag = block.HighWaterMarkOffset - msg.Offset
+			mis.lag = block.HighWaterMarkOffset - offset
 		}
 	}
 
@@ -512,6 +519,10 @@ func (be *brokerExecutor) runExecutor() {
 			MinBytes:    be.config.Consumer.Fetch.Min,
 			MaxWaitTime: int32(be.config.Consumer.MaxWaitTime / time.Millisecond),
 		}
+		if be.config.Version.IsAtLeast(sarama.V0_10_0_0) {
+			req.Version = 2
+		}
+
 		for _, fr := range fetchRequests {
 			req.AddBlock(fr.Topic, fr.Partition, fr.Offset, fr.MaxBytes)
 		}

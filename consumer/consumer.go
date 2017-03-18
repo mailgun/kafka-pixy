@@ -1,5 +1,9 @@
 package consumer
 
+import (
+	"time"
+)
+
 const (
 	// An event of this type should be sent to the message events channel
 	// when the message is offered to a client.
@@ -36,6 +40,7 @@ type Message struct {
 	Topic         string
 	Partition     int32
 	Offset        int64
+	Timestamp     time.Time // only set if Kafka is version 0.10+
 	HighWaterMark int64
 	EventsCh      chan<- Event
 }

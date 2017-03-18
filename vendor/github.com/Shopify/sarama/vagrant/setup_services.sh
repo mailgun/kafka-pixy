@@ -2,15 +2,10 @@
 
 set -ex
 
-if [ -n "${TOXIPROXY_VERSION}" ]; then
-    stop toxiproxy || true
-    cp ${REPOSITORY_ROOT}/vagrant/toxiproxy.conf /etc/init/toxiproxy.conf
-    cp ${REPOSITORY_ROOT}/vagrant/run_toxiproxy.sh ${KAFKA_INSTALL_ROOT}/
-    start toxiproxy
-    KAFKA_WAIT_PORT=29095
-else
-    KAFKA_WAIT_PORT=9095
-fi
+stop toxiproxy || true
+cp ${REPOSITORY_ROOT}/vagrant/toxiproxy.conf /etc/init/toxiproxy.conf
+cp ${REPOSITORY_ROOT}/vagrant/run_toxiproxy.sh ${KAFKA_INSTALL_ROOT}/
+start toxiproxy
 
 for i in 1 2 3 4 5; do
     ZK_PORT=`expr $i + 2180`
@@ -31,4 +26,4 @@ for i in 1 2 3 4 5; do
 done
 
 # Wait for the last kafka node to finish booting
-while ! nc -q 1 localhost ${KAFKA_WAIT_PORT} </dev/null; do echo "Waiting"; sleep 1; done
+while ! nc -q 1 localhost 29095 </dev/null; do echo "Waiting"; sleep 1; done
