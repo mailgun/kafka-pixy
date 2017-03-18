@@ -19,6 +19,7 @@ const (
 	CompressionNone   = "none"
 	CompressionGZIP   = "gzip"
 	CompressionSnappy = "snappy"
+	CompressionLZ4    = "lz4"
 
 	ProdAckNoResponse = "no_response"
 	ProdAckWait4Local = "wait_for_local"
@@ -26,11 +27,12 @@ const (
 )
 
 var (
-	compressionCodecs    = []string{CompressionNone, CompressionGZIP, CompressionSnappy}
+	compressionCodecs    = []string{CompressionNone, CompressionGZIP, CompressionSnappy, CompressionLZ4}
 	compressionCodecsMap = map[string]sarama.CompressionCodec{
 		CompressionNone:   sarama.CompressionNone,
 		CompressionGZIP:   sarama.CompressionGZIP,
 		CompressionSnappy: sarama.CompressionSnappy,
+		CompressionLZ4:    sarama.CompressionLZ4,
 	}
 	producerAcks    = []string{ProdAckNoResponse, ProdAckWait4Local, ProdAckWait4All}
 	producerAcksMap = map[string]sarama.RequiredAcks{
