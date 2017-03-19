@@ -31,6 +31,9 @@ proxies:
       seed_peers:
         - localhost:9092
 
+      # Version of the Kafka cluster. Supported versions are 0.8.2.2 - 0.10.1.0
+      version: 0.8.2.2
+
     # ZooKeeper parameters section.
     zoo_keeper:
 
