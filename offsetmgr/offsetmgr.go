@@ -40,11 +40,6 @@ type Factory interface {
 // T provides interface to store and retrieve offsets for a particular
 // group/topic/partition in Kafka.
 type T interface {
-	// InitialOffset returns a channel that an initial offset will be sent down
-	// to, when retrieved by a background goroutine. At most one value is sent down
-	// the channel, and the channel is closed immediately after that.
-	InitialOffset() <-chan Offset
-
 	// SubmitOffset triggers saving of the specified offset in Kafka. Commits are
 	// performed periodically in a background goroutine. The commit interval is
 	// configured by `Config.Consumer.Offsets.CommitInterval`. Note that not every
@@ -55,8 +50,10 @@ type T interface {
 	SubmitOffset(offset Offset)
 
 	// CommittedOffsets returns a channel that offsets committed to Kafka are
-	// sent down to. The user must read from this channel otherwise the
-	// `SubmitOffset` function will eventually block.
+	// sent to. The first offset sent to this channel is the initial offset
+	// fetched from Kafka for the group+topic+partition. The user must read
+	// from this channel otherwise the `SubmitOffset` function will eventually
+	// block forever.
 	CommittedOffsets() <-chan Offset
 
 	// Stop stops the offset manager. It is required to stop all spawned offset
@@ -74,15 +71,14 @@ type Offset struct {
 	Meta string
 }
 
-type OffsetCommitError struct {
-	Group     string
-	Topic     string
-	Partition int32
-	Err       error
-}
+var (
+	errNoCoordinator  = errors.New("failed to resolve coordinator")
+	errRequestTimeout = errors.New("request timeout")
 
-var ErrNoCoordinator = errors.New("failed to resolve coordinator")
-var ErrRequestTimeout = errors.New("request timeout")
+	// To be used in tests only! If true then offset manager will initialize
+	// their errors channel and will send internal errors.
+	testReportErrors bool
+)
 
 // SpawnFactory creates a new offset manager factory from the given client.
 func SpawnFactory(namespace *actor.ID, cfg *config.Proxy, kafkaClt sarama.Client) Factory {
@@ -105,9 +101,6 @@ type factory struct {
 	mapper       *mapper.T
 	children     map[instanceID]*offsetMgr
 	childrenLock sync.Mutex
-
-	// To be used in tests only!
-	testReportErrors bool
 }
 
 type instanceID struct {
@@ -165,13 +158,12 @@ func (f *factory) spawnOffsetManager(namespace *actor.ID, id instanceID) *offset
 		actorID:            namespace.NewChild("offset_mgr"),
 		f:                  f,
 		id:                 id,
-		initialOffsetCh:    make(chan Offset, 1),
 		submitRequestsCh:   make(chan submitReq),
 		assignmentCh:       make(chan mapper.Executor, 1),
 		committedOffsetsCh: make(chan Offset, f.cfg.Consumer.ChannelBufferSize),
 	}
-	if f.testReportErrors {
-		om.testErrorsCh = make(chan *OffsetCommitError, f.cfg.Consumer.ChannelBufferSize)
+	if testReportErrors {
+		om.testErrorsCh = make(chan error, f.cfg.Consumer.ChannelBufferSize)
 	}
 	actor.Spawn(om.actorID, &om.wg, om.run)
 	return om
@@ -188,7 +180,6 @@ type offsetMgr struct {
 	actorID            *actor.ID
 	f                  *factory
 	id                 instanceID
-	initialOffsetCh    chan Offset
 	submitRequestsCh   chan submitReq
 	assignmentCh       chan mapper.Executor
 	committedOffsetsCh chan Offset
@@ -200,12 +191,7 @@ type offsetMgr struct {
 	lastReassignTime          time.Time
 
 	// To be used in tests only!
-	testErrorsCh chan *OffsetCommitError
-}
-
-// implements `T`.
-func (om *offsetMgr) InitialOffset() <-chan Offset {
-	return om.initialOffsetCh
+	testErrorsCh chan error
 }
 
 // implements `T`.
@@ -261,13 +247,14 @@ func (om *offsetMgr) run() {
 	for {
 		select {
 		case bw := <-om.assignmentCh:
+			log.Infof("<%s> assigned %s", om.actorID, bw)
 			if bw == nil {
-				om.assignedBrokerRequestsCh = nil
-				om.triggerOrScheduleReassign(ErrNoCoordinator, "retry reassignment")
+				om.triggerOrScheduleReassign(errNoCoordinator, "no broker assigned")
 				continue
 			}
-			be := bw.(*brokerExecutor)
 			om.nilOrReassignRetryTimerCh = nil
+
+			be := bw.(*brokerExecutor)
 			om.assignedBrokerRequestsCh = be.requestsCh
 
 			if !initialOffsetFetched {
@@ -276,8 +263,7 @@ func (om *offsetMgr) run() {
 					om.triggerOrScheduleReassign(err, "failed to fetch initial offset")
 					continue
 				}
-				om.initialOffsetCh <- initialOffset
-				close(om.initialOffsetCh)
+				om.committedOffsetsCh <- initialOffset
 				initialOffsetFetched = true
 			}
 			if lastSubmitRequest.offset != lastCommittedOffset {
@@ -312,7 +298,7 @@ func (om *offsetMgr) run() {
 		case <-commitTicker.C:
 			isRequestTimeout := time.Now().UTC().Sub(lastSubmitTime) > offsetCommitTimeout
 			if isRequestTimeout && lastSubmitRequest.offset != lastCommittedOffset {
-				om.triggerOrScheduleReassign(ErrRequestTimeout, "offset commit failed")
+				om.triggerOrScheduleReassign(errRequestTimeout, "offset commit failed")
 			}
 		case <-om.nilOrReassignRetryTimerCh:
 			om.f.mapper.WorkerReassign() <- om
@@ -366,14 +352,8 @@ func (om *offsetMgr) reportError(err error) {
 	if om.testErrorsCh == nil {
 		return
 	}
-	oce := &OffsetCommitError{
-		Group:     om.id.group,
-		Topic:     om.id.topic,
-		Partition: om.id.partition,
-		Err:       err,
-	}
 	select {
-	case om.testErrorsCh <- oce:
+	case om.testErrorsCh <- err:
 	default:
 	}
 }
