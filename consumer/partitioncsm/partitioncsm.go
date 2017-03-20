@@ -103,7 +103,7 @@ func (pc *T) run() {
 	// Wait for the initial offset to be retrieved.
 	var committedOffset offsetmgr.Offset
 	select {
-	case committedOffset = <-om.InitialOffset():
+	case committedOffset = <-om.CommittedOffsets():
 	case <-pc.stopCh:
 		return
 	}

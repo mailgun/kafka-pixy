@@ -53,7 +53,7 @@ func (s *OffsetMgrFuncSuite) TestLatestOffsetSaved(c *C) {
 	om0_2, err := f.SpawnOffsetManager(tid, "g1", "test.4", 0)
 	c.Assert(err, IsNil)
 
-	offset := <-om0_2.InitialOffset()
+	offset := <-om0_2.CommittedOffsets()
 	c.Assert(offset, Equals, offsetmgr.Offset{newOffset + 2, "bazz"})
 
 	om0_2.Stop()
@@ -99,7 +99,7 @@ func (s *OffsetMgrFuncSuite) TestMultipleGroups(c *C) {
 		om, err := f.SpawnOffsetManager(tid, group, "test.1", 0)
 		c.Assert(err, IsNil)
 
-		offset := <-om.InitialOffset()
+		offset := <-om.CommittedOffsets()
 		meta := fmt.Sprintf("meta%d", i)
 		c.Assert(offset, Equals, offsetmgr.Offset{newOffset + 99, meta})
 

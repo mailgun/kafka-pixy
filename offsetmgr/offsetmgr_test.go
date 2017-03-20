@@ -26,6 +26,11 @@ var _ = Suite(&OffsetMgrSuite{})
 
 func (s *OffsetMgrSuite) SetUpSuite(c *C) {
 	testhelpers.InitLogging(c)
+	testReportErrors = true
+}
+
+func (s *OffsetMgrSuite) TearDownSuite(c *C) {
+	testReportErrors = false
 }
 
 func (s *OffsetMgrSuite) SetUpTest(c *C) {
@@ -62,7 +67,7 @@ func (s *OffsetMgrSuite) TestInitialOffset(c *C) {
 	defer om.Stop()
 
 	// Then
-	initialOffset := <-om.InitialOffset()
+	initialOffset := <-om.CommittedOffsets()
 	c.Assert(initialOffset, DeepEquals, Offset{2000, "bar"})
 }
 
@@ -86,7 +91,6 @@ func (s *OffsetMgrSuite) TestInitialNoCoordinator(c *C) {
 	c.Assert(err, IsNil)
 	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	defer f.Stop()
-	f.(*factory).testReportErrors = true
 
 	// When
 	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 8), "g1", "t1", 8)
@@ -94,8 +98,8 @@ func (s *OffsetMgrSuite) TestInitialNoCoordinator(c *C) {
 	defer om.Stop()
 
 	// Then
-	oce := <-om.(*offsetMgr).testErrorsCh
-	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 8, ErrNoCoordinator})
+	err = <-om.(*offsetMgr).testErrorsCh
+	c.Assert(err, DeepEquals, errNoCoordinator)
 }
 
 // A partition offset manager can be closed even while it keeps trying to
@@ -120,7 +124,6 @@ func (s *OffsetMgrSuite) TestInitialFetchError(c *C) {
 	c.Assert(err, IsNil)
 	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	defer f.Stop()
-	f.(*factory).testReportErrors = true
 
 	// When
 	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
@@ -128,8 +131,8 @@ func (s *OffsetMgrSuite) TestInitialFetchError(c *C) {
 	defer om.Stop()
 
 	// Then
-	oce := <-om.(*offsetMgr).testErrorsCh
-	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 7, sarama.ErrNotLeaderForPartition})
+	err = <-om.(*offsetMgr).testErrorsCh
+	c.Assert(err, Equals, sarama.ErrNotLeaderForPartition)
 }
 
 // If offset commit fails then the corresponding error is sent down to the
@@ -158,7 +161,6 @@ func (s *OffsetMgrSuite) TestCommitError(c *C) {
 
 	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	defer f.Stop()
-	f.(*factory).testReportErrors = true
 
 	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
@@ -169,8 +171,8 @@ func (s *OffsetMgrSuite) TestCommitError(c *C) {
 	actor.Spawn(actor.RootID.NewChild("stopper"), &wg, om.Stop)
 
 	// Then
-	oce := <-om.(*offsetMgr).testErrorsCh
-	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 7, sarama.ErrNotLeaderForPartition})
+	err = <-om.(*offsetMgr).testErrorsCh
+	c.Assert(err, Equals, sarama.ErrNotLeaderForPartition)
 
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
@@ -214,12 +216,13 @@ func (s *OffsetMgrSuite) TestCommitIncompleteResponse(c *C) {
 
 	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	defer f.Stop()
-	f.(*factory).testReportErrors = true
 
 	om1, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 1), "g1", "t1", 1)
 	c.Assert(err, IsNil)
+	<-om1.CommittedOffsets() // Ignore initial offset.
 	om2, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 2), "g1", "t1", 2)
 	c.Assert(err, IsNil)
+	<-om2.CommittedOffsets() // Ignore initial offset.
 
 	// When
 	om1.SubmitOffset(Offset{1001, "foo1"})
@@ -229,8 +232,8 @@ func (s *OffsetMgrSuite) TestCommitIncompleteResponse(c *C) {
 	actor.Spawn(actor.RootID.NewChild("stopper"), &wg, om2.Stop)
 
 	// Then
-	oce := <-om1.(*offsetMgr).testErrorsCh
-	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 1, sarama.ErrIncompleteResponse})
+	err = <-om1.(*offsetMgr).testErrorsCh
+	c.Assert(err, Equals, sarama.ErrIncompleteResponse)
 	c.Assert(<-om2.CommittedOffsets(), Equals, Offset{2001, "bar2"})
 
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
@@ -265,7 +268,6 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 	c.Assert(err, IsNil)
 	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	defer f.Stop()
-	f.(*factory).testReportErrors = true
 
 	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
@@ -279,8 +281,8 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 
 	// STAGE 1: Requests for coordinator time out.
 	log.Infof("    STAGE 1")
-	oce := <-om.(*offsetMgr).testErrorsCh
-	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 7, ErrRequestTimeout})
+	err = <-om.(*offsetMgr).testErrorsCh
+	c.Assert(err, Equals, errRequestTimeout)
 
 	// STAGE 2: Requests for initial offset return errors
 	log.Infof("    STAGE 2")
@@ -290,12 +292,12 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
 			SetOffset("g1", "t1", 7, 0, "", sarama.ErrNotLeaderForPartition),
 	})
-	for oce = range om.(*offsetMgr).testErrorsCh {
-		if !reflect.DeepEqual(oce, &OffsetCommitError{"g1", "t1", 7, ErrRequestTimeout}) {
+	for err = range om.(*offsetMgr).testErrorsCh {
+		if err != errRequestTimeout {
 			break
 		}
 	}
-	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 7, sarama.ErrNotLeaderForPartition})
+	c.Assert(err, Equals, sarama.ErrNotLeaderForPartition)
 
 	// STAGE 3: Val commit requests fail
 	log.Infof("    STAGE 3")
@@ -307,12 +309,12 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
 			SetError("g1", "t1", 7, sarama.ErrOffsetMetadataTooLarge),
 	})
-	for oce = range om.(*offsetMgr).testErrorsCh {
-		if !reflect.DeepEqual(oce, &OffsetCommitError{"g1", "t1", 7, sarama.ErrNotLeaderForPartition}) {
+	for err = range om.(*offsetMgr).testErrorsCh {
+		if !reflect.DeepEqual(err, sarama.ErrNotLeaderForPartition) {
 			break
 		}
 	}
-	c.Assert(oce, DeepEquals, &OffsetCommitError{"g1", "t1", 7, sarama.ErrOffsetMetadataTooLarge})
+	c.Assert(err, DeepEquals, sarama.ErrOffsetMetadataTooLarge)
 
 	// STAGE 4: Finally everything is fine
 	log.Infof("    STAGE 4")
@@ -409,7 +411,6 @@ func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 	c.Assert(err, IsNil)
 	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	defer f.Stop()
-	f.(*factory).testReportErrors = true
 
 	om1, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
@@ -475,6 +476,7 @@ func (s *OffsetMgrSuite) TestCommittedChannel(c *C) {
 	defer f.Stop()
 	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
+	<-om.CommittedOffsets() // Ignore initial offset.
 
 	// When
 	om.SubmitOffset(Offset{1001, "bar1"})
@@ -519,20 +521,18 @@ func (s *OffsetMgrSuite) TestBugConnectionRestored(c *C) {
 	c.Assert(err, IsNil)
 	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	defer f.Stop()
-	f.(*factory).testReportErrors = true
 
 	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
 
 	log.Infof("    GIVEN 1")
 	// Make sure the partition offset manager established connection with broker2.
-	oce := &OffsetCommitError{}
 	select {
-	case oce = <-om.(*offsetMgr).testErrorsCh:
+	case err = <-om.(*offsetMgr).testErrorsCh:
 	case <-time.After(200 * time.Millisecond):
 	}
-	_, ok := oce.Err.(*net.OpError)
-	c.Assert(ok, Equals, true, Commentf("Unexpected or no error: err=%v", oce.Err))
+	_, ok := err.(*net.OpError)
+	c.Assert(ok, Equals, true, Commentf("Unexpected or no error: err=%v", err))
 
 	log.Infof("    GIVEN 2")
 	// Close both broker2 and the partition offset manager. That will break
@@ -564,11 +564,11 @@ func (s *OffsetMgrSuite) TestBugConnectionRestored(c *C) {
 	// broker2 and successfully retrieves the initial offset.
 	var do Offset
 	select {
-	case do = <-om.InitialOffset():
-	case oce = <-om.(*offsetMgr).testErrorsCh:
+	case do = <-om.CommittedOffsets():
+	case err = <-om.(*offsetMgr).testErrorsCh:
 	case <-time.After(200 * time.Millisecond):
 	}
-	c.Assert(do.Val, Equals, int64(1000), Commentf("Failed to retrieve initial offset: %s", oce.Err))
+	c.Assert(do.Val, Equals, int64(1000), Commentf("Failed to retrieve initial offset: %s", err))
 }
 
 // Test for issue https://github.com/mailgun/kafka-pixy/issues/62. The problem
@@ -602,6 +602,7 @@ func (s *OffsetMgrSuite) TestBugOffsetDroppedOnStop(c *C) {
 	time.Sleep(100 * time.Millisecond)
 	// Set broker latency to ensure proper test timing.
 	broker1.SetLatency(200 * time.Millisecond)
+	<-om.CommittedOffsets() // Ignore initial offset.
 
 	// When
 	// 0ms: the first offset is submitted;

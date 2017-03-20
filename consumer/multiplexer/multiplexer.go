@@ -111,7 +111,6 @@ func (m *T) WireUp(output Out, assigned []int32) {
 			delete(m.inputs, p)
 		}
 	}
-	wg.Wait()
 	// Spawn newly assigned inputs, but stop multiplexer before spawning the
 	// first input.
 	for _, p := range assigned {
@@ -123,6 +122,8 @@ func (m *T) WireUp(output Out, assigned []int32) {
 	if !m.IsRunning() && len(m.inputs) > 0 {
 		m.start()
 	}
+	// Wait for stopping inputs to stop.
+	wg.Wait()
 }
 
 // Stop synchronously stops the multiplexer.

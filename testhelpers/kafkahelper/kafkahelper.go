@@ -210,7 +210,7 @@ func (kh *T) GetCommittedOffsets(group, topic string) []offsetmgr.Offset {
 			defer wg.Done()
 			om, err := omf.SpawnOffsetManager(kh.ns, group, topic, p)
 			kh.c.Assert(err, IsNil)
-			offsets[p] = <-om.InitialOffset()
+			offsets[p] = <-om.CommittedOffsets()
 			om.Stop()
 		}(p)
 	}

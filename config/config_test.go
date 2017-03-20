@@ -111,6 +111,7 @@ func (s *ConfigSuite) TestFromYAMLFile(c *C) {
 	c.Assert(err, IsNil)
 	expected := DefaultApp("default")
 	expected.Proxies["default"].ClientID = "ID"
+	expected.Proxies["default"].Kafka.Version = "0.8.2.2"
 	appCfg.Proxies["default"].ClientID = "ID"
 	c.Assert(appCfg, DeepEquals, expected)
 }

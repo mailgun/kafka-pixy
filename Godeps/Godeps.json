@@ -5,8 +5,8 @@
 	"Deps": [
 		{
 			"ImportPath": "github.com/Shopify/sarama",
-			"Comment": "v1.8.0",
-			"Rev": "4ba9bba6adb6697bcec3841e1ecdfecf5227c3b9"
+			"Comment": "v1.11.0",
+			"Rev": "0fb560e5f7fbcaee2f75e3c34174320709f69944"
 		},
 		{
 			"ImportPath": "github.com/davecgh/go-spew/spew",
@@ -58,11 +58,11 @@
 		},
 		{
 			"ImportPath": "github.com/samuel/go-zookeeper/zk",
-			"Rev": "218e9c81c0dd8b3b18172b2bbfad92cc7d6db55f"
+			"Rev": "1d7be4effb13d2d908342d349d71a284a7542693"
 		},
 		{
 			"ImportPath": "github.com/wvanbergen/kazoo-go",
-			"Rev": "0f768712ae6f76454f987c3356177e138df258f8"
+			"Rev": "968957352185472eacb69215fa3dbfcfdbac1096"
 		},
 		{
 			"ImportPath": "golang.org/x/net/context",
@@ -146,6 +146,23 @@
 		{
 			"ImportPath": "gopkg.in/yaml.v2",
 			"Rev": "31c299268d302dd0aa9a0dcf765a3d58971ac83f"
+		},
+		{
+			"ImportPath": "github.com/eapache/go-xerial-snappy",
+			"Rev": "bb955e01b9346ac19dc29eb16586c90ded99a98c"
+		},
+		{
+			"ImportPath": "github.com/pierrec/lz4",
+			"Rev": "90290f74b1b4d9c097f0a3b3c7eba2ef3875c699"
+		},
+		{
+			"ImportPath": "github.com/rcrowley/go-metrics",
+			"Rev": "1f30fe9094a513ce4c700b9a54458bbb0c96996c"
+		},
+		{
+			"ImportPath": "github.com/pierrec/xxHash/xxHash32",
+			"Comment": "v0.1-4-g5a00444",
+			"Rev": "5a004441f897722c627870a981d02b29924215fa"
 		}
 	]
 }

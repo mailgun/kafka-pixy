@@ -67,14 +67,12 @@ func (s *ServiceHTTPSuite) TearDownTest(c *C) {
 	s.kh.Close()
 }
 
-func (s *ServiceHTTPSuite) TestStartAndStop(c *C) {
-	svc, err := Spawn(s.cfg)
-	c.Assert(err, IsNil)
-	svc.Stop()
-}
-
 func (s *ServiceHTTPSuite) TestInvalidUnixAddr(c *C) {
-	// Given
+	// Server TCP socket will be left hanging in this case. In real life it is
+	// kind of ok, because application would soon terminate anyway releasing
+	// the socket. But in tests that may result in service.Spawn failure in
+	// another test. To avoid that we chose a unique port number.
+	s.cfg.TCPAddr = "127.0.0.1:19099"
 	s.cfg.UnixAddr = "/tmp"
 
 	// When
@@ -87,7 +85,6 @@ func (s *ServiceHTTPSuite) TestInvalidUnixAddr(c *C) {
 }
 
 func (s *ServiceHTTPSuite) TestInvalidKafkaPeers(c *C) {
-	// Given
 	s.cfg.Proxies[s.cfg.DefaultCluster].Kafka.SeedPeers = []string{"localhost:12345"}
 
 	// When
@@ -103,8 +100,8 @@ func (s *ServiceHTTPSuite) TestInvalidKafkaPeers(c *C) {
 // If `key` is not `nil` then produced messages are deterministically
 // distributed between partitions based on the `key` hash.
 func (s *ServiceHTTPSuite) TestProduce(c *C) {
-	// Given
-	svc, _ := Spawn(s.cfg)
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
 	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 
 	// When
@@ -134,8 +131,8 @@ func (s *ServiceHTTPSuite) TestProduce(c *C) {
 // partition. Therefore a batch of such messages is evenly distributed among
 // all available partitions.
 func (s *ServiceHTTPSuite) TestProduceNilKey(c *C) {
-	// Given
-	svc, _ := Spawn(s.cfg)
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
 	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 
 	// When
@@ -158,7 +155,8 @@ func (s *ServiceHTTPSuite) TestProduceNilKey(c *C) {
 // If `key` of a produced message is empty then it is deterministically
 // submitted to a particular partition determined by the empty key hash.
 func (s *ServiceHTTPSuite) TestProduceEmptyKey(c *C) {
-	svc, _ := Spawn(s.cfg)
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
 	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 
 	// When
@@ -178,7 +176,8 @@ func (s *ServiceHTTPSuite) TestProduceEmptyKey(c *C) {
 
 // Utf8 messages are submitted without a problem.
 func (s *ServiceHTTPSuite) TestUtf8Message(c *C) {
-	svc, _ := Spawn(s.cfg)
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
 	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 
 	// When
@@ -217,8 +216,9 @@ func (s *ServiceHTTPSuite) TestBothAPI(c *C) {
 }
 
 func (s *ServiceHTTPSuite) TestStoppedServerCall(c *C) {
-	svc, _ := Spawn(s.cfg)
-	_, err := s.unixClient.Post("http://_/topics/test.4/messages?key=foo",
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
+	_, err = s.unixClient.Post("http://_/topics/test.4/messages?key=foo",
 		"text/plain", strings.NewReader("Hello"))
 	c.Assert(err, IsNil)
 
@@ -239,7 +239,8 @@ func (s *ServiceHTTPSuite) TestLargestMessage(c *C) {
 	maxMsgSize := sarama.NewConfig().Producer.MaxMessageBytes - ProdMsgMetadataSize([]byte("foo"))
 	msg := GenMessage(maxMsgSize)
 	s.cfg.TCPAddr = "127.0.0.1:55501"
-	svc, _ := Spawn(s.cfg)
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
 
 	// When
 	r := PostChunked(s.tcpClient, "http://127.0.0.1:55501/topics/test.4/messages?key=foo", msg)
@@ -262,7 +263,8 @@ func (s *ServiceHTTPSuite) TestMessageTooLarge(c *C) {
 	maxMsgSize := sarama.NewConfig().Producer.MaxMessageBytes - ProdMsgMetadataSize([]byte("foo")) + 1
 	msg := GenMessage(maxMsgSize)
 	s.cfg.TCPAddr = "127.0.0.1:55501"
-	svc, _ := Spawn(s.cfg)
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
 
 	// When
 	r := PostChunked(s.tcpClient, "http://127.0.0.1:55501/topics/test.4/messages?key=foo", msg)
@@ -276,8 +278,8 @@ func (s *ServiceHTTPSuite) TestMessageTooLarge(c *C) {
 }
 
 func (s *ServiceHTTPSuite) TestSyncProduce(c *C) {
-	// Given
-	svc, _ := Spawn(s.cfg)
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
 	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 
 	// When
@@ -296,8 +298,8 @@ func (s *ServiceHTTPSuite) TestSyncProduce(c *C) {
 }
 
 func (s *ServiceHTTPSuite) TestSyncProduceInvalidTopic(c *C) {
-	// Given
-	svc, _ := Spawn(s.cfg)
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
 	defer svc.Stop()
 
 	// When
@@ -312,8 +314,8 @@ func (s *ServiceHTTPSuite) TestSyncProduceInvalidTopic(c *C) {
 }
 
 func (s *ServiceHTTPSuite) TestConsumeNoGroup(c *C) {
-	// Given
-	svc, _ := Spawn(s.cfg)
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
 	defer svc.Stop()
 
 	// When
@@ -327,8 +329,8 @@ func (s *ServiceHTTPSuite) TestConsumeNoGroup(c *C) {
 }
 
 func (s *ServiceHTTPSuite) TestConsumeManyGroups(c *C) {
-	// Given
-	svc, _ := Spawn(s.cfg)
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
 	defer svc.Stop()
 
 	// When
@@ -342,8 +344,8 @@ func (s *ServiceHTTPSuite) TestConsumeManyGroups(c *C) {
 }
 
 func (s *ServiceHTTPSuite) TestConsumeInvalidTopic(c *C) {
-	// Given
-	svc, _ := Spawn(s.cfg)
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
 	defer svc.Stop()
 
 	// When
@@ -433,8 +435,8 @@ func (s *ServiceHTTPSuite) TestConsumeExplicitAck(c *C) {
 // If offsets for a group that does not exist are requested then -1 is returned
 // as the next offset to be consumed for all topic partitions.
 func (s *ServiceHTTPSuite) TestGetOffsetsNoSuchGroup(c *C) {
-	// Given
-	svc, _ := Spawn(s.cfg)
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
 	defer svc.Stop()
 
 	// When
@@ -453,8 +455,8 @@ func (s *ServiceHTTPSuite) TestGetOffsetsNoSuchGroup(c *C) {
 
 // An attempt to retrieve offsets for a topic that does not exist fails with 404.
 func (s *ServiceHTTPSuite) TestGetOffsetsNoSuchTopic(c *C) {
-	// Given
-	svc, _ := Spawn(s.cfg)
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
 	defer svc.Stop()
 
 	// When
@@ -469,8 +471,8 @@ func (s *ServiceHTTPSuite) TestGetOffsetsNoSuchTopic(c *C) {
 
 // Committed offsets are returned in a following GET request.
 func (s *ServiceHTTPSuite) TestSetOffsets(c *C) {
-	// Given
-	svc, _ := Spawn(s.cfg)
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
 	defer svc.Stop()
 
 	// When
@@ -499,10 +501,10 @@ func (s *ServiceHTTPSuite) TestSetOffsets(c *C) {
 }
 
 // Result of setting offsets for a non-existent topic depends on the Kafka
-// version. It is ok for 0.8, but error in 0.9.
+// version. It is ok for 0.8, but error for 0.9.x and higher.
 func (s *ServiceHTTPSuite) TestSetOffsetsNoSuchTopic(c *C) {
-	// Given
-	svc, _ := Spawn(s.cfg)
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
 	defer svc.Stop()
 
 	// When
@@ -511,23 +513,23 @@ func (s *ServiceHTTPSuite) TestSetOffsetsNoSuchTopic(c *C) {
 
 	// Then
 	kafkaVersion := os.Getenv("KAFKA_VERSION")
-	if strings.HasPrefix(kafkaVersion, "0.9") {
+	if strings.HasPrefix(kafkaVersion, "0.8") {
 		c.Assert(err, IsNil)
-		c.Assert(r.StatusCode, Equals, http.StatusNotFound)
-		body := ParseJSONBody(c, r).(map[string]interface{})
-		c.Assert(body["error"], Equals, "Unknown topic")
+		c.Assert(r.StatusCode, Equals, http.StatusOK)
+		c.Assert(ParseJSONBody(c, r), DeepEquals, httpsrv.EmptyResponse)
 		return
 	}
 
 	c.Assert(err, IsNil)
-	c.Assert(r.StatusCode, Equals, http.StatusOK)
-	c.Assert(ParseJSONBody(c, r), DeepEquals, httpsrv.EmptyResponse)
+	c.Assert(r.StatusCode, Equals, http.StatusNotFound)
+	body := ParseJSONBody(c, r).(map[string]interface{})
+	c.Assert(body["error"], Equals, "Unknown topic")
 }
 
 // Invalid body is detected and properly reported.
 func (s *ServiceHTTPSuite) TestSetOffsetsInvalidBody(c *C) {
-	// Given
-	svc, _ := Spawn(s.cfg)
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
 	defer svc.Stop()
 
 	// When
@@ -543,8 +545,8 @@ func (s *ServiceHTTPSuite) TestSetOffsetsInvalidBody(c *C) {
 
 // It is not an error to set an offset for a missing partition.
 func (s *ServiceHTTPSuite) TestSetOffsetsInvalidPartition(c *C) {
-	// Given
-	svc, _ := Spawn(s.cfg)
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
 	defer svc.Stop()
 
 	// When
@@ -560,8 +562,8 @@ func (s *ServiceHTTPSuite) TestSetOffsetsInvalidPartition(c *C) {
 // Reported partition lags are correct, including those corresponding to -1 and
 // -2 special case offset values.
 func (s *ServiceHTTPSuite) TestGetOffsetsLag(c *C) {
-	// Given
-	svc, _ := Spawn(s.cfg)
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
 	defer svc.Stop()
 	r, err := s.unixClient.Post("http://_/topics/test.4/offsets?group=foo",
 		"application/json", strings.NewReader(
@@ -588,8 +590,8 @@ func (s *ServiceHTTPSuite) TestGetOffsetsLag(c *C) {
 // If a topic is not consumed by any member of a group at the moment then
 // empty consumer map is returned.
 func (s *ServiceHTTPSuite) TestGetTopicConsumersNone(c *C) {
-	// Given
-	svc, _ := Spawn(s.cfg)
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
 	defer svc.Stop()
 
 	// When
@@ -603,8 +605,8 @@ func (s *ServiceHTTPSuite) TestGetTopicConsumersNone(c *C) {
 }
 
 func (s *ServiceHTTPSuite) TestGetTopicConsumersInvalid(c *C) {
-	// Given
-	svc, _ := Spawn(s.cfg)
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
 	defer svc.Stop()
 
 	// When
@@ -618,10 +620,10 @@ func (s *ServiceHTTPSuite) TestGetTopicConsumersInvalid(c *C) {
 }
 
 func (s *ServiceHTTPSuite) TestGetTopicConsumersOne(c *C) {
-	// Given
 	s.kh.ResetOffsets("foo", "test.4")
 	s.kh.PutMessages("get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1, "D": 1})
-	svc, _ := Spawn(s.cfg)
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
 	defer svc.Stop()
 	for i := 0; i < 4; i++ {
 		s.unixClient.Get("http://_/topics/test.4/messages?group=foo")
@@ -707,7 +709,6 @@ func (s *ServiceHTTPSuite) TestGetAllTopicConsumers(c *C) {
 // If consumers are requested for a particular group then only members of that
 // group are returned.
 func (s *ServiceHTTPSuite) TestGetTopicConsumers(c *C) {
-	// Given
 	s.kh.ResetOffsets("foo", "test.4")
 	s.kh.ResetOffsets("bar", "test.4")
 	s.kh.PutMessages("get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1})
@@ -742,8 +743,8 @@ func (s *ServiceHTTPSuite) TestGetTopicConsumers(c *C) {
 // Reported partition lags are correct, including those corresponding to -1 and
 // -2 special case offset values.
 func (s *ServiceHTTPSuite) TestHealthCheck(c *C) {
-	// Given
-	svc, _ := Spawn(s.cfg)
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
 	defer svc.Stop()
 
 	// When
@@ -759,9 +760,9 @@ func (s *ServiceHTTPSuite) TestHealthCheck(c *C) {
 
 // Ensure that API endpoints that explicitly select a proxy to operate on work.
 func (s *ServiceHTTPSuite) TestExplicitProxyAPIEndpoints(c *C) {
-	// Given
 	s.kh.ResetOffsets("foo", "test.1")
-	svc, _ := Spawn(s.cfg)
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
 	defer svc.Stop()
 
 	// When/Then
@@ -783,9 +784,9 @@ func (s *ServiceHTTPSuite) TestExplicitProxyAPIEndpoints(c *C) {
 func spawnTestService(c *C, port int) *T {
 	cfg := &config.App{Proxies: make(map[string]*config.Proxy)}
 	cfg.UnixAddr = path.Join(os.TempDir(), fmt.Sprintf("kafka-pixy.%d.sock", port))
-	pxyAlias := fmt.Sprintf("pxy%d", port)
-	cfg.Proxies[pxyAlias] = testhelpers.NewTestProxyCfg(fmt.Sprintf("C%d", port))
-	cfg.DefaultCluster = pxyAlias
+	cluster := fmt.Sprintf("pxy%d", port)
+	cfg.Proxies[cluster] = testhelpers.NewTestProxyCfg(fmt.Sprintf("C%d", port))
+	cfg.DefaultCluster = cluster
 	os.Remove(cfg.UnixAddr)
 	cfg.TCPAddr = fmt.Sprintf("127.0.0.1:%d", port)
 	svc, err := Spawn(cfg)

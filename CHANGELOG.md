@@ -5,6 +5,7 @@
 Implemented:
 * At-Least-Once delivery guarantee via synchronous production and
   explicit acknowledgement of consumed messages.
+* Support for Kafka versions up to 0.10.1.x.
 
 #### Version 0.12.0 (2017-02-21)
 
