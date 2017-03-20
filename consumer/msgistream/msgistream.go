@@ -115,7 +115,7 @@ func (f *factory) SpawnMessageIStream(namespace *actor.ID, topic string, partiti
 		return nil, sarama.OffsetNewest, sarama.ConfigurationError("That topic/partition is already being consumed")
 	}
 	ms := f.spawnMsgIStream(namespace, id, realOffset)
-	f.mapper.WorkerSpawned() <- ms
+	f.mapper.OnWorkerSpawned(ms)
 	f.children[id] = ms
 	return ms, realOffset, nil
 }
@@ -232,7 +232,7 @@ func (mis *msgIStream) Stop() {
 	mis.f.childrenLock.Lock()
 	delete(mis.f.children, mis.id)
 	mis.f.childrenLock.Unlock()
-	mis.f.mapper.WorkerStopped() <- mis
+	mis.f.mapper.OnWorkerStopped(mis)
 }
 
 // implements `mapper.Worker`.
@@ -313,7 +313,7 @@ pullMessagesLoop:
 			mis.nilOrBrokerRequestsCh = mis.assignedBrokerRequestCh
 
 		case <-mis.nilOrReassignRetryTimerCh:
-			mis.f.mapper.WorkerReassign() <- mis
+			mis.f.mapper.TriggerReassign(mis)
 			log.Infof("<%s> reassign triggered by timeout", mis.actorID)
 			mis.nilOrReassignRetryTimerCh = time.After(mis.f.saramaCfg.Consumer.Retry.Backoff)
 
@@ -332,7 +332,7 @@ func (mis *msgIStream) triggerOrScheduleReassign(reason string) {
 	if now.Sub(mis.lastReassignTime) > mis.f.saramaCfg.Consumer.Retry.Backoff {
 		log.Infof("<%s> trigger reassign: reason=(%s)", mis.actorID, reason)
 		mis.lastReassignTime = now
-		mis.f.mapper.WorkerReassign() <- mis
+		mis.f.mapper.TriggerReassign(mis)
 	} else {
 		log.Infof("<%s> schedule reassign: reason=(%s)", mis.actorID, reason)
 	}

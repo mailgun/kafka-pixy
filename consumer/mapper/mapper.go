@@ -15,9 +15,9 @@ import (
 // particular broker executor instance to assign to a partition worker.
 //
 // Mapper triggers reassignment whenever one of the following events happen:
-//   * it is signaled that a new worker has been spawned via `WorkerSpawned()`;
-//   * it is signaled that an existing worker has stopped via `WorkerStopped()`;
-//   * a worker explicitly requested reassignment via `WorkerReassign()`
+//   * it is signaled that a new worker has been spawned via `OnWorkerSpawned()`;
+//   * it is signaled that an existing worker has stopped via `OnWorkerStopped()`;
+//   * a worker explicitly requested reassignment via `TriggerReassign()`
 //   * an executor reported connection error via `BrokerFailed()`.
 //
 // Broker executors are spawned on demand when a broker connection is mapped to
@@ -25,16 +25,14 @@ import (
 // executor is stopped only after all partition workers that used to be assigned
 // to it have either been stopped or assigned another broker executor.
 type T struct {
-	actorID          *actor.ID
-	resolver         Resolver
-	workerSpawnedCh  chan Worker
-	workerStoppedCh  chan Worker
-	workerReassignCh chan Worker
-	assignments      map[Worker]Executor
-	references       map[Executor]int
-	connections      map[*sarama.Broker]Executor
-	stopCh           chan none.T
-	wg               sync.WaitGroup
+	actorID     *actor.ID
+	resolver    Resolver
+	eventsCh    chan event
+	assignments map[Worker]Executor
+	references  map[Executor]int
+	connections map[*sarama.Broker]Executor
+	stopCh      chan none.T
+	wg          sync.WaitGroup
 }
 
 // Resolver defines an interface to resolve a broker connection that should
@@ -70,33 +68,46 @@ type Executor interface {
 	Stop()
 }
 
+type eventType int
+
+type event struct {
+	t eventType
+	w Worker
+}
+
+const (
+	eventsChBufSize = 32
+
+	evWorkerSpawned eventType = iota
+	evWorkerStopped
+	evReassignNeeded
+)
+
 // Spawn creates a mapper instance and starts its internal goroutines.
 func Spawn(namespace *actor.ID, resolver Resolver) *T {
 	m := &T{
-		actorID:          namespace.NewChild("mapper"),
-		resolver:         resolver,
-		workerSpawnedCh:  make(chan Worker),
-		workerStoppedCh:  make(chan Worker),
-		workerReassignCh: make(chan Worker),
-		assignments:      make(map[Worker]Executor),
-		references:       make(map[Executor]int),
-		connections:      make(map[*sarama.Broker]Executor),
-		stopCh:           make(chan none.T),
+		actorID:     namespace.NewChild("mapper"),
+		resolver:    resolver,
+		eventsCh:    make(chan event, eventsChBufSize),
+		assignments: make(map[Worker]Executor),
+		references:  make(map[Executor]int),
+		connections: make(map[*sarama.Broker]Executor),
+		stopCh:      make(chan none.T),
 	}
 	actor.Spawn(m.actorID, &m.wg, m.run)
 	return m
 }
 
-func (m *T) WorkerSpawned() chan<- Worker {
-	return m.workerSpawnedCh
+func (m *T) OnWorkerSpawned(w Worker) {
+	m.eventsCh <- event{evWorkerSpawned, w}
 }
 
-func (m *T) WorkerStopped() chan<- Worker {
-	return m.workerStoppedCh
+func (m *T) OnWorkerStopped(w Worker) {
+	m.eventsCh <- event{evWorkerStopped, w}
 }
 
-func (m *T) WorkerReassign() chan<- Worker {
-	return m.workerReassignCh
+func (m *T) TriggerReassign(w Worker) {
+	m.eventsCh <- event{evReassignNeeded, w}
 }
 
 func (m *T) Stop() {
@@ -127,10 +138,9 @@ func (mc *mappingChanges) String() string {
 		len(mc.spawned), len(mc.outdated), len(mc.stopped))
 }
 
-// watch4Changes listens for mapping affecting signals, batches them into
-// a mappingChange object and triggers reassignments, making sure to run only
-// one at a time. When signaled to stop it only quits when all children have
-// closed.
+// run listens for mapping events, batches them into a mappingChange object and
+// triggers reassignments, making sure to run only one at a time. When signaled
+// to stop it only quits when all children have closed.
 func (m *T) run() {
 	changes := m.newMappingChanges()
 	redispatchDoneCh := make(chan none.T, 1)
@@ -138,15 +148,15 @@ func (m *T) run() {
 	stop := false
 	for {
 		select {
-		case pw := <-m.workerSpawnedCh:
-			changes.spawned[pw] = none.V
-
-		case pw := <-m.workerStoppedCh:
-			changes.stopped[pw] = none.V
-
-		case pw := <-m.workerReassignCh:
-			changes.outdated[pw] = none.V
-
+		case ev := <-m.eventsCh:
+			switch ev.t {
+			case evWorkerSpawned:
+				changes.spawned[ev.w] = none.V
+			case evWorkerStopped:
+				changes.stopped[ev.w] = none.V
+			case evReassignNeeded:
+				changes.outdated[ev.w] = none.V
+			}
 		case <-nilOrRedispatchDoneCh:
 			nilOrRedispatchDoneCh = nil
 

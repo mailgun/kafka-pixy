@@ -119,7 +119,7 @@ func (f *factory) SpawnOffsetManager(namespace *actor.ID, group, topic string, p
 		return nil, errors.Errorf("offset manager %v already exists", id)
 	}
 	om := f.spawnOffsetManager(namespace, id)
-	f.mapper.WorkerSpawned() <- om
+	f.mapper.OnWorkerSpawned(om)
 	f.children[id] = om
 	return om, nil
 }
@@ -215,7 +215,7 @@ func (om *offsetMgr) Stop() {
 	om.f.childrenLock.Lock()
 	delete(om.f.children, om.id)
 	om.f.childrenLock.Unlock()
-	om.f.mapper.WorkerStopped() <- om
+	om.f.mapper.OnWorkerStopped(om)
 }
 
 // implements `mapper.Worker`.
@@ -301,7 +301,7 @@ func (om *offsetMgr) run() {
 				om.triggerOrScheduleReassign(errRequestTimeout, "offset commit failed")
 			}
 		case <-om.nilOrReassignRetryTimerCh:
-			om.f.mapper.WorkerReassign() <- om
+			om.f.mapper.TriggerReassign(om)
 			log.Infof("<%s> reassign triggered by timeout", om.actorID)
 			om.nilOrReassignRetryTimerCh = time.After(om.f.cfg.Consumer.RetryBackoff)
 		}
@@ -316,7 +316,7 @@ func (om *offsetMgr) triggerOrScheduleReassign(err error, reason string) {
 	if now.Sub(om.lastReassignTime) > om.f.cfg.Consumer.RetryBackoff {
 		log.Infof("<%s> trigger reassign: reason=%s, err=(%s)", om.actorID, reason, err)
 		om.lastReassignTime = now
-		om.f.mapper.WorkerReassign() <- om
+		om.f.mapper.TriggerReassign(om)
 	} else {
 		log.Infof("<%s> schedule reassign: reason=%s, err=(%s)", om.actorID, reason, err)
 	}
