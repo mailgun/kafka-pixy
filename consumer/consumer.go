@@ -2,16 +2,23 @@ package consumer
 
 import (
 	"time"
+
+	"github.com/pkg/errors"
 )
 
 const (
 	// An event of this type should be sent to the message events channel
 	// when the message is offered to a client.
-	ETOffered eventType = iota
+	EvOffered eventType = iota
 
 	// An event of this type should be sent to the message events channel
 	// when the message is acknowledged by a client.
-	ETAcked
+	EvAcked
+)
+
+var (
+	ErrRequestTimeout  = errors.New("long polling timeout")
+	ErrTooManyRequests = errors.New("Too many requests. Consider increasing `consumer.channel_buffer_size` (https://github.com/mailgun/kafka-pixy/blob/master/default.yaml#L43)")
 )
 
 type T interface {
@@ -46,7 +53,7 @@ type Message struct {
 }
 
 func Ack(offset int64) Event {
-	return Event{ETAcked, offset}
+	return Event{EvAcked, offset}
 }
 
 type Event struct {
@@ -55,8 +62,3 @@ type Event struct {
 }
 
 type eventType int
-
-type (
-	ErrTooManyRequests error
-	ErrRequestTimeout  error
-)

@@ -75,7 +75,7 @@ func (s *ConsumerSuite) TestInitialOffsetTooLarge(c *C) {
 	_, err = sc.Consume("g1", "test.1")
 
 	// Then
-	c.Assert(err, FitsTypeOf, consumer.ErrRequestTimeout(fmt.Errorf("")))
+	c.Assert(err, Equals, consumer.ErrRequestTimeout)
 
 	produced := s.kh.PutMessages("offset-too-large", "test.1", map[string]int{"key": 1})
 	consumed := s.consume(c, sc, "g1", "test.1", 1)
@@ -229,9 +229,7 @@ func (s *ConsumerSuite) TestTooFewPartitions(c *C) {
 	// Then: `consumer-2` request times out, when `consumer-1` requests keep
 	// return messages.
 	log.Infof("*** THEN")
-	if _, ok := err.(consumer.ErrRequestTimeout); !ok {
-		c.Errorf("Expected ErrConsumerRequestTimeout, got %s", err)
-	}
+	c.Assert(err, Equals, consumer.ErrRequestTimeout)
 	s.consume(c, sc1, "g1", "test.1", 1, consumed)
 	assertMsg(c, consumed[""][1], produced[""][1])
 }
@@ -451,8 +449,7 @@ func (s *ConsumerSuite) TestTooManyRequestsError(c *C) {
 			defer wg.Done()
 			for i := 0; i < 10; i++ {
 				_, err := sc.Consume("g1", "test.1")
-				if _, ok := err.(consumer.ErrTooManyRequests); ok {
-					c.Assert(err.Error(), Equals, "Too many requests. Consider increasing `consumer.channel_buffer_size` (https://github.com/mailgun/kafka-pixy/blob/master/default.yaml#L43)")
+				if err == consumer.ErrTooManyRequests {
 					atomic.AddInt32(&tooManyRequestsCount, 1)
 				}
 			}
@@ -478,9 +475,7 @@ func (s *ConsumerSuite) TestInvalidTopic(c *C) {
 	_, err = sc.Consume("g1", "no-such-topic")
 
 	// Then
-	if _, ok := err.(consumer.ErrRequestTimeout); !ok {
-		c.Errorf("ErrConsumerRequestTimeout is expected")
-	}
+	c.Assert(err, Equals, consumer.ErrRequestTimeout)
 }
 
 // A topic that has a lot of partitions can be consumed.
@@ -494,9 +489,7 @@ func (s *ConsumerSuite) TestLotsOfPartitions(c *C) {
 
 	// Consume should stop by timeout and nothing should be consumed.
 	msg, err := sc.Consume("g1", "test.64")
-	if _, ok := err.(consumer.ErrRequestTimeout); !ok {
-		c.Fatalf("Unexpected message consumed: %v", msg)
-	}
+	c.Assert(err, Equals, consumer.ErrRequestTimeout, Commentf("Unexpected message consumed, %v", msg))
 	s.kh.PutMessages("lots", "test.64", map[string]int{"A": 7, "B": 13, "C": 169})
 
 	// When
@@ -524,9 +517,7 @@ func (s *ConsumerSuite) TestNewGroup(c *C) {
 	// The very first consumption of a group is terminated by timeout because
 	// the default offset is the topic head.
 	msg, err := sc.Consume(group, "test.1")
-	if _, ok := err.(consumer.ErrRequestTimeout); !ok {
-		c.Fatalf("Unexpected message consumed: %v", msg)
-	}
+	c.Assert(err, Equals, consumer.ErrRequestTimeout, Commentf("Unexpected message consumed, %v", msg))
 
 	// When: consumer is stopped, the concrete head offset is committed.
 	sc.Stop()
@@ -574,7 +565,7 @@ func (s *ConsumerSuite) TestTopicTimeout(c *C) {
 	consumedTest4ByCons1 := s.consume(c, cons1, "g1", "test.4", 1)
 	c.Assert(len(consumedTest4ByCons1["B"]), Equals, 1)
 	_, err = cons2.Consume("g1", "test.1")
-	c.Assert(err, FitsTypeOf, consumer.ErrRequestTimeout(fmt.Errorf("")))
+	c.Assert(err, Equals, consumer.ErrRequestTimeout)
 
 	delay := (5000 * time.Millisecond) - time.Now().Sub(start)
 	log.Infof("*** sleeping for %v", delay)
@@ -584,7 +575,7 @@ func (s *ConsumerSuite) TestTopicTimeout(c *C) {
 	consumedTest4ByCons1 = s.consume(c, cons1, "g1", "test.4", 1, consumedTest4ByCons1)
 	c.Assert(len(consumedTest4ByCons1["B"]), Equals, 2)
 	_, err = cons2.Consume("g1", "test.1")
-	c.Assert(err, FitsTypeOf, consumer.ErrRequestTimeout(fmt.Errorf("")))
+	c.Assert(err, Equals, consumer.ErrRequestTimeout)
 
 	// When: wait for the cons1 subscription to test.1 topic to expire.
 	log.Infof("*** WHEN")
@@ -622,7 +613,7 @@ func (s *ConsumerSuite) consume(c *C, sc *t, group, topic string, count int,
 	}
 	for i := 0; i != count; i++ {
 		msg, err := sc.Consume(group, topic)
-		if _, ok := err.(consumer.ErrRequestTimeout); ok {
+		if err == consumer.ErrRequestTimeout {
 			if count == consumeAll {
 				return consumed
 			}

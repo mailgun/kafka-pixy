@@ -88,8 +88,7 @@ func (tc *T) run() {
 		tc.lifespanCh <- tc
 	}()
 
-	timeoutErr := consumer.ErrRequestTimeout(fmt.Errorf("long polling timeout"))
-	timeoutResult := dispatcher.Response{Err: timeoutErr}
+	timeoutResult := dispatcher.Response{Err: consumer.ErrRequestTimeout}
 	for consumeReq := range tc.requestsCh {
 		requestAge := time.Now().UTC().Sub(consumeReq.Timestamp)
 		ttl := tc.cfg.Consumer.LongPollingTimeout - requestAge
@@ -104,7 +103,7 @@ func (tc *T) run() {
 
 		select {
 		case msg := <-tc.messagesCh:
-			msg.EventsCh <- consumer.Event{consumer.ETOffered, msg.Offset}
+			msg.EventsCh <- consumer.Event{consumer.EvOffered, msg.Offset}
 			consumeReq.ResponseCh <- dispatcher.Response{Msg: msg}
 		case <-time.After(ttl):
 			consumeReq.ResponseCh <- timeoutResult

@@ -170,7 +170,7 @@ func (pc *T) run() {
 			nilOrMessagesCh = nil
 		case event := <-pc.eventsCh:
 			switch event.T {
-			case consumer.ETOffered:
+			case consumer.EvOffered:
 				if event.Offset != msg.Offset {
 					// Must never happen!
 					panic(errors.Wrapf(err, "<%s> invalid offer offset %d, want=%d", pc.actorID, event.Offset, msg.Offset))
@@ -195,7 +195,7 @@ func (pc *T) run() {
 				} else {
 					nilOrIStreamMessagesCh = mis.Messages()
 				}
-			case consumer.ETAcked:
+			case consumer.EvAcked:
 				var offeredCount int
 				submittedOffset, offeredCount = ot.OnAcked(event.Offset)
 				om.SubmitOffset(submittedOffset)
@@ -212,7 +212,7 @@ wait4Ack:
 	for ok, timeout := ot.ShouldWait4Ack(); ok; ok, timeout = ot.ShouldWait4Ack() {
 		select {
 		case event := <-pc.eventsCh:
-			if event.T == consumer.ETAcked {
+			if event.T == consumer.EvAcked {
 				submittedOffset, _ = ot.OnAcked(event.Offset)
 				om.SubmitOffset(submittedOffset)
 			}

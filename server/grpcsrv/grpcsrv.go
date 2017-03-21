@@ -119,7 +119,7 @@ func (s *T) ConsumeNAck(ctx context.Context, req *pb.ConsNAckRq) (*pb.ConsRs, er
 
 	consMsg, err := pxy.Consume(req.Group, req.Topic, ack)
 	if err != nil {
-		switch err.(type) {
+		switch err {
 		case consumer.ErrRequestTimeout:
 			return nil, grpc.Errorf(codes.NotFound, err.Error())
 		case consumer.ErrTooManyRequests:
