@@ -41,7 +41,7 @@ ENV CONTAINERPILOT file:///etc/containerpilot.json
 # Define our entry point
 ENTRYPOINT ["/usr/local/bin/containerpilot", "/app/kafka-pixy", "-config", "/etc/mailgun/kafka-pixy/config.yaml"]
 CMD []
-EXPOSE 19092
+EXPOSE 19092 19091
 
 # Tag image
 TAG mailgun/skynet-kafka-pixy:latest

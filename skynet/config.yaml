@@ -1,21 +1,32 @@
 tcp_addr: 0.0.0.0:19092
+grpc_addr: 0.0.0.0:19091
 
-kafka:
-  seed_peers:
-    - kafka:9092
+proxies:
+  default:
+    kafka:
+      seed_peers:
+        - kafka:9092
+      version: 0.8.2.2
 
-zoo_keeper:
-  seed_peers:
-    - zookeeper:2181
+    zoo_keeper:
+      seed_peers:
+        - zookeeper:2181
 
-producer:
-  channel_buffer_size: 4096
-  shutdown_timeout: 30s
+    producer:
+      channel_buffer_size: 4096
+      shutdown_timeout: 30s
+      compression: snappy
+      flush_bytes: 1048576
+      flush_frequency: 500ms
+      required_acks: wait_for_all
+      shutdown_timeout: 30s
 
-consumer:
-  channel_buffer_size: 64
-  long_polling_timeout: 3s
-  registration_timeout: 20s
-  backoff_timeout: 500ms
-  rebalance_delay: 250ms
-  offsets_commit_interval: 500ms
+    consumer:
+      ack_timeout: 15s
+      channel_buffer_size: 64
+      fetch_bytes: 1048576
+      long_polling_timeout: 3s
+      offsets_commit_interval: 500ms
+      rebalance_delay: 250ms
+      registration_timeout: 20s
+      retry_backoff: 500ms
