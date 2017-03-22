@@ -233,7 +233,7 @@ func (s *T) handleConsume(w http.ResponseWriter, r *http.Request) {
 	consMsg, err := pxy.Consume(group, topic, ack)
 	if err != nil {
 		var status int
-		switch err.(type) {
+		switch err {
 		case consumer.ErrRequestTimeout:
 			status = http.StatusRequestTimeout
 		case consumer.ErrTooManyRequests:

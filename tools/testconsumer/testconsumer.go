@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"net/http"
 	"sync"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 )
 
 const (
@@ -65,7 +65,7 @@ func main() {
 				for {
 					res, err = clt.ConsumeNAck(context.Background(), &req)
 					if err != nil {
-						if int(grpc.Code(err)) == http.StatusRequestTimeout && waitForMore {
+						if grpc.Code(err) == codes.NotFound && waitForMore {
 							continue
 						}
 						panic(errors.Wrap(err, "failed to consume first"))
@@ -86,7 +86,7 @@ func main() {
 					}
 					res, err = clt.ConsumeNAck(context.Background(), &req)
 					if err != nil {
-						if int(grpc.Code(err)) == http.StatusRequestTimeout && waitForMore {
+						if grpc.Code(err) == codes.NotFound && waitForMore {
 							continue
 						}
 						panic(errors.Wrapf(err, "failed to consume: thread=%d, no=%d", tid, i))

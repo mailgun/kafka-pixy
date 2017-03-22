@@ -186,7 +186,7 @@ func (s *PartitionCsmSuite) TestOfferIvalid(c *C) {
 	// When
 	msg, ok := <-pc.Messages()
 	c.Assert(ok, Equals, true)
-	msg.EventsCh <- consumer.Event{consumer.ETOffered, msg.Offset + 1}
+	msg.EventsCh <- consumer.Event{consumer.EvOffered, msg.Offset + 1}
 
 	// Then
 	_, ok = <-pc.Messages()
@@ -479,7 +479,7 @@ func (s *PartitionCsmSuite) TestAckedOnStop(c *C) {
 func sendEOffered(msg consumer.Message) {
 	log.Infof("*** sending `offered`: offset=%d", msg.Offset)
 	select {
-	case msg.EventsCh <- consumer.Event{consumer.ETOffered, msg.Offset}:
+	case msg.EventsCh <- consumer.Event{consumer.EvOffered, msg.Offset}:
 	case <-time.After(500 * time.Millisecond):
 		log.Infof("*** timeout sending `offered`: offset=%d", msg.Offset)
 	}
@@ -488,7 +488,7 @@ func sendEOffered(msg consumer.Message) {
 func sendEAcked(msg consumer.Message) {
 	log.Infof("*** sending `acked`: offset=%d", msg.Offset)
 	select {
-	case msg.EventsCh <- consumer.Event{consumer.ETAcked, msg.Offset}:
+	case msg.EventsCh <- consumer.Event{consumer.EvAcked, msg.Offset}:
 	case <-time.After(500 * time.Millisecond):
 		log.Infof("*** timeout sending `acked`: offset=%d", msg.Offset)
 	}
