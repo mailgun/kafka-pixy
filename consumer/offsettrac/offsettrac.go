@@ -40,7 +40,7 @@ type T struct {
 	actorID      *actor.ID
 	offerTimeout time.Duration
 	offset       offsetmgr.Offset
-	ackRanges    []ackRange
+	ackedRanges  []ackedRange
 	offers       []offer
 }
 
@@ -48,8 +48,8 @@ type T struct {
 // ranges encoded in the specified offset metadata.
 func SparseAcks2Str(offset offsetmgr.Offset) string {
 	var buf bytes.Buffer
-	ackRanges, _ := decodeAckRanges(offset.Val, offset.Meta)
-	for i, ar := range ackRanges {
+	ackedRanges, _ := decodeAckedRanges(offset.Val, offset.Meta)
+	for i, ar := range ackedRanges {
 		if i != 0 {
 			buf.WriteString(",")
 		}
@@ -68,11 +68,11 @@ func New(actorID *actor.ID, offset offsetmgr.Offset, offerTimeout time.Duration)
 		offset:       offset,
 	}
 	var err error
-	ot.ackRanges, err = decodeAckRanges(offset.Val, offset.Meta)
+	ot.ackedRanges, err = decodeAckedRanges(offset.Val, offset.Meta)
 	if err != nil {
-		ot.ackRanges = nil
+		ot.ackedRanges = nil
 		ot.offset.Meta = ""
-		log.Errorf("<%v> failed to decode ack ranges: %v, err=%+v", ot.actorID, offset, err)
+		log.Errorf("<%v> bad sparse acks: %v, err=%+v", ot.actorID, offset, err)
 	}
 	return &ot
 }
@@ -114,25 +114,31 @@ func (ot *T) OnOffered(msg consumer.Message) int {
 // OnAcked should be called when a message has been acknowledged by a consumer.
 // It returns an offset to be submitted and a total number of offered messages.
 func (ot *T) OnAcked(offset int64) (offsetmgr.Offset, int) {
-	ot.removeOffer(offset)
-	ot.updateAckRanges(offset)
-	ot.offset.Meta = encodeAckRanges(ot.offset.Val, ot.ackRanges)
+	offerMissing := !ot.removeOffer(offset)
+	duplicateAck := !ot.updateAckedRanges(offset)
+	if offerMissing || duplicateAck {
+		log.Errorf("<%s> bad ack: offerMissing=%t, duplicateAck=%t",
+			ot.actorID, offerMissing, duplicateAck)
+	}
+	if !duplicateAck {
+		ot.offset.Meta = encodeAckedRanges(ot.offset.Val, ot.ackedRanges)
+	}
 	return ot.offset, len(ot.offers)
 }
 
-func (ot *T) removeOffer(offset int64) {
+func (ot *T) removeOffer(offset int64) bool {
 	offersCount := len(ot.offers)
 	i := sort.Search(offersCount, func(i int) bool {
 		return ot.offers[i].msg.Offset >= offset
 	})
 	if i >= offersCount || ot.offers[i].msg.Offset != offset {
-		log.Errorf("<%s> unknown message acked: offset=%d", ot.actorID, offset)
-		return
+		return false
 	}
 	offersCount -= 1
 	copy(ot.offers[i:offersCount], ot.offers[i+1:])
 	ot.offers[offersCount].msg = consumer.Message{} // Makes it subject for garbage collection.
 	ot.offers = ot.offers[:offersCount]
+	return true
 }
 
 // IsAcked tells if a message has already been acknowledged.
@@ -140,7 +146,7 @@ func (ot *T) IsAcked(msg consumer.Message) bool {
 	if msg.Offset < ot.offset.Val {
 		return true
 	}
-	for _, ar := range ot.ackRanges {
+	for _, ar := range ot.ackedRanges {
 		if msg.Offset < ar.from {
 			return false
 		}
@@ -193,103 +199,101 @@ func (ot *T) shouldWait4Ack(now time.Time) (bool, time.Duration) {
 	}
 	// Complain about all not acknowledged messages before giving up.
 	for _, o := range ot.offers {
-		log.Errorf("<%s> not acknowledged: offset=%d", ot.actorID, o.msg.Offset)
+		log.Errorf("<%s> not acked: offset=%d", ot.actorID, o.msg.Offset)
 	}
 	return false, 0
 }
 
-func (ot *T) updateAckRanges(offset int64) {
-	ackRangesCount := len(ot.ackRanges)
+func (ot *T) updateAckedRanges(offset int64) bool {
+	ackedRangesCount := len(ot.ackedRanges)
 	if offset < ot.offset.Val {
-		log.Errorf("<%s> ack before committed: offset=%d", ot.actorID, offset)
-		return
+		return false
 	}
 	if offset == ot.offset.Val {
-		if ackRangesCount > 0 && offset == ot.ackRanges[0].from-1 {
-			ot.offset.Val = ot.ackRanges[0].to
-			ot.ackRanges = ot.ackRanges[1:]
-			return
+		if ackedRangesCount > 0 && offset == ot.ackedRanges[0].from-1 {
+			ot.offset.Val = ot.ackedRanges[0].to
+			ot.ackedRanges = ot.ackedRanges[1:]
+			return true
 		}
 		ot.offset.Val += 1
-		return
+		return true
 	}
-	for i := range ot.ackRanges {
-		if offset < ot.ackRanges[i].from {
-			if offset == ot.ackRanges[i].from-1 {
-				ot.ackRanges[i].from -= 1
-				return
+	for i := range ot.ackedRanges {
+		if offset < ot.ackedRanges[i].from {
+			if offset == ot.ackedRanges[i].from-1 {
+				ot.ackedRanges[i].from -= 1
+				return true
 			}
-			ot.ackRanges = append(ot.ackRanges, ackRange{})
-			copy(ot.ackRanges[i+1:], ot.ackRanges[i:ackRangesCount])
-			ot.ackRanges[i] = newAckRange(offset)
-			return
+			ot.ackedRanges = append(ot.ackedRanges, ackedRange{})
+			copy(ot.ackedRanges[i+1:], ot.ackedRanges[i:ackedRangesCount])
+			ot.ackedRanges[i] = newAckedRange(offset)
+			return true
 		}
-		if offset < ot.ackRanges[i].to {
-			log.Errorf("<%s> duplicate ack: offset=%d", ot.actorID, offset)
-			return
+		if offset < ot.ackedRanges[i].to {
+			return false
 		}
-		if offset == ot.ackRanges[i].to {
-			if ackRangesCount > i+1 && offset == ot.ackRanges[i+1].from-1 {
-				ot.ackRanges[i+1].from = ot.ackRanges[i].from
-				ackRangesCount -= 1
-				copy(ot.ackRanges[i:ackRangesCount], ot.ackRanges[i+1:])
-				ot.ackRanges = ot.ackRanges[:ackRangesCount]
-				return
+		if offset == ot.ackedRanges[i].to {
+			if ackedRangesCount > i+1 && offset == ot.ackedRanges[i+1].from-1 {
+				ot.ackedRanges[i+1].from = ot.ackedRanges[i].from
+				ackedRangesCount -= 1
+				copy(ot.ackedRanges[i:ackedRangesCount], ot.ackedRanges[i+1:])
+				ot.ackedRanges = ot.ackedRanges[:ackedRangesCount]
+				return true
 			}
-			ot.ackRanges[i].to += 1
-			return
+			ot.ackedRanges[i].to += 1
+			return true
 		}
 	}
-	ot.ackRanges = append(ot.ackRanges, newAckRange(offset))
-	return
+	ot.ackedRanges = append(ot.ackedRanges, newAckedRange(offset))
+	return true
 }
 
 func (ot *T) newOffer(msg consumer.Message) offer {
 	return offer{msg, msg.Offset, 0, time.Now().Add(ot.offerTimeout)}
 }
 
-func encodeAckRanges(base int64, ackRanges []ackRange) string {
-	ackRangesCount := len(ackRanges)
-	if ackRangesCount == 0 {
+func encodeAckedRanges(base int64, ackedRanges []ackedRange) string {
+	ackedRangesCount := len(ackedRanges)
+	if ackedRangesCount == 0 {
 		return ""
 	}
-	buf := make([]byte, 0, ackRangesCount*4)
-	for _, ar := range ackRanges {
+	buf := make([]byte, 0, ackedRangesCount*4)
+	for _, ar := range ackedRanges {
 		buf = ar.encode(base, buf)
 		base = ar.to
 	}
 	return string(buf)
 }
 
-func decodeAckRanges(base int64, encoded string) ([]ackRange, error) {
+func decodeAckedRanges(base int64, encoded string) ([]ackedRange, error) {
 	if encoded == "" {
 		return nil, nil
 	}
-	ackRanges := make([]ackRange, 0, len(encoded)/2)
+	ackedRanges := make([]ackedRange, 0, len(encoded)/2)
 	var err error
 	buf := []byte(encoded)
 	for i := 0; len(buf) > 0; i++ {
-		var ar ackRange
+		var ar ackedRange
 		if buf, err = ar.decode(base, buf); err != nil {
 			return nil, errors.Wrapf(err, "bad encoding: %s", encoded)
 		}
 		base = ar.to
-		ackRanges = append(ackRanges, ar)
+		ackedRanges = append(ackedRanges, ar)
 	}
-	return ackRanges, nil
+	return ackedRanges, nil
 }
 
-func newAckRange(offset int64) ackRange {
-	return ackRange{offset, offset + 1}
+func newAckedRange(offset int64) ackedRange {
+	return ackedRange{offset, offset + 1}
 }
 
-func (ar *ackRange) encode(base int64, buf []byte) []byte {
+func (ar *ackedRange) encode(base int64, buf []byte) []byte {
 	buf = encodeInt64(ar.from-base, buf)
 	buf = encodeInt64(ar.to-ar.from, buf)
 	return buf
 }
 
-func (ar *ackRange) decode(base int64, buf []byte) ([]byte, error) {
+func (ar *ackedRange) decode(base int64, buf []byte) ([]byte, error) {
 	delta, buf, err := decodeInt64(buf)
 	if err != nil {
 		return nil, errors.Wrap(err, "bad `from` boundary")
@@ -339,6 +343,6 @@ type offer struct {
 	deadline time.Time
 }
 
-type ackRange struct {
+type ackedRange struct {
 	from, to int64
 }

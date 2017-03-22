@@ -13,7 +13,7 @@ import (
 type action int
 
 const (
-	doOff action = iota
+	doOfr action = iota
 	doAck
 )
 
@@ -31,7 +31,7 @@ func (s *OffsetTrackerSuite) SetUpTest(c *C) {
 	s.ns = actor.RootID.NewChild("T")
 }
 
-// Acknowledged offsets are properly reflected in ackRanges.
+// Acknowledged offsets are properly reflected in ackedRanges.
 func (s *OffsetTrackerSuite) TestOnAckedRanges(c *C) {
 	ot := New(s.ns, offsetmgr.Offset{Val: 300}, -1)
 	for i, tc := range []struct {
@@ -68,25 +68,25 @@ func (s *OffsetTrackerSuite) TestOnAckedRanges(c *C) {
 		c.Assert(SparseAcks2Str(offset), Equals, tc.ranges, Commentf("case: %d", i))
 		// Both nil and empty slice ack ranges become nil when going through
 		// the encode/decode circle.
-		if ot.ackRanges == nil || len(ot.ackRanges) == 0 {
-			c.Assert(ot2.ackRanges, IsNil, Commentf("case: %d", i))
+		if ot.ackedRanges == nil || len(ot.ackedRanges) == 0 {
+			c.Assert(ot2.ackedRanges, IsNil, Commentf("case: %d", i))
 		} else {
-			c.Assert(ot2.ackRanges, DeepEquals, ot.ackRanges, Commentf("case: %d", i))
+			c.Assert(ot2.ackedRanges, DeepEquals, ot.ackedRanges, Commentf("case: %d", i))
 		}
 	}
 }
 
-func (s *OffsetTrackerSuite) TestAckRangeEncodeDecode(c *C) {
+func (s *OffsetTrackerSuite) TestAckedRangeEncodeDecode(c *C) {
 	for i, tc := range []struct {
 		base int64
-		ar   ackRange
+		ar   ackedRange
 	}{
-		/* 0 */ {0, ackRange{1, 2}},
-		/* 1 */ {100, ackRange{101, 102}},
-		/* 2 */ {0, ackRange{0x7FFFFFFFFFFFFFFE, 0x7FFFFFFFFFFFFFFF}},
+		/* 0 */ {0, ackedRange{1, 2}},
+		/* 1 */ {100, ackedRange{101, 102}},
+		/* 2 */ {0, ackedRange{0x7FFFFFFFFFFFFFFE, 0x7FFFFFFFFFFFFFFF}},
 	} {
 		var encoded []byte
-		var decoded ackRange
+		var decoded ackedRange
 
 		// When
 		encoded = tc.ar.encode(tc.base, encoded)
@@ -97,8 +97,8 @@ func (s *OffsetTrackerSuite) TestAckRangeEncodeDecode(c *C) {
 	}
 }
 
-func (s *OffsetTrackerSuite) TestAckRangeDecodeError(c *C) {
-	var ar ackRange
+func (s *OffsetTrackerSuite) TestAckedRangeDecodeError(c *C) {
+	var ar ackedRange
 	for i, tc := range []struct {
 		encoded string
 		error   string
@@ -149,7 +149,7 @@ func (s *OffsetTrackerSuite) TestNewOffsetAdjusted(c *C) {
 }
 
 func (s *OffsetTrackerSuite) TestIsAcked(c *C) {
-	meta := encodeAckRanges(301, []ackRange{
+	meta := encodeAckedRanges(301, []ackedRange{
 		{302, 305}, {307, 309}, {310, 313}})
 	offset := offsetmgr.Offset{301, meta}
 	ot := New(s.ns, offset, -1)
@@ -189,44 +189,44 @@ func (s *OffsetTrackerSuite) TestOfferAckLoop(c *C) {
 		committed int64
 		ranges    string
 	}{
-		/*  0 */ {act: doOff, offset: 298, count: 0},
-		/*  1 */ {act: doOff, offset: 299, count: 0},
+		/*  0 */ {act: doOfr, offset: 298, count: 0},
+		/*  1 */ {act: doOfr, offset: 299, count: 0},
 		//        Test offering in arbitrary order, even though it never
 		//        happens in real life.
-		/*  2 */ {act: doOff, offset: 301, count: 1},
-		/*  3 */ {act: doOff, offset: 300, count: 2},
-		/*  4 */ {act: doOff, offset: 304, count: 3},
-		/*  5 */ {act: doOff, offset: 302, count: 4},
-		/*  6 */ {act: doOff, offset: 303, count: 5},
+		/*  2 */ {act: doOfr, offset: 301, count: 1},
+		/*  3 */ {act: doOfr, offset: 300, count: 2},
+		/*  4 */ {act: doOfr, offset: 304, count: 3},
+		/*  5 */ {act: doOfr, offset: 302, count: 4},
+		/*  6 */ {act: doOfr, offset: 303, count: 5},
 		//        And a bit of regular sequential offering
-		/*  7 */ {act: doOff, offset: 305, count: 6},
-		/*  8 */ {act: doOff, offset: 306, count: 7},
+		/*  7 */ {act: doOfr, offset: 305, count: 6},
+		/*  8 */ {act: doOfr, offset: 306, count: 7},
 		//        Ack some messages
 		/*  9 */ {act: doAck, offset: 307, count: 7, committed: 300, ranges: "7-8"},
 		/* 10 */ {act: doAck, offset: 299, count: 7, committed: 300, ranges: "7-8"},
 		/* 11 */ {act: doAck, offset: 303, count: 6, committed: 300, ranges: "3-4,7-8"},
 		/* 12 */ {act: doAck, offset: 300, count: 5, committed: 301, ranges: "2-3,6-7"},
 		//        Offer acked again
-		/* 13 */ {act: doOff, offset: 298, count: 5},
-		/* 14 */ {act: doOff, offset: 305, count: 5},
+		/* 13 */ {act: doOfr, offset: 298, count: 5},
+		/* 14 */ {act: doOfr, offset: 305, count: 5},
 		//        Offer offered (ignored)
-		/* 15 */ {act: doOff, offset: 302, count: 5},
-		/* 16 */ {act: doOff, offset: 305, count: 5},
-		/* 17 */ {act: doOff, offset: 306, count: 5},
+		/* 15 */ {act: doOfr, offset: 302, count: 5},
+		/* 16 */ {act: doOfr, offset: 305, count: 5},
+		/* 17 */ {act: doOfr, offset: 306, count: 5},
 		//        Ack acked (ignored)
 		/* 18 */ {act: doAck, offset: 299, count: 5, committed: 301, ranges: "2-3,6-7"},
 		/* 19 */ {act: doAck, offset: 300, count: 5, committed: 301, ranges: "2-3,6-7"},
 		//        Offer/Ack some more
-		/* 20 */ {act: doOff, offset: 309, count: 6},
+		/* 20 */ {act: doOfr, offset: 309, count: 6},
 		/* 21 */ {act: doAck, offset: 302, count: 5, committed: 301, ranges: "1-3,6-7"},
 		/* 22 */ {act: doAck, offset: 301, count: 4, committed: 304, ranges: "3-4"},
-		/* 23 */ {act: doOff, offset: 308, count: 5},
+		/* 23 */ {act: doOfr, offset: 308, count: 5},
 		/* 24 */ {act: doAck, offset: 306, count: 4, committed: 304, ranges: "2-4"},
 	} {
 		var count int
 		// When
 		switch tc.act {
-		case doOff:
+		case doOfr:
 			count = ot.OnOffered(consumer.Message{Offset: tc.offset})
 		case doAck:
 			var offset offsetmgr.Offset
