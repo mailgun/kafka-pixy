@@ -13,8 +13,8 @@ to keep track of consumer offsets. However [Group Membership API](https://cwiki.
 is not yet implemented, therefore it needs to talk to Zookeeper directly to
 manage consumer group membership.
 
-If you are anxious get started the jump to [How-to Install](howto-install.md)
-and then proceed with a quick start guide for your weapon of choice:
+If you are anxious to get started then [install](howto-install.md) Kafka-Pixy
+and proceed with a quick start guide for your weapon of choice:
 [Curl](quick-start-curl.md), [Python](quick-start-python.md), or [Golang](quick-start-golang.md).
 If you want to use some other language, then you still can use either of the
 guides for inspiration, but you would need to generate gRPC client stubs
