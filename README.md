@@ -7,13 +7,19 @@ with automatic consumer group control. It is designed to hide the
 complexity of the Kafka client protocol and provide a stupid simple
 API that is trivial to implement in any language.
 
-Kafka-Pixy supports Kafka versions form **0.8.2.x** to **0.10.1.x**. It uses the
-Kafka [Offset Commit/Fetch API](https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol#AGuideToTheKafkaProtocol-OffsetCommit/FetchAPI)
-to keep track of consumer offsets and ZooKeeper to manage distribution
-of partitions among consumer group members.
+Kafka-Pixy supports Kafka versions form **0.8.2.x** to **0.10.1.x**. It uses
+the Kafka [Offset Commit/Fetch API](https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol#AGuideToTheKafkaProtocol-OffsetCommit/FetchAPI)
+to keep track of consumer offsets. However [Group Membership API](https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol#AGuideToTheKafkaProtocol-GroupMembershipAPI)
+is not yet implemented, therefore it needs to talk to Zookeeper directly to
+manage consumer group membership.
 
-You can jump to [Quick Start](README.md#quick-start) if you are anxious
-to give it a try.
+If you are anxious get started the jump to [How-to Install](howto-install.md)
+and then proceed with a quick start guide for your weapon of choice:
+[Curl](quick-start-curl.md), [Python](quick-start-python.md), or [Golang](quick-start-golang.md).
+If you want to use some other language, then you still can use either of the
+guides for inspiration, but you would need to generate gRPC client stubs
+from [grpc.proto](grpc.proto) yourself (please refer to [gRPC documentation](http://www.grpc.io/docs/)
+for details). 
 
 #### Key Features:
 
@@ -184,7 +190,7 @@ e.g.:
   "key": "0JzQsNGA0YPRgdGP",
   "value": "0JzQvtGPINC70Y7QsdC40LzQsNGPINC00L7Rh9C10L3RjNC60LA=",
   "partition": 0,
-  "offset": 13}
+  "offset": 13
 }
 ```
 
@@ -282,7 +288,7 @@ GET /clusters/<topic>/topics/<topic>/consumers
 Returns a list of consumers that are subscribed to a topic.
 
  Parameter | Opt | Description
------------|-----|------------------------------------------------------
+-----------|-----|------------------------------------------------
  cluster   | yes | The name of a cluster to operate on. By default the cluster mentioned first in the `proxies` section of the config file is used.
  topic     |     | The name of a topic to produce to.
  group     | yes | The name of a consumer group. By default returns data for all known consumer groups subscribed to the topic.
@@ -355,85 +361,6 @@ Command line parameters that Kafka-Pixy accepts are listed below:
 
 You can run `kafka-pixy -help` to make it list all available command line
 parameters.
-
-## Quick Start
-
-This instruction assumes that you are trying it on Linux host, but it will be
-pretty much the same on Mac.
-
-### Step 1. Download
-
-```
-curl -L https://github.com/mailgun/kafka-pixy/releases/download/v0.12.0/kafka-pixy-v0.12.0-linux-amd64.tar.gz | tar xz
-```
-
-### Step 2. Start
-
-```
-cd kafka-pixy-v0.12.0-linux-amd64
-./kafka-pixy --kafkaPeers "<host1>:9092,...,<hostN>:9092" --zookeeperPeers "<host1>:2181,...,<hostM>:2181"
-```
-
-### Step 3. Create Topic (optional)
-
-If your Kafka cluster is configured to require explicit creation of topics, then
-create one for your testing (e.g. `foo`). [Here](http://kafka.apache.org/documentation.html#basic_ops_add_topic)
-is how you can do that.
-
-### Step 4. Initialize Group Offsets
-
-Consume from the topic on behalf of a consumer group (e.g. `bar`) for the first
-time. The consumption will fail with the long polling timeout (3 seconds), but
-the important side effect of that is that initial offsets will be stored in
-Kafka.
-
-```
-curl -G localhost:19092/topics/foo/messages?group=bar
-```
-
-Output:
-
-```json
-{
-  "error": "long polling timeout"
-}
-```
-
-### Step 5. Produce
-
-```
-curl -X POST localhost:19092/topics/foo/messages?sync \
-  -H 'Content-Type: text/plain' \
-  -d 'blah blah blah'
-```
-
-The output tells the partition the message has been submitted to and the offset
-it has:
-
-```json
-{
-  "partition": 7,
-  "offset": 974563
-}
-```
-
-### Step 6. Consume
-
-```
-curl -G localhost:19092/topics/foo/messages?group=bar
-```
-
-The output provides the retrieved message as a base64 encoded value along with
-some metadata:
-
-```json
-{
-  "key": null,
-  "value": "YmxhaCBibGFoIGJsYWg=",
-  "partition": 7,
-  "offset": 974563
-}
-```
 
 ## License
 

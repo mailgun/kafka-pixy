@@ -1,6 +1,6 @@
 # Changelog
 
-#### Version 0.13.0 (TBD)
+#### Version 0.13.0 (2017-03-22)
 
 Implemented:
 * At-Least-Once delivery guarantee via synchronous production and
