@@ -27,10 +27,14 @@ mkdir -p ${TARGET_DIR}
 for bin in kafka-pixy testconsumer testproducer; do
     cp ${BUILD_DIR}/${bin} ${TARGET_DIR}
 done
-cp ${PROJECT_ROOT}/README.md ${TARGET_DIR}/README.md
-cp ${PROJECT_ROOT}/CHANGELOG.md ${TARGET_DIR}/CHANGELOG.md
-cp ${PROJECT_ROOT}/LICENSE ${TARGET_DIR}/LICENSE
-cp ${PROJECT_ROOT}/default.yaml ${TARGET_DIR}/default.yaml
+cp ${PROJECT_ROOT}/README.md ${TARGET_DIR}
+cp ${PROJECT_ROOT}/CHANGELOG.md ${TARGET_DIR}
+cp ${PROJECT_ROOT}/LICENSE ${TARGET_DIR}
+cp ${PROJECT_ROOT}/default.yaml ${TARGET_DIR}
+cp ${PROJECT_ROOT}/grpc.proto ${TARGET_DIR}
+mkdir ${TARGET_DIR}/grpc_stubs
+cp -r ${PROJECT_ROOT}/gen/* ${TARGET_DIR}/grpc_stubs
+
 
 # Make an archived distribution.
 cd ${RELEASE_DIR}
