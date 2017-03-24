@@ -95,12 +95,13 @@ func SpawnFactory(namespace *actor.ID, cfg *config.Proxy, kafkaClt sarama.Client
 // implements `Factory`
 // implements `mapper.Resolver`
 type factory struct {
-	namespace    *actor.ID
-	kafkaClt     sarama.Client
-	cfg          *config.Proxy
-	mapper       *mapper.T
-	children     map[instanceID]*offsetMgr
-	childrenLock sync.Mutex
+	namespace *actor.ID
+	kafkaClt  sarama.Client
+	cfg       *config.Proxy
+	mapper    *mapper.T
+
+	childrenMu sync.Mutex
+	children   map[instanceID]*offsetMgr
 }
 
 type instanceID struct {
@@ -113,8 +114,8 @@ type instanceID struct {
 func (f *factory) SpawnOffsetManager(namespace *actor.ID, group, topic string, partition int32) (T, error) {
 	id := instanceID{group, topic, partition}
 
-	f.childrenLock.Lock()
-	defer f.childrenLock.Unlock()
+	f.childrenMu.Lock()
+	defer f.childrenMu.Unlock()
 	if _, ok := f.children[id]; ok {
 		return nil, errors.Errorf("offset manager %v already exists", id)
 	}
@@ -212,9 +213,9 @@ func (om *offsetMgr) Stop() {
 	close(om.submitRequestsCh)
 	om.wg.Wait()
 
-	om.f.childrenLock.Lock()
+	om.f.childrenMu.Lock()
 	delete(om.f.children, om.id)
-	om.f.childrenLock.Unlock()
+	om.f.childrenMu.Unlock()
 	om.f.mapper.OnWorkerStopped(om)
 }
 

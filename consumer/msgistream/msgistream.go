@@ -50,12 +50,13 @@ var (
 )
 
 type factory struct {
-	namespace    *actor.ID
-	saramaCfg    *sarama.Config
-	kafkaClt     sarama.Client
-	children     map[instanceID]*msgIStream
-	childrenLock sync.Mutex
-	mapper       *mapper.T
+	namespace *actor.ID
+	saramaCfg *sarama.Config
+	kafkaClt  sarama.Client
+	mapper    *mapper.T
+
+	childrenMu sync.Mutex
+	children   map[instanceID]*msgIStream
 }
 
 type instanceID struct {
@@ -84,8 +85,8 @@ func (f *factory) SpawnMessageIStream(namespace *actor.ID, topic string, partiti
 		return nil, sarama.OffsetNewest, err
 	}
 
-	f.childrenLock.Lock()
-	defer f.childrenLock.Unlock()
+	f.childrenMu.Lock()
+	defer f.childrenMu.Unlock()
 
 	id := instanceID{topic, partition}
 	if _, ok := f.children[id]; ok {
@@ -201,9 +202,9 @@ func (mis *msgIStream) Stop() {
 	close(mis.closingCh)
 	mis.wg.Wait()
 
-	mis.f.childrenLock.Lock()
+	mis.f.childrenMu.Lock()
 	delete(mis.f.children, mis.id)
-	mis.f.childrenLock.Unlock()
+	mis.f.childrenMu.Unlock()
 	mis.f.mapper.OnWorkerStopped(mis)
 }
 

@@ -10,9 +10,10 @@ import (
 )
 
 type ID struct {
-	absoluteName     string
+	absoluteName string
+
+	childrenMu       sync.Mutex
 	childrenCounters map[string]int32
-	childrenLock     sync.Mutex
 }
 
 // RootID is the root of the context id hierarchy.
@@ -33,13 +34,13 @@ func (id *ID) NewChild(nameParts ...interface{}) *ID {
 	}
 	name := buf.String()
 
-	id.childrenLock.Lock()
+	id.childrenMu.Lock()
 	if id.childrenCounters == nil {
 		id.childrenCounters = make(map[string]int32)
 	}
 	idx := id.childrenCounters[name]
 	id.childrenCounters[name] = idx + 1
-	id.childrenLock.Unlock()
+	id.childrenMu.Unlock()
 	return &ID{absoluteName: fmt.Sprintf("%s/%s[%d]", id.absoluteName, name, idx)}
 }
 
