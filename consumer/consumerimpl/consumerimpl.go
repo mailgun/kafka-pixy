@@ -42,7 +42,8 @@ func Spawn(namespace *actor.ID, cfg *config.Proxy, offsetMgrF offsetmgr.Factory)
 	saramaCfg.ClientID = cfg.ClientID
 	saramaCfg.ChannelBufferSize = cfg.Consumer.ChannelBufferSize
 	saramaCfg.Consumer.Retry.Backoff = cfg.Consumer.RetryBackoff
-	saramaCfg.Consumer.Fetch.Default = int32(cfg.Consumer.FetchBytes)
+	saramaCfg.Consumer.Fetch.Default = int32(cfg.Consumer.FetchMaxBytes)
+	saramaCfg.Consumer.MaxWaitTime = cfg.Consumer.FetchMaxWait
 
 	namespace = namespace.NewChild("cons")
 

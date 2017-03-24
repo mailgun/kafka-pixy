@@ -104,11 +104,17 @@ type Proxy struct {
 		// Size of all buffered channels created by the consumer module.
 		ChannelBufferSize int `yaml:"channel_buffer_size"`
 
-		// The default number of message bytes to fetch from the broker in each
-		// request. This should be larger than the majority of your messages,
-		// or else the consumer will spend a lot of time negotiating sizes and
-		// not actually consuming.
-		FetchBytes int `yaml:"fetch_bytes"`
+		// The number of bytes of messages to attempt to fetch for each
+		// topic-partition in each fetch request. These bytes will be read into
+		// memory for each partition, so this helps control the memory used by
+		// the consumer. The fetch request size must be at least as large as
+		// the maximum message size the server allows or else it is possible
+		// for the producer to send messages larger than the consumer can fetch.
+		FetchMaxBytes int `yaml:"fetch_max_bytes"`
+
+		// The maximum amount of time the server will block before answering
+		// the fetch request if there isn't data immediately available.
+		FetchMaxWait time.Duration `yaml:"fetch_max_wait"`
 
 		// Consume request will wait at most this long until a message from the
 		// specified group/topic becomes available.
@@ -319,7 +325,7 @@ func (p *Proxy) validate() error {
 		return errors.New("consumer.ack_timeout must be < consumer.registration_timeout")
 	case p.Consumer.ChannelBufferSize <= 0:
 		return errors.New("consumer.channel_buffer_size must be > 0")
-	case p.Consumer.FetchBytes <= 0:
+	case p.Consumer.FetchMaxBytes <= 0:
 		return errors.New("consumer.fetch_bytes must be > 0")
 	case p.Consumer.LongPollingTimeout <= 0:
 		return errors.New("consumer.long_polling_timeout must be > 0")
@@ -370,7 +376,8 @@ func defaultProxyWithClientID(clientID string) *Proxy {
 
 	c.Consumer.AckTimeout = 15 * time.Second
 	c.Consumer.ChannelBufferSize = 64
-	c.Consumer.FetchBytes = 1024 * 1024
+	c.Consumer.FetchMaxBytes = 1024 * 1024
+	c.Consumer.FetchMaxWait = 250 * time.Millisecond
 	c.Consumer.LongPollingTimeout = 3 * time.Second
 	c.Consumer.OffsetsCommitInterval = 500 * time.Millisecond
 	c.Consumer.RebalanceDelay = 250 * time.Millisecond
