@@ -15,34 +15,6 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-const (
-	defaultCompression  = "snappy"
-	defaultRequiredAcks = "wait_for_all"
-	defaultKafkaVersion = "0.8.2.2"
-)
-
-var (
-	compressionCodecs = map[string]sarama.CompressionCodec{
-		"none":   sarama.CompressionNone,
-		"gzip":   sarama.CompressionGZIP,
-		"snappy": sarama.CompressionSnappy,
-		"lz4":    sarama.CompressionLZ4,
-	}
-	producerAcks = map[string]sarama.RequiredAcks{
-		"no_response":    sarama.NoResponse,
-		"wait_for_local": sarama.WaitForLocal,
-		"wait_for_all":   sarama.WaitForAll,
-	}
-	kafkaVersions = map[string]sarama.KafkaVersion{
-		"0.8.2.2":  sarama.V0_8_2_2,
-		"0.9.0.0":  sarama.V0_9_0_0,
-		"0.9.0.1":  sarama.V0_9_0_1,
-		"0.10.0.0": sarama.V0_10_0_0,
-		"0.10.0.1": sarama.V0_10_0_1,
-		"0.10.1.0": sarama.V0_10_1_0,
-	}
-)
-
 // App defines Kafka-Pixy application configuration. It mirrors the structure
 // of the JSON configuration file.
 type App struct {
@@ -81,7 +53,7 @@ type Proxy struct {
 		SeedPeers []string `yaml:"seed_peers"`
 
 		// Version of the Kafka cluster. Supported versions are 0.8.2.2 - 0.10.1.0
-		Version string `yaml:"version"`
+		Version KafkaVersion
 	} `yaml:"kafka"`
 
 	ZooKeeper struct {
@@ -100,7 +72,7 @@ type Proxy struct {
 		ChannelBufferSize int `yaml:"channel_buffer_size"`
 
 		// The type of compression to use on messages.
-		Compression string `yaml:"compression"`
+		Compression Compression `yaml:"compression"`
 
 		// The best-effort number of bytes needed to trigger a flush.
 		FlushBytes int `yaml:"flush_bytes"`
@@ -115,7 +87,7 @@ type Proxy struct {
 		RetryMax int `yaml:"retry_max"`
 
 		// The level of acknowledgement reliability needed from the broker.
-		RequiredAcks string `yaml:"required_acks"`
+		RequiredAcks RequiredAcks `yaml:"required_acks"`
 
 		// Period of time that Kafka-Pixy should keep trying to submit buffered
 		// messages to Kafka. It is recommended to make it large enough to survive
@@ -161,6 +133,58 @@ type Proxy struct {
 	} `yaml:"consumer"`
 }
 
+type KafkaVersion sarama.KafkaVersion
+
+func (kv *KafkaVersion) UnmarshalText(text []byte) error {
+	str := string(text)
+	v, ok := map[string]sarama.KafkaVersion{
+		"0.8.2.2":  sarama.V0_8_2_2,
+		"0.9.0.0":  sarama.V0_9_0_0,
+		"0.9.0.1":  sarama.V0_9_0_1,
+		"0.10.0.0": sarama.V0_10_0_0,
+		"0.10.0.1": sarama.V0_10_0_1,
+		"0.10.1.0": sarama.V0_10_1_0,
+	}[str]
+	if !ok {
+		return errors.Errorf("bad kafka version, %s", str)
+	}
+	*kv = KafkaVersion(v)
+	return nil
+}
+
+type Compression sarama.CompressionCodec
+
+func (c *Compression) UnmarshalText(text []byte) error {
+	str := string(text)
+	v, ok := map[string]sarama.CompressionCodec{
+		"none":   sarama.CompressionNone,
+		"gzip":   sarama.CompressionGZIP,
+		"snappy": sarama.CompressionSnappy,
+		"lz4":    sarama.CompressionLZ4,
+	}[str]
+	if !ok {
+		return errors.Errorf("bad compression, %s", str)
+	}
+	*c = Compression(v)
+	return nil
+}
+
+type RequiredAcks sarama.RequiredAcks
+
+func (ra *RequiredAcks) UnmarshalText(text []byte) error {
+	str := string(text)
+	v, ok := map[string]sarama.RequiredAcks{
+		"no_response":    sarama.NoResponse,
+		"wait_for_local": sarama.WaitForLocal,
+		"wait_for_all":   sarama.WaitForAll,
+	}[str]
+	if !ok {
+		return errors.Errorf("bad compression, %s", str)
+	}
+	*ra = RequiredAcks(v)
+	return nil
+}
+
 func (p *Proxy) KazooCfg() *kazoo.Config {
 	kazooCfg := kazoo.NewConfig()
 	kazooCfg.Chroot = p.ZooKeeper.Chroot
@@ -178,12 +202,12 @@ func (p *Proxy) SaramaProdCfg() *sarama.Config {
 	saramaCfg := sarama.NewConfig()
 	saramaCfg.ChannelBufferSize = p.Producer.ChannelBufferSize
 	saramaCfg.ClientID = p.ClientID
-	saramaCfg.Producer.Compression = compressionCodecs[p.Producer.Compression]
+	saramaCfg.Producer.Compression = sarama.CompressionCodec(p.Producer.Compression)
 	saramaCfg.Producer.Flush.Frequency = p.Producer.FlushFrequency
 	saramaCfg.Producer.Flush.Bytes = p.Producer.FlushBytes
 	saramaCfg.Producer.Retry.Backoff = p.Producer.RetryBackoff
 	saramaCfg.Producer.Retry.Max = p.Producer.RetryMax
-	saramaCfg.Producer.RequiredAcks = producerAcks[p.Producer.RequiredAcks]
+	saramaCfg.Producer.RequiredAcks = sarama.RequiredAcks(p.Producer.RequiredAcks)
 	return saramaCfg
 }
 
@@ -274,9 +298,6 @@ func (a *App) validate() error {
 }
 
 func (p *Proxy) validate() error {
-	if _, ok := kafkaVersions[p.Kafka.Version]; !ok {
-		return errors.Errorf("Bad kafka.version: %v", p.Kafka.Version)
-	}
 	// Validate the Producer parameters.
 	switch {
 	case p.Producer.ChannelBufferSize <= 0:
@@ -291,12 +312,6 @@ func (p *Proxy) validate() error {
 		return errors.New("producer.retry_max must be > 0")
 	case p.Producer.ShutdownTimeout < 0:
 		return errors.New("producer.shutdown_timeout must be >= 0")
-	}
-	if _, ok := compressionCodecs[p.Producer.Compression]; !ok {
-		return errors.Errorf("Bad producer.compression: %v", p.Producer.Compression)
-	}
-	if _, ok := producerAcks[p.Producer.RequiredAcks]; !ok {
-		return errors.Errorf("Bad producer.required_acks: %v", p.Producer.RequiredAcks)
 	}
 	// Validate the Consumer parameters.
 	switch {
@@ -334,19 +349,21 @@ func defaultProxyWithClientID(clientID string) *Proxy {
 	c.ZooKeeper.SeedPeers = []string{"localhost:2181"}
 
 	c.Kafka.SeedPeers = []string{"localhost:9092"}
-	c.Kafka.Version = defaultKafkaVersion
+
+	c.Kafka.Version = KafkaVersion(sarama.V0_8_2_2)
 	// If a valid Kafka version provided in an environment variable then use it
 	// as the default value. This logic is only needed in tests.
-	versionStr := os.Getenv("KAFKA_VERSION")
-	if _, ok := kafkaVersions[versionStr]; ok {
-		c.Kafka.Version = versionStr
+	envKafkaVersion := os.Getenv("KAFKA_VERSION")
+	var kv KafkaVersion
+	if err := kv.UnmarshalText([]byte(envKafkaVersion)); err == nil {
+		c.Kafka.Version = kv
 	}
 
 	c.Producer.ChannelBufferSize = 4096
-	c.Producer.Compression = defaultCompression
+	c.Producer.Compression = Compression(sarama.CompressionSnappy)
 	c.Producer.FlushFrequency = 500 * time.Millisecond
 	c.Producer.FlushBytes = 1024 * 1024
-	c.Producer.RequiredAcks = defaultRequiredAcks
+	c.Producer.RequiredAcks = RequiredAcks(sarama.WaitForAll)
 	c.Producer.RetryBackoff = 10 * time.Second
 	c.Producer.RetryMax = 6
 	c.Producer.ShutdownTimeout = 30 * time.Second
