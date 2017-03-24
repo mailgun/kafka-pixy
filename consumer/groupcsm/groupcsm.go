@@ -95,7 +95,7 @@ func (gc *T) Start(stoppedCh chan<- dispatcher.Tier) {
 	actor.Spawn(gc.supActorID, &gc.wg, func() {
 		defer func() { stoppedCh <- gc }()
 		var err error
-		gc.msgIStreamF, err = msgistream.SpawnFactory(gc.supActorID, gc.kafkaClt)
+		gc.msgIStreamF, err = msgistream.SpawnFactory(gc.supActorID, gc.cfg, gc.kafkaClt)
 		if err != nil {
 			// Must never happen.
 			panic(errors.Wrap(err, "failed to create sarama.Consumer"))

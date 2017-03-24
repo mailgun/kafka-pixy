@@ -291,19 +291,12 @@ func (a *T) GetAllTopicConsumers(topic string) (map[string]map[string][]int32, e
 	return consumers, nil
 }
 
-// saramaConfig generates a `Shopify/sarama` library config.
-func (a *T) saramaConfig() *sarama.Config {
-	saramaConfig := sarama.NewConfig()
-	saramaConfig.ClientID = a.cfg.ClientID
-	return saramaConfig
-}
-
 func (a *T) lazyKafkaClt() (sarama.Client, error) {
 	a.mtx.Lock()
 	defer a.mtx.Unlock()
 	if a.kafkaClt == nil {
 		var err error
-		if a.kafkaClt, err = sarama.NewClient(a.cfg.Kafka.SeedPeers, a.saramaConfig()); err != nil {
+		if a.kafkaClt, err = sarama.NewClient(a.cfg.Kafka.SeedPeers, a.cfg.SaramaClientCfg()); err != nil {
 			return nil, errors.Wrap(err, "failed to create sarama.Client")
 		}
 	}

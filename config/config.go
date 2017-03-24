@@ -139,7 +139,9 @@ type Proxy struct {
 	} `yaml:"consumer"`
 }
 
-type KafkaVersion sarama.KafkaVersion
+type KafkaVersion struct {
+	v sarama.KafkaVersion
+}
 
 func (kv *KafkaVersion) UnmarshalText(text []byte) error {
 	str := string(text)
@@ -154,8 +156,16 @@ func (kv *KafkaVersion) UnmarshalText(text []byte) error {
 	if !ok {
 		return errors.Errorf("bad kafka version, %s", str)
 	}
-	*kv = KafkaVersion(v)
+	kv.v = v
 	return nil
+}
+
+func (kv *KafkaVersion) Set(v sarama.KafkaVersion) {
+	kv.v = v
+}
+
+func (kv *KafkaVersion) IsAtLeast(v sarama.KafkaVersion) bool {
+	return kv.v.IsAtLeast(v)
 }
 
 type Compression sarama.CompressionCodec
@@ -203,17 +213,27 @@ func (p *Proxy) KazooCfg() *kazoo.Config {
 	return kazooCfg
 }
 
-// SaramaProdCfg returns a config for sarama producer.
-func (p *Proxy) SaramaProdCfg() *sarama.Config {
+// SaramaProducerCfg returns a config for sarama producer.
+func (p *Proxy) SaramaProducerCfg() *sarama.Config {
 	saramaCfg := sarama.NewConfig()
 	saramaCfg.ChannelBufferSize = p.Producer.ChannelBufferSize
 	saramaCfg.ClientID = p.ClientID
+	saramaCfg.Version = p.Kafka.Version.v
+
 	saramaCfg.Producer.Compression = sarama.CompressionCodec(p.Producer.Compression)
 	saramaCfg.Producer.Flush.Frequency = p.Producer.FlushFrequency
 	saramaCfg.Producer.Flush.Bytes = p.Producer.FlushBytes
 	saramaCfg.Producer.Retry.Backoff = p.Producer.RetryBackoff
 	saramaCfg.Producer.Retry.Max = p.Producer.RetryMax
 	saramaCfg.Producer.RequiredAcks = sarama.RequiredAcks(p.Producer.RequiredAcks)
+	return saramaCfg
+}
+
+func (p *Proxy) SaramaClientCfg() *sarama.Config {
+	saramaCfg := sarama.NewConfig()
+	saramaCfg.ChannelBufferSize = p.Consumer.ChannelBufferSize
+	saramaCfg.ClientID = p.ClientID
+	saramaCfg.Version = p.Kafka.Version.v
 	return saramaCfg
 }
 
@@ -356,7 +376,7 @@ func defaultProxyWithClientID(clientID string) *Proxy {
 
 	c.Kafka.SeedPeers = []string{"localhost:9092"}
 
-	c.Kafka.Version = KafkaVersion(sarama.V0_8_2_2)
+	c.Kafka.Version.v = sarama.V0_8_2_2
 	// If a valid Kafka version provided in an environment variable then use it
 	// as the default value. This logic is only needed in tests.
 	envKafkaVersion := os.Getenv("KAFKA_VERSION")

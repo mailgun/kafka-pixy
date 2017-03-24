@@ -38,16 +38,9 @@ type t struct {
 // Spawn creates a consumer instance with the specified configuration and
 // starts all its goroutines.
 func Spawn(namespace *actor.ID, cfg *config.Proxy, offsetMgrF offsetmgr.Factory) (*t, error) {
-	saramaCfg := sarama.NewConfig()
-	saramaCfg.ClientID = cfg.ClientID
-	saramaCfg.ChannelBufferSize = cfg.Consumer.ChannelBufferSize
-	saramaCfg.Consumer.Retry.Backoff = cfg.Consumer.RetryBackoff
-	saramaCfg.Consumer.Fetch.Default = int32(cfg.Consumer.FetchMaxBytes)
-	saramaCfg.Consumer.MaxWaitTime = cfg.Consumer.FetchMaxWait
-
 	namespace = namespace.NewChild("cons")
 
-	kafkaClt, err := sarama.NewClient(cfg.Kafka.SeedPeers, saramaCfg)
+	kafkaClt, err := sarama.NewClient(cfg.Kafka.SeedPeers, cfg.SaramaClientCfg())
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create Kafka client for message streams")
 	}

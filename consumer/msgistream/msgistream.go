@@ -6,10 +6,12 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
+	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/consumer/mapper"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
+	"github.com/pkg/errors"
 )
 
 // Factory provides API to spawn message streams to that read message from
@@ -47,11 +49,14 @@ var (
 	// To be used in tests only! If true then offset manager will initialize
 	// their errors channel and will send internal errors.
 	testReportErrors bool
+
+	errMessageTooLarge    = errors.New("message is larger than consumer.fetch_max_bytes")
+	errIncompleteResponse = errors.New("response did not contain the expected topic/partition block")
 )
 
 type factory struct {
 	namespace *actor.ID
-	saramaCfg *sarama.Config
+	cfg       *config.Proxy
 	kafkaClt  sarama.Client
 	mapper    *mapper.T
 
@@ -67,11 +72,11 @@ type instanceID struct {
 // SpawnFactory creates a new message stream factory using the given client. It
 // is still necessary to call Stop() on the underlying client after shutting
 // down this factory.
-func SpawnFactory(namespace *actor.ID, kafkaClt sarama.Client) (Factory, error) {
+func SpawnFactory(namespace *actor.ID, cfg *config.Proxy, kafkaClt sarama.Client) (Factory, error) {
 	f := &factory{
 		namespace: namespace.NewChild("msg_stream_f"),
+		cfg:       cfg,
 		kafkaClt:  kafkaClt,
-		saramaCfg: kafkaClt.Config(),
 		children:  make(map[instanceID]*msgIStream),
 	}
 	f.mapper = mapper.Spawn(f.namespace, f)
@@ -117,7 +122,7 @@ func (f *factory) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
 	be := &brokerExecutor{
 		aggrActorID:     f.namespace.NewChild("broker", brokerConn.ID(), "aggr"),
 		execActorID:     f.namespace.NewChild("broker", brokerConn.ID(), "exec"),
-		config:          f.saramaCfg,
+		cfg:             f.cfg,
 		conn:            brokerConn,
 		requestsCh:      make(chan fetchReq),
 		batchRequestsCh: make(chan []fetchReq),
@@ -159,9 +164,7 @@ type msgIStream struct {
 	actorID      *actor.ID
 	f            *factory
 	id           instanceID
-	fetchSize    int32
 	offset       int64
-	lag          int64
 	assignmentCh chan mapper.Executor
 	messagesCh   chan consumer.Message
 	errorsCh     chan error
@@ -180,13 +183,12 @@ func (f *factory) spawnMsgIStream(namespace *actor.ID, id instanceID, offset int
 		f:            f,
 		id:           id,
 		assignmentCh: make(chan mapper.Executor, 1),
-		messagesCh:   make(chan consumer.Message, f.saramaCfg.ChannelBufferSize),
+		messagesCh:   make(chan consumer.Message, f.cfg.Consumer.ChannelBufferSize),
 		closingCh:    make(chan none.T, 1),
 		offset:       offset,
-		fetchSize:    f.saramaCfg.Consumer.Fetch.Default,
 	}
 	if testReportErrors {
-		mis.errorsCh = make(chan error, f.saramaCfg.ChannelBufferSize)
+		mis.errorsCh = make(chan error, f.cfg.Consumer.ChannelBufferSize)
 	}
 	actor.Spawn(mis.actorID, &mis.wg, mis.run)
 	return mis
@@ -250,7 +252,7 @@ func (mis *msgIStream) run() {
 				mis.nilOrBrokerRequestsCh = mis.assignedBrokerRequestCh
 			}
 
-		case mis.nilOrBrokerRequestsCh <- fetchReq{mis.id.topic, mis.id.partition, mis.offset, mis.fetchSize, mis.lag, fetchResultCh}:
+		case mis.nilOrBrokerRequestsCh <- fetchReq{mis.id.topic, mis.id.partition, mis.offset, fetchResultCh}:
 			mis.nilOrBrokerRequestsCh = nil
 			nilOrFetchResultsCh = fetchResultCh
 
@@ -291,7 +293,7 @@ func (mis *msgIStream) run() {
 		case <-mis.nilOrReassignRetryTimerCh:
 			mis.f.mapper.TriggerReassign(mis)
 			log.Infof("<%s> reassign triggered by timeout", mis.actorID)
-			mis.nilOrReassignRetryTimerCh = time.After(mis.f.saramaCfg.Consumer.Retry.Backoff)
+			mis.nilOrReassignRetryTimerCh = time.After(mis.f.cfg.Consumer.RetryBackoff)
 
 		case <-mis.closingCh:
 			return
@@ -302,14 +304,14 @@ func (mis *msgIStream) run() {
 func (mis *msgIStream) triggerOrScheduleReassign(reason string) {
 	mis.assignedBrokerRequestCh = nil
 	now := time.Now().UTC()
-	if now.Sub(mis.lastReassignTime) > mis.f.saramaCfg.Consumer.Retry.Backoff {
+	if now.Sub(mis.lastReassignTime) > mis.f.cfg.Consumer.RetryBackoff {
 		log.Infof("<%s> trigger reassign: reason=(%s)", mis.actorID, reason)
 		mis.lastReassignTime = now
 		mis.f.mapper.TriggerReassign(mis)
 	} else {
 		log.Infof("<%s> schedule reassign: reason=(%s)", mis.actorID, reason)
 	}
-	mis.nilOrReassignRetryTimerCh = time.After(mis.f.saramaCfg.Consumer.Retry.Backoff)
+	mis.nilOrReassignRetryTimerCh = time.After(mis.f.cfg.Consumer.RetryBackoff)
 }
 
 // parseFetchResult parses a fetch response received a broker.
@@ -320,40 +322,26 @@ func (mis *msgIStream) parseFetchResult(cid *actor.ID, fetchResult fetchRes) ([]
 
 	response := fetchResult.Response
 	if response == nil {
-		return nil, sarama.ErrIncompleteResponse
+		return nil, errIncompleteResponse
 	}
 
 	block := response.GetBlock(mis.id.topic, mis.id.partition)
 	if block == nil {
-		return nil, sarama.ErrIncompleteResponse
+		return nil, errIncompleteResponse
 	}
 
 	if block.Err != sarama.ErrNoError {
 		return nil, block.Err
 	}
 
-	if len(block.MsgSet.Messages) == 0 {
-		// We got no messages. If we got a trailing one then we need to ask for more data.
-		// Otherwise we just poll again and wait for one to be produced...
-		if block.MsgSet.PartialTrailingMessage {
-			if mis.f.saramaCfg.Consumer.Fetch.Max > 0 && mis.fetchSize == mis.f.saramaCfg.Consumer.Fetch.Max {
-				// we can't ask for more data, we've hit the configured limit
-				log.Infof("<%s> oversized message skipped: offset=%d", cid, mis.offset)
-				mis.reportError(sarama.ErrMessageTooLarge)
-				mis.offset++ // skip this one so we can keep processing future messages
-			} else {
-				mis.fetchSize *= 2
-				if mis.f.saramaCfg.Consumer.Fetch.Max > 0 && mis.fetchSize > mis.f.saramaCfg.Consumer.Fetch.Max {
-					mis.fetchSize = mis.f.saramaCfg.Consumer.Fetch.Max
-				}
-			}
-		}
-
+	// We got no messages. If we got a trailing one, it means there is a
+	// producer that writes messages larger then Consumer.FetchMaxBytes in size.
+	if len(block.MsgSet.Messages) == 0 && block.MsgSet.PartialTrailingMessage {
+		log.Errorf("<%s> oversized message skipped: offset=%d", cid, mis.offset)
+		mis.reportError(errMessageTooLarge)
 		return nil, nil
 	}
 
-	// we got messages, reset our fetch size in case it was increased for a previous request
-	mis.fetchSize = mis.f.saramaCfg.Consumer.Fetch.Default
 	var fetchedMessages []consumer.Message
 	for _, msgBlock := range block.MsgSet.Messages {
 		lastMsgIdx := len(msgBlock.Messages()) - 1
@@ -376,12 +364,10 @@ func (mis *msgIStream) parseFetchResult(cid *actor.ID, fetchResult fetchRes) ([]
 				HighWaterMark: block.HighWaterMarkOffset,
 			}
 			fetchedMessages = append(fetchedMessages, consumerMessage)
-			mis.lag = block.HighWaterMarkOffset - offset
 		}
 	}
-
 	if len(fetchedMessages) == 0 {
-		return nil, sarama.ErrIncompleteResponse
+		return nil, nil
 	}
 	return fetchedMessages, nil
 }
@@ -412,7 +398,7 @@ func (mis *msgIStream) String() string {
 type brokerExecutor struct {
 	aggrActorID     *actor.ID
 	execActorID     *actor.ID
-	config          *sarama.Config
+	cfg             *config.Proxy
 	conn            *sarama.Broker
 	requestsCh      chan fetchReq
 	batchRequestsCh chan []fetchReq
@@ -423,8 +409,6 @@ type fetchReq struct {
 	Topic     string
 	Partition int32
 	Offset    int64
-	MaxBytes  int32
-	Lag       int64
 	ReplyToCh chan<- fetchRes
 }
 
@@ -476,7 +460,7 @@ func (be *brokerExecutor) runExecutor() {
 	for fetchRequests := range be.batchRequestsCh {
 		// Reject consume requests for awhile after a connection failure to
 		// allow the Kafka cluster some time to recuperate.
-		if time.Now().UTC().Sub(lastErrTime) < be.config.Consumer.Retry.Backoff {
+		if time.Now().UTC().Sub(lastErrTime) < be.cfg.Consumer.RetryBackoff {
 			for _, fr := range fetchRequests {
 				fr.ReplyToCh <- fetchRes{nil, lastErr}
 			}
@@ -484,15 +468,15 @@ func (be *brokerExecutor) runExecutor() {
 		}
 		// Make a batch fetch request for all hungry message streams.
 		req := &sarama.FetchRequest{
-			MinBytes:    be.config.Consumer.Fetch.Min,
-			MaxWaitTime: int32(be.config.Consumer.MaxWaitTime / time.Millisecond),
+			MinBytes:    1,
+			MaxWaitTime: int32(be.cfg.Consumer.FetchMaxWait / time.Millisecond),
 		}
-		if be.config.Version.IsAtLeast(sarama.V0_10_0_0) {
+		if be.cfg.Kafka.Version.IsAtLeast(sarama.V0_10_0_0) {
 			req.Version = 2
 		}
 
 		for _, fr := range fetchRequests {
-			req.AddBlock(fr.Topic, fr.Partition, fr.Offset, fr.MaxBytes)
+			req.AddBlock(fr.Topic, fr.Partition, fr.Offset, int32(be.cfg.Consumer.FetchMaxBytes))
 		}
 		var res *sarama.FetchResponse
 		res, lastErr = be.conn.Fetch(req)

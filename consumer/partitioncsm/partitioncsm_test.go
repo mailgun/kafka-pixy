@@ -55,7 +55,7 @@ func (s *PartitionCsmSuite) SetUpTest(c *C) {
 	s.ns = actor.RootID.NewChild("T")
 	s.groupMember = groupmember.Spawn(s.ns, group, memberID, s.cfg, s.kh.KazooClt())
 	var err error
-	if s.msgIStreamF, err = msgistream.SpawnFactory(s.ns, s.kh.KafkaClt()); err != nil {
+	if s.msgIStreamF, err = msgistream.SpawnFactory(s.ns, s.cfg, s.kh.KafkaClt()); err != nil {
 		panic(err)
 	}
 	s.offsetMgrF = offsetmgr.SpawnFactory(s.ns, s.cfg, s.kh.KafkaClt())
