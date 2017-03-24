@@ -30,6 +30,7 @@ func (s *MsgIStreamSuite) SetUpSuite(c *C) {
 }
 
 func (s *MsgIStreamSuite) SetUpTest(c *C) {
+	testReportErrors = true
 	s.ns = actor.RootID.NewChild("T")
 }
 
@@ -73,7 +74,7 @@ func (s *MsgIStreamSuite) TestOffsetManual(c *C) {
 		select {
 		case message := <-pc.Messages():
 			c.Assert(message.Offset, Equals, int64(i+1234))
-		case err := <-pc.Errors():
+		case err := <-pc.(*msgIStream).errorsCh:
 			c.Error(err)
 		}
 	}
@@ -238,8 +239,8 @@ func (s *MsgIStreamSuite) TestLeaderRefreshError(c *C) {
 		"FetchRequest": sarama.NewMockWrapper(fetchResponse2),
 	})
 
-	if consErr := <-pc.Errors(); consErr.Err != sarama.ErrNotLeaderForPartition {
-		c.Errorf("Unexpected error: %v", consErr.Err)
+	if err := <-pc.(*msgIStream).errorsCh; err != sarama.ErrNotLeaderForPartition {
+		c.Errorf("Unexpected error: %v", err)
 	}
 
 	// Stage 3: finally the metadata returned by broker0 tells that broker1 is
@@ -331,8 +332,8 @@ func (s *MsgIStreamSuite) TestClosePartitionWithoutLeader(c *C) {
 	})
 
 	// When
-	if consErr := <-pc.Errors(); consErr.Err != sarama.ErrNotLeaderForPartition {
-		c.Errorf("Unexpected error: %v", consErr.Err)
+	if err := <-pc.(*msgIStream).errorsCh; err != sarama.ErrNotLeaderForPartition {
+		c.Errorf("Unexpected error: %v", err)
 	}
 
 	// Then: the partition consumer can be stopped without any problem.
@@ -488,6 +489,7 @@ func (s *MsgIStreamSuite) TestRebalancingMultiplePartitions(c *C) {
 	})
 
 	// launch test goroutines
+	testReportErrors = false
 	config := sarama.NewConfig()
 	config.Consumer.Retry.Backoff = 50 * time.Millisecond
 	client, _ := sarama.NewClient([]string{seedBroker.Addr()}, config)
@@ -501,12 +503,6 @@ func (s *MsgIStreamSuite) TestRebalancingMultiplePartitions(c *C) {
 	for i := int32(0); i < 2; i++ {
 		pc, _, err := f.SpawnMessageIStream(s.ns.NewChild("my_topic", i), "my_topic", i, 0)
 		c.Assert(err, IsNil)
-
-		go func(pc T) {
-			for err := range pc.Errors() {
-				c.Error(err)
-			}
-		}(pc)
 
 		wg.Add(1)
 		go func(partition int32, pc T) {
@@ -734,7 +730,7 @@ func (s *MsgIStreamSuite) TestBounceWithReferenceOpen(c *C) {
 	}
 
 	select {
-	case <-pc0.Errors():
+	case <-pc0.(*msgIStream).errorsCh:
 	default:
 		c.Errorf("Partition consumer should have detected broker restart")
 	}

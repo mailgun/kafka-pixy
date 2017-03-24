@@ -1,7 +1,6 @@
 package msgistream
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
@@ -39,38 +38,16 @@ type T interface {
 	// the topic partition.
 	Messages() <-chan consumer.Message
 
-	// Errors returns a read channel of errors that occurred during consuming,
-	// if enabled. By default, errors are logged and not returned over this
-	// channel. If you want to implement any custom error handling, set your
-	// config's Consumer.Return.Errors setting to true, and read from this
-	// channel.
-	Errors() <-chan *Err
-
 	// Stop synchronously stops the partition consumer. It must be called
 	// before the factory that created the instance can be stopped.
 	Stop()
 }
 
-// Err is what is provided to the user when an error occurs.
-// It wraps an error and includes the topic and partition.
-type Err struct {
-	Topic     string
-	Partition int32
-	Err       error
-}
-
-func (ce Err) Error() string {
-	return fmt.Sprintf("kafka: error while consuming %s/%d: %s", ce.Topic, ce.Partition, ce.Err)
-}
-
-// ConsumerErrors is a type that wraps a batch of errors and implements the Error interface.
-// It can be returned from the PartitionConsumer's Close methods to avoid the need to manually drain errors
-// when stopping.
-type Errors []*Err
-
-func (ce Errors) Error() string {
-	return fmt.Sprintf("kafka: %d errors while consuming", len(ce))
-}
+var (
+	// To be used in tests only! If true then offset manager will initialize
+	// their errors channel and will send internal errors.
+	testReportErrors bool
+)
 
 type factory struct {
 	namespace    *actor.ID
@@ -185,9 +162,8 @@ type msgIStream struct {
 	offset       int64
 	lag          int64
 	assignmentCh chan mapper.Executor
-	initErrorCh  chan error
 	messagesCh   chan consumer.Message
-	errorsCh     chan *Err
+	errorsCh     chan error
 	closingCh    chan none.T
 	wg           sync.WaitGroup
 
@@ -203,12 +179,13 @@ func (f *factory) spawnMsgIStream(namespace *actor.ID, id instanceID, offset int
 		f:            f,
 		id:           id,
 		assignmentCh: make(chan mapper.Executor, 1),
-		initErrorCh:  make(chan error),
 		messagesCh:   make(chan consumer.Message, f.saramaCfg.ChannelBufferSize),
-		errorsCh:     make(chan *Err, f.saramaCfg.ChannelBufferSize),
 		closingCh:    make(chan none.T, 1),
 		offset:       offset,
 		fetchSize:    f.saramaCfg.Consumer.Fetch.Default,
+	}
+	if testReportErrors {
+		mis.errorsCh = make(chan error, f.saramaCfg.ChannelBufferSize)
 	}
 	actor.Spawn(mis.actorID, &mis.wg, mis.run)
 	return mis
@@ -217,11 +194,6 @@ func (f *factory) spawnMsgIStream(namespace *actor.ID, id instanceID, offset int
 // implements `Factory`.
 func (mis *msgIStream) Messages() <-chan consumer.Message {
 	return mis.messagesCh
-}
-
-// implements `Factory`.
-func (mis *msgIStream) Errors() <-chan *Err {
-	return mis.errorsCh
 }
 
 // implements `Factory`.
@@ -245,6 +217,10 @@ func (mis *msgIStream) Assignment() chan<- mapper.Executor {
 // `ConsumerMessages` to the message channel. It tries to keep the message
 // channel buffer full making fetch requests to the assigned broker as needed.
 func (mis *msgIStream) run() {
+	defer close(mis.messagesCh)
+	if mis.errorsCh != nil {
+		defer close(mis.errorsCh)
+	}
 	var (
 		fetchResultCh       = make(chan fetchRes, 1)
 		nilOrFetchResultsCh <-chan fetchRes
@@ -254,20 +230,19 @@ func (mis *msgIStream) run() {
 		currMessage         consumer.Message
 		currMessageIdx      int
 	)
-pullMessagesLoop:
 	for {
 		select {
 		case bw := <-mis.assignmentCh:
 			log.Infof("<%s> assigned %s", mis.actorID, bw)
 			if bw == nil {
 				mis.triggerOrScheduleReassign("no broker assigned")
-				continue pullMessagesLoop
+				continue
 			}
-			be := bw.(*brokerExecutor)
-			// A new leader broker has been assigned for the partition.
-			mis.assignedBrokerRequestCh = be.requestsCh
-			// Cancel the reassign retry timer.
 			mis.nilOrReassignRetryTimerCh = nil
+
+			be := bw.(*brokerExecutor)
+			mis.assignedBrokerRequestCh = be.requestsCh
+
 			// If there is a fetch request pending, then let it complete,
 			// otherwise trigger one.
 			if nilOrFetchResultsCh == nil && nilOrMessagesCh == nil {
@@ -286,15 +261,15 @@ pullMessagesLoop:
 				if err == sarama.ErrOffsetOutOfRange {
 					// There's no point in retrying this it will just fail the
 					// same way, therefore is nothing to do but give up.
-					goto done
+					return
 				}
 				mis.triggerOrScheduleReassign("fetch error")
-				continue pullMessagesLoop
+				continue
 			}
 			// If no messages has been fetched, then trigger another request.
 			if len(fetchedMessages) == 0 {
 				mis.nilOrBrokerRequestsCh = mis.assignedBrokerRequestCh
-				continue pullMessagesLoop
+				continue
 			}
 			// Some messages have been fetched, start pushing them to the user.
 			currMessageIdx = 0
@@ -306,7 +281,7 @@ pullMessagesLoop:
 			currMessageIdx++
 			if currMessageIdx < len(fetchedMessages) {
 				currMessage = fetchedMessages[currMessageIdx]
-				continue pullMessagesLoop
+				continue
 			}
 			// All messages have been pushed, trigger a new fetch request.
 			nilOrMessagesCh = nil
@@ -318,12 +293,9 @@ pullMessagesLoop:
 			mis.nilOrReassignRetryTimerCh = time.After(mis.f.saramaCfg.Consumer.Retry.Backoff)
 
 		case <-mis.closingCh:
-			goto done
+			return
 		}
 	}
-done:
-	close(mis.messagesCh)
-	close(mis.errorsCh)
 }
 
 func (mis *msgIStream) triggerOrScheduleReassign(reason string) {
@@ -416,16 +388,11 @@ func (mis *msgIStream) parseFetchResult(cid *actor.ID, fetchResult fetchRes) ([]
 // reportError sends message fetch errors to the error channel if the user
 // configured the message stream to do so via `Config.Consumer.Return.Errors`.
 func (mis *msgIStream) reportError(err error) {
-	if !mis.f.saramaCfg.Consumer.Return.Errors {
+	if mis.errorsCh == nil {
 		return
 	}
-	ce := &Err{
-		Topic:     mis.id.topic,
-		Partition: mis.id.partition,
-		Err:       err,
-	}
 	select {
-	case mis.errorsCh <- ce:
+	case mis.errorsCh <- err:
 	default:
 	}
 }
