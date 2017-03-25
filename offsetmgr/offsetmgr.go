@@ -8,7 +8,7 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
-	"github.com/mailgun/kafka-pixy/consumer/mapper"
+	"github.com/mailgun/kafka-pixy/mapper"
 	"github.com/mailgun/log"
 	"github.com/pkg/errors"
 )
@@ -126,8 +126,8 @@ func (f *factory) SpawnOffsetManager(namespace *actor.ID, group, topic string, p
 }
 
 // implements `mapper.Resolver`.
-func (f *factory) ResolveBroker(pw mapper.Worker) (*sarama.Broker, error) {
-	om := pw.(*offsetMgr)
+func (f *factory) ResolveBroker(worker mapper.Worker) (*sarama.Broker, error) {
+	om := worker.(*offsetMgr)
 	if err := f.kafkaClt.RefreshCoordinator(om.id.group); err != nil {
 		return nil, err
 	}

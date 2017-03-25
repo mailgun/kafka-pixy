@@ -8,7 +8,7 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer"
-	"github.com/mailgun/kafka-pixy/consumer/mapper"
+	"github.com/mailgun/kafka-pixy/mapper"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/log"
 	"github.com/pkg/errors"
@@ -109,8 +109,8 @@ func (f *factory) Stop() {
 }
 
 // implements `mapper.Resolver.ResolveBroker()`.
-func (f *factory) ResolveBroker(pw mapper.Worker) (*sarama.Broker, error) {
-	ms := pw.(*msgIStream)
+func (f *factory) ResolveBroker(worker mapper.Worker) (*sarama.Broker, error) {
+	ms := worker.(*msgIStream)
 	if err := f.kafkaClt.RefreshMetadata(ms.id.topic); err != nil {
 		return nil, err
 	}
