@@ -119,9 +119,19 @@ func (f *factory) SpawnOffsetManager(namespace *actor.ID, group, topic string, p
 	if _, ok := f.children[id]; ok {
 		return nil, errors.Errorf("offset manager %v already exists", id)
 	}
-	om := f.spawnOffsetManager(namespace, id)
-	f.mapper.OnWorkerSpawned(om)
+	om := &offsetMgr{
+		actorID:            namespace.NewChild("offset_mgr"),
+		f:                  f,
+		id:                 id,
+		submitRequestsCh:   make(chan submitReq),
+		assignmentCh:       make(chan mapper.Executor, 1),
+		committedOffsetsCh: make(chan Offset, f.cfg.Consumer.ChannelBufferSize),
+	}
+	if testReportErrors {
+		om.testErrorsCh = make(chan error, f.cfg.Consumer.ChannelBufferSize)
+	}
 	f.children[id] = om
+	actor.Spawn(om.actorID, &om.wg, om.run)
 	return om, nil
 }
 
@@ -154,25 +164,20 @@ func (f *factory) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
 	return be
 }
 
-func (f *factory) spawnOffsetManager(namespace *actor.ID, id instanceID) *offsetMgr {
-	om := &offsetMgr{
-		actorID:            namespace.NewChild("offset_mgr"),
-		f:                  f,
-		id:                 id,
-		submitRequestsCh:   make(chan submitReq),
-		assignmentCh:       make(chan mapper.Executor, 1),
-		committedOffsetsCh: make(chan Offset, f.cfg.Consumer.ChannelBufferSize),
-	}
-	if testReportErrors {
-		om.testErrorsCh = make(chan error, f.cfg.Consumer.ChannelBufferSize)
-	}
-	actor.Spawn(om.actorID, &om.wg, om.run)
-	return om
-}
-
 // implements `Factory.Stop()`
 func (f *factory) Stop() {
 	f.mapper.Stop()
+}
+
+func (f *factory) onOffsetMgrSpawned(om *offsetMgr) {
+	f.mapper.OnWorkerSpawned(om)
+}
+
+func (f *factory) onOffsetMgrStopped(om *offsetMgr) {
+	f.childrenMu.Lock()
+	delete(f.children, om.id)
+	f.childrenMu.Unlock()
+	f.mapper.OnWorkerStopped(om)
 }
 
 // implements `T`
@@ -212,11 +217,6 @@ func (om *offsetMgr) CommittedOffsets() <-chan Offset {
 func (om *offsetMgr) Stop() {
 	close(om.submitRequestsCh)
 	om.wg.Wait()
-
-	om.f.childrenMu.Lock()
-	delete(om.f.children, om.id)
-	om.f.childrenMu.Unlock()
-	om.f.mapper.OnWorkerStopped(om)
 }
 
 // implements `mapper.Worker`.
@@ -233,6 +233,10 @@ func (om *offsetMgr) run() {
 	if om.testErrorsCh != nil {
 		defer close(om.testErrorsCh)
 	}
+
+	om.f.onOffsetMgrSpawned(om)
+	defer om.f.onOffsetMgrStopped(om)
+
 	var (
 		lastCommittedOffset   = Offset{Val: math.MinInt64}
 		lastSubmitRequest     = submitReq{offset: lastCommittedOffset}

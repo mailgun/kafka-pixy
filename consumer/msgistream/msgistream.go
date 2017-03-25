@@ -97,10 +97,21 @@ func (f *factory) SpawnMessageIStream(namespace *actor.ID, topic string, partiti
 	if _, ok := f.children[id]; ok {
 		return nil, sarama.OffsetNewest, sarama.ConfigurationError("That topic/partition is already being consumed")
 	}
-	ms := f.spawnMsgIStream(namespace, id, realOffset)
-	f.mapper.OnWorkerSpawned(ms)
-	f.children[id] = ms
-	return ms, realOffset, nil
+	mis := &msgIStream{
+		actorID:      namespace.NewChild("msg_stream"),
+		f:            f,
+		id:           id,
+		assignmentCh: make(chan mapper.Executor, 1),
+		messagesCh:   make(chan consumer.Message, f.cfg.Consumer.ChannelBufferSize),
+		closingCh:    make(chan none.T, 1),
+		offset:       realOffset,
+	}
+	if testReportErrors {
+		mis.errorsCh = make(chan error, f.cfg.Consumer.ChannelBufferSize)
+	}
+	f.children[id] = mis
+	actor.Spawn(mis.actorID, &mis.wg, mis.run)
+	return mis, realOffset, nil
 }
 
 // implements `Factory`.
@@ -159,6 +170,17 @@ func (f *factory) chooseStartingOffset(topic string, partition int32, offset int
 	}
 }
 
+func (f *factory) onMsgIStreamSpawned(mis *msgIStream) {
+	f.mapper.OnWorkerSpawned(mis)
+}
+
+func (f *factory) onMsgIStreamStopped(mis *msgIStream) {
+	f.childrenMu.Lock()
+	delete(f.children, mis.id)
+	f.childrenMu.Unlock()
+	f.mapper.OnWorkerStopped(mis)
+}
+
 // implements `mapper.Worker`.
 type msgIStream struct {
 	actorID      *actor.ID
@@ -177,23 +199,6 @@ type msgIStream struct {
 	lastReassignTime          time.Time
 }
 
-func (f *factory) spawnMsgIStream(namespace *actor.ID, id instanceID, offset int64) *msgIStream {
-	mis := &msgIStream{
-		actorID:      namespace.NewChild("msg_stream"),
-		f:            f,
-		id:           id,
-		assignmentCh: make(chan mapper.Executor, 1),
-		messagesCh:   make(chan consumer.Message, f.cfg.Consumer.ChannelBufferSize),
-		closingCh:    make(chan none.T, 1),
-		offset:       offset,
-	}
-	if testReportErrors {
-		mis.errorsCh = make(chan error, f.cfg.Consumer.ChannelBufferSize)
-	}
-	actor.Spawn(mis.actorID, &mis.wg, mis.run)
-	return mis
-}
-
 // implements `Factory`.
 func (mis *msgIStream) Messages() <-chan consumer.Message {
 	return mis.messagesCh
@@ -203,11 +208,6 @@ func (mis *msgIStream) Messages() <-chan consumer.Message {
 func (mis *msgIStream) Stop() {
 	close(mis.closingCh)
 	mis.wg.Wait()
-
-	mis.f.childrenMu.Lock()
-	delete(mis.f.children, mis.id)
-	mis.f.childrenMu.Unlock()
-	mis.f.mapper.OnWorkerStopped(mis)
 }
 
 // implements `mapper.Worker`.
@@ -224,6 +224,10 @@ func (mis *msgIStream) run() {
 	if mis.errorsCh != nil {
 		defer close(mis.errorsCh)
 	}
+
+	mis.f.onMsgIStreamSpawned(mis)
+	defer mis.f.onMsgIStreamStopped(mis)
+
 	var (
 		fetchResultCh       = make(chan fetchRes, 1)
 		nilOrFetchResultsCh <-chan fetchRes

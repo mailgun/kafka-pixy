@@ -267,6 +267,70 @@ func (s *MsgIStreamSuite) TestLeaderRefreshError(c *C) {
 	c.Assert((<-pc.Messages()).Offset, Equals, int64(124))
 }
 
+// If a partition reader terminates due to a fatal error, another instance
+// of a partition reader for the same partition can be started later.
+func (s *MsgIStreamSuite) TestFatalErrorStop(c *C) {
+	// Stage 1: my_topic/0 served by broker0, but the partition consumer
+	// immediately fails due to fatal error and terminates.
+	log.Infof("    STAGE 1")
+
+	fatalErrorRes := &sarama.FetchResponse{}
+	fatalErrorRes.AddError("my_topic", 0, sarama.ErrOffsetOutOfRange)
+
+	s.broker0.SetHandlerByMap(map[string]sarama.MockResponse{
+		"MetadataRequest": sarama.NewMockMetadataResponse(c).
+			SetBroker(s.broker0.Addr(), s.broker0.BrokerID()).
+			SetLeader("my_topic", 0, s.broker0.BrokerID()),
+		"OffsetRequest": sarama.NewMockOffsetResponse(c).
+			SetOffset("my_topic", 0, sarama.OffsetOldest, 123).
+			SetOffset("my_topic", 0, sarama.OffsetNewest, 1000),
+		"FetchRequest": sarama.NewMockWrapper(fatalErrorRes),
+	})
+
+	saramaCfg := s.cfg.SaramaClientCfg()
+	kafkaClt, _ := sarama.NewClient([]string{s.broker0.Addr()}, saramaCfg)
+	defer kafkaClt.Close()
+
+	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
+	c.Assert(err, IsNil)
+	defer f.Stop()
+
+	pc, _, err := f.SpawnMessageIStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
+	c.Assert(err, IsNil)
+
+	// Wait for the partition reader to terminate due to fatal error
+	select {
+	case _, ok := <-pc.Messages():
+		if ok {
+			c.Error("Message channel should be closed signaling partition consumer termination")
+			c.FailNow()
+		}
+	case <-time.After(1 * time.Second):
+		c.Error("Partition reader should terminate due to fatal error")
+		c.FailNow()
+	}
+
+	// Stage 2: a partition reader can be recreated.
+	log.Infof("    STAGE 2")
+
+	s.broker0.SetHandlerByMap(map[string]sarama.MockResponse{
+		"MetadataRequest": sarama.NewMockMetadataResponse(c).
+			SetBroker(s.broker0.Addr(), s.broker0.BrokerID()).
+			SetLeader("my_topic", 0, s.broker0.BrokerID()),
+		"OffsetRequest": sarama.NewMockOffsetResponse(c).
+			SetOffset("my_topic", 0, sarama.OffsetOldest, 123).
+			SetOffset("my_topic", 0, sarama.OffsetNewest, 1000),
+		"FetchRequest": sarama.NewMockFetchResponse(c, 1).
+			SetMessage("my_topic", 0, 123, testMsg),
+	})
+
+	pc, _, err = f.SpawnMessageIStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
+	c.Assert(err, IsNil)
+	defer pc.Stop()
+
+	c.Assert((<-pc.Messages()).Offset, Equals, int64(123))
+}
+
 func (s *MsgIStreamSuite) TestInvalidTopic(c *C) {
 	s.broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
