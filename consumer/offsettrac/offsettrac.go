@@ -82,8 +82,8 @@ func New(actorID *actor.ID, offset offsetmgr.Offset, offerTimeout time.Duration)
 // to ensure that the number of offered message does not grow too large.
 func (ot *T) OnOffered(msg consumer.Message) int {
 	offersCount := len(ot.offers)
-	// Ignore messages that has already been acknowledged
-	if ot.IsAcked(msg) {
+	// Ignore messages that has already been acknowledged.
+	if ok, _ := ot.IsAcked(msg.Offset); ok {
 		return offersCount
 	}
 	// Even though the logic of this function allows offering in any order,
@@ -141,20 +141,25 @@ func (ot *T) removeOffer(offset int64) bool {
 	return true
 }
 
-// IsAcked tells if a message has already been acknowledged.
-func (ot *T) IsAcked(msg consumer.Message) bool {
-	if msg.Offset < ot.offset.Val {
-		return true
+// IsAcked checks if an offset has already been acknowledged. The second
+// returned value is the smallest not acked offset that is greater than the
+// specified offset.
+func (ot *T) IsAcked(offset int64) (bool, int64) {
+	if offset < ot.offset.Val {
+		return true, ot.offset.Val
 	}
 	for _, ar := range ot.ackedRanges {
-		if msg.Offset < ar.from {
-			return false
+		if offset < ar.from {
+			if offset+1 == ar.from {
+				return false, ar.to
+			}
+			return false, offset + 1
 		}
-		if msg.Offset < ar.to {
-			return true
+		if offset < ar.to {
+			return true, ar.to
 		}
 	}
-	return false
+	return false, offset + 1
 }
 
 // NextRetry returns a next message to be retried along with the retry attempt
