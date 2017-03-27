@@ -79,14 +79,14 @@ func (s *OffsetTrackerSuite) TestOnAckedRanges(c *C) {
 func (s *OffsetTrackerSuite) TestAckedRangeEncodeDecode(c *C) {
 	for i, tc := range []struct {
 		base int64
-		ar   ackedRange
+		ar   offsetRange
 	}{
-		/* 0 */ {0, ackedRange{1, 2}},
-		/* 1 */ {100, ackedRange{101, 102}},
-		/* 2 */ {0, ackedRange{0x7FFFFFFFFFFFFFFE, 0x7FFFFFFFFFFFFFFF}},
+		/* 0 */ {0, offsetRange{1, 2}},
+		/* 1 */ {100, offsetRange{101, 102}},
+		/* 2 */ {0, offsetRange{0x7FFFFFFFFFFFFFFE, 0x7FFFFFFFFFFFFFFF}},
 	} {
 		var encoded []byte
-		var decoded ackedRange
+		var decoded offsetRange
 
 		// When
 		encoded = tc.ar.encode(tc.base, encoded)
@@ -98,7 +98,7 @@ func (s *OffsetTrackerSuite) TestAckedRangeEncodeDecode(c *C) {
 }
 
 func (s *OffsetTrackerSuite) TestAckedRangeDecodeError(c *C) {
-	var ar ackedRange
+	var ar offsetRange
 	for i, tc := range []struct {
 		encoded string
 		error   string
@@ -149,7 +149,7 @@ func (s *OffsetTrackerSuite) TestNewOffsetAdjusted(c *C) {
 }
 
 func (s *OffsetTrackerSuite) TestIsAcked(c *C) {
-	meta := encodeAckedRanges(301, []ackedRange{
+	meta := encodeAckedRanges(301, []offsetRange{
 		{302, 305}, {307, 309}, {310, 313}})
 	offset := offsetmgr.Offset{301, meta}
 	ot := New(s.ns, offset, -1)
