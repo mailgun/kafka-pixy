@@ -15,6 +15,8 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"github.com/mailgun/kafka-pixy/offsetmgr"
+	"github.com/mailgun/kafka-pixy/consumer/offsettrac"
 )
 
 const (
@@ -155,6 +157,43 @@ func (s *T) Ack(ctx context.Context, req *pb.AckRq) (*pb.AckRs, error) {
 		return nil, grpc.Errorf(codes.Code(http.StatusInternalServerError), err.Error())
 	}
 	return &pb.AckRs{}, nil
+}
+
+func (s *T) GetOffsets(ctx context.Context, req *pb.GetOffsetsRq) (*pb.GetOffsetsRs, error) {
+	pxy, err := s.proxySet.Get(req.Cluster)
+	if err != nil {
+		return nil, grpc.Errorf(codes.InvalidArgument, err.Error())
+	}
+	partitionOffsets, err := pxy.GetGroupOffsets(req.Group, req.Topic)
+	if err != nil {
+		if err = errors.Cause(err); err == sarama.ErrUnknownTopicOrPartition {
+			return nil, grpc.Errorf(codes.NotFound, err.Error())
+		}
+		return nil, grpc.Errorf(codes.Code(http.StatusInternalServerError), err.Error())
+	}
+
+	result := pb.GetOffsetsRs{}
+	for _, po := range partitionOffsets {
+		row := pb.PartitionOffset{
+			Partition: po.Partition,
+			Begin: po.Begin,
+			End: po.End,
+			Count: po.End - po.Begin,
+			Offset: po.Offset,
+		}
+		if po.Offset == sarama.OffsetNewest {
+			row.Lag = 0
+		} else if po.Offset == sarama.OffsetOldest {
+			row.Lag = po.End - po.Begin
+		} else {
+			row.Lag = po.End - po.Offset
+		}
+		row.Metadata = po.Metadata
+		offset := offsetmgr.Offset{Val: po.Offset, Meta: po.Metadata}
+		row.SparseAcks = offsettrac.SparseAcks2Str(offset)
+		result.Offsets = append(result.Offsets, &row)
+	}
+	return &result, nil
 }
 
 func keyEncoderFor(prodReq *pb.ProdRq) sarama.Encoder {
