@@ -229,6 +229,44 @@ func (s *ServiceGRPCSuite) TestConsumeAutoAck(c *C) {
 	assertMsgs(c, consumed, produced)
 }
 
+// Offsets of messages consumed in auto-ack mode are properly committed.
+func (s *ServiceGRPCSuite) TestGetOffsets(c *C) {
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
+
+	s.kh.ResetOffsets("foo", "test.4")
+	s.kh.PutMessages("auto-ack", "test.4", map[string]int{"A": 1})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	// Get the offsets with a single message in topic
+	res, err := s.clt.GetOffsets(ctx, &pb.GetOffsetsRq{Topic: "test.4", Group: "foo"})
+	c.Assert(err, IsNil, Commentf("failed to get offsets"))
+	c.Assert(res.Offsets[0].Lag, Equals, int64(1))
+	c.Assert(res.Offsets[0].Count > 0, Equals, true)
+
+	// Consume the message
+	_, err = s.clt.ConsumeNAck(ctx, &pb.ConsNAckRq{Topic: "test.4", Group: "foo", AutoAck: true})
+	c.Assert(err, IsNil, Commentf("failed to consume message"))
+
+	// fetch offsets until the offset is committed
+	for i := 0; i < 5; i++ {
+		res, err = s.clt.GetOffsets(ctx, &pb.GetOffsetsRq{Topic: "test.4", Group: "foo"})
+		c.Assert(err, IsNil, Commentf("failed to get offsets"))
+		if res.Offsets[0].Lag == int64(0) {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+
+	// Verify the lag is zero
+	c.Assert(res.Offsets[0].Lag, Equals, int64(0))
+	c.Assert(res.Offsets[0].Count > 0, Equals, true)
+
+	svc.Stop()
+}
+
 // This test shows how message consumption loop with explicit acks should look
 // like.
 func (s *ServiceGRPCSuite) TestConsumeExplicitAck(c *C) {

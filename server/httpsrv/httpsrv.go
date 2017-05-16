@@ -300,7 +300,7 @@ func (s *T) handleGetOffsets(w http.ResponseWriter, r *http.Request) {
 
 	partitionOffsets, err := pxy.GetGroupOffsets(group, topic)
 	if err != nil {
-		if err = errors.Cause(err); err == sarama.ErrUnknownTopicOrPartition {
+		if errors.Cause(err) == sarama.ErrUnknownTopicOrPartition {
 			respondWithJSON(w, http.StatusNotFound, errorHTTPResponse{"Unknown topic"})
 			return
 		}

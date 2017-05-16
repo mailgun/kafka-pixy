@@ -9,14 +9,14 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/consumer"
+	"github.com/mailgun/kafka-pixy/consumer/offsettrac"
 	pb "github.com/mailgun/kafka-pixy/gen/golang"
+	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/proxy"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"github.com/mailgun/kafka-pixy/offsetmgr"
-	"github.com/mailgun/kafka-pixy/consumer/offsettrac"
 )
 
 const (
@@ -166,7 +166,7 @@ func (s *T) GetOffsets(ctx context.Context, req *pb.GetOffsetsRq) (*pb.GetOffset
 	}
 	partitionOffsets, err := pxy.GetGroupOffsets(req.Group, req.Topic)
 	if err != nil {
-		if err = errors.Cause(err); err == sarama.ErrUnknownTopicOrPartition {
+		if errors.Cause(err) == sarama.ErrUnknownTopicOrPartition {
 			return nil, grpc.Errorf(codes.NotFound, err.Error())
 		}
 		return nil, grpc.Errorf(codes.Code(http.StatusInternalServerError), err.Error())
@@ -176,10 +176,10 @@ func (s *T) GetOffsets(ctx context.Context, req *pb.GetOffsetsRq) (*pb.GetOffset
 	for _, po := range partitionOffsets {
 		row := pb.PartitionOffset{
 			Partition: po.Partition,
-			Begin: po.Begin,
-			End: po.End,
-			Count: po.End - po.Begin,
-			Offset: po.Offset,
+			Begin:     po.Begin,
+			End:       po.End,
+			Count:     po.End - po.Begin,
+			Offset:    po.Offset,
 		}
 		if po.Offset == sarama.OffsetNewest {
 			row.Lag = 0
