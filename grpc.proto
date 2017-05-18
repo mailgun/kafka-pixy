@@ -71,6 +71,14 @@ service KafkaPixy {
     //  * Invalid Argument (3): see the status description for details;
     //  * Internal (13): see the status description and logs for details;
     rpc Ack (AckRq) returns (AckRs) {}
+
+    // Fetches partition offsets for the specified topic and group
+    //
+    // gRPC error codes:
+    //  * Invalid Argument (3): If unable to find the cluster named in the request
+    //  * Internal (13): If Kafka returns an error on offset request
+    //  * NotFound (5): If the group and or topic does not exist
+    rpc GetOffsets (GetOffsetsRq) returns (GetOffsetsRs) {}
 }
 
 message ProdRq {
@@ -171,3 +179,46 @@ message AckRq {
 }
 
 message AckRs {}
+
+
+message PartitionOffset {
+    // The Partition this structure describes
+    int32 partition = 1;
+
+    // The beginning offset
+    int64 begin = 2;
+
+    // The ending offset
+    int64 end = 3;
+
+    // The number of messages in the partition
+    int64 count = 4;
+
+    // Offset in the partition
+    int64 offset = 5;
+
+    // The number of un-consumed messages in the partition
+    int64 lag = 6;
+
+    // Metatdata associated with the partition
+    string metadata = 7;
+
+    // human readable representation of sparsely committed ranges
+    string sparse_acks = 8;
+}
+
+message GetOffsetsRq {
+    // Name of a Kafka cluster
+    string cluster = 1;
+
+    // Name of a topic
+    string topic = 2;
+
+    // Name of a consumer group.
+    string group = 3;
+}
+
+message GetOffsetsRs {
+    repeated PartitionOffset offsets = 1;
+}
+

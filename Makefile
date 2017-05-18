@@ -18,6 +18,9 @@ all:
 vet:
 	go vet `go list ./... | grep -v '/vendor/'`
 
+grpc:
+	protoc -I . grpc.proto --go_out=plugins=grpc:gen/golang
+
 errcheck: install_errcheck
 	errcheck github.com/mailgun/kafka-pixy
 
