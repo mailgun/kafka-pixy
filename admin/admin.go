@@ -66,10 +66,28 @@ type indexedPartition struct {
 	partition int32
 }
 
+func (a *T) ResetKafkaClt() {
+	a.mtx.Lock()
+	defer a.mtx.Unlock()
+	if a.kafkaClt != nil {
+		a.kafkaClt.Close()
+		a.kafkaClt = nil
+	}
+}
+
 // GetGroupOffsets for every partition of the specified topic it returns the
 // current offset range along with the latest offset and metadata committed by
 // the specified consumer group.
 func (a *T) GetGroupOffsets(group, topic string) ([]PartitionOffset, error) {
+	results, err := a.getGroupOffsets(group, topic)
+	if err != nil {
+		a.ResetKafkaClt()
+		return a.getGroupOffsets(group, topic)
+	}
+	return results, nil
+}
+
+func (a *T) getGroupOffsets(group, topic string) ([]PartitionOffset, error) {
 	kafkaClt, err := a.lazyKafkaClt()
 	if err != nil {
 		return nil, err
@@ -167,6 +185,14 @@ func (a *T) GetGroupOffsets(group, topic string) ([]PartitionOffset, error) {
 // SetGroupOffsets commits specific offset values along with metadata for a list
 // of partitions of a particular topic on behalf of the specified group.
 func (a *T) SetGroupOffsets(group, topic string, offsets []PartitionOffset) error {
+	if err := a.setGroupOffsets(group, topic, offsets); err != nil {
+		a.ResetKafkaClt()
+		return a.setGroupOffsets(group, topic, offsets)
+	}
+	return nil
+}
+
+func (a *T) setGroupOffsets(group, topic string, offsets []PartitionOffset) error {
 	kafkaClt, err := a.lazyKafkaClt()
 	if err != nil {
 		return err
