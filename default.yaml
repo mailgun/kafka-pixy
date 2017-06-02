@@ -92,11 +92,17 @@ proxies:
       # Size of all buffered channels created by the consumer module.
       channel_buffer_size: 64
 
-      # The default number of message bytes to fetch from the broker in each
-      # request. This should be larger than the majority of your messages,
-      # or else the consumer will spend a lot of time negotiating sizes and
-      # not actually consuming.
-      fetch_bytes: 1048576
+      # The number of bytes of messages to attempt to fetch for each
+      # topic-partition in each fetch request. These bytes will be read into
+      # memory for each partition, so this helps control the memory used by
+      # the consumer. The fetch request size must be at least as large as
+      # the maximum message size the server allows or else it is possible
+      # for the producer to send messages larger than the consumer can fetch.
+      fetch_max_bytes: 1048576
+
+      # The maximum amount of time the server will block before answering
+      # the fetch request if there isn't data immediately available.
+      fetch_max_wait: 250ms
 
       # Consume request will wait at most this long until a message from the
       # specified group/topic becomes available.

@@ -8,7 +8,7 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
-	"github.com/mailgun/kafka-pixy/consumer/mapper"
+	"github.com/mailgun/kafka-pixy/mapper"
 	"github.com/mailgun/log"
 	"github.com/pkg/errors"
 )
@@ -95,12 +95,13 @@ func SpawnFactory(namespace *actor.ID, cfg *config.Proxy, kafkaClt sarama.Client
 // implements `Factory`
 // implements `mapper.Resolver`
 type factory struct {
-	namespace    *actor.ID
-	kafkaClt     sarama.Client
-	cfg          *config.Proxy
-	mapper       *mapper.T
-	children     map[instanceID]*offsetMgr
-	childrenLock sync.Mutex
+	namespace *actor.ID
+	kafkaClt  sarama.Client
+	cfg       *config.Proxy
+	mapper    *mapper.T
+
+	childrenMu sync.Mutex
+	children   map[instanceID]*offsetMgr
 }
 
 type instanceID struct {
@@ -113,20 +114,30 @@ type instanceID struct {
 func (f *factory) SpawnOffsetManager(namespace *actor.ID, group, topic string, partition int32) (T, error) {
 	id := instanceID{group, topic, partition}
 
-	f.childrenLock.Lock()
-	defer f.childrenLock.Unlock()
+	f.childrenMu.Lock()
+	defer f.childrenMu.Unlock()
 	if _, ok := f.children[id]; ok {
 		return nil, errors.Errorf("offset manager %v already exists", id)
 	}
-	om := f.spawnOffsetManager(namespace, id)
-	f.mapper.OnWorkerSpawned(om)
+	om := &offsetMgr{
+		actorID:            namespace.NewChild("offset_mgr"),
+		f:                  f,
+		id:                 id,
+		submitRequestsCh:   make(chan submitReq),
+		assignmentCh:       make(chan mapper.Executor, 1),
+		committedOffsetsCh: make(chan Offset, f.cfg.Consumer.ChannelBufferSize),
+	}
+	if testReportErrors {
+		om.testErrorsCh = make(chan error, f.cfg.Consumer.ChannelBufferSize)
+	}
 	f.children[id] = om
+	actor.Spawn(om.actorID, &om.wg, om.run)
 	return om, nil
 }
 
 // implements `mapper.Resolver`.
-func (f *factory) ResolveBroker(pw mapper.Worker) (*sarama.Broker, error) {
-	om := pw.(*offsetMgr)
+func (f *factory) ResolveBroker(worker mapper.Worker) (*sarama.Broker, error) {
+	om := worker.(*offsetMgr)
 	if err := f.kafkaClt.RefreshCoordinator(om.id.group); err != nil {
 		return nil, err
 	}
@@ -153,25 +164,20 @@ func (f *factory) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
 	return be
 }
 
-func (f *factory) spawnOffsetManager(namespace *actor.ID, id instanceID) *offsetMgr {
-	om := &offsetMgr{
-		actorID:            namespace.NewChild("offset_mgr"),
-		f:                  f,
-		id:                 id,
-		submitRequestsCh:   make(chan submitReq),
-		assignmentCh:       make(chan mapper.Executor, 1),
-		committedOffsetsCh: make(chan Offset, f.cfg.Consumer.ChannelBufferSize),
-	}
-	if testReportErrors {
-		om.testErrorsCh = make(chan error, f.cfg.Consumer.ChannelBufferSize)
-	}
-	actor.Spawn(om.actorID, &om.wg, om.run)
-	return om
-}
-
 // implements `Factory.Stop()`
 func (f *factory) Stop() {
 	f.mapper.Stop()
+}
+
+func (f *factory) onOffsetMgrSpawned(om *offsetMgr) {
+	f.mapper.OnWorkerSpawned(om)
+}
+
+func (f *factory) onOffsetMgrStopped(om *offsetMgr) {
+	f.childrenMu.Lock()
+	delete(f.children, om.id)
+	f.childrenMu.Unlock()
+	f.mapper.OnWorkerStopped(om)
 }
 
 // implements `T`
@@ -211,11 +217,6 @@ func (om *offsetMgr) CommittedOffsets() <-chan Offset {
 func (om *offsetMgr) Stop() {
 	close(om.submitRequestsCh)
 	om.wg.Wait()
-
-	om.f.childrenLock.Lock()
-	delete(om.f.children, om.id)
-	om.f.childrenLock.Unlock()
-	om.f.mapper.OnWorkerStopped(om)
 }
 
 // implements `mapper.Worker`.
@@ -232,6 +233,10 @@ func (om *offsetMgr) run() {
 	if om.testErrorsCh != nil {
 		defer close(om.testErrorsCh)
 	}
+
+	om.f.onOffsetMgrSpawned(om)
+	defer om.f.onOffsetMgrStopped(om)
+
 	var (
 		lastCommittedOffset   = Offset{Val: math.MinInt64}
 		lastSubmitRequest     = submitReq{offset: lastCommittedOffset}

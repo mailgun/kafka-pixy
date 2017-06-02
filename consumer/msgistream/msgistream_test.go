@@ -7,6 +7,7 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
+	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/log"
 	. "gopkg.in/check.v1"
@@ -17,7 +18,9 @@ func Test(t *testing.T) {
 }
 
 type MsgIStreamSuite struct {
-	ns *actor.ID
+	ns      *actor.ID
+	cfg     *config.Proxy
+	broker0 *sarama.MockBroker
 }
 
 var (
@@ -30,36 +33,40 @@ func (s *MsgIStreamSuite) SetUpSuite(c *C) {
 }
 
 func (s *MsgIStreamSuite) SetUpTest(c *C) {
+	testReportErrors = true
 	s.ns = actor.RootID.NewChild("T")
+	s.cfg = testhelpers.NewTestProxyCfg("mis")
+	s.cfg.Kafka.Version.Set(sarama.V0_8_2_2)
+	s.broker0 = sarama.NewMockBroker(c, 0)
+}
+
+func (s *MsgIStreamSuite) TearDownTest(c *C) {
+	s.broker0.Close()
 }
 
 // If a particular offset is provided then messages are consumed starting from
 // that offset.
 func (s *MsgIStreamSuite) TestOffsetManual(c *C) {
-	// Given
-	broker0 := sarama.NewMockBroker(c, 0)
-	defer broker0.Close()
-
 	mockFetchResponse := sarama.NewMockFetchResponse(c, 1)
 	for i := 0; i < 10; i++ {
 		mockFetchResponse.SetMessage("my_topic", 0, int64(i+1234), testMsg)
 	}
 
-	broker0.SetHandlerByMap(map[string]sarama.MockResponse{
+	s.broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
-			SetBroker(broker0.Addr(), broker0.BrokerID()).
-			SetLeader("my_topic", 0, broker0.BrokerID()),
+			SetBroker(s.broker0.Addr(), s.broker0.BrokerID()).
+			SetLeader("my_topic", 0, s.broker0.BrokerID()),
 		"OffsetRequest": sarama.NewMockOffsetResponse(c).
 			SetOffset("my_topic", 0, sarama.OffsetOldest, 0).
 			SetOffset("my_topic", 0, sarama.OffsetNewest, 2345),
 		"FetchRequest": mockFetchResponse,
 	})
 
-	client, _ := sarama.NewClient([]string{broker0.Addr()}, nil)
-	defer client.Close()
+	kafkaClt, _ := sarama.NewClient([]string{s.broker0.Addr()}, s.cfg.SaramaClientCfg())
+	defer kafkaClt.Close()
 
 	// When
-	f, err := SpawnFactory(s.ns, client)
+	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
@@ -73,7 +80,7 @@ func (s *MsgIStreamSuite) TestOffsetManual(c *C) {
 		select {
 		case message := <-pc.Messages():
 			c.Assert(message.Offset, Equals, int64(i+1234))
-		case err := <-pc.Errors():
+		case err := <-pc.(*msgIStream).errorsCh:
 			c.Error(err)
 		}
 	}
@@ -83,13 +90,10 @@ func (s *MsgIStreamSuite) TestOffsetManual(c *C) {
 // message is indeed corresponds to the offset that broker claims to be the
 // newest in its metadata response.
 func (s *MsgIStreamSuite) TestOffsetNewest(c *C) {
-	// Given
-	broker0 := sarama.NewMockBroker(c, 0)
-	defer broker0.Close()
-	broker0.SetHandlerByMap(map[string]sarama.MockResponse{
+	s.broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
-			SetBroker(broker0.Addr(), broker0.BrokerID()).
-			SetLeader("my_topic", 0, broker0.BrokerID()),
+			SetBroker(s.broker0.Addr(), s.broker0.BrokerID()).
+			SetLeader("my_topic", 0, s.broker0.BrokerID()),
 		"OffsetRequest": sarama.NewMockOffsetResponse(c).
 			SetOffset("my_topic", 0, sarama.OffsetNewest, 10).
 			SetOffset("my_topic", 0, sarama.OffsetOldest, 7),
@@ -100,9 +104,10 @@ func (s *MsgIStreamSuite) TestOffsetNewest(c *C) {
 			SetHighWaterMark("my_topic", 0, 14),
 	})
 
-	client, _ := sarama.NewClient([]string{broker0.Addr()}, nil)
-	defer client.Close()
-	f, err := SpawnFactory(s.ns, client)
+	kafkaClt, _ := sarama.NewClient([]string{s.broker0.Addr()}, s.cfg.SaramaClientCfg())
+	defer kafkaClt.Close()
+
+	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
@@ -120,13 +125,10 @@ func (s *MsgIStreamSuite) TestOffsetNewest(c *C) {
 
 // It is possible to close a partition consumer and create the same anew.
 func (s *MsgIStreamSuite) TestRecreate(c *C) {
-	// Given
-	broker0 := sarama.NewMockBroker(c, 0)
-	defer broker0.Close()
-	broker0.SetHandlerByMap(map[string]sarama.MockResponse{
+	s.broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
-			SetBroker(broker0.Addr(), broker0.BrokerID()).
-			SetLeader("my_topic", 0, broker0.BrokerID()),
+			SetBroker(s.broker0.Addr(), s.broker0.BrokerID()).
+			SetLeader("my_topic", 0, s.broker0.BrokerID()),
 		"OffsetRequest": sarama.NewMockOffsetResponse(c).
 			SetOffset("my_topic", 0, sarama.OffsetOldest, 0).
 			SetOffset("my_topic", 0, sarama.OffsetNewest, 1000),
@@ -134,9 +136,10 @@ func (s *MsgIStreamSuite) TestRecreate(c *C) {
 			SetMessage("my_topic", 0, 10, testMsg),
 	})
 
-	client, _ := sarama.NewClient([]string{broker0.Addr()}, nil)
-	defer client.Close()
-	f, err := SpawnFactory(s.ns, client)
+	kafkaClt, _ := sarama.NewClient([]string{s.broker0.Addr()}, s.cfg.SaramaClientCfg())
+	defer kafkaClt.Close()
+
+	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
@@ -156,24 +159,21 @@ func (s *MsgIStreamSuite) TestRecreate(c *C) {
 
 // An attempt to consume the same partition twice should fail.
 func (s *MsgIStreamSuite) TestDuplicate(c *C) {
-	// Given
-	broker0 := sarama.NewMockBroker(c, 0)
-	defer broker0.Close()
-	broker0.SetHandlerByMap(map[string]sarama.MockResponse{
+	s.broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
-			SetBroker(broker0.Addr(), broker0.BrokerID()).
-			SetLeader("my_topic", 0, broker0.BrokerID()),
+			SetBroker(s.broker0.Addr(), s.broker0.BrokerID()).
+			SetLeader("my_topic", 0, s.broker0.BrokerID()),
 		"OffsetRequest": sarama.NewMockOffsetResponse(c).
 			SetOffset("my_topic", 0, sarama.OffsetOldest, 0).
 			SetOffset("my_topic", 0, sarama.OffsetNewest, 1000),
 		"FetchRequest": sarama.NewMockFetchResponse(c, 1),
 	})
 
-	config := sarama.NewConfig()
-	config.ChannelBufferSize = 0
-	client, _ := sarama.NewClient([]string{broker0.Addr()}, config)
-	defer client.Close()
-	f, err := SpawnFactory(s.ns, client)
+	kafkaClt, _ := sarama.NewClient([]string{s.broker0.Addr()}, s.cfg.SaramaClientCfg())
+	defer kafkaClt.Close()
+
+	s.cfg.Consumer.ChannelBufferSize = 0
+	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
@@ -193,17 +193,13 @@ func (s *MsgIStreamSuite) TestDuplicate(c *C) {
 // If consumer fails to refresh metadata it keeps retrying with frequency
 // specified by `Config.Consumer.Retry.Backoff`.
 func (s *MsgIStreamSuite) TestLeaderRefreshError(c *C) {
-	// Given
-	broker0 := sarama.NewMockBroker(c, 100)
-	defer broker0.Close()
-
 	// Stage 1: my_topic/0 served by broker0
 	log.Infof("    STAGE 1")
 
-	broker0.SetHandlerByMap(map[string]sarama.MockResponse{
+	s.broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
-			SetBroker(broker0.Addr(), broker0.BrokerID()).
-			SetLeader("my_topic", 0, broker0.BrokerID()),
+			SetBroker(s.broker0.Addr(), s.broker0.BrokerID()).
+			SetLeader("my_topic", 0, s.broker0.BrokerID()),
 		"OffsetRequest": sarama.NewMockOffsetResponse(c).
 			SetOffset("my_topic", 0, sarama.OffsetOldest, 123).
 			SetOffset("my_topic", 0, sarama.OffsetNewest, 1000),
@@ -211,14 +207,14 @@ func (s *MsgIStreamSuite) TestLeaderRefreshError(c *C) {
 			SetMessage("my_topic", 0, 123, testMsg),
 	})
 
-	config := sarama.NewConfig()
-	config.Net.ReadTimeout = 100 * time.Millisecond
-	config.Consumer.Retry.Backoff = 200 * time.Millisecond
-	config.Consumer.Return.Errors = true
-	config.Metadata.Retry.Max = 0
-	client, _ := sarama.NewClient([]string{broker0.Addr()}, config)
-	defer client.Close()
-	f, err := SpawnFactory(s.ns, client)
+	saramaCfg := s.cfg.SaramaClientCfg()
+	saramaCfg.Net.ReadTimeout = 100 * time.Millisecond
+	saramaCfg.Metadata.Retry.Max = 0
+	kafkaClt, _ := sarama.NewClient([]string{s.broker0.Addr()}, saramaCfg)
+	defer kafkaClt.Close()
+
+	s.cfg.Consumer.RetryBackoff = 200 * time.Millisecond
+	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
@@ -234,12 +230,19 @@ func (s *MsgIStreamSuite) TestLeaderRefreshError(c *C) {
 	fetchResponse2 := &sarama.FetchResponse{}
 	fetchResponse2.AddError("my_topic", 0, sarama.ErrNotLeaderForPartition)
 
-	broker0.SetHandlerByMap(map[string]sarama.MockResponse{
+	s.broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"FetchRequest": sarama.NewMockWrapper(fetchResponse2),
 	})
 
-	if consErr := <-pc.Errors(); consErr.Err != sarama.ErrNotLeaderForPartition {
-		c.Errorf("Unexpected error: %v", consErr.Err)
+	for {
+		err := <-pc.(*msgIStream).errorsCh
+		if err == errIncompleteResponse {
+			continue
+		}
+		if err == sarama.ErrNotLeaderForPartition {
+			break
+		}
+		c.Errorf("Unexpected error: %v", err)
 	}
 
 	// Stage 3: finally the metadata returned by broker0 tells that broker1 is
@@ -254,9 +257,9 @@ func (s *MsgIStreamSuite) TestLeaderRefreshError(c *C) {
 		"FetchRequest": sarama.NewMockFetchResponse(c, 1).
 			SetMessage("my_topic", 0, 124, testMsg),
 	})
-	broker0.SetHandlerByMap(map[string]sarama.MockResponse{
+	s.broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
-			SetBroker(broker0.Addr(), broker0.BrokerID()).
+			SetBroker(s.broker0.Addr(), s.broker0.BrokerID()).
 			SetBroker(broker1.Addr(), broker1.BrokerID()).
 			SetLeader("my_topic", 0, broker1.BrokerID()),
 	})
@@ -264,18 +267,80 @@ func (s *MsgIStreamSuite) TestLeaderRefreshError(c *C) {
 	c.Assert((<-pc.Messages()).Offset, Equals, int64(124))
 }
 
-func (s *MsgIStreamSuite) TestInvalidTopic(c *C) {
-	// Given
-	broker0 := sarama.NewMockBroker(c, 100)
-	defer broker0.Close()
-	broker0.SetHandlerByMap(map[string]sarama.MockResponse{
+// If a partition reader terminates due to a fatal error, another instance
+// of a partition reader for the same partition can be started later.
+func (s *MsgIStreamSuite) TestFatalErrorStop(c *C) {
+	// Stage 1: my_topic/0 served by broker0, but the partition consumer
+	// immediately fails due to fatal error and terminates.
+	log.Infof("    STAGE 1")
+
+	fatalErrorRes := &sarama.FetchResponse{}
+	fatalErrorRes.AddError("my_topic", 0, sarama.ErrOffsetOutOfRange)
+
+	s.broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
-			SetBroker(broker0.Addr(), broker0.BrokerID()),
+			SetBroker(s.broker0.Addr(), s.broker0.BrokerID()).
+			SetLeader("my_topic", 0, s.broker0.BrokerID()),
+		"OffsetRequest": sarama.NewMockOffsetResponse(c).
+			SetOffset("my_topic", 0, sarama.OffsetOldest, 123).
+			SetOffset("my_topic", 0, sarama.OffsetNewest, 1000),
+		"FetchRequest": sarama.NewMockWrapper(fatalErrorRes),
 	})
 
-	client, _ := sarama.NewClient([]string{broker0.Addr()}, nil)
-	defer client.Close()
-	f, err := SpawnFactory(s.ns, client)
+	saramaCfg := s.cfg.SaramaClientCfg()
+	kafkaClt, _ := sarama.NewClient([]string{s.broker0.Addr()}, saramaCfg)
+	defer kafkaClt.Close()
+
+	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
+	c.Assert(err, IsNil)
+	defer f.Stop()
+
+	pc, _, err := f.SpawnMessageIStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
+	c.Assert(err, IsNil)
+
+	// Wait for the partition reader to terminate due to fatal error
+	select {
+	case _, ok := <-pc.Messages():
+		if ok {
+			c.Error("Message channel should be closed signaling partition consumer termination")
+			c.FailNow()
+		}
+	case <-time.After(1 * time.Second):
+		c.Error("Partition reader should terminate due to fatal error")
+		c.FailNow()
+	}
+
+	// Stage 2: a partition reader can be recreated.
+	log.Infof("    STAGE 2")
+
+	s.broker0.SetHandlerByMap(map[string]sarama.MockResponse{
+		"MetadataRequest": sarama.NewMockMetadataResponse(c).
+			SetBroker(s.broker0.Addr(), s.broker0.BrokerID()).
+			SetLeader("my_topic", 0, s.broker0.BrokerID()),
+		"OffsetRequest": sarama.NewMockOffsetResponse(c).
+			SetOffset("my_topic", 0, sarama.OffsetOldest, 123).
+			SetOffset("my_topic", 0, sarama.OffsetNewest, 1000),
+		"FetchRequest": sarama.NewMockFetchResponse(c, 1).
+			SetMessage("my_topic", 0, 123, testMsg),
+	})
+
+	pc, _, err = f.SpawnMessageIStream(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
+	c.Assert(err, IsNil)
+	defer pc.Stop()
+
+	c.Assert((<-pc.Messages()).Offset, Equals, int64(123))
+}
+
+func (s *MsgIStreamSuite) TestInvalidTopic(c *C) {
+	s.broker0.SetHandlerByMap(map[string]sarama.MockResponse{
+		"MetadataRequest": sarama.NewMockMetadataResponse(c).
+			SetBroker(s.broker0.Addr(), s.broker0.BrokerID()),
+	})
+
+	kafkaClt, _ := sarama.NewClient([]string{s.broker0.Addr()}, s.cfg.SaramaClientCfg())
+	defer kafkaClt.Close()
+
+	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
@@ -291,13 +356,10 @@ func (s *MsgIStreamSuite) TestInvalidTopic(c *C) {
 // Nothing bad happens if a partition consumer that has no leader assigned at
 // the moment is closed.
 func (s *MsgIStreamSuite) TestClosePartitionWithoutLeader(c *C) {
-	// Given
-	broker0 := sarama.NewMockBroker(c, 100)
-	defer broker0.Close()
-	broker0.SetHandlerByMap(map[string]sarama.MockResponse{
+	s.broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
-			SetBroker(broker0.Addr(), broker0.BrokerID()).
-			SetLeader("my_topic", 0, broker0.BrokerID()),
+			SetBroker(s.broker0.Addr(), s.broker0.BrokerID()).
+			SetLeader("my_topic", 0, s.broker0.BrokerID()),
 		"OffsetRequest": sarama.NewMockOffsetResponse(c).
 			SetOffset("my_topic", 0, sarama.OffsetOldest, 123).
 			SetOffset("my_topic", 0, sarama.OffsetNewest, 1000),
@@ -305,14 +367,14 @@ func (s *MsgIStreamSuite) TestClosePartitionWithoutLeader(c *C) {
 			SetMessage("my_topic", 0, 123, testMsg),
 	})
 
-	config := sarama.NewConfig()
-	config.Net.ReadTimeout = 100 * time.Millisecond
-	config.Consumer.Retry.Backoff = 100 * time.Millisecond
-	config.Consumer.Return.Errors = true
-	config.Metadata.Retry.Max = 0
-	client, _ := sarama.NewClient([]string{broker0.Addr()}, config)
-	defer client.Close()
-	f, err := SpawnFactory(s.ns, client)
+	saramaCfg := s.cfg.SaramaClientCfg()
+	saramaCfg.Net.ReadTimeout = 100 * time.Millisecond
+	saramaCfg.Metadata.Retry.Max = 0
+	kafkaClt, _ := sarama.NewClient([]string{s.broker0.Addr()}, saramaCfg)
+	defer kafkaClt.Close()
+
+	s.cfg.Consumer.RetryBackoff = 100 * time.Millisecond
+	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
@@ -326,13 +388,13 @@ func (s *MsgIStreamSuite) TestClosePartitionWithoutLeader(c *C) {
 	fetchResponse2 := &sarama.FetchResponse{}
 	fetchResponse2.AddError("my_topic", 0, sarama.ErrNotLeaderForPartition)
 
-	broker0.SetHandlerByMap(map[string]sarama.MockResponse{
+	s.broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"FetchRequest": sarama.NewMockWrapper(fetchResponse2),
 	})
 
 	// When
-	if consErr := <-pc.Errors(); consErr.Err != sarama.ErrNotLeaderForPartition {
-		c.Errorf("Unexpected error: %v", consErr.Err)
+	if err := <-pc.(*msgIStream).errorsCh; err != sarama.ErrNotLeaderForPartition {
+		c.Errorf("Unexpected error: %v", err)
 	}
 
 	// Then: the partition consumer can be stopped without any problem.
@@ -342,24 +404,22 @@ func (s *MsgIStreamSuite) TestClosePartitionWithoutLeader(c *C) {
 // actual offset range for the partition, then the partition consumer stops
 // immediately closing its output channels.
 func (s *MsgIStreamSuite) TestShutsDownOutOfRange(c *C) {
-	// Given
-	broker0 := sarama.NewMockBroker(c, 0)
-	defer broker0.Close()
 	fetchResponse := new(sarama.FetchResponse)
 	fetchResponse.AddError("my_topic", 0, sarama.ErrOffsetOutOfRange)
-	broker0.SetHandlerByMap(map[string]sarama.MockResponse{
+	s.broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
-			SetBroker(broker0.Addr(), broker0.BrokerID()).
-			SetLeader("my_topic", 0, broker0.BrokerID()),
+			SetBroker(s.broker0.Addr(), s.broker0.BrokerID()).
+			SetLeader("my_topic", 0, s.broker0.BrokerID()),
 		"OffsetRequest": sarama.NewMockOffsetResponse(c).
 			SetOffset("my_topic", 0, sarama.OffsetNewest, 1234).
 			SetOffset("my_topic", 0, sarama.OffsetOldest, 7),
 		"FetchRequest": sarama.NewMockWrapper(fetchResponse),
 	})
 
-	client, _ := sarama.NewClient([]string{broker0.Addr()}, nil)
-	defer client.Close()
-	f, err := SpawnFactory(s.ns, client)
+	kafkaClt, _ := sarama.NewClient([]string{s.broker0.Addr()}, s.cfg.SaramaClientCfg())
+	defer kafkaClt.Close()
+
+	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
@@ -377,9 +437,6 @@ func (s *MsgIStreamSuite) TestShutsDownOutOfRange(c *C) {
 // If a fetch response contains messages with offsets that are smaller then
 // requested, then such messages are ignored.
 func (s *MsgIStreamSuite) TestExtraOffsets(c *C) {
-	// Given
-	broker0 := sarama.NewMockBroker(c, 0)
-	defer broker0.Close()
 	fetchResponse1 := &sarama.FetchResponse{}
 	fetchResponse1.AddMessage("my_topic", 0, nil, testMsg, 1)
 	fetchResponse1.AddMessage("my_topic", 0, nil, testMsg, 2)
@@ -387,19 +444,20 @@ func (s *MsgIStreamSuite) TestExtraOffsets(c *C) {
 	fetchResponse1.AddMessage("my_topic", 0, nil, testMsg, 4)
 	fetchResponse2 := &sarama.FetchResponse{}
 	fetchResponse2.AddError("my_topic", 0, sarama.ErrNoError)
-	broker0.SetHandlerByMap(map[string]sarama.MockResponse{
+	s.broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
-			SetBroker(broker0.Addr(), broker0.BrokerID()).
-			SetLeader("my_topic", 0, broker0.BrokerID()),
+			SetBroker(s.broker0.Addr(), s.broker0.BrokerID()).
+			SetLeader("my_topic", 0, s.broker0.BrokerID()),
 		"OffsetRequest": sarama.NewMockOffsetResponse(c).
 			SetOffset("my_topic", 0, sarama.OffsetNewest, 1234).
 			SetOffset("my_topic", 0, sarama.OffsetOldest, 0),
 		"FetchRequest": sarama.NewMockSequence(fetchResponse1, fetchResponse2),
 	})
 
-	client, _ := sarama.NewClient([]string{broker0.Addr()}, nil)
-	defer client.Close()
-	f, err := SpawnFactory(s.ns, client)
+	kafkaClt, _ := sarama.NewClient([]string{s.broker0.Addr()}, s.cfg.SaramaClientCfg())
+	defer kafkaClt.Close()
+
+	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
@@ -417,28 +475,26 @@ func (s *MsgIStreamSuite) TestExtraOffsets(c *C) {
 // It is fine if offsets of fetched messages are not sequential (although
 // strictly increasing!).
 func (s *MsgIStreamSuite) TestNonSequentialOffsets(c *C) {
-	// Given
-	broker0 := sarama.NewMockBroker(c, 0)
-	defer broker0.Close()
 	fetchResponse1 := &sarama.FetchResponse{}
 	fetchResponse1.AddMessage("my_topic", 0, nil, testMsg, 5)
 	fetchResponse1.AddMessage("my_topic", 0, nil, testMsg, 7)
 	fetchResponse1.AddMessage("my_topic", 0, nil, testMsg, 11)
 	fetchResponse2 := &sarama.FetchResponse{}
 	fetchResponse2.AddError("my_topic", 0, sarama.ErrNoError)
-	broker0.SetHandlerByMap(map[string]sarama.MockResponse{
+	s.broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
-			SetBroker(broker0.Addr(), broker0.BrokerID()).
-			SetLeader("my_topic", 0, broker0.BrokerID()),
+			SetBroker(s.broker0.Addr(), s.broker0.BrokerID()).
+			SetLeader("my_topic", 0, s.broker0.BrokerID()),
 		"OffsetRequest": sarama.NewMockOffsetResponse(c).
 			SetOffset("my_topic", 0, sarama.OffsetNewest, 1234).
 			SetOffset("my_topic", 0, sarama.OffsetOldest, 0),
 		"FetchRequest": sarama.NewMockSequence(fetchResponse1, fetchResponse2),
 	})
 
-	client, _ := sarama.NewClient([]string{broker0.Addr()}, nil)
-	defer client.Close()
-	f, err := SpawnFactory(s.ns, client)
+	kafkaClt, _ := sarama.NewClient([]string{s.broker0.Addr()}, s.cfg.SaramaClientCfg())
+	defer kafkaClt.Close()
+
+	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
@@ -458,14 +514,12 @@ func (s *MsgIStreamSuite) TestNonSequentialOffsets(c *C) {
 // leader and switches to it.
 func (s *MsgIStreamSuite) TestRebalancingMultiplePartitions(c *C) {
 	// initial setup
-	seedBroker := sarama.NewMockBroker(c, 10)
-	defer seedBroker.Close()
 	leader0 := sarama.NewMockBroker(c, 0)
 	defer leader0.Close()
 	leader1 := sarama.NewMockBroker(c, 1)
 	defer leader1.Close()
 
-	seedBroker.SetHandlerByMap(map[string]sarama.MockResponse{
+	s.broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(leader0.Addr(), leader0.BrokerID()).
 			SetBroker(leader1.Addr(), leader1.BrokerID()).
@@ -488,11 +542,12 @@ func (s *MsgIStreamSuite) TestRebalancingMultiplePartitions(c *C) {
 	})
 
 	// launch test goroutines
-	config := sarama.NewConfig()
-	config.Consumer.Retry.Backoff = 50 * time.Millisecond
-	client, _ := sarama.NewClient([]string{seedBroker.Addr()}, config)
-	defer client.Close()
-	f, err := SpawnFactory(s.ns, client)
+	testReportErrors = false
+	kafkaClt, _ := sarama.NewClient([]string{s.broker0.Addr()}, s.cfg.SaramaClientCfg())
+	defer kafkaClt.Close()
+
+	s.cfg.Consumer.RetryBackoff = 50 * time.Millisecond
+	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
@@ -501,12 +556,6 @@ func (s *MsgIStreamSuite) TestRebalancingMultiplePartitions(c *C) {
 	for i := int32(0); i < 2; i++ {
 		pc, _, err := f.SpawnMessageIStream(s.ns.NewChild("my_topic", i), "my_topic", i, 0)
 		c.Assert(err, IsNil)
-
-		go func(pc T) {
-			for err := range pc.Errors() {
-				c.Error(err)
-			}
-		}(pc)
 
 		wg.Add(1)
 		go func(partition int32, pc T) {
@@ -538,10 +587,10 @@ func (s *MsgIStreamSuite) TestRebalancingMultiplePartitions(c *C) {
 	log.Infof("    STAGE 2")
 	// Stage 2:
 	//   * leader0 says that it is no longer serving my_topic/0
-	//   * seedBroker tells that leader1 is serving my_topic/0 now
+	//   * s.broker0 tells that leader1 is serving my_topic/0 now
 
 	// seed broker tells that the new partition 0 leader is leader1
-	seedBroker.SetHandlerByMap(map[string]sarama.MockResponse{
+	s.broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetLeader("my_topic", 0, leader1.BrokerID()).
 			SetLeader("my_topic", 1, leader1.BrokerID()),
@@ -576,10 +625,10 @@ func (s *MsgIStreamSuite) TestRebalancingMultiplePartitions(c *C) {
 	log.Infof("    STAGE 4")
 	// Stage 4:
 	//   * my_topic/1 -> leader1 tells that it is no longer the leader
-	//   * seedBroker tells that leader0 is a new leader for my_topic/1
+	//   * s.broker0 tells that leader0 is a new leader for my_topic/1
 
 	// metadata assigns 0 to leader1 and 1 to leader0
-	seedBroker.SetHandlerByMap(map[string]sarama.MockResponse{
+	s.broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetLeader("my_topic", 0, leader1.BrokerID()).
 			SetLeader("my_topic", 1, leader0.BrokerID()),
@@ -608,14 +657,11 @@ func (s *MsgIStreamSuite) TestRebalancingMultiplePartitions(c *C) {
 // consumer channel buffer is full then that does not affect the ability to
 // read messages by the other consumer.
 func (s *MsgIStreamSuite) TestInterleavedClose(c *C) {
-	// Given
-	broker0 := sarama.NewMockBroker(c, 0)
-	defer broker0.Close()
-	broker0.SetHandlerByMap(map[string]sarama.MockResponse{
+	s.broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
-			SetBroker(broker0.Addr(), broker0.BrokerID()).
-			SetLeader("my_topic", 0, broker0.BrokerID()).
-			SetLeader("my_topic", 1, broker0.BrokerID()),
+			SetBroker(s.broker0.Addr(), s.broker0.BrokerID()).
+			SetLeader("my_topic", 0, s.broker0.BrokerID()).
+			SetLeader("my_topic", 1, s.broker0.BrokerID()),
 		"OffsetRequest": sarama.NewMockOffsetResponse(c).
 			SetOffset("my_topic", 0, sarama.OffsetOldest, 1000).
 			SetOffset("my_topic", 0, sarama.OffsetNewest, 1100).
@@ -628,11 +674,11 @@ func (s *MsgIStreamSuite) TestInterleavedClose(c *C) {
 			SetMessage("my_topic", 1, 2000, testMsg),
 	})
 
-	config := sarama.NewConfig()
-	config.ChannelBufferSize = 0
-	client, _ := sarama.NewClient([]string{broker0.Addr()}, config)
-	defer client.Close()
-	f, err := SpawnFactory(s.ns, client)
+	kafkaClt, _ := sarama.NewClient([]string{s.broker0.Addr()}, s.cfg.SaramaClientCfg())
+	defer kafkaClt.Close()
+
+	s.cfg.Consumer.ChannelBufferSize = 0
+	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
@@ -684,13 +730,12 @@ func (s *MsgIStreamSuite) TestBounceWithReferenceOpen(c *C) {
 		"FetchRequest":    mockFetchResponse,
 	})
 
-	config := sarama.NewConfig()
-	config.Consumer.Return.Errors = true
-	config.Consumer.Retry.Backoff = 100 * time.Millisecond
-	config.ChannelBufferSize = 1
-	client, _ := sarama.NewClient([]string{broker1.Addr()}, config)
-	defer client.Close()
-	f, err := SpawnFactory(s.ns, client)
+	kafkaClt, _ := sarama.NewClient([]string{broker1.Addr()}, s.cfg.SaramaClientCfg())
+	defer kafkaClt.Close()
+
+	s.cfg.Consumer.RetryBackoff = 100 * time.Millisecond
+	s.cfg.Consumer.ChannelBufferSize = 1
+	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
@@ -734,28 +779,26 @@ func (s *MsgIStreamSuite) TestBounceWithReferenceOpen(c *C) {
 	}
 
 	select {
-	case <-pc0.Errors():
+	case <-pc0.(*msgIStream).errorsCh:
 	default:
 		c.Errorf("Partition consumer should have detected broker restart")
 	}
 }
 
 func (s *MsgIStreamSuite) TestOffsetOutOfRange(c *C) {
-	// Given
-	broker0 := sarama.NewMockBroker(c, 2)
-	defer broker0.Close()
-	broker0.SetHandlerByMap(map[string]sarama.MockResponse{
+	s.broker0.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
-			SetBroker(broker0.Addr(), broker0.BrokerID()).
-			SetLeader("my_topic", 0, broker0.BrokerID()),
+			SetBroker(s.broker0.Addr(), s.broker0.BrokerID()).
+			SetLeader("my_topic", 0, s.broker0.BrokerID()),
 		"OffsetRequest": sarama.NewMockOffsetResponse(c).
 			SetOffset("my_topic", 0, sarama.OffsetNewest, 2000).
 			SetOffset("my_topic", 0, sarama.OffsetOldest, 1000),
 	})
 
-	client, _ := sarama.NewClient([]string{broker0.Addr()}, nil)
-	defer client.Close()
-	f, err := SpawnFactory(s.ns, client)
+	kafkaClt, _ := sarama.NewClient([]string{s.broker0.Addr()}, s.cfg.SaramaClientCfg())
+	defer kafkaClt.Close()
+
+	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	c.Assert(err, IsNil)
 	defer f.Stop()
 

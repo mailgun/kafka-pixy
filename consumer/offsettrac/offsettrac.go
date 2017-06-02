@@ -40,7 +40,7 @@ type T struct {
 	actorID      *actor.ID
 	offerTimeout time.Duration
 	offset       offsetmgr.Offset
-	ackedRanges  []ackedRange
+	ackedRanges  []offsetRange
 	offers       []offer
 }
 
@@ -82,8 +82,8 @@ func New(actorID *actor.ID, offset offsetmgr.Offset, offerTimeout time.Duration)
 // to ensure that the number of offered message does not grow too large.
 func (ot *T) OnOffered(msg consumer.Message) int {
 	offersCount := len(ot.offers)
-	// Ignore messages that has already been acknowledged
-	if ot.IsAcked(msg) {
+	// Ignore messages that has already been acknowledged.
+	if ok, _ := ot.IsAcked(msg.Offset); ok {
 		return offersCount
 	}
 	// Even though the logic of this function allows offering in any order,
@@ -141,20 +141,25 @@ func (ot *T) removeOffer(offset int64) bool {
 	return true
 }
 
-// IsAcked tells if a message has already been acknowledged.
-func (ot *T) IsAcked(msg consumer.Message) bool {
-	if msg.Offset < ot.offset.Val {
-		return true
+// IsAcked checks if an offset has already been acknowledged. The second
+// returned value is the smallest not acked offset that is greater than the
+// specified offset.
+func (ot *T) IsAcked(offset int64) (bool, int64) {
+	if offset < ot.offset.Val {
+		return true, ot.offset.Val
 	}
 	for _, ar := range ot.ackedRanges {
-		if msg.Offset < ar.from {
-			return false
+		if offset < ar.from {
+			if offset+1 == ar.from {
+				return false, ar.to
+			}
+			return false, offset + 1
 		}
-		if msg.Offset < ar.to {
-			return true
+		if offset < ar.to {
+			return true, ar.to
 		}
 	}
-	return false
+	return false, offset + 1
 }
 
 // NextRetry returns a next message to be retried along with the retry attempt
@@ -224,9 +229,9 @@ func (ot *T) updateAckedRanges(offset int64) bool {
 				ot.ackedRanges[i].from -= 1
 				return true
 			}
-			ot.ackedRanges = append(ot.ackedRanges, ackedRange{})
+			ot.ackedRanges = append(ot.ackedRanges, offsetRange{})
 			copy(ot.ackedRanges[i+1:], ot.ackedRanges[i:ackedRangesCount])
-			ot.ackedRanges[i] = newAckedRange(offset)
+			ot.ackedRanges[i] = newOffsetRange(offset)
 			return true
 		}
 		if offset < ot.ackedRanges[i].to {
@@ -244,7 +249,7 @@ func (ot *T) updateAckedRanges(offset int64) bool {
 			return true
 		}
 	}
-	ot.ackedRanges = append(ot.ackedRanges, newAckedRange(offset))
+	ot.ackedRanges = append(ot.ackedRanges, newOffsetRange(offset))
 	return true
 }
 
@@ -252,7 +257,7 @@ func (ot *T) newOffer(msg consumer.Message) offer {
 	return offer{msg, msg.Offset, 0, time.Now().Add(ot.offerTimeout)}
 }
 
-func encodeAckedRanges(base int64, ackedRanges []ackedRange) string {
+func encodeAckedRanges(base int64, ackedRanges []offsetRange) string {
 	ackedRangesCount := len(ackedRanges)
 	if ackedRangesCount == 0 {
 		return ""
@@ -265,15 +270,15 @@ func encodeAckedRanges(base int64, ackedRanges []ackedRange) string {
 	return string(buf)
 }
 
-func decodeAckedRanges(base int64, encoded string) ([]ackedRange, error) {
+func decodeAckedRanges(base int64, encoded string) ([]offsetRange, error) {
 	if encoded == "" {
 		return nil, nil
 	}
-	ackedRanges := make([]ackedRange, 0, len(encoded)/2)
+	ackedRanges := make([]offsetRange, 0, len(encoded)/2)
 	var err error
 	buf := []byte(encoded)
 	for i := 0; len(buf) > 0; i++ {
-		var ar ackedRange
+		var ar offsetRange
 		if buf, err = ar.decode(base, buf); err != nil {
 			return nil, errors.Wrapf(err, "bad encoding: %s", encoded)
 		}
@@ -283,31 +288,35 @@ func decodeAckedRanges(base int64, encoded string) ([]ackedRange, error) {
 	return ackedRanges, nil
 }
 
-func newAckedRange(offset int64) ackedRange {
-	return ackedRange{offset, offset + 1}
+type offsetRange struct {
+	from, to int64
 }
 
-func (ar *ackedRange) encode(base int64, buf []byte) []byte {
-	buf = encodeInt64(ar.from-base, buf)
-	buf = encodeInt64(ar.to-ar.from, buf)
+func newOffsetRange(offset int64) offsetRange {
+	return offsetRange{offset, offset + 1}
+}
+
+func (or *offsetRange) encode(base int64, buf []byte) []byte {
+	buf = encodeInt64(or.from-base, buf)
+	buf = encodeInt64(or.to-or.from, buf)
 	return buf
 }
 
-func (ar *ackedRange) decode(base int64, buf []byte) ([]byte, error) {
+func (or *offsetRange) decode(base int64, buf []byte) ([]byte, error) {
 	delta, buf, err := decodeInt64(buf)
 	if err != nil {
 		return nil, errors.Wrap(err, "bad `from` boundary")
 	}
-	ar.from = base + delta
+	or.from = base + delta
 
 	delta, buf, err = decodeInt64(buf)
 	if err != nil {
 		return nil, errors.Wrap(err, "bad `to` boundary")
 	}
-	ar.to = ar.from + delta
+	or.to = or.from + delta
 
-	if ar.from >= ar.to || ar.from <= 0 {
-		return nil, errors.Errorf("bad range: %v", *ar)
+	if or.from >= or.to || or.from <= 0 {
+		return nil, errors.Errorf("bad range: %v", *or)
 	}
 	return buf, nil
 }
@@ -341,8 +350,4 @@ type offer struct {
 	offset   int64
 	retryNo  int
 	deadline time.Time
-}
-
-type ackedRange struct {
-	from, to int64
 }

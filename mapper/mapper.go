@@ -10,9 +10,12 @@ import (
 	"github.com/mailgun/log"
 )
 
-// T maintains mapping of partition workers that generate requests to broker
-// executors that process them. It uses an external resolver to determine a
-// particular broker executor instance to assign to a partition worker.
+// T maintains mapping of workers that generate requests to executors. An
+// executor is associated with a particular Kafka broker. It aggregates worker
+// requests, marshals them to a Kafka protocol packet, sends the packet to the
+// associated broker, waits for response and fans replies out to the workers.
+// An external resolver is used to determine worker to broker-executor
+// assignments.
 //
 // Mapper triggers reassignment whenever one of the following events happen:
 //   * it is signaled that a new worker has been spawned via `OnWorkerSpawned()`;
@@ -20,10 +23,10 @@ import (
 //   * a worker explicitly requested reassignment via `TriggerReassign()`
 //   * an executor reported connection error via `BrokerFailed()`.
 //
-// Broker executors are spawned on demand when a broker connection is mapped to
-// a partition worker for the first time. It is guaranteed that a broker
-// executor is stopped only after all partition workers that used to be assigned
-// to it have either been stopped or assigned another broker executor.
+// Executors are spawned on demand when a broker is resolved to a worker for
+// the first time. It is guaranteed that a executor is stopped only after all
+// workers that used to be assigned to it have either been stopped or assigned
+// another to other executors.
 type T struct {
 	actorID     *actor.ID
 	resolver    Resolver
@@ -36,14 +39,14 @@ type T struct {
 }
 
 // Resolver defines an interface to resolve a broker connection that should
-// serve requests of a particular partition worker and create a broker executor
-// from a broker connection.
+// serve requests of a particular worker, and to create an executor for a
+// broker connection.
 type Resolver interface {
 	// ResolveBroker returns a broker connection that should be used to
-	// determine a broker executor assigned to the specified partition worker.
-	ResolveBroker(pw Worker) (*sarama.Broker, error)
+	// determine an executor assigned to the specified worker.
+	ResolveBroker(worker Worker) (*sarama.Broker, error)
 
-	// SpawnExecutor spawns a broker executor for the specified connection.
+	// SpawnExecutor spawns an executor for the specified connection.
 	SpawnExecutor(brokerConn *sarama.Broker) Executor
 }
 
@@ -58,7 +61,7 @@ type Worker interface {
 	Assignment() chan<- Executor
 }
 
-// Executor represents an entity that executes requests of partition workers
+// Executor represents an entity that executes requests of workers
 // via a particular broker connection.
 type Executor interface {
 	// BrokerConn returns a broker connection used by the executor.
@@ -187,79 +190,80 @@ func (m *T) reassign(actorID *actor.ID, change *mappingChanges, doneCh chan none
 	defer func() { doneCh <- none.V }()
 
 	// Travers through stopped workers and dereference brokers assigned to them.
-	for pw := range change.stopped {
-		be := m.assignments[pw]
-		delete(m.assignments, pw)
-		delete(change.spawned, pw)
-		if be != nil {
-			m.references[be] = m.references[be] - 1
-			log.Infof("<%s> unassign %s -> %s (ref=%d)", actorID, pw, be, m.references[be])
+	for worker := range change.stopped {
+		executor := m.assignments[worker]
+		delete(m.assignments, worker)
+		delete(change.spawned, worker)
+		if executor != nil {
+			m.references[executor] = m.references[executor] - 1
+			log.Infof("<%s> unassign %s -> %s (ref=%d)", actorID, worker, executor, m.references[executor])
 		}
 	}
-	// Weed out partition workers that have already been closed.
-	for pw := range change.outdated {
-		if _, ok := m.assignments[pw]; !ok {
-			delete(change.outdated, pw)
+	// Weed out workers that have already been closed.
+	for worker := range change.outdated {
+		if _, ok := m.assignments[worker]; !ok {
+			delete(change.outdated, worker)
 		}
 	}
-	// Run resolution for the created and outdated partition workers.
-	for pw := range change.spawned {
-		m.resolveBroker(actorID, pw)
+	// Run resolution for the created and outdated workers.
+	for worker := range change.spawned {
+		m.resolveBroker(actorID, worker)
 	}
-	for pw := range change.outdated {
-		m.resolveBroker(actorID, pw)
+	for worker := range change.outdated {
+		m.resolveBroker(actorID, worker)
 	}
-	// All broker assignments have been propagated to partition workers, so
-	// it is safe to close broker executors that are not used anymore.
-	for be, referenceCount := range m.references {
+	// All broker assignments have been propagated to workers, so it is safe to
+	// close executors that are not used anymore.
+	for executor, referenceCount := range m.references {
 		if referenceCount != 0 {
 			continue
 		}
-		log.Infof("<%s> decomission %s", actorID, be)
-		be.Stop()
-		delete(m.references, be)
-		if m.connections[be.BrokerConn()] == be {
-			delete(m.connections, be.BrokerConn())
+		log.Infof("<%s> decomission %s", actorID, executor)
+		executor.Stop()
+		delete(m.references, executor)
+		if m.connections[executor.BrokerConn()] == executor {
+			delete(m.connections, executor.BrokerConn())
 		}
 	}
 }
 
-// resolveBroker queries the Kafka cluster for a new partition leader and
-// assigns it to the specified partition consumer.
-func (m *T) resolveBroker(actorID *actor.ID, pw Worker) {
-	var newBrokerExecutor Executor
-	brokerConn, err := m.resolver.ResolveBroker(pw)
+// resolveBroker determines a broker connection for the worker and assigns
+// executor associated with the broker connection to the worker. If there is
+// no such executor then it is created.
+func (m *T) resolveBroker(actorID *actor.ID, worker Worker) {
+	var newExecutor Executor
+	brokerConn, err := m.resolver.ResolveBroker(worker)
 	if err != nil {
-		log.Infof("<%s> failed to resolve broker: pw=%s, err=(%s)", actorID, pw, err)
+		log.Infof("<%s> failed to resolve broker: worker=%s, err=(%s)", actorID, worker, err)
 	} else {
 		if brokerConn != nil {
-			newBrokerExecutor = m.connections[brokerConn]
-			if newBrokerExecutor == nil && brokerConn != nil {
-				newBrokerExecutor = m.resolver.SpawnExecutor(brokerConn)
-				log.Infof("<%s> spawned %s", actorID, newBrokerExecutor)
-				m.connections[brokerConn] = newBrokerExecutor
+			newExecutor = m.connections[brokerConn]
+			if newExecutor == nil && brokerConn != nil {
+				newExecutor = m.resolver.SpawnExecutor(brokerConn)
+				log.Infof("<%s> spawned %s", actorID, newExecutor)
+				m.connections[brokerConn] = newExecutor
 			}
 		}
 	}
-	// Assign the new broker executor, but only if it does not block.
+	// Assign the new executor, but only if it does not block.
 	select {
-	case pw.Assignment() <- newBrokerExecutor:
+	case worker.Assignment() <- newExecutor:
 	default:
 		return
 	}
-	oldBrokerExecutor := m.assignments[pw]
-	m.assignments[pw] = newBrokerExecutor
-	// Update both old and new broker executor reference counts.
-	if oldBrokerExecutor != nil {
-		m.references[oldBrokerExecutor] = m.references[oldBrokerExecutor] - 1
+	oldExecutor := m.assignments[worker]
+	m.assignments[worker] = newExecutor
+	// Update both old and new executor reference counts.
+	if oldExecutor != nil {
+		m.references[oldExecutor] = m.references[oldExecutor] - 1
 		log.Infof("<%s> unassign %s -> %s (ref=%d)",
-			actorID, pw, oldBrokerExecutor, m.references[oldBrokerExecutor])
+			actorID, worker, oldExecutor, m.references[oldExecutor])
 	}
-	if newBrokerExecutor == nil {
-		log.Infof("<%s> assign %s -> <nil>", actorID, pw)
+	if newExecutor == nil {
+		log.Infof("<%s> assign %s -> <nil>", actorID, worker)
 		return
 	}
-	m.references[newBrokerExecutor] = m.references[newBrokerExecutor] + 1
+	m.references[newExecutor] = m.references[newExecutor] + 1
 	log.Infof("<%s> assign %s -> %s (ref=%d)",
-		actorID, pw, newBrokerExecutor, m.references[newBrokerExecutor])
+		actorID, worker, newExecutor, m.references[newExecutor])
 }

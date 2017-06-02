@@ -45,7 +45,7 @@ type produceResult struct {
 
 // Spawn creates a producer instance and starts its internal goroutines.
 func Spawn(namespace *actor.ID, cfg *config.Proxy) (*T, error) {
-	saramaCfg := cfg.SaramaProdCfg()
+	saramaCfg := cfg.SaramaProducerCfg()
 	saramaCfg.Producer.Return.Successes = true
 	saramaCfg.Producer.Return.Errors = true
 

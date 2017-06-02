@@ -5,14 +5,16 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
+	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
 	. "gopkg.in/check.v1"
 )
 
 type MsgIStreamFuncSuite struct {
-	ns *actor.ID
-	kh *kafkahelper.T
+	ns  *actor.ID
+	kh  *kafkahelper.T
+	cfg *config.Proxy
 }
 
 var _ = Suite(&MsgIStreamFuncSuite{})
@@ -28,6 +30,7 @@ func (s *MsgIStreamFuncSuite) TearDownSuite(c *C) {
 
 func (s *MsgIStreamFuncSuite) SetUpTest(c *C) {
 	s.ns = actor.RootID.NewChild("T")
+	s.cfg = testhelpers.NewTestProxyCfg("mis")
 }
 
 // BrokerConsumer used to be implemented so that if the message channel of one
@@ -45,15 +48,11 @@ func (s *MsgIStreamFuncSuite) TestSlacker(c *C) {
 	producedTest1 := s.kh.PutMessages("slacker", "test.1", map[string]int{"foo": 11})
 	producedTest4 := s.kh.PutMessages("slacker", "test.4", map[string]int{"bar": 1000})
 
-	config := sarama.NewConfig()
-	// The channel buffer size is selected to be one short of the number of
-	// messages in the `test.1` topic. So that an attempt to write the
-	// (buffer size + 1)th message to the respective PartitionConsumer message
-	// channel will block, given that nobody is reading from the channel.
-	config.ChannelBufferSize = 10
-	client, _ := sarama.NewClient(testhelpers.KafkaPeers, config)
+	client, _ := sarama.NewClient(testhelpers.KafkaPeers, s.cfg.SaramaClientCfg())
 	defer client.Close()
-	f, err := SpawnFactory(s.ns, client)
+
+	s.cfg.Consumer.ChannelBufferSize = 10
+	f, err := SpawnFactory(s.ns, s.cfg, client)
 	c.Assert(err, IsNil)
 	defer f.Stop()
 

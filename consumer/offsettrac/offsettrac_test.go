@@ -79,14 +79,14 @@ func (s *OffsetTrackerSuite) TestOnAckedRanges(c *C) {
 func (s *OffsetTrackerSuite) TestAckedRangeEncodeDecode(c *C) {
 	for i, tc := range []struct {
 		base int64
-		ar   ackedRange
+		ar   offsetRange
 	}{
-		/* 0 */ {0, ackedRange{1, 2}},
-		/* 1 */ {100, ackedRange{101, 102}},
-		/* 2 */ {0, ackedRange{0x7FFFFFFFFFFFFFFE, 0x7FFFFFFFFFFFFFFF}},
+		/* 0 */ {0, offsetRange{1, 2}},
+		/* 1 */ {100, offsetRange{101, 102}},
+		/* 2 */ {0, offsetRange{0x7FFFFFFFFFFFFFFE, 0x7FFFFFFFFFFFFFFF}},
 	} {
 		var encoded []byte
-		var decoded ackedRange
+		var decoded offsetRange
 
 		// When
 		encoded = tc.ar.encode(tc.base, encoded)
@@ -98,7 +98,7 @@ func (s *OffsetTrackerSuite) TestAckedRangeEncodeDecode(c *C) {
 }
 
 func (s *OffsetTrackerSuite) TestAckedRangeDecodeError(c *C) {
-	var ar ackedRange
+	var ar offsetRange
 	for i, tc := range []struct {
 		encoded string
 		error   string
@@ -149,34 +149,37 @@ func (s *OffsetTrackerSuite) TestNewOffsetAdjusted(c *C) {
 }
 
 func (s *OffsetTrackerSuite) TestIsAcked(c *C) {
-	meta := encodeAckedRanges(301, []ackedRange{
+	meta := encodeAckedRanges(301, []offsetRange{
 		{302, 305}, {307, 309}, {310, 313}})
 	offset := offsetmgr.Offset{301, meta}
 	ot := New(s.ns, offset, -1)
 	for i, tc := range []struct {
-		offset  int64
-		isAcked bool
+		offset       int64
+		isAcked      bool
+		nextNotAcked int64
 	}{
-		/*  0 */ {offset: 299, isAcked: true},
-		/*  1 */ {offset: 300, isAcked: true},
-		/*  2 */ {offset: 301, isAcked: false},
-		/*  3 */ {offset: 302, isAcked: true},
-		/*  4 */ {offset: 303, isAcked: true},
-		/*  5 */ {offset: 304, isAcked: true},
-		/*  6 */ {offset: 305, isAcked: false},
-		/*  7 */ {offset: 306, isAcked: false},
-		/*  8 */ {offset: 307, isAcked: true},
-		/*  9 */ {offset: 308, isAcked: true},
-		/* 10 */ {offset: 309, isAcked: false},
-		/* 11 */ {offset: 310, isAcked: true},
-		/* 12 */ {offset: 311, isAcked: true},
-		/* 13 */ {offset: 312, isAcked: true},
-		/* 14 */ {offset: 313, isAcked: false},
-		/* 15 */ {offset: 314, isAcked: false},
+		/*  0 */ {offset: 299, isAcked: true, nextNotAcked: 301},
+		/*  1 */ {offset: 300, isAcked: true, nextNotAcked: 301},
+		/*  2 */ {offset: 301, isAcked: false, nextNotAcked: 305},
+		/*  3 */ {offset: 302, isAcked: true, nextNotAcked: 305},
+		/*  4 */ {offset: 303, isAcked: true, nextNotAcked: 305},
+		/*  5 */ {offset: 304, isAcked: true, nextNotAcked: 305},
+		/*  6 */ {offset: 305, isAcked: false, nextNotAcked: 306},
+		/*  7 */ {offset: 306, isAcked: false, nextNotAcked: 309},
+		/*  8 */ {offset: 307, isAcked: true, nextNotAcked: 309},
+		/*  9 */ {offset: 308, isAcked: true, nextNotAcked: 309},
+		/* 10 */ {offset: 309, isAcked: false, nextNotAcked: 313},
+		/* 11 */ {offset: 310, isAcked: true, nextNotAcked: 313},
+		/* 12 */ {offset: 311, isAcked: true, nextNotAcked: 313},
+		/* 13 */ {offset: 312, isAcked: true, nextNotAcked: 313},
+		/* 14 */ {offset: 313, isAcked: false, nextNotAcked: 314},
+		/* 15 */ {offset: 314, isAcked: false, nextNotAcked: 315},
 	} {
-		// When/Then
-		c.Assert(ot.IsAcked(consumer.Message{Offset: tc.offset}),
-			Equals, tc.isAcked, Commentf("case: %d", i))
+		// When
+		isAcked, nextNotAcked := ot.IsAcked(tc.offset)
+		// /Then
+		c.Assert(isAcked, Equals, tc.isAcked, Commentf("case: %d", i))
+		c.Assert(nextNotAcked, Equals, tc.nextNotAcked, Commentf("case: %d", i))
 	}
 }
 

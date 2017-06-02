@@ -141,7 +141,7 @@ func (pc *T) run() {
 	for {
 		select {
 		case msg = <-nilOrIStreamMessagesCh:
-			if ot.IsAcked(msg) {
+			if ok, _ := ot.IsAcked(msg.Offset); ok {
 				continue
 			}
 			msg.EventsCh = pc.eventsCh
