@@ -1,4 +1,4 @@
-package msgistream
+package msgfetcher
 
 import (
 	"sync"
@@ -14,20 +14,26 @@ import (
 	"github.com/pkg/errors"
 )
 
-// Factory provides API to spawn message streams to that read message from
-// topic partitions. It ensures that there is only on message stream for a
+// Factory provides API to spawn message fetcher that read messages from
+// topic partitions. It ensures that there is only one fetcher instance for a
 // particular topic partition at a time.
 type Factory interface {
-	// SpawnMessageIStream creates a T instance for the given topic/partition
-	// with the given offset. It will return an error if there is an instance
-	// already consuming from the topic/partition.
+	// SpawnMsgFetcher creates a fetcher instance that reads messages from the
+	// given topic-partition starting from the specified offset. It will return
+	// an error if there is an fetcher instance reading from the topic-partition
+	// already.
 	//
-	// If offset is smaller then the oldest offset then the oldest offset is
-	// returned. If offset is larger then the newest offset then the newest
-	// offset is returned. If offset is either sarama.OffsetNewest or
-	// sarama.OffsetOldest constant, then the actual offset value is returned.
-	// otherwise offset is returned unchanged.
-	SpawnMessageIStream(namespace *actor.ID, topic string, partition int32, offset int64) (T, int64, error)
+	// If the given offset does not exists in the topic-partition, then an
+	// actual offset that the fetcher will start reading from is determined as
+	// follows:
+	//  * if the given offset equals to sarama.OffsetOldest or it is smaller
+	//    then the oldest partition offset, then the oldest partition offset is
+	//    selected;
+	//  * if the given offset equals to sarama.OffsetNewest, or it is larger
+	//    then the newest partition offset, then the newest partition offset is
+	//    selected.
+	// The actual offset value is returned by the function.
+	SpawnMsgFetcher(namespace *actor.ID, topic string, partition int32, offset int64) (T, int64, error)
 
 	// Stop shuts down the consumer. It must be called after all child partition
 	// consumers have already been closed.
@@ -61,7 +67,7 @@ type factory struct {
 	mapper    *mapper.T
 
 	childrenMu sync.Mutex
-	children   map[instanceID]*msgIStream
+	children   map[instanceID]*msgFetcher
 }
 
 type instanceID struct {
@@ -69,22 +75,22 @@ type instanceID struct {
 	partition int32
 }
 
-// SpawnFactory creates a new message stream factory using the given client. It
-// is still necessary to call Stop() on the underlying client after shutting
+// SpawnFactory creates a new message fetcher factory using the given client.
+// It is still necessary to call Stop() on the underlying client after shutting
 // down this factory.
 func SpawnFactory(namespace *actor.ID, cfg *config.Proxy, kafkaClt sarama.Client) (Factory, error) {
 	f := &factory{
 		namespace: namespace.NewChild("msg_stream_f"),
 		cfg:       cfg,
 		kafkaClt:  kafkaClt,
-		children:  make(map[instanceID]*msgIStream),
+		children:  make(map[instanceID]*msgFetcher),
 	}
 	f.mapper = mapper.Spawn(f.namespace, f)
 	return f, nil
 }
 
 // implements `Factory`.
-func (f *factory) SpawnMessageIStream(namespace *actor.ID, topic string, partition int32, offset int64) (T, int64, error) {
+func (f *factory) SpawnMsgFetcher(namespace *actor.ID, topic string, partition int32, offset int64) (T, int64, error) {
 	realOffset, err := f.chooseStartingOffset(topic, partition, offset)
 	if err != nil {
 		return nil, sarama.OffsetNewest, err
@@ -97,7 +103,7 @@ func (f *factory) SpawnMessageIStream(namespace *actor.ID, topic string, partiti
 	if _, ok := f.children[id]; ok {
 		return nil, sarama.OffsetNewest, sarama.ConfigurationError("That topic/partition is already being consumed")
 	}
-	mis := &msgIStream{
+	mf := &msgFetcher{
 		actorID:      namespace.NewChild("msg_stream"),
 		f:            f,
 		id:           id,
@@ -107,11 +113,11 @@ func (f *factory) SpawnMessageIStream(namespace *actor.ID, topic string, partiti
 		offset:       realOffset,
 	}
 	if testReportErrors {
-		mis.errorsCh = make(chan error, f.cfg.Consumer.ChannelBufferSize)
+		mf.errorsCh = make(chan error, f.cfg.Consumer.ChannelBufferSize)
 	}
-	f.children[id] = mis
-	actor.Spawn(mis.actorID, &mis.wg, mis.run)
-	return mis, realOffset, nil
+	f.children[id] = mf
+	actor.Spawn(mf.actorID, &mf.wg, mf.run)
+	return mf, realOffset, nil
 }
 
 // implements `Factory`.
@@ -121,7 +127,7 @@ func (f *factory) Stop() {
 
 // implements `mapper.Resolver.ResolveBroker()`.
 func (f *factory) ResolveBroker(worker mapper.Worker) (*sarama.Broker, error) {
-	ms := worker.(*msgIStream)
+	ms := worker.(*msgFetcher)
 	if err := f.kafkaClt.RefreshMetadata(ms.id.topic); err != nil {
 		return nil, err
 	}
@@ -170,19 +176,19 @@ func (f *factory) chooseStartingOffset(topic string, partition int32, offset int
 	}
 }
 
-func (f *factory) onMsgIStreamSpawned(mis *msgIStream) {
-	f.mapper.OnWorkerSpawned(mis)
+func (f *factory) onMsgIStreamSpawned(mf *msgFetcher) {
+	f.mapper.OnWorkerSpawned(mf)
 }
 
-func (f *factory) onMsgIStreamStopped(mis *msgIStream) {
+func (f *factory) onMsgIStreamStopped(mf *msgFetcher) {
 	f.childrenMu.Lock()
-	delete(f.children, mis.id)
+	delete(f.children, mf.id)
 	f.childrenMu.Unlock()
-	f.mapper.OnWorkerStopped(mis)
+	f.mapper.OnWorkerStopped(mf)
 }
 
 // implements `mapper.Worker`.
-type msgIStream struct {
+type msgFetcher struct {
 	actorID      *actor.ID
 	f            *factory
 	id           instanceID
@@ -200,33 +206,33 @@ type msgIStream struct {
 }
 
 // implements `Factory`.
-func (mis *msgIStream) Messages() <-chan consumer.Message {
-	return mis.messagesCh
+func (mf *msgFetcher) Messages() <-chan consumer.Message {
+	return mf.messagesCh
 }
 
 // implements `Factory`.
-func (mis *msgIStream) Stop() {
-	close(mis.closingCh)
-	mis.wg.Wait()
+func (mf *msgFetcher) Stop() {
+	close(mf.closingCh)
+	mf.wg.Wait()
 }
 
 // implements `mapper.Worker`.
-func (mis *msgIStream) Assignment() chan<- mapper.Executor {
-	return mis.assignmentCh
+func (mf *msgFetcher) Assignment() chan<- mapper.Executor {
+	return mf.assignmentCh
 }
 
 // pullMessages sends fetched requests to the broker executor assigned by the
 // redispatch goroutine; parses broker fetch responses and pushes parsed
 // `ConsumerMessages` to the message channel. It tries to keep the message
 // channel buffer full making fetch requests to the assigned broker as needed.
-func (mis *msgIStream) run() {
-	defer close(mis.messagesCh)
-	if mis.errorsCh != nil {
-		defer close(mis.errorsCh)
+func (mf *msgFetcher) run() {
+	defer close(mf.messagesCh)
+	if mf.errorsCh != nil {
+		defer close(mf.errorsCh)
 	}
 
-	mis.f.onMsgIStreamSpawned(mis)
-	defer mis.f.onMsgIStreamStopped(mis)
+	mf.f.onMsgIStreamSpawned(mf)
+	defer mf.f.onMsgIStreamStopped(mf)
 
 	var (
 		fetchResultCh       = make(chan fetchRes, 1)
@@ -239,52 +245,52 @@ func (mis *msgIStream) run() {
 	)
 	for {
 		select {
-		case bw := <-mis.assignmentCh:
-			log.Infof("<%s> assigned %s", mis.actorID, bw)
+		case bw := <-mf.assignmentCh:
+			log.Infof("<%s> assigned %s", mf.actorID, bw)
 			if bw == nil {
-				mis.triggerOrScheduleReassign("no broker assigned")
+				mf.triggerOrScheduleReassign("no broker assigned")
 				continue
 			}
-			mis.nilOrReassignRetryTimerCh = nil
+			mf.nilOrReassignRetryTimerCh = nil
 
 			be := bw.(*brokerExecutor)
-			mis.assignedBrokerRequestCh = be.requestsCh
+			mf.assignedBrokerRequestCh = be.requestsCh
 
 			// If there is a fetch request pending, then let it complete,
 			// otherwise trigger one.
 			if nilOrFetchResultsCh == nil && nilOrMessagesCh == nil {
-				mis.nilOrBrokerRequestsCh = mis.assignedBrokerRequestCh
+				mf.nilOrBrokerRequestsCh = mf.assignedBrokerRequestCh
 			}
 
-		case mis.nilOrBrokerRequestsCh <- fetchReq{mis.id.topic, mis.id.partition, mis.offset, fetchResultCh}:
-			mis.nilOrBrokerRequestsCh = nil
+		case mf.nilOrBrokerRequestsCh <- fetchReq{mf.id.topic, mf.id.partition, mf.offset, fetchResultCh}:
+			mf.nilOrBrokerRequestsCh = nil
 			nilOrFetchResultsCh = fetchResultCh
 
 		case result := <-nilOrFetchResultsCh:
 			nilOrFetchResultsCh = nil
-			if fetchedMessages, err = mis.parseFetchResult(mis.actorID, result); err != nil {
-				log.Infof("<%s> fetch failed: err=%s", mis.actorID, err)
-				mis.reportError(err)
+			if fetchedMessages, err = mf.parseFetchResult(mf.actorID, result); err != nil {
+				log.Infof("<%s> fetch failed: err=%s", mf.actorID, err)
+				mf.reportError(err)
 				if err == sarama.ErrOffsetOutOfRange {
 					// There's no point in retrying this it will just fail the
 					// same way, therefore is nothing to do but give up.
 					return
 				}
-				mis.triggerOrScheduleReassign("fetch error")
+				mf.triggerOrScheduleReassign("fetch error")
 				continue
 			}
 			// If no messages has been fetched, then trigger another request.
 			if len(fetchedMessages) == 0 {
-				mis.nilOrBrokerRequestsCh = mis.assignedBrokerRequestCh
+				mf.nilOrBrokerRequestsCh = mf.assignedBrokerRequestCh
 				continue
 			}
 			// Some messages have been fetched, start pushing them to the user.
 			currMessageIdx = 0
 			currMessage = fetchedMessages[currMessageIdx]
-			nilOrMessagesCh = mis.messagesCh
+			nilOrMessagesCh = mf.messagesCh
 
 		case nilOrMessagesCh <- currMessage:
-			mis.offset = currMessage.Offset + 1
+			mf.offset = currMessage.Offset + 1
 			currMessageIdx++
 			if currMessageIdx < len(fetchedMessages) {
 				currMessage = fetchedMessages[currMessageIdx]
@@ -292,34 +298,34 @@ func (mis *msgIStream) run() {
 			}
 			// All messages have been pushed, trigger a new fetch request.
 			nilOrMessagesCh = nil
-			mis.nilOrBrokerRequestsCh = mis.assignedBrokerRequestCh
+			mf.nilOrBrokerRequestsCh = mf.assignedBrokerRequestCh
 
-		case <-mis.nilOrReassignRetryTimerCh:
-			mis.f.mapper.TriggerReassign(mis)
-			log.Infof("<%s> reassign triggered by timeout", mis.actorID)
-			mis.nilOrReassignRetryTimerCh = time.After(mis.f.cfg.Consumer.RetryBackoff)
+		case <-mf.nilOrReassignRetryTimerCh:
+			mf.f.mapper.TriggerReassign(mf)
+			log.Infof("<%s> reassign triggered by timeout", mf.actorID)
+			mf.nilOrReassignRetryTimerCh = time.After(mf.f.cfg.Consumer.RetryBackoff)
 
-		case <-mis.closingCh:
+		case <-mf.closingCh:
 			return
 		}
 	}
 }
 
-func (mis *msgIStream) triggerOrScheduleReassign(reason string) {
-	mis.assignedBrokerRequestCh = nil
+func (mf *msgFetcher) triggerOrScheduleReassign(reason string) {
+	mf.assignedBrokerRequestCh = nil
 	now := time.Now().UTC()
-	if now.Sub(mis.lastReassignTime) > mis.f.cfg.Consumer.RetryBackoff {
-		log.Infof("<%s> trigger reassign: reason=(%s)", mis.actorID, reason)
-		mis.lastReassignTime = now
-		mis.f.mapper.TriggerReassign(mis)
+	if now.Sub(mf.lastReassignTime) > mf.f.cfg.Consumer.RetryBackoff {
+		log.Infof("<%s> trigger reassign: reason=(%s)", mf.actorID, reason)
+		mf.lastReassignTime = now
+		mf.f.mapper.TriggerReassign(mf)
 	} else {
-		log.Infof("<%s> schedule reassign: reason=(%s)", mis.actorID, reason)
+		log.Infof("<%s> schedule reassign: reason=(%s)", mf.actorID, reason)
 	}
-	mis.nilOrReassignRetryTimerCh = time.After(mis.f.cfg.Consumer.RetryBackoff)
+	mf.nilOrReassignRetryTimerCh = time.After(mf.f.cfg.Consumer.RetryBackoff)
 }
 
 // parseFetchResult parses a fetch response received a broker.
-func (mis *msgIStream) parseFetchResult(cid *actor.ID, fetchResult fetchRes) ([]consumer.Message, error) {
+func (mf *msgFetcher) parseFetchResult(cid *actor.ID, fetchResult fetchRes) ([]consumer.Message, error) {
 	if fetchResult.Err != nil {
 		return nil, fetchResult.Err
 	}
@@ -329,7 +335,7 @@ func (mis *msgIStream) parseFetchResult(cid *actor.ID, fetchResult fetchRes) ([]
 		return nil, errIncompleteResponse
 	}
 
-	block := response.GetBlock(mis.id.topic, mis.id.partition)
+	block := response.GetBlock(mf.id.topic, mf.id.partition)
 	if block == nil {
 		return nil, errIncompleteResponse
 	}
@@ -341,8 +347,8 @@ func (mis *msgIStream) parseFetchResult(cid *actor.ID, fetchResult fetchRes) ([]
 	// We got no messages. If we got a trailing one, it means there is a
 	// producer that writes messages larger then Consumer.FetchMaxBytes in size.
 	if len(block.MsgSet.Messages) == 0 && block.MsgSet.PartialTrailingMessage {
-		log.Errorf("<%s> oversized message skipped: offset=%d", cid, mis.offset)
-		mis.reportError(errMessageTooLarge)
+		log.Errorf("<%s> oversized message skipped: offset=%d", cid, mf.offset)
+		mf.reportError(errMessageTooLarge)
 		return nil, nil
 	}
 
@@ -355,12 +361,12 @@ func (mis *msgIStream) parseFetchResult(cid *actor.ID, fetchResult fetchRes) ([]
 			if msg.Msg.Version >= 1 {
 				offset += baseOffset
 			}
-			if offset < mis.offset {
+			if offset < mf.offset {
 				continue
 			}
 			consumerMessage := consumer.Message{
-				Topic:         mis.id.topic,
-				Partition:     mis.id.partition,
+				Topic:         mf.id.topic,
+				Partition:     mf.id.partition,
 				Key:           msg.Msg.Key,
 				Value:         msg.Msg.Value,
 				Offset:        offset,
@@ -378,18 +384,18 @@ func (mis *msgIStream) parseFetchResult(cid *actor.ID, fetchResult fetchRes) ([]
 
 // reportError sends message fetch errors to the error channel if the user
 // configured the message stream to do so via `Config.Consumer.Return.Errors`.
-func (mis *msgIStream) reportError(err error) {
-	if mis.errorsCh == nil {
+func (mf *msgFetcher) reportError(err error) {
+	if mf.errorsCh == nil {
 		return
 	}
 	select {
-	case mis.errorsCh <- err:
+	case mf.errorsCh <- err:
 	default:
 	}
 }
 
-func (mis *msgIStream) String() string {
-	return mis.actorID.String()
+func (mf *msgFetcher) String() string {
+	return mf.actorID.String()
 }
 
 // brokerExecutor maintains a connection with a particular Kafka broker. It

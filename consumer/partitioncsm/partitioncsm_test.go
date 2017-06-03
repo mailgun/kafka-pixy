@@ -10,7 +10,7 @@ import (
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/consumer/groupmember"
-	"github.com/mailgun/kafka-pixy/consumer/msgistream"
+	"github.com/mailgun/kafka-pixy/consumer/msgfetcher"
 	"github.com/mailgun/kafka-pixy/consumer/offsettrac"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/testhelpers"
@@ -30,7 +30,7 @@ type PartitionCsmSuite struct {
 	cfg          *config.Proxy
 	ns           *actor.ID
 	groupMember  *groupmember.T
-	msgIStreamF  msgistream.Factory
+	msgIStreamF  msgfetcher.Factory
 	offsetMgrF   offsetmgr.Factory
 	kh           *kafkahelper.T
 	initOffsetCh chan offsetmgr.Offset
@@ -55,7 +55,7 @@ func (s *PartitionCsmSuite) SetUpTest(c *C) {
 	s.ns = actor.RootID.NewChild("T")
 	s.groupMember = groupmember.Spawn(s.ns, group, memberID, s.cfg, s.kh.KazooClt())
 	var err error
-	if s.msgIStreamF, err = msgistream.SpawnFactory(s.ns, s.cfg, s.kh.KafkaClt()); err != nil {
+	if s.msgIStreamF, err = msgfetcher.SpawnFactory(s.ns, s.cfg, s.kh.KafkaClt()); err != nil {
 		panic(err)
 	}
 	s.offsetMgrF = offsetmgr.SpawnFactory(s.ns, s.cfg, s.kh.KafkaClt())

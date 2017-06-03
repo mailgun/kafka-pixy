@@ -9,7 +9,7 @@ import (
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/consumer/groupmember"
-	"github.com/mailgun/kafka-pixy/consumer/msgistream"
+	"github.com/mailgun/kafka-pixy/consumer/msgfetcher"
 	"github.com/mailgun/kafka-pixy/consumer/offsettrac"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
@@ -43,7 +43,7 @@ type T struct {
 	topic       string
 	partition   int32
 	groupMember *groupmember.T
-	msgIStreamF msgistream.Factory
+	msgFetcherF msgfetcher.Factory
 	offsetMgrF  offsetmgr.Factory
 	messagesCh  chan consumer.Message
 	eventsCh    chan consumer.Event
@@ -56,7 +56,7 @@ type T struct {
 
 // Spawn creates a partition consumer instance and starts its goroutines.
 func Spawn(namespace *actor.ID, group, topic string, partition int32, cfg *config.Proxy,
-	groupMember *groupmember.T, msgIStreamF msgistream.Factory, offsetMgrF offsetmgr.Factory,
+	groupMember *groupmember.T, msgFetcherF msgfetcher.Factory, offsetMgrF offsetmgr.Factory,
 ) *T {
 	pc := &T{
 		actorID:     namespace.NewChild(fmt.Sprintf("P:%s_%d", topic, partition)),
@@ -65,7 +65,7 @@ func Spawn(namespace *actor.ID, group, topic string, partition int32, cfg *confi
 		topic:       topic,
 		partition:   partition,
 		groupMember: groupMember,
-		msgIStreamF: msgIStreamF,
+		msgFetcherF: msgFetcherF,
 		offsetMgrF:  offsetMgrF,
 		messagesCh:  make(chan consumer.Message, 1),
 		eventsCh:    make(chan consumer.Event, 1),
@@ -109,13 +109,13 @@ func (pc *T) run() {
 	}
 	submittedOffset := committedOffset
 
-	// Initialize the message input stream to read from the initial offset.
-	mis, realOffsetVal, err := pc.msgIStreamF.SpawnMessageIStream(pc.actorID, pc.topic, pc.partition, committedOffset.Val)
+	// Initialize a message fetcher to read from the initial offset.
+	mf, realOffsetVal, err := pc.msgFetcherF.SpawnMsgFetcher(pc.actorID, pc.topic, pc.partition, committedOffset.Val)
 	if err != nil {
 		// Must never happen!
 		panic(errors.Wrapf(err, "<%s> failed to start message stream, offset=%d", pc.actorID, committedOffset.Val))
 	}
-	defer mis.Stop()
+	defer mf.Stop()
 
 	// If the real initial offset is not what had been committed then adjust.
 	if committedOffset.Val != realOffsetVal {
@@ -130,7 +130,7 @@ func (pc *T) run() {
 	ot := offsettrac.New(pc.actorID, submittedOffset, pc.cfg.Consumer.AckTimeout)
 
 	var (
-		nilOrIStreamMessagesCh = mis.Messages()
+		nilOrIStreamMessagesCh = mf.Messages()
 		nilOrMessagesCh        chan consumer.Message
 		retryTicker            = time.NewTicker(check4RetryInterval)
 		msg                    consumer.Message
@@ -193,14 +193,14 @@ func (pc *T) run() {
 					log.Warningf("<%s> offered count above HWM: %d", pc.actorID, offeredCount)
 					nilOrIStreamMessagesCh = nil
 				} else {
-					nilOrIStreamMessagesCh = mis.Messages()
+					nilOrIStreamMessagesCh = mf.Messages()
 				}
 			case consumer.EvAcked:
 				var offeredCount int
 				submittedOffset, offeredCount = ot.OnAcked(event.Offset)
 				om.SubmitOffset(submittedOffset)
 				if !msgOk && offeredCount <= offeredHighWaterMark {
-					nilOrIStreamMessagesCh = mis.Messages()
+					nilOrIStreamMessagesCh = mf.Messages()
 				}
 			}
 		case committedOffset = <-om.CommittedOffsets():
