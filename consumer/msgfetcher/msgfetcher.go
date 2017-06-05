@@ -18,22 +18,21 @@ import (
 // topic partitions. It ensures that there is only one fetcher instance for a
 // particular topic partition at a time.
 type Factory interface {
-	// SpawnMsgFetcher creates a fetcher instance that reads messages from the
+	// Spawn creates and starts a fetcher instance that reads messages from the
 	// given topic-partition starting from the specified offset. It will return
 	// an error if there is an fetcher instance reading from the topic-partition
 	// already.
 	//
-	// If the given offset does not exists in the topic-partition, then an
-	// actual offset that the fetcher will start reading from is determined as
-	// follows:
+	// If the given offset does not exists in the topic-partition, then a real
+	// offset that the fetcher will start reading from is determined as follows:
 	//  * if the given offset equals to sarama.OffsetOldest or it is smaller
 	//    then the oldest partition offset, then the oldest partition offset is
 	//    selected;
 	//  * if the given offset equals to sarama.OffsetNewest, or it is larger
 	//    then the newest partition offset, then the newest partition offset is
 	//    selected.
-	// The actual offset value is returned by the function.
-	SpawnMsgFetcher(namespace *actor.ID, topic string, partition int32, offset int64) (T, int64, error)
+	// The real offset value is returned by the function.
+	Spawn(namespace *actor.ID, topic string, partition int32, offset int64) (T, int64, error)
 
 	// Stop shuts down the consumer. It must be called after all child partition
 	// consumers have already been closed.
@@ -90,7 +89,7 @@ func SpawnFactory(namespace *actor.ID, cfg *config.Proxy, kafkaClt sarama.Client
 }
 
 // implements `Factory`.
-func (f *factory) SpawnMsgFetcher(namespace *actor.ID, topic string, partition int32, offset int64) (T, int64, error) {
+func (f *factory) Spawn(namespace *actor.ID, topic string, partition int32, offset int64) (T, int64, error) {
 	realOffset, err := f.chooseStartingOffset(topic, partition, offset)
 	if err != nil {
 		return nil, sarama.OffsetNewest, err

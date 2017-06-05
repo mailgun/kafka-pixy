@@ -167,7 +167,7 @@ func (kh *T) ResetOffsets(group, topic string) {
 			defer wg.Done()
 			offset, err := kh.kafkaClt.GetOffset(topic, p, sarama.OffsetNewest)
 			kh.c.Assert(err, IsNil)
-			om, err := omf.SpawnOffsetManager(kh.ns, group, topic, p)
+			om, err := omf.Spawn(kh.ns, group, topic, p)
 			kh.c.Assert(err, IsNil)
 			om.SubmitOffset(offsetmgr.Offset{offset, ""})
 			log.Infof("*** set initial offset %s/%s/%d=%d", group, topic, p, offset)
@@ -187,7 +187,7 @@ func (kh *T) SetOffsets(group, topic string, offsets []offsetmgr.Offset) {
 		wg.Add(1)
 		go func(p int32) {
 			defer wg.Done()
-			om, err := omf.SpawnOffsetManager(kh.ns, group, topic, p)
+			om, err := omf.Spawn(kh.ns, group, topic, p)
 			kh.c.Assert(err, IsNil)
 			om.SubmitOffset(offsets[p])
 			log.Infof("*** set initial offset %s/%s/%d=%+v", group, topic, p, offsets[p])
@@ -208,7 +208,7 @@ func (kh *T) GetCommittedOffsets(group, topic string) []offsetmgr.Offset {
 		wg.Add(1)
 		go func(p int32) {
 			defer wg.Done()
-			om, err := omf.SpawnOffsetManager(kh.ns, group, topic, p)
+			om, err := omf.Spawn(kh.ns, group, topic, p)
 			kh.c.Assert(err, IsNil)
 			offsets[p] = <-om.CommittedOffsets()
 			om.Stop()

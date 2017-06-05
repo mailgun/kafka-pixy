@@ -56,11 +56,11 @@ func (s *MsgFetcherFuncSuite) TestSlacker(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	mfA, _, err := f.SpawnMsgFetcher(s.ns.NewChild("test.1", 0), "test.1", 0, producedTest1["foo"][0].Offset)
+	mfA, _, err := f.Spawn(s.ns.NewChild("test.1", 0), "test.1", 0, producedTest1["foo"][0].Offset)
 	c.Assert(err, IsNil)
 	defer mfA.Stop()
 
-	mfB, _, err := f.SpawnMsgFetcher(s.ns.NewChild("test.4", 2), "test.4", 2, producedTest4["bar"][0].Offset)
+	mfB, _, err := f.Spawn(s.ns.NewChild("test.4", 2), "test.4", 2, producedTest4["bar"][0].Offset)
 	c.Assert(err, IsNil)
 	defer mfB.Stop()
 

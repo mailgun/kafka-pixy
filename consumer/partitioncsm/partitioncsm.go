@@ -89,7 +89,7 @@ func (pc *T) run() {
 	defer close(pc.messagesCh)
 	defer pc.groupMember.ClaimPartition(pc.actorID, pc.topic, pc.partition, pc.stopCh)()
 
-	om, err := pc.offsetMgrF.SpawnOffsetManager(pc.actorID, pc.group, pc.topic, pc.partition)
+	om, err := pc.offsetMgrF.Spawn(pc.actorID, pc.group, pc.topic, pc.partition)
 	if err != nil {
 		// Must never happen!
 		panic(errors.Wrapf(err, "<%s> failed to spawn offset manager", pc.actorID))
@@ -110,7 +110,7 @@ func (pc *T) run() {
 	submittedOffset := committedOffset
 
 	// Initialize a message fetcher to read from the initial offset.
-	mf, realOffsetVal, err := pc.msgFetcherF.SpawnMsgFetcher(pc.actorID, pc.topic, pc.partition, committedOffset.Val)
+	mf, realOffsetVal, err := pc.msgFetcherF.Spawn(pc.actorID, pc.topic, pc.partition, committedOffset.Val)
 	if err != nil {
 		// Must never happen!
 		panic(errors.Wrapf(err, "<%s> failed to start message stream, offset=%d", pc.actorID, committedOffset.Val))

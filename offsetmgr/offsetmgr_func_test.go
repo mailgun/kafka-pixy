@@ -40,7 +40,7 @@ func (s *OffsetMgrFuncSuite) TestLatestOffsetSaved(c *C) {
 	defer f.Stop()
 
 	tid := s.ns.NewChild("g1", "test.4", 0)
-	om0_1, err := f.SpawnOffsetManager(tid, "g1", "test.4", 0)
+	om0_1, err := f.Spawn(tid, "g1", "test.4", 0)
 	c.Assert(err, IsNil)
 
 	// When: several offsets are committed.
@@ -50,7 +50,7 @@ func (s *OffsetMgrFuncSuite) TestLatestOffsetSaved(c *C) {
 
 	// Then: last committed request is the one that becomes effective.
 	om0_1.Stop()
-	om0_2, err := f.SpawnOffsetManager(tid, "g1", "test.4", 0)
+	om0_2, err := f.Spawn(tid, "g1", "test.4", 0)
 	c.Assert(err, IsNil)
 
 	offset := <-om0_2.CommittedOffsets()
@@ -72,7 +72,7 @@ func (s *OffsetMgrFuncSuite) TestMultipleGroups(c *C) {
 	for i := range oms {
 		group := fmt.Sprintf("g%d", i)
 		tid := s.ns.NewChild(group, "test.1")
-		oms[i], err = f.SpawnOffsetManager(tid, group, "test.1", 0)
+		oms[i], err = f.Spawn(tid, group, "test.1", 0)
 		c.Assert(err, IsNil)
 	}
 
@@ -96,7 +96,7 @@ func (s *OffsetMgrFuncSuite) TestMultipleGroups(c *C) {
 	for i := range oms {
 		group := fmt.Sprintf("g%d", i)
 		tid := s.ns.NewChild(group, "test.1", "then")
-		om, err := f.SpawnOffsetManager(tid, group, "test.1", 0)
+		om, err := f.Spawn(tid, group, "test.1", 0)
 		c.Assert(err, IsNil)
 
 		offset := <-om.CommittedOffsets()

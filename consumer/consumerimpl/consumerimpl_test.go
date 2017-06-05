@@ -62,7 +62,7 @@ func (s *ConsumerSuite) TestInitialOffsetTooLarge(c *C) {
 
 	omf := offsetmgr.SpawnFactory(s.ns, config.DefaultProxy(), s.kh.KafkaClt())
 	defer omf.Stop()
-	om, err := omf.SpawnOffsetManager(s.ns, "g1", "test.1", 0)
+	om, err := omf.Spawn(s.ns, "g1", "test.1", 0)
 	c.Assert(err, IsNil)
 	om.SubmitOffset(offsetmgr.Offset{newestOffsets[0] + 100, ""})
 	om.Stop()

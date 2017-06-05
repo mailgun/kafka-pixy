@@ -70,7 +70,7 @@ func (s *MsgFetcherSuite) TestOffsetManual(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	mf, concreteOffset, err := f.SpawnMsgFetcher(s.ns.NewChild("my_topic", 0), "my_topic", 0, 1234)
+	mf, concreteOffset, err := f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, 1234)
 	defer mf.Stop()
 	c.Assert(err, IsNil)
 	c.Assert(concreteOffset, Equals, int64(1234))
@@ -112,7 +112,7 @@ func (s *MsgFetcherSuite) TestOffsetNewest(c *C) {
 	defer f.Stop()
 
 	// When
-	mf, concreteOffset, err := f.SpawnMsgFetcher(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetNewest)
+	mf, concreteOffset, err := f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetNewest)
 	c.Assert(err, IsNil)
 	defer mf.Stop()
 	c.Assert(concreteOffset, Equals, int64(10))
@@ -143,13 +143,13 @@ func (s *MsgFetcherSuite) TestRecreate(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	mf, _, err := f.SpawnMsgFetcher(s.ns.NewChild("my_topic", 0), "my_topic", 0, 10)
+	mf, _, err := f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, 10)
 	c.Assert(err, IsNil)
 	c.Assert((<-mf.Messages()).Offset, Equals, int64(10))
 
 	// When
 	mf.Stop()
-	mf, _, err = f.SpawnMsgFetcher(s.ns.NewChild("my_topic", 0), "my_topic", 0, 10)
+	mf, _, err = f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, 10)
 	c.Assert(err, IsNil)
 	defer mf.Stop()
 
@@ -177,12 +177,12 @@ func (s *MsgFetcherSuite) TestDuplicate(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	mf1, _, err := f.SpawnMsgFetcher(s.ns.NewChild("my_topic", 0), "my_topic", 0, 0)
+	mf1, _, err := f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, 0)
 	c.Assert(err, IsNil)
 	defer mf1.Stop()
 
 	// When
-	mf2, _, err := f.SpawnMsgFetcher(s.ns.NewChild("my_topic", 0), "my_topic", 0, 0)
+	mf2, _, err := f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, 0)
 
 	// Then
 	if mf2 != nil || err != sarama.ConfigurationError("That topic/partition is already being consumed") {
@@ -218,7 +218,7 @@ func (s *MsgFetcherSuite) TestLeaderRefreshError(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	mf, _, err := f.SpawnMsgFetcher(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
+	mf, _, err := f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
 	c.Assert(err, IsNil)
 	defer mf.Stop()
 	c.Assert((<-mf.Messages()).Offset, Equals, int64(123))
@@ -295,7 +295,7 @@ func (s *MsgFetcherSuite) TestFatalErrorStop(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	mf, _, err := f.SpawnMsgFetcher(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
+	mf, _, err := f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
 	c.Assert(err, IsNil)
 
 	// Wait for the partition reader to terminate due to fatal error
@@ -324,7 +324,7 @@ func (s *MsgFetcherSuite) TestFatalErrorStop(c *C) {
 			SetMessage("my_topic", 0, 123, testMsg),
 	})
 
-	mf, _, err = f.SpawnMsgFetcher(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
+	mf, _, err = f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
 	c.Assert(err, IsNil)
 	defer mf.Stop()
 
@@ -345,7 +345,7 @@ func (s *MsgFetcherSuite) TestInvalidTopic(c *C) {
 	defer f.Stop()
 
 	// When
-	mf, _, err := f.SpawnMsgFetcher(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
+	mf, _, err := f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
 
 	// Then
 	if mf != nil || err != sarama.ErrUnknownTopicOrPartition {
@@ -378,7 +378,7 @@ func (s *MsgFetcherSuite) TestClosePartitionWithoutLeader(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	mf, _, err := f.SpawnMsgFetcher(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
+	mf, _, err := f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
 	c.Assert(err, IsNil)
 	defer mf.Stop()
 	c.Assert((<-mf.Messages()).Offset, Equals, int64(123))
@@ -424,7 +424,7 @@ func (s *MsgFetcherSuite) TestShutsDownOutOfRange(c *C) {
 	defer f.Stop()
 
 	// When
-	mf, _, err := f.SpawnMsgFetcher(s.ns.NewChild("my_topic", 0), "my_topic", 0, 101)
+	mf, _, err := f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, 101)
 	c.Assert(err, IsNil)
 	defer mf.Stop()
 
@@ -462,7 +462,7 @@ func (s *MsgFetcherSuite) TestExtraOffsets(c *C) {
 	defer f.Stop()
 
 	// When
-	mf, _, err := f.SpawnMsgFetcher(s.ns.NewChild("my_topic", 0), "my_topic", 0, 3)
+	mf, _, err := f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, 3)
 	c.Assert(err, IsNil)
 	defer mf.Stop()
 
@@ -499,7 +499,7 @@ func (s *MsgFetcherSuite) TestNonSequentialOffsets(c *C) {
 	defer f.Stop()
 
 	// When
-	mf, _, err := f.SpawnMsgFetcher(s.ns.NewChild("my_topic", 0), "my_topic", 0, 3)
+	mf, _, err := f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, 3)
 	c.Assert(err, IsNil)
 	defer mf.Stop()
 
@@ -554,7 +554,7 @@ func (s *MsgFetcherSuite) TestRebalancingMultiplePartitions(c *C) {
 	// we expect to end up (eventually) consuming exactly ten messages on each partition
 	var wg sync.WaitGroup
 	for i := int32(0); i < 2; i++ {
-		mf, _, err := f.SpawnMsgFetcher(s.ns.NewChild("my_topic", i), "my_topic", i, 0)
+		mf, _, err := f.Spawn(s.ns.NewChild("my_topic", i), "my_topic", i, 0)
 		c.Assert(err, IsNil)
 
 		wg.Add(1)
@@ -682,11 +682,11 @@ func (s *MsgFetcherSuite) TestInterleavedClose(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	pc0, _, err := f.SpawnMsgFetcher(s.ns.NewChild("my_topic", 0), "my_topic", 0, 1000)
+	pc0, _, err := f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, 1000)
 	c.Assert(err, IsNil)
 	defer pc0.Stop()
 
-	mf1, _, err := f.SpawnMsgFetcher(s.ns.NewChild("my_topic", 1), "my_topic", 1, 2000)
+	mf1, _, err := f.Spawn(s.ns.NewChild("my_topic", 1), "my_topic", 1, 2000)
 	c.Assert(err, IsNil)
 	defer mf1.Stop()
 
@@ -739,11 +739,11 @@ func (s *MsgFetcherSuite) TestBounceWithReferenceOpen(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	pc0, _, err := f.SpawnMsgFetcher(s.ns.NewChild("my_topic", 0), "my_topic", 0, 1000)
+	pc0, _, err := f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, 1000)
 	c.Assert(err, IsNil)
 	defer pc0.Stop()
 
-	mf1, _, err := f.SpawnMsgFetcher(s.ns.NewChild("my_topic", 1), "my_topic", 1, 2000)
+	mf1, _, err := f.Spawn(s.ns.NewChild("my_topic", 1), "my_topic", 1, 2000)
 	c.Assert(err, IsNil)
 	defer mf1.Stop()
 
@@ -803,12 +803,12 @@ func (s *MsgFetcherSuite) TestOffsetOutOfRange(c *C) {
 	defer f.Stop()
 
 	// When/Then
-	mf, offset, err := f.SpawnMsgFetcher(s.ns.NewChild("my_topic", 0), "my_topic", 0, 0)
+	mf, offset, err := f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, 0)
 	c.Assert(err, IsNil)
 	c.Assert(offset, Equals, int64(1000))
 	mf.Stop()
 
-	mf, offset, err = f.SpawnMsgFetcher(s.ns.NewChild("my_topic", 0), "my_topic", 0, 3456)
+	mf, offset, err = f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, 3456)
 	c.Assert(err, IsNil)
 	c.Assert(offset, Equals, int64(2000))
 	mf.Stop()
