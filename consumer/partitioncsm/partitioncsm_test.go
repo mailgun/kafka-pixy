@@ -1,7 +1,6 @@
 package partitioncsm
 
 import (
-	"sync"
 	"testing"
 	"time"
 
@@ -65,7 +64,6 @@ func (s *PartitionCsmSuite) SetUpTest(c *C) {
 
 	// Reset constants that may be modified by tests.
 	resetConstants()
-	check4RetryInterval = 50 * time.Millisecond
 }
 
 func (s *PartitionCsmSuite) TearDownTest(c *C) {
@@ -90,8 +88,8 @@ func (s *PartitionCsmSuite) TestOldestOffset(c *C) {
 }
 
 // If initial offset stored in Kafka is greater then the newest offset for a
-// partition, then the first message consumed from the partition is the next one
-// posted to it.
+// partition, then the first message consumed from the partition is the next
+// one posted to it.
 func (s *PartitionCsmSuite) TestInitialOffsetTooLarge(c *C) {
 	oldestOffsets := s.kh.GetOldestOffsets(topic)
 	newestOffsets := s.kh.GetNewestOffsets(topic)
@@ -111,8 +109,8 @@ func (s *PartitionCsmSuite) TestInitialOffsetTooLarge(c *C) {
 	c.Assert(msg.Offset, Equals, initialOffset.Val)
 }
 
-// A message read from Messages() must be offered via Offered() before a next
-// one can be read from Messages().
+// A new message becomes available in the Messages() channel only after the
+// previous one is reported as offered.
 func (s *PartitionCsmSuite) TestMustBeOfferedToProceed(c *C) {
 	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{sarama.OffsetOldest, ""}})
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgIStreamF, s.offsetMgrF)
@@ -125,7 +123,7 @@ func (s *PartitionCsmSuite) TestMustBeOfferedToProceed(c *C) {
 		c.Error("Message must not be available until previous is offered")
 	case <-time.After(200 * time.Millisecond):
 	}
-	sendEOffered(msg)
+	sendEvOffered(msg)
 
 	// Then
 	<-pc.Messages()
@@ -170,34 +168,38 @@ func (s *PartitionCsmSuite) TestSparseAckedNotRead(c *C) {
 		c.Assert(msg.Offset, Equals, base+int64(i))
 
 		// Confirm offered to get fetching going
-		sendEOffered(msg)
+		sendEvOffered(msg)
 		// Acknowledge to speed up the partition consumer stop.
-		sendEAcked(msg)
+		sendEvAcked(msg)
 	}
 }
 
-// An attempt to confirm offer of any message but the one recently read from
-// Messages() channel results in termination of the partition consumer.
-func (s *PartitionCsmSuite) TestOfferIvalid(c *C) {
+// An attempt to confirm an offer of any message but the one recently read from
+// Messages() channel is ignored.
+func (s *PartitionCsmSuite) TestOfferInvalid(c *C) {
 	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{sarama.OffsetOldest, ""}})
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgIStreamF, s.offsetMgrF)
 	defer pc.Stop()
 
-	// When
 	msg, ok := <-pc.Messages()
 	c.Assert(ok, Equals, true)
+
+	// When
 	msg.EventsCh <- consumer.Event{consumer.EvOffered, msg.Offset + 1}
+	msg.EventsCh <- consumer.Event{consumer.EvOffered, msg.Offset - 1}
 
 	// Then
-	_, ok = <-pc.Messages()
-	c.Assert(ok, Equals, false)
+	msg.EventsCh <- consumer.Event{consumer.EvOffered, msg.Offset}
+	msg2, ok := <-pc.Messages()
+	c.Assert(msg2.Offset, Equals, msg.Offset+1)
+	c.Assert(ok, Equals, true)
 }
 
 // If there are too many offered but not acknowledged messages then the
-// partition consumer stops feed messages via Messages() channel until the
-// number of offered messages drops below offeredHighWaterMark threshold.
+// partition consumer stops feeding messages via Messages() channel until the
+// number of offered messages drops below maxOffered threshold.
 func (s *PartitionCsmSuite) TestOfferedTooMany(c *C) {
-	offeredHighWaterMark = 3
+	maxOffered = 3
 	s.cfg.Consumer.AckTimeout = 500 * time.Millisecond
 	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{sarama.OffsetOldest, ""}})
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgIStreamF, s.offsetMgrF)
@@ -210,7 +212,7 @@ func (s *PartitionCsmSuite) TestOfferedTooMany(c *C) {
 		msg = <-pc.Messages()
 		messages = append(messages, msg)
 		// Confirm offered to get fetching going.
-		sendEOffered(msg)
+		sendEvOffered(msg)
 	}
 
 	// No more message should be returned.
@@ -220,15 +222,15 @@ func (s *PartitionCsmSuite) TestOfferedTooMany(c *C) {
 	case <-time.After(200 * time.Millisecond):
 	}
 
-	// Acknowledge some message.
-	sendEAcked(messages[1])
+	// Acknowledge a message.
+	sendEvAcked(messages[1])
 
 	// Total number of pending offered messages is 1 short of HWM limit. So we
 	// should be able to read just one message.
 	msg = <-pc.Messages()
 	messages = append(messages, msg)
 	// Confirm offered to get fetching going.
-	sendEOffered(msg)
+	sendEvOffered(msg)
 
 	select {
 	case msg := <-pc.Messages():
@@ -260,9 +262,9 @@ func (s *PartitionCsmSuite) TestSparseAckedCommitted(c *C) {
 	// When
 	for _, shouldAck := range acks {
 		msg := <-pc.Messages()
-		sendEOffered(msg)
+		sendEvOffered(msg)
 		if shouldAck {
-			sendEAcked(msg)
+			sendEvAcked(msg)
 		}
 	}
 	pc.Stop()
@@ -286,22 +288,22 @@ func (s *PartitionCsmSuite) TestSparseAckedAfterStop(c *C) {
 	var messages []consumer.Message
 	for i := 0; i < 10; i++ {
 		msg := <-pc.Messages()
-		sendEOffered(msg)
+		sendEvOffered(msg)
 		messages = append(messages, msg)
 	}
 
-	sendEAcked(messages[7])
-	sendEAcked(messages[1])
-	sendEAcked(messages[8])
+	sendEvAcked(messages[7])
+	sendEvAcked(messages[1])
+	sendEvAcked(messages[8])
 
 	// When
 	go pc.Stop() // Stop asynchronously.
 	time.Sleep(100 * time.Millisecond)
 
-	sendEAcked(messages[3])
-	sendEAcked(messages[4])
-	sendEAcked(messages[6])
-	sendEAcked(messages[0])
+	sendEvAcked(messages[3])
+	sendEvAcked(messages[4])
+	sendEvAcked(messages[6])
+	sendEvAcked(messages[0])
 
 	// Wait for partition consumer to stop.
 	for {
@@ -309,6 +311,11 @@ func (s *PartitionCsmSuite) TestSparseAckedAfterStop(c *C) {
 			break
 		}
 	}
+
+	// Acks sent after a partition consumer is stopped are ignored.
+	sendEvAcked(messages[1])
+	sendEvAcked(messages[4])
+
 	// Then
 	offsetsAfter := s.kh.GetCommittedOffsets(group, topic)
 	c.Assert(offsetsAfter[partition].Val, Equals, offsetsBefore[partition]+2)
@@ -321,62 +328,64 @@ func (s *PartitionCsmSuite) TestSparseAckedAfterStop(c *C) {
 func (s *PartitionCsmSuite) TestMaxRetriesReached(c *C) {
 	offsetsBefore := s.kh.GetOldestOffsets(topic)
 	s.cfg.Consumer.AckTimeout = 100 * time.Millisecond
-	retriesEmergencyBreak = 4
-	retriesHighWaterMark = 1
+	maxRetries = 3
 	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{Val: sarama.OffsetOldest}})
 
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgIStreamF, s.offsetMgrF)
 
-	// Read and confirm offer of 2 messages
-	msg0 := <-pc.Messages()
-	sendEOffered(msg0)
-	msg1 := <-pc.Messages()
-	sendEOffered(msg1)
+	var messages []consumer.Message
+	for i := 0; i < 3; i++ {
+		msg := <-pc.Messages()
+		sendEvOffered(msg)
+		messages = append(messages, msg)
+	}
 
-	// Acknowledge only the first one
-	sendEAcked(msg0)
+	// Acknowledge only one.
+	sendEvAcked(messages[1])
 
 	// The logic is so that the even when an offer is expired, at first a
 	// freshly fetched message is offered, and then retries follow.
-	base := offsetsBefore[partition] + int64(2)
-	for i := 0; i < 4; i++ {
+	base := offsetsBefore[partition] + int64(3)
+	for i := 0; i < 3; i++ {
 		time.Sleep(100 * time.Millisecond)
 		// Newly fetched message is acknowledged...
 		msgI := <-pc.Messages()
 		c.Assert(msgI.Offset, Equals, base+int64(i))
-		sendEOffered(msgI)
-		sendEAcked(msgI)
-		// ...but retried message is not.
-		msg1_i := <-pc.Messages()
-		c.Assert(msg1_i, DeepEquals, msg1, Commentf("got: %d, want: %d", msg1_i.Offset, msg1.Offset))
-		sendEOffered(msg1)
+		sendEvOffered(msgI)
+		sendEvAcked(msgI)
+		// ...but retried messages are not.
+		msg0_i := <-pc.Messages()
+		c.Assert(msg0_i, DeepEquals, messages[0], Commentf(
+			"got: %d, want: %d", msg0_i.Offset, messages[0].Offset))
+		sendEvOffered(messages[0])
+		msg2_i := <-pc.Messages()
+		c.Assert(msg2_i, DeepEquals, messages[2], Commentf(
+			"got: %d, want: %d", msg2_i.Offset, messages[2].Offset))
+		sendEvOffered(messages[2])
 	}
-	// Expire offer of the retried message one last time.
+	// Wait for the retry timeout to expire.
 	time.Sleep(100 * time.Millisecond)
-	msgI := <-pc.Messages()
-	c.Assert(msgI.Offset, Equals, base+int64(4))
-	sendEOffered(msgI)
-	sendEAcked(msgI)
 
-	// Wait for partition consumer to stop.
-	for {
-		if _, ok := <-pc.Messages(); !ok {
-			break
-		}
+	// When/Then: maxRetries has been reached, only new messages are returned.
+	for i := 0; i < 5; i++ {
+		msg := <-pc.Messages()
+		log.Infof("*** after max: %d, %d", i, msg.Offset)
+		c.Assert(msg.Offset, Equals, base+int64(3+i), Commentf("i=%d", i))
+		sendEvOffered(msg)
+		sendEvAcked(msg)
 	}
-	// Then
+
+	pc.Stop()
 	offsetsAfter := s.kh.GetCommittedOffsets(group, topic)
-	c.Assert(offsetsAfter[partition].Val, Equals, offsetsBefore[partition]+1)
-	c.Assert(offsettrac.SparseAcks2Str(offsetsAfter[partition]), Equals, "1-6")
+	c.Assert(offsetsAfter[partition].Val, Equals, offsetsBefore[partition]+11)
+	c.Assert(offsettrac.SparseAcks2Str(offsetsAfter[partition]), Equals, "")
 }
 
 // When several offers are expired they are retried in the same order they
-// were offered.
+// had been offered.
 func (s *PartitionCsmSuite) TestSeveralMessageReties(c *C) {
 	offsetsBefore := s.kh.GetOldestOffsets(topic)
 	s.cfg.Consumer.AckTimeout = 100 * time.Millisecond
-	retriesEmergencyBreak = 4
-	retriesHighWaterMark = 1
 	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{Val: sarama.OffsetOldest}})
 
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgIStreamF, s.offsetMgrF)
@@ -385,99 +394,58 @@ func (s *PartitionCsmSuite) TestSeveralMessageReties(c *C) {
 	// Read and confirm offered several messages, but do not ack them.
 	for i := 0; i < 7; i++ {
 		msg := <-pc.Messages()
-		sendEOffered(msg)
+		sendEvOffered(msg)
 	}
 	// Wait for all offers to expire...
 	time.Sleep(100 * time.Millisecond)
-	// ...first message we read is not a retry and this is ok...
+	// ...the first message we read is not a retry and this is ok...
 	msg := <-pc.Messages()
-	sendEOffered(msg)
+	sendEvOffered(msg)
 	c.Assert(msg.Offset, Equals, offsetsBefore[partition]+int64(7))
 	// ...but following 7 are.
 	for i := 0; i < 7; i++ {
 		msg := <-pc.Messages()
-		sendEOffered(msg)
+		sendEvOffered(msg)
 		c.Assert(msg.Offset, Equals, offsetsBefore[partition]+int64(i))
 	}
 }
 
+// If there are no new messages in the partition then only retries are returned
+// via Messages() channel.
 func (s *PartitionCsmSuite) TestRetryNoMoreMessages(c *C) {
 	newestOffsets := s.kh.GetNewestOffsets(topic)
 	offsetBefore := newestOffsets[partition] - int64(2)
-	s.cfg.Consumer.AckTimeout = 200 * time.Millisecond
-	retriesEmergencyBreak = 4
-	retriesHighWaterMark = 1
+	s.cfg.Consumer.AckTimeout = 100 * time.Millisecond
 	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{Val: offsetBefore}})
+	maxRetries = 3
 
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgIStreamF, s.offsetMgrF)
 
-	// Read and confirm offer of 2 messages
-	msg0 := <-pc.Messages()
-	sendEOffered(msg0)
-	msg1 := <-pc.Messages()
-	sendEOffered(msg1)
+	// Read and confirm offer of 4 messages
+	var messages []consumer.Message
+	for i := 0; i < 2; i++ {
+		msg := <-pc.Messages()
+		sendEvOffered(msg)
+		messages = append(messages, msg)
+	}
 
-	// Acknowledge only the first one.
+	// Wait for all offers to expire...
 	time.Sleep(100 * time.Millisecond)
-	sendEAcked(msg0)
 
-	// Since there are no more messages in the partition, then only retries are
-	// offered.
-	for i := 0; i < 4; i++ {
-		msg1_i := <-pc.Messages()
-		c.Assert(msg1_i, DeepEquals, msg1, Commentf("got: %d, want: %d", msg1_i.Offset, msg1.Offset))
-		sendEOffered(msg1)
-	}
+	// Then: Since there are no more messages in the partition, then the next
+	// message returned is a retry.
+	msg0_i := <-pc.Messages()
+	c.Assert(msg0_i, DeepEquals, messages[0], Commentf(
+		"got: %d, want: %d", msg0_i.Offset, messages[0].Offset))
 
-	// Wait for partition consumer to stop.
-	for {
-		if _, ok := <-pc.Messages(); !ok {
-			break
-		}
-	}
-	// Then
+	pc.Stop()
 	offsetsAfter := s.kh.GetCommittedOffsets(group, topic)
-	c.Assert(offsetsAfter[partition].Val, Equals, offsetBefore+int64(1))
+	c.Assert(offsetsAfter[partition].Val, Equals, offsetBefore)
 	c.Assert(offsettrac.SparseAcks2Str(offsetsAfter[partition]), Equals, "")
 }
 
-func (s *PartitionCsmSuite) TestAckedOnStop(c *C) {
-	offsetBefore := s.kh.GetNewestOffsets(topic)[partition] - 10
-	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{Val: offsetBefore}})
-	s.cfg.Consumer.AckTimeout = 200 * time.Millisecond
-	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgIStreamF, s.offsetMgrF)
-
-	// Read and confirm offer of 2 messages
-	msg0 := <-pc.Messages()
-	sendEOffered(msg0)
-	time.Sleep(100 * time.Millisecond)
-	msg1 := <-pc.Messages()
-	sendEOffered(msg1)
-
-	// When
-	var wg sync.WaitGroup
-	actor.Spawn(s.ns.NewChild("brake"), &wg, pc.Stop)
-	defer wg.Wait()
-	time.Sleep(100 * time.Millisecond)
-
-	// Acknowledge only the first one.
-	sendEAcked(msg0)
-	sendEAcked(msg1)
-
-	// Wait for partition consumer to stop.
-	for {
-		if _, ok := <-pc.Messages(); !ok {
-			break
-		}
-	}
-	// Then
-	offsetsAfter := s.kh.GetCommittedOffsets(group, topic)
-	c.Assert(offsetsAfter[partition].Val, Equals, offsetBefore+2)
-	c.Assert(offsettrac.SparseAcks2Str(offsetsAfter[partition]), Equals, "")
-}
-
-func sendEOffered(msg consumer.Message) {
-	log.Infof("*** sending `offered`: offset=%d", msg.Offset)
+func sendEvOffered(msg consumer.Message) {
+	log.Infof("*** sending EvOffered: offset=%d", msg.Offset)
 	select {
 	case msg.EventsCh <- consumer.Event{consumer.EvOffered, msg.Offset}:
 	case <-time.After(500 * time.Millisecond):
@@ -485,11 +453,17 @@ func sendEOffered(msg consumer.Message) {
 	}
 }
 
-func sendEAcked(msg consumer.Message) {
-	log.Infof("*** sending `acked`: offset=%d", msg.Offset)
+func sendEvAcked(msg consumer.Message) {
+	log.Infof("*** sending EvAcked: offset=%d", msg.Offset)
 	select {
 	case msg.EventsCh <- consumer.Event{consumer.EvAcked, msg.Offset}:
 	case <-time.After(500 * time.Millisecond):
 		log.Infof("*** timeout sending `acked`: offset=%d", msg.Offset)
 	}
+}
+
+func resetConstants() {
+	check4RetryInterval = 50 * time.Millisecond
+	maxRetries = 1
+	maxOffered = 100
 }

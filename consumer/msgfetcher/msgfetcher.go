@@ -148,13 +148,18 @@ func (f *factory) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
 	return be
 }
 
-// chooseStartingOffset takes an offset value that may be either an actual
-// offset of two constants (`OffsetNewest` and `OffsetOldest`) and return an
-// offset value. It checks if the offset value belongs to the current range.
-//
-// FIXME: The offset values corresponding to `OffsetNewest` and `OffsetOldest`
-// may change during the function execution (e.g. an old log chunk gets
-// deleted), so the offset value returned by the function may be incorrect.
+// chooseStartingOffset returns a real offset value selected based on the
+// suggested offset. The real offset value is selected as follows:
+//  * if the suggested offset equals to sarama.OffsetOldest or it is smaller
+//    then the oldest partition offset, then the oldest partition offset is
+//    selected;
+//  * if the suggested offset equals to sarama.OffsetNewest, or it is larger
+//    then the newest partition offset, then the newest partition offset is
+//    selected.
+// Note that by the time the fetcher starts reading, the offset can become
+// invalid, e.g. when the selected offset belongs to an expired segment. In
+// this case fetcher will terminate gracefully. The fetcher user can detect
+// that by closure of the fetcher message channel and act accordingly.
 func (f *factory) chooseStartingOffset(topic string, partition int32, offset int64) (int64, error) {
 	newestOffset, err := f.kafkaClt.GetOffset(topic, partition, sarama.OffsetNewest)
 	if err != nil {

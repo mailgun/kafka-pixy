@@ -76,7 +76,7 @@ func (s *OffsetTrackerSuite) TestOnAckedRanges(c *C) {
 	}
 }
 
-func (s *OffsetTrackerSuite) TestAckedRangeEncodeDecode(c *C) {
+func (s *OffsetTrackerSuite) TestRangeEncodeDecode(c *C) {
 	for i, tc := range []struct {
 		base int64
 		ar   offsetRange
@@ -97,7 +97,7 @@ func (s *OffsetTrackerSuite) TestAckedRangeEncodeDecode(c *C) {
 	}
 }
 
-func (s *OffsetTrackerSuite) TestAckedRangeDecodeError(c *C) {
+func (s *OffsetTrackerSuite) TestRangeDecodeError(c *C) {
 	var ar offsetRange
 	for i, tc := range []struct {
 		encoded string
