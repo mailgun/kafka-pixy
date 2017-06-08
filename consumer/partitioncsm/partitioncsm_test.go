@@ -51,6 +51,10 @@ func (s *PartitionCsmSuite) SetUpSuite(c *C) {
 
 func (s *PartitionCsmSuite) SetUpTest(c *C) {
 	s.cfg = testhelpers.NewTestProxyCfg("test")
+	s.cfg.Consumer.MaxPendingMessages = 100
+	s.cfg.Consumer.MaxRetries = 1
+	check4RetryInterval = 50 * time.Millisecond
+
 	s.ns = actor.RootID.NewChild("T")
 	s.groupMember = groupmember.Spawn(s.ns, group, memberID, s.cfg, s.kh.KazooClt())
 	var err error
@@ -61,9 +65,6 @@ func (s *PartitionCsmSuite) SetUpTest(c *C) {
 
 	s.initOffsetCh = make(chan offsetmgr.Offset, 1)
 	initialOffsetCh = s.initOffsetCh
-
-	// Reset constants that may be modified by tests.
-	resetConstants()
 }
 
 func (s *PartitionCsmSuite) TearDownTest(c *C) {
@@ -199,8 +200,8 @@ func (s *PartitionCsmSuite) TestOfferInvalid(c *C) {
 // partition consumer stops feeding messages via Messages() channel until the
 // number of offered messages drops below maxOffered threshold.
 func (s *PartitionCsmSuite) TestOfferedTooMany(c *C) {
-	maxOffered = 3
 	s.cfg.Consumer.AckTimeout = 500 * time.Millisecond
+	s.cfg.Consumer.MaxPendingMessages = 3
 	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{sarama.OffsetOldest, ""}})
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgIStreamF, s.offsetMgrF)
 	defer pc.Stop()
@@ -328,7 +329,7 @@ func (s *PartitionCsmSuite) TestSparseAckedAfterStop(c *C) {
 func (s *PartitionCsmSuite) TestMaxRetriesReached(c *C) {
 	offsetsBefore := s.kh.GetOldestOffsets(topic)
 	s.cfg.Consumer.AckTimeout = 100 * time.Millisecond
-	maxRetries = 3
+	s.cfg.Consumer.MaxRetries = 3
 	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{Val: sarama.OffsetOldest}})
 
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgIStreamF, s.offsetMgrF)
@@ -416,8 +417,8 @@ func (s *PartitionCsmSuite) TestRetryNoMoreMessages(c *C) {
 	newestOffsets := s.kh.GetNewestOffsets(topic)
 	offsetBefore := newestOffsets[partition] - int64(2)
 	s.cfg.Consumer.AckTimeout = 100 * time.Millisecond
+	s.cfg.Consumer.MaxRetries = 3
 	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{Val: offsetBefore}})
-	maxRetries = 3
 
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgIStreamF, s.offsetMgrF)
 
@@ -460,10 +461,4 @@ func sendEvAcked(msg consumer.Message) {
 	case <-time.After(500 * time.Millisecond):
 		log.Infof("*** timeout sending `acked`: offset=%d", msg.Offset)
 	}
-}
-
-func resetConstants() {
-	check4RetryInterval = 50 * time.Millisecond
-	maxRetries = 1
-	maxOffered = 100
 }

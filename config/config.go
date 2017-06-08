@@ -117,8 +117,20 @@ type Proxy struct {
 		FetchMaxWait time.Duration `yaml:"fetch_max_wait"`
 
 		// Consume request will wait at most this long until a message from the
-		// specified group/topic becomes available.
+		// specified group-topic becomes available.
 		LongPollingTimeout time.Duration `yaml:"long_polling_timeout"`
+
+		// The maximum number of unacknowledged messages allowed for a
+		// particular group-topic-partition at a time. When this number is
+		// reached subsequent consume requests will return long polling timeout
+		// errors, until some of the pending messages are acknowledged.
+		MaxPendingMessages int `yaml:"max_pending_messages"`
+
+		// The maximum number of times a message can be offered to a consumer.
+		// If a message was offered that many times and no acknowledgment has
+		// been received, then it is considered to be acknowledged and will
+		// never be offered again.
+		MaxRetries int `yaml:"max_retries"`
 
 		// How frequently to commit offsets to Kafka.
 		OffsetsCommitInterval time.Duration `yaml:"offsets_commit_interval"`
@@ -349,6 +361,10 @@ func (p *Proxy) validate() error {
 		return errors.New("consumer.fetch_bytes must be > 0")
 	case p.Consumer.LongPollingTimeout <= 0:
 		return errors.New("consumer.long_polling_timeout must be > 0")
+	case p.Consumer.MaxPendingMessages <= 0:
+		return errors.New("consumer.max_pending_messages must be > 0")
+	case p.Consumer.MaxRetries <= 0:
+		return errors.New("consumer.max_retries must be > 0")
 	case p.Consumer.OffsetsCommitInterval <= 0:
 		return errors.New("consumer.offsets_commit_interval must be > 0")
 	case p.Consumer.RebalanceDelay <= 0:
@@ -399,6 +415,8 @@ func defaultProxyWithClientID(clientID string) *Proxy {
 	c.Consumer.FetchMaxBytes = 1024 * 1024
 	c.Consumer.FetchMaxWait = 250 * time.Millisecond
 	c.Consumer.LongPollingTimeout = 3 * time.Second
+	c.Consumer.MaxPendingMessages = 300
+	c.Consumer.MaxRetries = 3
 	c.Consumer.OffsetsCommitInterval = 500 * time.Millisecond
 	c.Consumer.RebalanceDelay = 250 * time.Millisecond
 	c.Consumer.RegistrationTimeout = 20 * time.Second

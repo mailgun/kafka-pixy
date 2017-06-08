@@ -108,6 +108,18 @@ proxies:
       # specified group/topic becomes available.
       long_polling_timeout: 3s
 
+      # The maximum number of unacknowledged messages allowed for a particular
+      # group-topic-partition at a time. When this number is reached subsequent
+      # consume requests will return long polling timeout errors, until some of
+      # the pending messages are acknowledged.
+      max_pending_messages: 300
+
+      # The maximum number of times a message can be offered to a consumer.
+      # If a message had been offered that many times and no acknowledgment has
+      # been received, then it is forcefully acknowledged and will never be
+      # offered again. Such messages are lost from the Kafka-Pixy point of view.
+      max_retries: 3
+
       # How frequently to commit offsets to Kafka.
       offsets_commit_interval: 500ms
 

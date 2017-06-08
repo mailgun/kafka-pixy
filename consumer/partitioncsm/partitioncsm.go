@@ -26,15 +26,6 @@ var (
 
 	// Sets an interval for periodical checks for messages to retry.
 	check4RetryInterval = time.Second
-
-	// Maximum number of times a message is retried. After this number of
-	// attempts a message is acknowledged as if it was consumed.
-	maxRetries = 3
-
-	// Maximum number of pending offers. When this number is reached no more
-	// messages are returned via Messages() channel until some of the offered
-	// messages are acknowledged.
-	maxOffered = 100
 )
 
 // T ensures exclusive consumption of messages from a topic
@@ -179,7 +170,7 @@ func (pc *T) run() {
 					nilOrMessagesCh = pc.messagesCh
 					continue
 				}
-				if offeredCount > maxOffered {
+				if offeredCount > pc.cfg.Consumer.MaxPendingMessages {
 					log.Warningf("<%s> offered count above HWM: %d", pc.actorID, offeredCount)
 					nilOrMsgFetcherCh = nil
 					continue
@@ -189,7 +180,7 @@ func (pc *T) run() {
 				var offeredCount int
 				pc.submittedOffset, offeredCount = pc.ot.OnAcked(event.Offset)
 				pc.om.SubmitOffset(pc.submittedOffset)
-				if !msgOk && offeredCount <= maxOffered {
+				if !msgOk && offeredCount <= pc.cfg.Consumer.MaxPendingMessages {
 					nilOrMsgFetcherCh = mf.Messages()
 				}
 			}
@@ -237,7 +228,7 @@ func (pc *T) Stop() {
 // returned or there are no more messages to be retried.
 func (pc *T) nextRetry() (consumer.Message, bool) {
 	msg, retryNo, ok := pc.ot.NextRetry()
-	for ok && retryNo > maxRetries {
+	for ok && retryNo > pc.cfg.Consumer.MaxRetries {
 		log.Errorf("<%s> too many retries: retryNo=%d, offset=%d, key=%s, msg=%s",
 			pc.actorID, retryNo, msg.Offset, string(msg.Key), base64.StdEncoding.EncodeToString(msg.Value))
 		pc.submittedOffset, _ = pc.ot.OnAcked(msg.Offset)
