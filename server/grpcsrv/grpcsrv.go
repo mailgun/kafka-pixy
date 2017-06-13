@@ -9,7 +9,7 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/consumer"
-	"github.com/mailgun/kafka-pixy/consumer/offsettrac"
+	"github.com/mailgun/kafka-pixy/consumer/offsettrk"
 	pb "github.com/mailgun/kafka-pixy/gen/golang"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/proxy"
@@ -190,7 +190,7 @@ func (s *T) GetOffsets(ctx context.Context, req *pb.GetOffsetsRq) (*pb.GetOffset
 		}
 		row.Metadata = po.Metadata
 		offset := offsetmgr.Offset{Val: po.Offset, Meta: po.Metadata}
-		row.SparseAcks = offsettrac.SparseAcks2Str(offset)
+		row.SparseAcks = offsettrk.SparseAcks2Str(offset)
 		result.Offsets = append(result.Offsets, &row)
 	}
 	return &result, nil

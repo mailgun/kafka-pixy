@@ -53,8 +53,9 @@ func (s *ConsumerSuite) SetUpTest(*C) {
 }
 
 // If initial offset stored in Kafka is greater then the newest offset for a
-// partition, then the first message consumed from the partition is the next one
-// posted to it.
+// partition, then partition consumer will wait for the given offset to be
+// reached by produced messages and the first message returned will the one
+// with the initial offset.
 func (s *ConsumerSuite) TestInitialOffsetTooLarge(c *C) {
 	oldestOffsets := s.kh.GetOldestOffsets("test.1")
 	newestOffsets := s.kh.GetNewestOffsets("test.1")
@@ -64,7 +65,7 @@ func (s *ConsumerSuite) TestInitialOffsetTooLarge(c *C) {
 	defer omf.Stop()
 	om, err := omf.Spawn(s.ns, "g1", "test.1", 0)
 	c.Assert(err, IsNil)
-	om.SubmitOffset(offsetmgr.Offset{newestOffsets[0] + 100, ""})
+	om.SubmitOffset(offsetmgr.Offset{newestOffsets[0] + 3, ""})
 	om.Stop()
 
 	sc, err := Spawn(s.ns, s.cfg, s.omf)
@@ -77,10 +78,10 @@ func (s *ConsumerSuite) TestInitialOffsetTooLarge(c *C) {
 	// Then
 	c.Assert(err, Equals, consumer.ErrRequestTimeout)
 
-	produced := s.kh.PutMessages("offset-too-large", "test.1", map[string]int{"key": 1})
+	produced := s.kh.PutMessages("offset-too-large", "test.1", map[string]int{"key": 5})
 	consumed := s.consume(c, sc, "g1", "test.1", 1)
-	c.Assert(consumed["key"][0].Offset, Equals, newestOffsets[0])
-	assertMsg(c, consumed["key"][0], produced["key"][0])
+	c.Assert(consumed["key"][0].Offset, Equals, newestOffsets[0]+3)
+	assertMsg(c, consumed["key"][0], produced["key"][3])
 }
 
 // If a topic has only one partition then the consumer will retrieve messages

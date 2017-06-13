@@ -10,7 +10,7 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/consumer/groupmember"
 	"github.com/mailgun/kafka-pixy/consumer/msgfetcher"
-	"github.com/mailgun/kafka-pixy/consumer/offsettrac"
+	"github.com/mailgun/kafka-pixy/consumer/offsettrk"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
@@ -89,24 +89,29 @@ func (s *PartitionCsmSuite) TestOldestOffset(c *C) {
 }
 
 // If initial offset stored in Kafka is greater then the newest offset for a
-// partition, then the first message consumed from the partition is the next
-// one posted to it.
+// partition, then partition consumer will wait for the given offset to be
+// reached by produced messages and the first message returned will the one
+// with the initial offset.
 func (s *PartitionCsmSuite) TestInitialOffsetTooLarge(c *C) {
 	oldestOffsets := s.kh.GetOldestOffsets(topic)
 	newestOffsets := s.kh.GetNewestOffsets(topic)
 	log.Infof("*** test.1 offsets: oldest=%v, newest=%v", oldestOffsets, newestOffsets)
-	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{newestOffsets[partition] + 100, ""}})
+	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{newestOffsets[partition] + 3, ""}})
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgIStreamF, s.offsetMgrF)
 	defer pc.Stop()
 	// Wait for the partition consumer to initialize.
 	initialOffset := <-s.initOffsetCh
 
 	// When
-	messages := s.kh.PutMessages("pc", topic, map[string]int{"": 1})
-	msg := <-pc.Messages()
-
+	messages := s.kh.PutMessages("pc", topic, map[string]int{"": 4})
+	var msg consumer.Message
+	select {
+	case msg = <-pc.Messages():
+	case <-time.After(time.Second):
+		c.Errorf("Message is not consumed")
+	}
 	// Then
-	c.Assert(msg.Offset, Equals, messages[""][0].Offset)
+	c.Assert(msg.Offset, Equals, messages[""][3].Offset)
 	c.Assert(msg.Offset, Equals, initialOffset.Val)
 }
 
@@ -147,14 +152,14 @@ func (s *PartitionCsmSuite) TestSparseAckedNotRead(c *C) {
 	// Make initial offset that has sparsely acked ranges.
 	oldestOffsets := s.kh.GetOldestOffsets(topic)
 	base := oldestOffsets[partition]
-	ot := offsettrac.New(s.ns, offsetmgr.Offset{Val: base}, -1)
+	ot := offsettrk.New(s.ns, offsetmgr.Offset{Val: base}, -1)
 	var initOffset offsetmgr.Offset
 	for i, acked := range ackedDlts {
 		if acked {
 			initOffset, _ = ot.OnAcked(base + int64(i))
 		}
 	}
-	c.Assert(offsettrac.SparseAcks2Str(initOffset), Equals, "1-4,6-7")
+	c.Assert(offsettrk.SparseAcks2Str(initOffset), Equals, "1-4,6-7")
 	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{initOffset})
 
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgIStreamF, s.offsetMgrF)
@@ -273,7 +278,7 @@ func (s *PartitionCsmSuite) TestSparseAckedCommitted(c *C) {
 	// Then
 	offsetsAfter := s.kh.GetCommittedOffsets(group, topic)
 	c.Assert(offsetsAfter[partition].Val, Equals, offsetsBefore[partition]+1)
-	c.Assert(offsettrac.SparseAcks2Str(offsetsAfter[partition]), Equals, "1-4,6-8")
+	c.Assert(offsettrk.SparseAcks2Str(offsetsAfter[partition]), Equals, "1-4,6-8")
 }
 
 // When a partition consumer is signalled to stop it waits at most
@@ -320,7 +325,7 @@ func (s *PartitionCsmSuite) TestSparseAckedAfterStop(c *C) {
 	// Then
 	offsetsAfter := s.kh.GetCommittedOffsets(group, topic)
 	c.Assert(offsetsAfter[partition].Val, Equals, offsetsBefore[partition]+2)
-	c.Assert(offsettrac.SparseAcks2Str(offsetsAfter[partition]), Equals, "1-3,4-7")
+	c.Assert(offsettrk.SparseAcks2Str(offsetsAfter[partition]), Equals, "1-3,4-7")
 }
 
 // If the max retries limit is reached for a message that results in
@@ -379,7 +384,7 @@ func (s *PartitionCsmSuite) TestMaxRetriesReached(c *C) {
 	pc.Stop()
 	offsetsAfter := s.kh.GetCommittedOffsets(group, topic)
 	c.Assert(offsetsAfter[partition].Val, Equals, offsetsBefore[partition]+11)
-	c.Assert(offsettrac.SparseAcks2Str(offsetsAfter[partition]), Equals, "")
+	c.Assert(offsettrk.SparseAcks2Str(offsetsAfter[partition]), Equals, "")
 }
 
 // When several offers are expired they are retried in the same order they
@@ -442,7 +447,7 @@ func (s *PartitionCsmSuite) TestRetryNoMoreMessages(c *C) {
 	pc.Stop()
 	offsetsAfter := s.kh.GetCommittedOffsets(group, topic)
 	c.Assert(offsetsAfter[partition].Val, Equals, offsetBefore)
-	c.Assert(offsettrac.SparseAcks2Str(offsetsAfter[partition]), Equals, "")
+	c.Assert(offsettrk.SparseAcks2Str(offsetsAfter[partition]), Equals, "")
 }
 
 func sendEvOffered(msg consumer.Message) {
