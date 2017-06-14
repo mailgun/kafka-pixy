@@ -1,4 +1,4 @@
-package msgistream
+package msgfetcher
 
 import (
 	"time"
@@ -11,24 +11,24 @@ import (
 	. "gopkg.in/check.v1"
 )
 
-type MsgIStreamFuncSuite struct {
+type MsgFetcherFuncSuite struct {
 	ns  *actor.ID
 	kh  *kafkahelper.T
 	cfg *config.Proxy
 }
 
-var _ = Suite(&MsgIStreamFuncSuite{})
+var _ = Suite(&MsgFetcherFuncSuite{})
 
-func (s *MsgIStreamFuncSuite) SetUpSuite(c *C) {
+func (s *MsgFetcherFuncSuite) SetUpSuite(c *C) {
 	testhelpers.InitLogging(c)
 	s.kh = kafkahelper.New(c)
 }
 
-func (s *MsgIStreamFuncSuite) TearDownSuite(c *C) {
+func (s *MsgFetcherFuncSuite) TearDownSuite(c *C) {
 	s.kh.Close()
 }
 
-func (s *MsgIStreamFuncSuite) SetUpTest(c *C) {
+func (s *MsgFetcherFuncSuite) SetUpTest(c *C) {
 	s.ns = actor.RootID.NewChild("T")
 	s.cfg = testhelpers.NewTestProxyCfg("mis")
 }
@@ -42,7 +42,7 @@ func (s *MsgIStreamFuncSuite) SetUpTest(c *C) {
 //
 // IMPORTANT: The topic/key of the two sets of the generated messages had been
 // selected so that both sets end up in partitions that has the same leader.
-func (s *MsgIStreamFuncSuite) TestSlacker(c *C) {
+func (s *MsgFetcherFuncSuite) TestSlacker(c *C) {
 	// {topic: "test.1", key: "foo"} and {topic: "test.4": key: "bar"} have
 	// the same broker #9093 as a leader.
 	producedTest1 := s.kh.PutMessages("slacker", "test.1", map[string]int{"foo": 11})
@@ -56,26 +56,26 @@ func (s *MsgIStreamFuncSuite) TestSlacker(c *C) {
 	c.Assert(err, IsNil)
 	defer f.Stop()
 
-	pcA, _, err := f.SpawnMessageIStream(s.ns.NewChild("test.1", 0), "test.1", 0, producedTest1["foo"][0].Offset)
+	mfA, _, err := f.Spawn(s.ns.NewChild("test.1", 0), "test.1", 0, producedTest1["foo"][0].Offset)
 	c.Assert(err, IsNil)
-	defer pcA.Stop()
+	defer mfA.Stop()
 
-	pcB, _, err := f.SpawnMessageIStream(s.ns.NewChild("test.4", 2), "test.4", 2, producedTest4["bar"][0].Offset)
+	mfB, _, err := f.Spawn(s.ns.NewChild("test.4", 2), "test.4", 2, producedTest4["bar"][0].Offset)
 	c.Assert(err, IsNil)
-	defer pcB.Stop()
+	defer mfB.Stop()
 
 	timeoutCh := time.After(1 * time.Second)
 	for i := 0; i < 1000; i++ {
 		select {
-		case <-pcB.Messages():
+		case <-mfB.Messages():
 			break
 		case <-timeoutCh:
 			// Both queues should be drained in parallel, otherwise the old
 			// BrokerConsumer implementation would get into a deadlock here.
-			go pcA.Stop()
-			messagesA := pcA.Messages()
-			go pcB.Stop()
-			messagesB := pcB.Messages()
+			go mfA.Stop()
+			messagesA := mfA.Messages()
+			go mfB.Stop()
+			messagesB := mfB.Messages()
 		drainLoop:
 			for messagesA != nil || messagesB != nil {
 				select {

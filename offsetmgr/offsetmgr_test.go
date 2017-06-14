@@ -62,7 +62,7 @@ func (s *OffsetMgrSuite) TestInitialOffset(c *C) {
 	defer f.Stop()
 
 	// When
-	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 8), "g1", "t1", 8)
+	om, err := f.Spawn(s.ns.NewChild("g1", "t1", 8), "g1", "t1", 8)
 	c.Assert(err, IsNil)
 	defer om.Stop()
 
@@ -93,7 +93,7 @@ func (s *OffsetMgrSuite) TestInitialNoCoordinator(c *C) {
 	defer f.Stop()
 
 	// When
-	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 8), "g1", "t1", 8)
+	om, err := f.Spawn(s.ns.NewChild("g1", "t1", 8), "g1", "t1", 8)
 	c.Assert(err, IsNil)
 	defer om.Stop()
 
@@ -126,7 +126,7 @@ func (s *OffsetMgrSuite) TestInitialFetchError(c *C) {
 	defer f.Stop()
 
 	// When
-	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
+	om, err := f.Spawn(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
 	defer om.Stop()
 
@@ -162,7 +162,7 @@ func (s *OffsetMgrSuite) TestCommitError(c *C) {
 	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	defer f.Stop()
 
-	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
+	om, err := f.Spawn(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
 
 	// When
@@ -217,10 +217,10 @@ func (s *OffsetMgrSuite) TestCommitIncompleteResponse(c *C) {
 	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	defer f.Stop()
 
-	om1, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 1), "g1", "t1", 1)
+	om1, err := f.Spawn(s.ns.NewChild("g1", "t1", 1), "g1", "t1", 1)
 	c.Assert(err, IsNil)
 	<-om1.CommittedOffsets() // Ignore initial offset.
-	om2, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 2), "g1", "t1", 2)
+	om2, err := f.Spawn(s.ns.NewChild("g1", "t1", 2), "g1", "t1", 2)
 	c.Assert(err, IsNil)
 	<-om2.CommittedOffsets() // Ignore initial offset.
 
@@ -269,7 +269,7 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	defer f.Stop()
 
-	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
+	om, err := f.Spawn(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
 
 	// When: a partition offset manager is closed while there is a pending commit.
@@ -363,9 +363,9 @@ func (s *OffsetMgrSuite) TestCommitDifferentGroups(c *C) {
 	c.Assert(err, IsNil)
 	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	defer f.Stop()
-	om1, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
+	om1, err := f.Spawn(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
-	om2, err := f.SpawnOffsetManager(s.ns.NewChild("g2", "t1", 7), "g2", "t1", 7)
+	om2, err := f.Spawn(s.ns.NewChild("g2", "t1", 7), "g2", "t1", 7)
 	c.Assert(err, IsNil)
 
 	// When
@@ -412,11 +412,11 @@ func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	defer f.Stop()
 
-	om1, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
+	om1, err := f.Spawn(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
-	om2, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 8), "g1", "t1", 8)
+	om2, err := f.Spawn(s.ns.NewChild("g1", "t1", 8), "g1", "t1", 8)
 	c.Assert(err, IsNil)
-	om3, err := f.SpawnOffsetManager(s.ns.NewChild("g2", "t1", 7), "g2", "t1", 7)
+	om3, err := f.Spawn(s.ns.NewChild("g2", "t1", 7), "g2", "t1", 7)
 	c.Assert(err, IsNil)
 	om1.SubmitOffset(Offset{1001, "bar1"})
 	om2.SubmitOffset(Offset{2001, "bar2"})
@@ -474,7 +474,7 @@ func (s *OffsetMgrSuite) TestCommittedChannel(c *C) {
 	c.Assert(err, IsNil)
 	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	defer f.Stop()
-	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
+	om, err := f.Spawn(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
 	<-om.CommittedOffsets() // Ignore initial offset.
 
@@ -522,7 +522,7 @@ func (s *OffsetMgrSuite) TestBugConnectionRestored(c *C) {
 	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	defer f.Stop()
 
-	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
+	om, err := f.Spawn(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
 
 	log.Infof("    GIVEN 1")
@@ -555,7 +555,7 @@ func (s *OffsetMgrSuite) TestBugConnectionRestored(c *C) {
 	log.Infof("    WHEN")
 	// Create a partition offset manager for the same topic partition as before.
 	// It will be assigned the broken connection to broker2.
-	om, err = f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
+	om, err = f.Spawn(s.ns.NewChild("g1", "t1", 7), "g1", "t1", 7)
 	c.Assert(err, IsNil)
 	defer om.Stop()
 
@@ -597,7 +597,7 @@ func (s *OffsetMgrSuite) TestBugOffsetDroppedOnStop(c *C) {
 	c.Assert(err, IsNil)
 	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	defer f.Stop()
-	om, err := f.SpawnOffsetManager(s.ns.NewChild("g1", "t1", 1), "g1", "t1", 1)
+	om, err := f.Spawn(s.ns.NewChild("g1", "t1", 1), "g1", "t1", 1)
 	c.Assert(err, IsNil)
 	time.Sleep(100 * time.Millisecond)
 	// Set broker latency to ensure proper test timing.

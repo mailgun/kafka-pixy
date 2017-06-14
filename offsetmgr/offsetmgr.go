@@ -14,8 +14,8 @@ import (
 )
 
 // Factory provides a method to spawn offset manager instances to commit
-// offsets for a particular group/topic/partition. It makes sure that there is
-// only one running manager instance for a particular group/topic/partition
+// offsets for a particular group-topic-partition. It makes sure that there is
+// only one running manager instance for a particular group-topic-partition
 // combination.
 //
 // One Factory instance per application is usually more then enough, but it is
@@ -25,11 +25,11 @@ import (
 // application. But first it should explicitly stop all spawned offset manager
 // instances.
 type Factory interface {
-	// NewOffsetManager creates an OffsetManager for the given group/topic/partition.
-	// It returns an error if given group/topic/partition already has a not stopped
-	// OffsetManager instance. After an old offset manager instance is stopped a
-	// new one can be started.
-	SpawnOffsetManager(namespace *actor.ID, group, topic string, partition int32) (T, error)
+	// Span creates and starts an offset manager for a group-topic-partition.
+	// It returns an error if given group-topic-partition has a running
+	// OffsetManager instance already. After an old offset manager instance is
+	// stopped a new one can be started.
+	Spawn(namespace *actor.ID, group, topic string, partition int32) (T, error)
 
 	// Stop waits for the spawned offset managers to stop and then terminates. Note
 	// that all spawned offset managers has to be explicitly stopped by calling
@@ -38,7 +38,7 @@ type Factory interface {
 }
 
 // T provides interface to store and retrieve offsets for a particular
-// group/topic/partition in Kafka.
+// group-topic-partition in Kafka.
 type T interface {
 	// SubmitOffset triggers saving of the specified offset in Kafka. Commits are
 	// performed periodically in a background goroutine. The commit interval is
@@ -111,7 +111,7 @@ type instanceID struct {
 }
 
 // implements `Factory`
-func (f *factory) SpawnOffsetManager(namespace *actor.ID, group, topic string, partition int32) (T, error) {
+func (f *factory) Spawn(namespace *actor.ID, group, topic string, partition int32) (T, error) {
 	id := instanceID{group, topic, partition}
 
 	f.childrenMu.Lock()

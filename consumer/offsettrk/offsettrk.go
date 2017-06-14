@@ -1,4 +1,4 @@
-package offsettrac
+package offsettrk
 
 import (
 	"bytes"
@@ -77,6 +77,17 @@ func New(actorID *actor.ID, offset offsetmgr.Offset, offerTimeout time.Duration)
 	return &ot
 }
 
+// Adjust adjusts the tracked offset. Offers with offsets lower then the new
+// offset value are dropped.
+func (ot *T) Adjust(offset int64) offsetmgr.Offset {
+	if offset < ot.offset.Val {
+		return ot.offset
+	}
+	ot.dropOffers(offset)
+	ot.correctOffset(offset)
+	return ot.offset
+}
+
 // OnOffered should be called when a message has been offered to a consumer. It
 // returns the total number of offered messages. It is callers responsibility
 // to ensure that the number of offered message does not grow too large.
@@ -114,31 +125,16 @@ func (ot *T) OnOffered(msg consumer.Message) int {
 // OnAcked should be called when a message has been acknowledged by a consumer.
 // It returns an offset to be submitted and a total number of offered messages.
 func (ot *T) OnAcked(offset int64) (offsetmgr.Offset, int) {
-	offerMissing := !ot.removeOffer(offset)
-	duplicateAck := !ot.updateAckedRanges(offset)
-	if offerMissing || duplicateAck {
+	offerRemoved := ot.removeOffer(offset)
+	ackedRangesUpdated := ot.updateAckedRanges(offset)
+	if !offerRemoved || !ackedRangesUpdated {
 		log.Errorf("<%s> bad ack: offerMissing=%t, duplicateAck=%t",
-			ot.actorID, offerMissing, duplicateAck)
+			ot.actorID, !offerRemoved, !ackedRangesUpdated)
 	}
-	if !duplicateAck {
+	if ackedRangesUpdated {
 		ot.offset.Meta = encodeAckedRanges(ot.offset.Val, ot.ackedRanges)
 	}
 	return ot.offset, len(ot.offers)
-}
-
-func (ot *T) removeOffer(offset int64) bool {
-	offersCount := len(ot.offers)
-	i := sort.Search(offersCount, func(i int) bool {
-		return ot.offers[i].msg.Offset >= offset
-	})
-	if i >= offersCount || ot.offers[i].msg.Offset != offset {
-		return false
-	}
-	offersCount -= 1
-	copy(ot.offers[i:offersCount], ot.offers[i+1:])
-	ot.offers[offersCount].msg = consumer.Message{} // Makes it subject for garbage collection.
-	ot.offers = ot.offers[:offersCount]
-	return true
 }
 
 // IsAcked checks if an offset has already been acknowledged. The second
@@ -209,6 +205,69 @@ func (ot *T) shouldWait4Ack(now time.Time) (bool, time.Duration) {
 	return false, 0
 }
 
+func (ot *T) newOffer(msg consumer.Message) offer {
+	return offer{msg, msg.Offset, 0, time.Now().Add(ot.offerTimeout)}
+}
+
+func (ot *T) removeOffer(offset int64) bool {
+	offersCount := len(ot.offers)
+	i := sort.Search(offersCount, func(i int) bool {
+		return ot.offers[i].msg.Offset >= offset
+	})
+	if i >= offersCount || ot.offers[i].msg.Offset != offset {
+		return false
+	}
+	offersCount -= 1
+	copy(ot.offers[i:offersCount], ot.offers[i+1:])
+	ot.offers[offersCount] = offer{} // Makes it subject for garbage collection.
+	ot.offers = ot.offers[:offersCount]
+	return true
+}
+
+func (ot *T) dropOffers(offset int64) {
+	drop := 0
+	for i, offer := range ot.offers {
+		if offset <= offer.offset {
+			break
+		}
+		drop = i + 1
+		log.Errorf("<%v> offer dropped: offset=%d", ot.actorID, offer.offset)
+	}
+	if drop > 0 {
+		left := len(ot.offers) - drop
+		copy(ot.offers[:left], ot.offers[drop:])
+		// Zero dropped offers to make them eligible for garbage collection.
+		for i := left; i < len(ot.offers); i++ {
+			ot.offers[i] = offer{}
+		}
+		ot.offers = ot.offers[:left]
+	}
+}
+
+// correctOffset if the specified offset falls into the middle of an acked
+// range then the  offset is set to the end of the range otherwise the
+// specified offset value is set as tracked. All acked ranges that are lower
+// then the specified offset are dropped.
+func (ot *T) correctOffset(offset int64) {
+	drop := 0
+	for i, ar := range ot.ackedRanges {
+		if offset < ar.from {
+			break
+		}
+		drop = i + 1
+		if offset < ar.to {
+			offset = ar.to
+			break
+		}
+	}
+	if drop > 0 {
+		ot.ackedRanges = ot.ackedRanges[drop:]
+	}
+	ot.offset.Val = offset
+	ot.offset.Meta = encodeAckedRanges(offset, ot.ackedRanges)
+}
+
+// updateAckedRanges updates acked ranges with a new acked offset.
 func (ot *T) updateAckedRanges(offset int64) bool {
 	ackedRangesCount := len(ot.ackedRanges)
 	if offset < ot.offset.Val {
@@ -251,10 +310,6 @@ func (ot *T) updateAckedRanges(offset int64) bool {
 	}
 	ot.ackedRanges = append(ot.ackedRanges, newOffsetRange(offset))
 	return true
-}
-
-func (ot *T) newOffer(msg consumer.Message) offer {
-	return offer{msg, msg.Offset, 0, time.Now().Add(ot.offerTimeout)}
 }
 
 func encodeAckedRanges(base int64, ackedRanges []offsetRange) string {

@@ -16,7 +16,7 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/admin"
 	"github.com/mailgun/kafka-pixy/consumer"
-	"github.com/mailgun/kafka-pixy/consumer/offsettrac"
+	"github.com/mailgun/kafka-pixy/consumer/offsettrk"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/prettyfmt"
 	"github.com/mailgun/kafka-pixy/proxy"
@@ -324,7 +324,7 @@ func (s *T) handleGetOffsets(w http.ResponseWriter, r *http.Request) {
 		}
 		offsetViews[i].Metadata = po.Metadata
 		offset := offsetmgr.Offset{Val: po.Offset, Meta: po.Metadata}
-		offsetViews[i].SparseAcks = offsettrac.SparseAcks2Str(offset)
+		offsetViews[i].SparseAcks = offsettrk.SparseAcks2Str(offset)
 	}
 	respondWithJSON(w, http.StatusOK, offsetViews)
 }
