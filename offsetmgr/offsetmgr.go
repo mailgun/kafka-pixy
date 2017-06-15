@@ -51,7 +51,7 @@ type T interface {
 
 	// CommittedOffsets returns a channel that offsets committed to Kafka are
 	// sent to. The first offset sent to this channel is the initial offset
-	// fetched from Kafka for the group+topic+partition. The user must read
+	// fetched from Kafka for the group-topic-partition. The user must read
 	// from this channel otherwise the `SubmitOffset` function will eventually
 	// block forever.
 	CommittedOffsets() <-chan Offset

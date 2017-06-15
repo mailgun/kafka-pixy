@@ -8,7 +8,7 @@ set -u
 set -x
 
 repo_root=.
-proto_file=$repo_root/grpc.proto
+proto_file=$repo_root/kafkapixy.proto
 include_dir=$repo_root
 out_dir=$repo_root/gen
 

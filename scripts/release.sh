@@ -31,7 +31,7 @@ cp ${PROJECT_ROOT}/README.md ${TARGET_DIR}
 cp ${PROJECT_ROOT}/CHANGELOG.md ${TARGET_DIR}
 cp ${PROJECT_ROOT}/LICENSE ${TARGET_DIR}
 cp ${PROJECT_ROOT}/default.yaml ${TARGET_DIR}
-cp ${PROJECT_ROOT}/grpc.proto ${TARGET_DIR}
+cp ${PROJECT_ROOT}/kafkapixy.proto ${TARGET_DIR}
 mkdir ${TARGET_DIR}/grpc_stubs
 cp -r ${PROJECT_ROOT}/gen/* ${TARGET_DIR}/grpc_stubs
 

@@ -18,7 +18,7 @@ and proceed with a quick start guide for your weapon of choice:
 [Curl](quick-start-curl.md), [Python](quick-start-python.md), or [Golang](quick-start-golang.md).
 If you want to use some other language, then you still can use either of the
 guides for inspiration, but you would need to generate gRPC client stubs
-from [grpc.proto](grpc.proto) yourself (please refer to [gRPC documentation](http://www.grpc.io/docs/)
+from [kafkapixy.proto](kafkapixy.proto) yourself (please refer to [gRPC documentation](http://www.grpc.io/docs/)
 for details). 
 
 #### Key Features:
@@ -54,7 +54,7 @@ for details).
 that is using [Protocol Buffers](https://developers.google.com/protocol-buffers/docs/overview)
 as interface definition language and [HTTP/2](https://http2.github.io/faq/)
 as transport protocol. Kafka-Pixy API is defined in
-[grpc.proto](https://github.com/mailgun/kafka-pixy/blob/master/grpc.proto).
+[kafkapixy.proto](https://github.com/mailgun/kafka-pixy/blob/master/kafkapixy.proto).
 Client stubs for [Golang](https://github.com/mailgun/kafka-pixy/blob/master/gen/golang)
 and [Python](https://github.com/mailgun/kafka-pixy/tree/master/gen/python)
 are generated and provided in this repository, but you can easily
