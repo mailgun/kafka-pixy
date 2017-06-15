@@ -9,8 +9,8 @@ To use Kafka-Pixy from a Python application you need to:
     ```
 
 3. Create `kafkapixy` package in your application and copy
- [kafkapixy_pb2.py](https://github.com/mailgun/blob/master/kafka-pixy/gen/python/kafkapixy_pb2.py) and
- [kafkapixy_pb2_grpc.py](https://github.com/mailgun/blob/master/kafka-pixy/gen/python/kafkapixy_pb2.py)
+ [kafkapixy_pb2.py](https://github.com/mailgun/kafka-pixy/blob/master/gen/python/kafkapixy_pb2.py) and
+ [kafkapixy_pb2_grpc.py](https://github.com/mailgun/kafka-pixy/blob/master/gen/python/kafkapixy_pb2.py)
  files to it.
 
 4. Add imports:
