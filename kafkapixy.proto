@@ -100,12 +100,17 @@ message ProdRq {
     // Message body.
     bytes message = 5;
 
-    // If true then the method returns immediately after Kafka-Pixy get the
+    // If true then the method returns immediately after Kafka-Pixy gets the
     // produce request, and the message is written to Kafka asynchronously.
     // In that case partition and offset returned in response should be ignored.
-    // If false (by default), then a response is returned after the message is
-    // written to all ISR and response provides partition+offset where it was
-    // actually written.
+    // If false, then a response is returned in accordance with the
+    // producer.required_acks parameter, that can be one of:
+    //  * no_response:    the response is returned as soon as a produce request
+    //                    is delivered to a partition leader Kafka broker.
+    //  * wait_for_local: the response is returned as soon as data is written
+    //                    to the disk by a partition leader Kafka broker.
+    //  * wait_for_all:   the response is returned after all in-sync replicas
+    //                    have data committed to disk.
     bool async_mode = 6;
 }
 
@@ -137,7 +142,7 @@ message ConsNAckRq {
     bool auto_ack = 5;
 
     // If both no_ack and auto_ack are false (by default), then ack_partition
-    // and ack_offset along with proxy+group+topic determine the message that
+    // and ack_offset along with cluster-group-topic determine the message that
     // should be acknowledged by the request.
     int32 ack_partition = 6;
     int64 ack_offset = 7;

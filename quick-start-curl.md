@@ -2,7 +2,7 @@ Note: HTTP API is only provided to test Kafka-Pixy from command line and use
       in use in operations (consumer/offset API). To produce/consume messages
       please use [gRPC](http://www.grpc.io/docs/) API. You can use pre-generated
       client stubs shipped with kafka-pixy for [Python](gen/python) and
-      [Golang](gen/golang), or generate them yourself from [grpc.proto](grpc.proto).
+      [Golang](gen/golang), or generate them yourself from [kafkapixy.proto](kafkapixy.proto).
 
 This tutorial assumes that topic `foo` exists in your Kafka cluster or your
 Kafka is configured to create topics on demand.
