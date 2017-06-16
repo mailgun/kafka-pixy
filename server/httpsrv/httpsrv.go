@@ -158,39 +158,20 @@ func (s *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 	_, isSync := r.Form[prmSync]
 
 	// Get the message body from the HTTP request.
-	if _, ok := r.Header[hdrContentLength]; !ok {
-		errorText := fmt.Sprintf("Missing %s header", hdrContentLength)
-		respondWithJSON(w, http.StatusBadRequest, errorRs{errorText})
-		return
-	}
-	messageSizeStr := r.Header.Get(hdrContentLength)
-	messageSize, err := strconv.Atoi(messageSizeStr)
-	if err != nil {
-		errorText := fmt.Sprintf("Invalid %s header: %s", hdrContentLength, messageSizeStr)
-		respondWithJSON(w, http.StatusBadRequest, errorRs{errorText})
-		return
-	}
-	message, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		errorText := fmt.Sprintf("Failed to read a message: err=(%s)", err)
-		respondWithJSON(w, http.StatusBadRequest, errorRs{errorText})
-		return
-	}
-	if len(message) != messageSize {
-		errorText := fmt.Sprintf("Message size does not match %s: expected=%v, actual=%v",
-			hdrContentLength, messageSize, len(message))
-		respondWithJSON(w, http.StatusBadRequest, errorRs{errorText})
+	var msg sarama.Encoder
+	if msg, err = s.readMsg(r); err != nil {
+		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 
 	// Asynchronously submit the message to the Kafka cluster.
 	if !isSync {
-		pxy.AsyncProduce(topic, toEncoderPreservingNil(key), sarama.StringEncoder(message))
+		pxy.AsyncProduce(topic, toEncoderPreservingNil(key), msg)
 		respondWithJSON(w, http.StatusOK, EmptyResponse)
 		return
 	}
 
-	prodMsg, err := pxy.Produce(topic, toEncoderPreservingNil(key), sarama.StringEncoder(message))
+	prodMsg, err := pxy.Produce(topic, toEncoderPreservingNil(key), msg)
 	if err != nil {
 		var status int
 		switch err {
@@ -207,6 +188,38 @@ func (s *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 		Partition: prodMsg.Partition,
 		Offset:    prodMsg.Offset,
 	})
+}
+
+// readMsg reads message from the HTTP request based on the Content-Type header.
+func (s *T) readMsg(r *http.Request) (sarama.Encoder, error) {
+	contentType := r.Header.Get(hdrContentType)
+	if contentType == "text/plain" || contentType == "application/json" {
+		if _, ok := r.Header[hdrContentLength]; !ok {
+			return nil, errors.Errorf("missing %s header", hdrContentLength)
+		}
+		messageSizeStr := r.Header.Get(hdrContentLength)
+		msgSize, err := strconv.Atoi(messageSizeStr)
+		if err != nil {
+			return nil, errors.Errorf("invalid %s header: %s", hdrContentLength, messageSizeStr)
+		}
+		msg, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to read message")
+		}
+		if len(msg) != msgSize {
+			return nil, errors.Errorf("message size does not match %s: expected=%v, actual=%v",
+				hdrContentLength, msgSize, len(msg))
+		}
+		return sarama.ByteEncoder(msg), nil
+	}
+	if contentType == "application/x-www-form-urlencoded" {
+		msg := r.FormValue("msg")
+		if msg == "" {
+			return nil, errors.Errorf("empty message")
+		}
+		return sarama.StringEncoder(msg), nil
+	}
+	return nil, errors.Errorf("unsupported content type %s", contentType)
 }
 
 // handleConsume is an HTTP request handler for `GET /topic/{topic}/messages`

@@ -192,6 +192,24 @@ func (s *ServiceHTTPSuite) TestUtf8Message(c *C) {
 		[][]string{[]string(nil), {"Превед Медвед"}, []string(nil), []string(nil)})
 }
 
+func (s *ServiceHTTPSuite) TestProduceXWWWFormUrlencoded(c *C) {
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
+	offsetsBefore := s.kh.GetNewestOffsets("test.1")
+
+	// When
+	rs, err := s.unixClient.Post("http://_/topics/test.1/messages?key=1",
+		"application/x-www-form-urlencoded", strings.NewReader("msg=foo"))
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(rs.StatusCode, Equals, http.StatusOK)
+
+	svc.Stop() // Have to stop before getOffsets
+	offsetsAfter := s.kh.GetNewestOffsets("test.1")
+	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0]+1)
+}
+
 // API is served on a TCP socket if it is explicitly configured.
 func (s *ServiceHTTPSuite) TestBothAPI(c *C) {
 	offsetsBefore := s.kh.GetNewestOffsets("test.4")
