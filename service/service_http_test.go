@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"math"
 	"net"
 	"net/http"
 	"os"
@@ -146,8 +145,7 @@ func (s *ServiceHTTPSuite) TestProduceNilKey(c *C) {
 	// Then
 	delta0 := offsetsAfter[0] - offsetsBefore[0]
 	delta1 := offsetsAfter[1] - offsetsBefore[1]
-	imbalance := int(math.Abs(float64(delta1 - delta0)))
-	if imbalance > 20 {
+	if delta0 == 0 || delta1 == 0 {
 		panic(errors.Errorf("Too high imbalance: %v != %v", delta0, delta1))
 	}
 }
