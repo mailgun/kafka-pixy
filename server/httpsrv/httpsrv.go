@@ -150,7 +150,7 @@ func (s *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 
 	pxy, err := s.getProxy(r)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 	topic := mux.Vars(r)[prmTopic]
@@ -160,26 +160,26 @@ func (s *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 	// Get the message body from the HTTP request.
 	if _, ok := r.Header[hdrContentLength]; !ok {
 		errorText := fmt.Sprintf("Missing %s header", hdrContentLength)
-		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{errorText})
+		respondWithJSON(w, http.StatusBadRequest, errorRs{errorText})
 		return
 	}
 	messageSizeStr := r.Header.Get(hdrContentLength)
 	messageSize, err := strconv.Atoi(messageSizeStr)
 	if err != nil {
 		errorText := fmt.Sprintf("Invalid %s header: %s", hdrContentLength, messageSizeStr)
-		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{errorText})
+		respondWithJSON(w, http.StatusBadRequest, errorRs{errorText})
 		return
 	}
 	message, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		errorText := fmt.Sprintf("Failed to read a message: err=(%s)", err)
-		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{errorText})
+		respondWithJSON(w, http.StatusBadRequest, errorRs{errorText})
 		return
 	}
 	if len(message) != messageSize {
 		errorText := fmt.Sprintf("Message size does not match %s: expected=%v, actual=%v",
 			hdrContentLength, messageSize, len(message))
-		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{errorText})
+		respondWithJSON(w, http.StatusBadRequest, errorRs{errorText})
 		return
 	}
 
@@ -199,11 +199,11 @@ func (s *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 		default:
 			status = http.StatusInternalServerError
 		}
-		respondWithJSON(w, status, errorHTTPResponse{err.Error()})
+		respondWithJSON(w, status, errorRs{err.Error()})
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, produceHTTPResponse{
+	respondWithJSON(w, http.StatusOK, produceRs{
 		Partition: prodMsg.Partition,
 		Offset:    prodMsg.Offset,
 	})
@@ -215,18 +215,18 @@ func (s *T) handleConsume(w http.ResponseWriter, r *http.Request) {
 
 	pxy, err := s.getProxy(r)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 	topic := mux.Vars(r)[prmTopic]
 	group, err := getGroupParam(r, false)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 	ack, err := parseAck(r, true)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 
@@ -241,11 +241,11 @@ func (s *T) handleConsume(w http.ResponseWriter, r *http.Request) {
 		default:
 			status = http.StatusInternalServerError
 		}
-		respondWithJSON(w, status, errorHTTPResponse{err.Error()})
+		respondWithJSON(w, status, errorRs{err.Error()})
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, consumeHTTPResponse{
+	respondWithJSON(w, http.StatusOK, consumeRs{
 		Key:       consMsg.Key,
 		Value:     consMsg.Value,
 		Partition: consMsg.Partition,
@@ -259,24 +259,24 @@ func (s *T) handleAck(w http.ResponseWriter, r *http.Request) {
 
 	pxy, err := s.getProxy(r)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 	topic := mux.Vars(r)[prmTopic]
 	group, err := getGroupParam(r, false)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 	ack, err := parseAck(r, true)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 
 	err = pxy.Ack(group, topic, ack)
 	if err != nil {
-		respondWithJSON(w, http.StatusInternalServerError, errorHTTPResponse{err.Error()})
+		respondWithJSON(w, http.StatusInternalServerError, errorRs{err.Error()})
 		return
 	}
 	respondWithJSON(w, http.StatusOK, EmptyResponse)
@@ -288,27 +288,27 @@ func (s *T) handleGetOffsets(w http.ResponseWriter, r *http.Request) {
 
 	pxy, err := s.getProxy(r)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 	topic := mux.Vars(r)[prmTopic]
 	group, err := getGroupParam(r, false)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 
 	partitionOffsets, err := pxy.GetGroupOffsets(group, topic)
 	if err != nil {
 		if errors.Cause(err) == sarama.ErrUnknownTopicOrPartition {
-			respondWithJSON(w, http.StatusNotFound, errorHTTPResponse{"Unknown topic"})
+			respondWithJSON(w, http.StatusNotFound, errorRs{"Unknown topic"})
 			return
 		}
-		respondWithJSON(w, http.StatusInternalServerError, errorHTTPResponse{err.Error()})
+		respondWithJSON(w, http.StatusInternalServerError, errorRs{err.Error()})
 		return
 	}
 
-	offsetViews := make([]partitionOffsetView, len(partitionOffsets))
+	offsetViews := make([]partitionInfo, len(partitionOffsets))
 	for i, po := range partitionOffsets {
 		offsetViews[i].Partition = po.Partition
 		offsetViews[i].Begin = po.Begin
@@ -335,27 +335,27 @@ func (s *T) handleSetOffsets(w http.ResponseWriter, r *http.Request) {
 
 	pxy, err := s.getProxy(r)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 	topic := mux.Vars(r)[prmTopic]
 	group, err := getGroupParam(r, false)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		errorText := fmt.Sprintf("Failed to read the request: err=(%s)", err)
-		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{errorText})
+		respondWithJSON(w, http.StatusBadRequest, errorRs{errorText})
 		return
 	}
 
-	var partitionOffsetViews []partitionOffsetView
+	var partitionOffsetViews []partitionInfo
 	if err := json.Unmarshal(body, &partitionOffsetViews); err != nil {
 		errorText := fmt.Sprintf("Failed to parse the request: err=(%s)", err)
-		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{errorText})
+		respondWithJSON(w, http.StatusBadRequest, errorRs{errorText})
 		return
 	}
 
@@ -369,10 +369,10 @@ func (s *T) handleSetOffsets(w http.ResponseWriter, r *http.Request) {
 	err = pxy.SetGroupOffsets(group, topic, partitionOffsets)
 	if err != nil {
 		if err = errors.Cause(err); err == sarama.ErrUnknownTopicOrPartition {
-			respondWithJSON(w, http.StatusNotFound, errorHTTPResponse{"Unknown topic"})
+			respondWithJSON(w, http.StatusNotFound, errorRs{"Unknown topic"})
 			return
 		}
-		respondWithJSON(w, http.StatusInternalServerError, errorHTTPResponse{err.Error()})
+		respondWithJSON(w, http.StatusInternalServerError, errorRs{err.Error()})
 		return
 	}
 
@@ -386,14 +386,14 @@ func (s *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
 
 	pxy, err := s.getProxy(r)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 	topic := mux.Vars(r)[prmTopic]
 
 	group, err := getGroupParam(r, true)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 
@@ -401,17 +401,17 @@ func (s *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
 	if group == "" {
 		consumers, err = pxy.GetAllTopicConsumers(topic)
 		if err != nil {
-			respondWithJSON(w, http.StatusInternalServerError, errorHTTPResponse{err.Error()})
+			respondWithJSON(w, http.StatusInternalServerError, errorRs{err.Error()})
 			return
 		}
 	} else {
 		groupConsumers, err := pxy.GetTopicConsumers(group, topic)
 		if err != nil {
 			if _, ok := err.(admin.ErrInvalidParam); ok {
-				respondWithJSON(w, http.StatusBadRequest, errorHTTPResponse{err.Error()})
+				respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 				return
 			}
-			respondWithJSON(w, http.StatusInternalServerError, errorHTTPResponse{err.Error()})
+			respondWithJSON(w, http.StatusInternalServerError, errorRs{err.Error()})
 			return
 		}
 		consumers = make(map[string]map[string][]int32)
@@ -441,19 +441,19 @@ func (s *T) handlePing(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("pong"))
 }
 
-type produceHTTPResponse struct {
+type produceRs struct {
 	Partition int32 `json:"partition"`
 	Offset    int64 `json:"offset"`
 }
 
-type consumeHTTPResponse struct {
+type consumeRs struct {
 	Key       []byte `json:"key"`
 	Value     []byte `json:"value"`
 	Partition int32  `json:"partition"`
 	Offset    int64  `json:"offset"`
 }
 
-type partitionOffsetView struct {
+type partitionInfo struct {
 	Partition  int32  `json:"partition"`
 	Begin      int64  `json:"begin"`
 	End        int64  `json:"end"`
@@ -464,7 +464,7 @@ type partitionOffsetView struct {
 	SparseAcks string `json:"sparse_acks,omitempty"`
 }
 
-type errorHTTPResponse struct {
+type errorRs struct {
 	Error string `json:"error"`
 }
 
