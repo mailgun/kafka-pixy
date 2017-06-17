@@ -80,23 +80,34 @@ POST /topics/<topic>/messages
 POST /clusters/<cluster>/topics/<topic>/messages
 ```
 
-Writes a message to a topic on a particular cluster. the message should
-be send as the body of the request which can be either `text/plain` or
-or `application/json`.
+Writes a message to a topic on a particular cluster. If the request content
+type either `text/plain` or `application/json` then a message should be send as
+the body of a request. If content type is `x-www-form-urlencoded` then a
+message should be pass as the `msg` form parameter.
 
  Parameter | Opt | Description
 -----------|-----|------------------------------------------------------
  cluster   | yes | The name of a cluster to operate on. By default the cluster mentioned first in the `proxies` section of the config file is used.
  topic     |     | The name of a topic to produce to
  key       | yes | A string that hash is used to determine a partition to produce to. By default a random partition is selected.
+ msg       |  *  | Used only if the request content type is `x-www-form-urlencoded`. In other cases request body is the message.  
  sync      | yes | A flag (value is ignored) that makes Kafka-Pixy wait for all ISR to confirm write before sending a response back. By default a response is sent immediatelly after the request is received.
 
 By default the message is written to Kafka asynchronously, that is the
 HTTP request completes as soon as Kafka-Pixy reads the request from the
 wire, and production to Kafka is performed on the background. Therefore
-it is not guarantee that the message will ever get into Kafka. To ensure
-that a request returns **200 OK** after the message is written to all
-in-sync replicas pass **sync** flag in your request.
+it is not guarantee that the message will ever get into Kafka.
+
+If you need a guarantee that a message is written to Kafka, then pass **sync**
+flag with your request. In that case when Kafka-Pixy returns a response is
+governed by `producer.required_acks` parameter in the YAML config. It can be one
+of:
+ * **no_response**: the response is returned as soon as a produce request is
+   delivered to a partition leader Kafka broker (no disk writes performed yet).
+ * **wait_for_local**: the response is returned as soon as data is written to
+   the disk by a partition leader Kafka broker.
+ * **wait_for_all**: the response is returned after all in-sync replicas have
+   data committed to disk.
 
 E.g. if a Kafka-Pixy process has been started with the `--tcpAddr=0.0.0.0:8080`
 argument, then you can test it using **curl** as follows:

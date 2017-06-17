@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"math"
 	"net"
 	"net/http"
 	"os"
@@ -146,8 +145,7 @@ func (s *ServiceHTTPSuite) TestProduceNilKey(c *C) {
 	// Then
 	delta0 := offsetsAfter[0] - offsetsBefore[0]
 	delta1 := offsetsAfter[1] - offsetsBefore[1]
-	imbalance := int(math.Abs(float64(delta1 - delta0)))
-	if imbalance > 20 {
+	if delta0 == 0 || delta1 == 0 {
 		panic(errors.Errorf("Too high imbalance: %v != %v", delta0, delta1))
 	}
 }
@@ -190,6 +188,24 @@ func (s *ServiceHTTPSuite) TestUtf8Message(c *C) {
 	msgs := s.kh.GetMessages("test.4", offsetsBefore, offsetsAfter)
 	c.Assert(msgs, DeepEquals,
 		[][]string{[]string(nil), {"Превед Медвед"}, []string(nil), []string(nil)})
+}
+
+func (s *ServiceHTTPSuite) TestProduceXWWWFormUrlencoded(c *C) {
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
+	offsetsBefore := s.kh.GetNewestOffsets("test.1")
+
+	// When
+	rs, err := s.unixClient.Post("http://_/topics/test.1/messages?key=1",
+		"application/x-www-form-urlencoded", strings.NewReader("msg=foo"))
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(rs.StatusCode, Equals, http.StatusOK)
+
+	svc.Stop() // Have to stop before getOffsets
+	offsetsAfter := s.kh.GetNewestOffsets("test.1")
+	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0]+1)
 }
 
 // API is served on a TCP socket if it is explicitly configured.

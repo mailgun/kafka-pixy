@@ -1,5 +1,15 @@
 # Changelog
 
+#### Version 0.13.1 (TBD)
+
+Implemented:
+* Posts can now be performed with content type `x-www-form-urlencoded`, in that
+  case message should be passed in the `msg` form parameter.
+
+Fixed:
+* [#100](https://github.com/mailgun/kafka-pixy/issues/100) Consumption from a
+  partition stops if the segment that we read from expires.
+
 #### Version 0.13.0 (2017-03-22)
 
 Implemented:
