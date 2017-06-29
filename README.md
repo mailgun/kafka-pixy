@@ -50,7 +50,7 @@ for details).
 
 ## gRPC API
 
-[gRPC](http://www.grpc.io/docs/guides/) is an opens source framework
+[gRPC](http://www.grpc.io/docs/guides/) is an open source framework
 that is using [Protocol Buffers](https://developers.google.com/protocol-buffers/docs/overview)
 as interface definition language and [HTTP/2](https://http2.github.io/faq/)
 as transport protocol. Kafka-Pixy API is defined in
