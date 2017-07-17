@@ -21,7 +21,7 @@ type MultiplexerSuite struct {
 var _ = Suite(&MultiplexerSuite{})
 
 func (s *MultiplexerSuite) SetUpSuite(c *C) {
-	testhelpers.InitLogging(c)
+	testhelpers.InitLogging()
 }
 
 func (s *MultiplexerSuite) SetUpTest(c *C) {

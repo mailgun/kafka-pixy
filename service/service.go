@@ -11,8 +11,8 @@ import (
 	"github.com/mailgun/kafka-pixy/server"
 	"github.com/mailgun/kafka-pixy/server/grpcsrv"
 	"github.com/mailgun/kafka-pixy/server/httpsrv"
-	"github.com/mailgun/log"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 )
 
 type T struct {

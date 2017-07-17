@@ -14,7 +14,7 @@ import (
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
-	"github.com/mailgun/log"
+	log "github.com/sirupsen/logrus"
 	. "gopkg.in/check.v1"
 )
 
@@ -42,7 +42,7 @@ func Test(t *testing.T) {
 }
 
 func (s *PartitionCsmSuite) SetUpSuite(c *C) {
-	testhelpers.InitLogging(c)
+	testhelpers.InitLogging()
 	s.kh = kafkahelper.New(c)
 	// Make sure that topic has at least 100 messages. There may be more,
 	// because other tests are also using it.

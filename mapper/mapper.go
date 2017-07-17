@@ -7,7 +7,7 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/none"
-	"github.com/mailgun/log"
+	log "github.com/sirupsen/logrus"
 )
 
 // T maintains mapping of workers that generate requests to executors. An

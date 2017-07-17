@@ -10,8 +10,8 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/mapper"
 	"github.com/mailgun/kafka-pixy/none"
-	"github.com/mailgun/log"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 )
 
 // Factory provides API to spawn message fetcher that read messages from

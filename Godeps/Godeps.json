@@ -18,6 +18,10 @@
 			"Rev": "6800482f2c813e689c88b7ed3282262385011890"
 		},
 		{
+			"ImportPath": "github.com/eapache/go-xerial-snappy",
+			"Rev": "bb955e01b9346ac19dc29eb16586c90ded99a98c"
+		},
+		{
 			"ImportPath": "github.com/eapache/queue",
 			"Comment": "v1.0.1-2-gd1df561",
 			"Rev": "d1df561eb6b9ffdac8dd98f943e9e9096c76c059"
@@ -43,8 +47,29 @@
 			"Rev": "999f3125931f6557b991b2f8472172bdfa578d38"
 		},
 		{
-			"ImportPath": "github.com/mailgun/log",
-			"Rev": "2f35a4607f1abf71f97f77f99b0de8493ef6f4ef"
+			"ImportPath": "github.com/mailgun/holster/errors",
+			"Comment": "v1.1.0",
+			"Rev": "91db52db577949c04574aa1e5ca38c36ab92e4c0"
+		},
+		{
+			"ImportPath": "github.com/mailgun/holster/stack",
+			"Comment": "v1.1.0",
+			"Rev": "91db52db577949c04574aa1e5ca38c36ab92e4c0"
+		},
+		{
+			"ImportPath": "github.com/mailgun/logrus-hooks/common",
+			"Comment": "v1.1.0",
+			"Rev": "5ee121b6e962bf95caf2804f475bfcb9305ba6f6"
+		},
+		{
+			"ImportPath": "github.com/mailgun/logrus-hooks/kafkahook",
+			"Comment": "v1.1.0",
+			"Rev": "5ee121b6e962bf95caf2804f475bfcb9305ba6f6"
+		},
+		{
+			"ImportPath": "github.com/mailgun/logrus-hooks/levelfilter",
+			"Comment": "v1.1.0",
+			"Rev": "5ee121b6e962bf95caf2804f475bfcb9305ba6f6"
 		},
 		{
 			"ImportPath": "github.com/mailgun/manners",
@@ -52,13 +77,52 @@
 			"Rev": "fada45142db3f93097ca917da107aa3fad0ffcb5"
 		},
 		{
+			"ImportPath": "github.com/mailru/easyjson",
+			"Rev": "2f5df55504ebc322e4d52d34df6a1f5b503bf26d"
+		},
+		{
+			"ImportPath": "github.com/mailru/easyjson/buffer",
+			"Rev": "2f5df55504ebc322e4d52d34df6a1f5b503bf26d"
+		},
+		{
+			"ImportPath": "github.com/mailru/easyjson/jlexer",
+			"Rev": "2f5df55504ebc322e4d52d34df6a1f5b503bf26d"
+		},
+		{
+			"ImportPath": "github.com/mailru/easyjson/jwriter",
+			"Rev": "2f5df55504ebc322e4d52d34df6a1f5b503bf26d"
+		},
+		{
+			"ImportPath": "github.com/pierrec/lz4",
+			"Rev": "90290f74b1b4d9c097f0a3b3c7eba2ef3875c699"
+		},
+		{
+			"ImportPath": "github.com/pierrec/xxHash/xxHash32",
+			"Comment": "v0.1-4-g5a00444",
+			"Rev": "5a004441f897722c627870a981d02b29924215fa"
+		},
+		{
 			"ImportPath": "github.com/pkg/errors",
 			"Comment": "v0.8.0-2-g248dadf",
 			"Rev": "248dadf4e9068a0b3e79f02ed0a610d935de5302"
 		},
 		{
+			"ImportPath": "github.com/rcrowley/go-metrics",
+			"Rev": "1f30fe9094a513ce4c700b9a54458bbb0c96996c"
+		},
+		{
 			"ImportPath": "github.com/samuel/go-zookeeper/zk",
 			"Rev": "1d7be4effb13d2d908342d349d71a284a7542693"
+		},
+		{
+			"ImportPath": "github.com/sirupsen/logrus",
+			"Comment": "v1.0.1",
+			"Rev": "7f976d3a76720c4c27af2ba716b85d2e0a7e38b1"
+		},
+		{
+			"ImportPath": "github.com/sirupsen/logrus/hooks/syslog",
+			"Comment": "v1.0.1",
+			"Rev": "7f976d3a76720c4c27af2ba716b85d2e0a7e38b1"
 		},
 		{
 			"ImportPath": "github.com/wvanbergen/kazoo-go",
@@ -87,6 +151,10 @@
 		{
 			"ImportPath": "golang.org/x/net/trace",
 			"Rev": "b400c2eff1badec7022a8c8f5bea058b6315eed7"
+		},
+		{
+			"ImportPath": "golang.org/x/sys/unix",
+			"Rev": "d75a52659825e75fff6158388dddc6a5b04f9ba5"
 		},
 		{
 			"ImportPath": "google.golang.org/grpc",
@@ -146,23 +214,6 @@
 		{
 			"ImportPath": "gopkg.in/yaml.v2",
 			"Rev": "31c299268d302dd0aa9a0dcf765a3d58971ac83f"
-		},
-		{
-			"ImportPath": "github.com/eapache/go-xerial-snappy",
-			"Rev": "bb955e01b9346ac19dc29eb16586c90ded99a98c"
-		},
-		{
-			"ImportPath": "github.com/pierrec/lz4",
-			"Rev": "90290f74b1b4d9c097f0a3b3c7eba2ef3875c699"
-		},
-		{
-			"ImportPath": "github.com/rcrowley/go-metrics",
-			"Rev": "1f30fe9094a513ce4c700b9a54458bbb0c96996c"
-		},
-		{
-			"ImportPath": "github.com/pierrec/xxHash/xxHash32",
-			"Comment": "v0.1-4-g5a00444",
-			"Rev": "5a004441f897722c627870a981d02b29924215fa"
 		}
 	]
 }

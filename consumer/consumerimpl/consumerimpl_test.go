@@ -15,7 +15,7 @@ import (
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
-	"github.com/mailgun/log"
+	log "github.com/sirupsen/logrus"
 	. "gopkg.in/check.v1"
 )
 
@@ -33,7 +33,7 @@ type ConsumerSuite struct {
 var _ = Suite(&ConsumerSuite{})
 
 func (s *ConsumerSuite) SetUpSuite(c *C) {
-	testhelpers.InitLogging(c)
+	testhelpers.InitLogging()
 	s.kh = kafkahelper.New(c)
 
 	cfg := testhelpers.NewTestProxyCfg("omf")

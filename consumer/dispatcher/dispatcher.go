@@ -7,7 +7,7 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer"
-	"github.com/mailgun/log"
+	log "github.com/sirupsen/logrus"
 )
 
 // T reads consume requests submitted to the `Requests()` channel and

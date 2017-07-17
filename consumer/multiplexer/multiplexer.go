@@ -8,7 +8,7 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/none"
-	"github.com/mailgun/log"
+	log "github.com/sirupsen/logrus"
 )
 
 // T fetches messages from inputs and multiplexes them to the output, giving

@@ -12,8 +12,8 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer/consumerimpl"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/producer"
-	"github.com/mailgun/log"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 )
 
 const (

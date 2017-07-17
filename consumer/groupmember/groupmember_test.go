@@ -25,7 +25,7 @@ type GroupMemberSuite struct {
 var _ = Suite(&GroupMemberSuite{})
 
 func (s *GroupMemberSuite) SetUpSuite(c *C) {
-	testhelpers.InitLogging(c)
+	testhelpers.InitLogging()
 	var err error
 	s.kazooClt, err = kazoo.NewKazoo(testhelpers.ZookeeperPeers, kazoo.NewConfig())
 	c.Assert(err, IsNil)

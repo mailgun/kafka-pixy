@@ -22,7 +22,7 @@ type OffsetMgrFuncSuite struct {
 var _ = Suite(&OffsetMgrFuncSuite{})
 
 func (s *OffsetMgrFuncSuite) SetUpSuite(c *C) {
-	testhelpers.InitLogging(c)
+	testhelpers.InitLogging()
 }
 
 func (s *OffsetMgrFuncSuite) SetUpTest(c *C) {

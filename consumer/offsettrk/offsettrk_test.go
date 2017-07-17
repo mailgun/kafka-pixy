@@ -7,6 +7,7 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
+	"github.com/mailgun/kafka-pixy/testhelpers"
 	. "gopkg.in/check.v1"
 )
 
@@ -25,6 +26,10 @@ type OffsetTrkSuite struct {
 
 func Test(t *testing.T) {
 	TestingT(t)
+}
+
+func (s *OffsetTrkSuite) SetUpSuite(c *C) {
+	testhelpers.InitLogging()
 }
 
 func (s *OffsetTrkSuite) SetUpTest(c *C) {

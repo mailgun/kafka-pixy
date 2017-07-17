@@ -20,7 +20,7 @@ type MsgFetcherFuncSuite struct {
 var _ = Suite(&MsgFetcherFuncSuite{})
 
 func (s *MsgFetcherFuncSuite) SetUpSuite(c *C) {
-	testhelpers.InitLogging(c)
+	testhelpers.InitLogging()
 	s.kh = kafkahelper.New(c)
 }
 

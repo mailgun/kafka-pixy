@@ -38,7 +38,7 @@ type ServiceHTTPSuite struct {
 var _ = Suite(&ServiceHTTPSuite{})
 
 func (s *ServiceHTTPSuite) SetUpSuite(c *C) {
-	testhelpers.InitLogging(c)
+	testhelpers.InitLogging()
 }
 
 func (s *ServiceHTTPSuite) SetUpTest(c *C) {

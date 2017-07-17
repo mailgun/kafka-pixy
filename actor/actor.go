@@ -6,7 +6,7 @@ import (
 	"runtime/debug"
 	"sync"
 
-	"github.com/mailgun/log"
+	log "github.com/sirupsen/logrus"
 )
 
 type ID struct {

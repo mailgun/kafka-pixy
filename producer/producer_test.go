@@ -27,7 +27,7 @@ func Test(t *testing.T) {
 var _ = Suite(&ProducerSuite{})
 
 func (s *ProducerSuite) SetUpSuite(c *C) {
-	testhelpers.InitLogging(c)
+	testhelpers.InitLogging()
 }
 
 func (s *ProducerSuite) SetUpTest(c *C) {

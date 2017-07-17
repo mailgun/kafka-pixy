@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -13,7 +12,7 @@ import (
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/logging"
 	"github.com/mailgun/kafka-pixy/service"
-	"github.com/mailgun/log"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -51,7 +50,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := initLogging(); err != nil {
+	if err := logging.Init(cmdLoggingJSONCfg, cfg); err != nil {
 		fmt.Printf("Failed to initialize logger: err=(%s)\n", err)
 		os.Exit(1)
 	}
@@ -123,18 +122,6 @@ func makeConfig() (*config.App, error) {
 		}
 	}
 	return cfg, nil
-}
-
-func initLogging() error {
-	var loggingCfg []log.Config
-	if err := json.Unmarshal([]byte(cmdLoggingJSONCfg), &loggingCfg); err != nil {
-		return fmt.Errorf("failed to parse logger config: err=(%s)", err)
-	}
-	if err := log.InitWithConfig(loggingCfg...); err != nil {
-		return err
-	}
-	logging.Init3rdParty()
-	return nil
 }
 
 func writePID(path string) error {

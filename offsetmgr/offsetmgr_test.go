@@ -10,7 +10,7 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/testhelpers"
-	"github.com/mailgun/log"
+	log "github.com/sirupsen/logrus"
 	. "gopkg.in/check.v1"
 )
 
@@ -25,7 +25,7 @@ type OffsetMgrSuite struct {
 var _ = Suite(&OffsetMgrSuite{})
 
 func (s *OffsetMgrSuite) SetUpSuite(c *C) {
-	testhelpers.InitLogging(c)
+	testhelpers.InitLogging()
 	testReportErrors = true
 }
 

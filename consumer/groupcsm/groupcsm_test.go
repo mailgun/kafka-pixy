@@ -21,7 +21,7 @@ type GroupConsumerSuite struct {
 var _ = Suite(&GroupConsumerSuite{})
 
 func (s *GroupConsumerSuite) SetUpSuite(c *C) {
-	testhelpers.InitLogging(c)
+	testhelpers.InitLogging()
 }
 
 func (s *GroupConsumerSuite) SetUpTest(*C) {

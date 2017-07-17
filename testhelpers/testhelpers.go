@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/logging"
 )
 
 const (
@@ -36,6 +37,14 @@ func init() {
 		zookeeperPeersStr = VagrantZookeeperPeers
 	}
 	ZookeeperPeers = strings.Split(zookeeperPeersStr, ",")
+}
+
+// InitLogging initializes both internal and 3rd party loggers to output logs
+// using the test context object's `Log` function.
+func InitLogging() {
+	initTestOnce.Do(func() {
+		logging.Init(`[{"name": "console"}]`, nil)
+	})
 }
 
 func NewTestProxyCfg(clientID string) *config.Proxy {
