@@ -1,6 +1,6 @@
 language: go
 go:
-  - 1.7.5
+  - 1.8.3
 
 env:
   global:
@@ -21,4 +21,5 @@ before_install:
   - vendor/github.com/Shopify/sarama/vagrant/create_topics.sh
 
 script: ./scripts/travis_build.sh
+after_script: ./scripts/shutdown_fixture.sh
 sudo: false
