@@ -79,7 +79,7 @@ type instanceID struct {
 // down this factory.
 func SpawnFactory(namespace *actor.ID, cfg *config.Proxy, kafkaClt sarama.Client) (Factory, error) {
 	f := &factory{
-		namespace: namespace.NewChild("msg_stream_f"),
+		namespace: namespace.NewChild("msg_fetcher_f"),
 		cfg:       cfg,
 		kafkaClt:  kafkaClt,
 		children:  make(map[instanceID]*msgFetcher),
@@ -103,7 +103,7 @@ func (f *factory) Spawn(namespace *actor.ID, topic string, partition int32, offs
 		return nil, sarama.OffsetNewest, sarama.ConfigurationError("That topic/partition is already being consumed")
 	}
 	mf := &msgFetcher{
-		actorID:      namespace.NewChild("msg_stream"),
+		actorID:      namespace.NewChild("msg_fetcher"),
 		f:            f,
 		id:           id,
 		assignmentCh: make(chan mapper.Executor, 1),

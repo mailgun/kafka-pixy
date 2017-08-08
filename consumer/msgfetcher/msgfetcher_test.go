@@ -8,6 +8,7 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	log "github.com/sirupsen/logrus"
 	. "gopkg.in/check.v1"
@@ -553,23 +554,27 @@ func (s *MsgFetcherSuite) TestRebalancingMultiplePartitions(c *C) {
 
 	// we expect to end up (eventually) consuming exactly ten messages on each partition
 	var wg sync.WaitGroup
-	for i := int32(0); i < 2; i++ {
-		mf, _, err := f.Spawn(s.ns.NewChild("my_topic", i), "my_topic", i, 0)
+	consumed := make([]chan consumer.Message, 2)
+	for i := range consumed {
+		consumed[i] = make(chan consumer.Message, 10)
+		mf, _, err := f.Spawn(s.ns.NewChild("my_topic", i), "my_topic", int32(i), 0)
 		c.Assert(err, IsNil)
 
 		wg.Add(1)
 		go func(partition int32, mf T) {
 			defer wg.Done()
 			defer mf.Stop()
-			for i := 0; i < 10; i++ {
-				message := <-mf.Messages()
-				c.Assert(message.Offset, Equals, int64(i), Commentf("Incorrect message offset!", i, partition, message.Offset))
-				c.Assert(message.Partition, Equals, partition, Commentf("Incorrect message partition!"))
+			for i := 0; i < cap(consumed[partition]); i++ {
+				msg := <-mf.Messages()
+				consumed[partition] <- msg
+				log.Infof("*** consumed: partition=%d, msg=%v", partition, msg)
+				c.Assert(msg.Offset, Equals, int64(i), Commentf("Incorrect message offset!", i, partition, msg.Offset))
+				c.Assert(msg.Partition, Equals, partition, Commentf("Incorrect message partition!"))
 			}
-		}(i, mf)
+		}(int32(i), mf)
 	}
 
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	log.Infof("    STAGE 1")
 	// Stage 1:
 	//   * my_topic/0 -> leader0 serves 4 messages
@@ -583,7 +588,8 @@ func (s *MsgFetcherSuite) TestRebalancingMultiplePartitions(c *C) {
 		"FetchRequest": mockFetchResponse,
 	})
 
-	time.Sleep(50 * time.Millisecond)
+	wait4msg(c, consumed[0], 4, 500*time.Millisecond)
+
 	log.Infof("    STAGE 2")
 	// Stage 2:
 	//   * leader0 says that it is no longer serving my_topic/0
@@ -603,7 +609,7 @@ func (s *MsgFetcherSuite) TestRebalancingMultiplePartitions(c *C) {
 		"FetchRequest": sarama.NewMockWrapper(fetchResponse),
 	})
 
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	log.Infof("    STAGE 3")
 	// Stage 3:
 	//   * my_topic/0 -> leader1 serves 6 messages
@@ -621,7 +627,9 @@ func (s *MsgFetcherSuite) TestRebalancingMultiplePartitions(c *C) {
 		"FetchRequest": mockFetchResponse2,
 	})
 
-	time.Sleep(50 * time.Millisecond)
+	wait4msg(c, consumed[0], 6, 500*time.Millisecond)
+	wait4msg(c, consumed[1], 8, 500*time.Millisecond)
+
 	log.Infof("    STAGE 4")
 	// Stage 4:
 	//   * my_topic/1 -> leader1 tells that it is no longer the leader
@@ -650,6 +658,7 @@ func (s *MsgFetcherSuite) TestRebalancingMultiplePartitions(c *C) {
 		"FetchRequest": mockFetchResponse4,
 	})
 
+	wait4msg(c, consumed[1], 2, 500*time.Millisecond)
 	wg.Wait()
 }
 
@@ -812,4 +821,15 @@ func (s *MsgFetcherSuite) TestOffsetOutOfRange(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(offset, Equals, int64(2000))
 	mf.Stop()
+}
+
+func wait4msg(c *C, ch <-chan consumer.Message, want int, timeout time.Duration) {
+	for i := 0; i < want; i++ {
+		select {
+		case <-ch:
+		case <-time.After(timeout):
+			c.Errorf("Timeout waiting for messages: want=%d, got=%d", want, i)
+			return
+		}
+	}
 }
