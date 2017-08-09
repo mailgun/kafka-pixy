@@ -5,8 +5,8 @@
 	"Deps": [
 		{
 			"ImportPath": "github.com/Shopify/sarama",
-			"Comment": "v1.11.0",
-			"Rev": "0fb560e5f7fbcaee2f75e3c34174320709f69944"
+			"Comment": "v1.12.0",
+			"Rev": "c01858abb625b73a3af51d0798e4ad42c8147093"
 		},
 		{
 			"ImportPath": "github.com/davecgh/go-spew/spew",
@@ -41,10 +41,6 @@
 		{
 			"ImportPath": "github.com/gorilla/mux",
 			"Rev": "8096f47503459bcc74d1f4c487b7e6e42e5746b5"
-		},
-		{
-			"ImportPath": "github.com/klauspost/crc32",
-			"Rev": "999f3125931f6557b991b2f8472172bdfa578d38"
 		},
 		{
 			"ImportPath": "github.com/mailgun/holster/errors",
