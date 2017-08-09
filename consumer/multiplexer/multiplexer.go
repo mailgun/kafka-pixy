@@ -8,7 +8,6 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/none"
-	log "github.com/sirupsen/logrus"
 )
 
 // T fetches messages from inputs and multiplexes them to the output, giving
@@ -16,7 +15,7 @@ import (
 // inputs in the sense that it decides when an new input instance needs to
 // started, or the old one stopped.
 type T struct {
-	actorID   *actor.ID
+	actDesc   *actor.Descriptor
 	spawnInFn SpawnInFn
 	inputs    map[int32]*input
 	output    Out
@@ -47,9 +46,9 @@ type Out interface {
 type SpawnInFn func(partition int32) In
 
 // New creates a new multiplexer instance.
-func New(namespace *actor.ID, spawnInFn SpawnInFn) *T {
+func New(parentActDesc *actor.Descriptor, spawnInFn SpawnInFn) *T {
 	return &T{
-		actorID:   namespace.NewChild("mux"),
+		actDesc:   parentActDesc.NewChild("mux"),
 		inputs:    make(map[int32]*input),
 		spawnInFn: spawnInFn,
 		stopCh:    make(chan none.T),
@@ -132,7 +131,7 @@ func (m *T) Stop() {
 }
 
 func (m *T) start() {
-	actor.Spawn(m.actorID, &m.wg, m.run)
+	actor.Spawn(m.actDesc, &m.wg, m.run)
 	m.isRunning = true
 }
 
@@ -175,7 +174,7 @@ reset:
 				// If a channel of an input is closed, then the input should be
 				// removed from the list of multiplexed inputs.
 				if !ok {
-					log.Infof("<%s> input channel closed: partition=%d", m.actorID, in.partition)
+					m.actDesc.Log().Infof("input channel closed: partition=%d", in.partition)
 					delete(m.inputs, in.partition)
 					goto reset
 				}

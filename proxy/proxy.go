@@ -13,7 +13,6 @@ import (
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/producer"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -27,7 +26,7 @@ var (
 
 // T implements a proxy to a particular Kafka/ZooKeeper cluster.
 type T struct {
-	actorID    *actor.ID
+	actDesc    *actor.Descriptor
 	cfg        *config.Proxy
 	producer   *producer.T
 	kafkaClt   sarama.Client
@@ -79,9 +78,9 @@ type eventsChID struct {
 }
 
 // Spawn creates a proxy instance and starts its internal goroutines.
-func Spawn(namespace *actor.ID, name string, cfg *config.Proxy) (*T, error) {
+func Spawn(parentActDesc *actor.Descriptor, name string, cfg *config.Proxy) (*T, error) {
 	p := T{
-		actorID:     namespace.NewChild(name),
+		actDesc:     parentActDesc.NewChild(name),
 		cfg:         cfg,
 		eventsChMap: make(map[eventsChID]chan<- consumer.Event, initEventsChMapCapacity),
 	}
@@ -90,14 +89,14 @@ func Spawn(namespace *actor.ID, name string, cfg *config.Proxy) (*T, error) {
 	if p.kafkaClt, err = sarama.NewClient(cfg.Kafka.SeedPeers, cfg.SaramaClientCfg()); err != nil {
 		return nil, errors.Wrap(err, "failed to create Kafka client")
 	}
-	p.offsetMgrF = offsetmgr.SpawnFactory(p.actorID, cfg, p.kafkaClt)
-	if p.producer, err = producer.Spawn(p.actorID, cfg); err != nil {
+	p.offsetMgrF = offsetmgr.SpawnFactory(p.actDesc, cfg, p.kafkaClt)
+	if p.producer, err = producer.Spawn(p.actDesc, cfg); err != nil {
 		return nil, errors.Wrap(err, "failed to spawn producer")
 	}
-	if p.consumer, err = consumerimpl.Spawn(p.actorID, cfg, p.offsetMgrF); err != nil {
+	if p.consumer, err = consumerimpl.Spawn(p.actDesc, cfg, p.offsetMgrF); err != nil {
 		return nil, errors.Wrap(err, "failed to spawn consumer")
 	}
-	if p.admin, err = admin.Spawn(p.actorID, cfg); err != nil {
+	if p.admin, err = admin.Spawn(p.actDesc, cfg); err != nil {
 		return nil, errors.Wrap(err, "failed to spawn admin")
 	}
 	return &p, nil
@@ -107,13 +106,13 @@ func Spawn(namespace *actor.ID, name string, cfg *config.Proxy) (*T, error) {
 func (p *T) Stop() {
 	var wg sync.WaitGroup
 	if p.producer != nil {
-		actor.Spawn(p.actorID.NewChild("producer_stop"), &wg, p.producer.Stop)
+		actor.Spawn(p.actDesc.NewChild("prod_stop"), &wg, p.producer.Stop)
 	}
 	if p.consumer != nil {
-		actor.Spawn(p.actorID.NewChild("consumer_stop"), &wg, p.consumer.Stop)
+		actor.Spawn(p.actDesc.NewChild("cons_stop"), &wg, p.consumer.Stop)
 	}
 	if p.admin != nil {
-		actor.Spawn(p.actorID.NewChild("admin_stop"), &wg, p.admin.Stop)
+		actor.Spawn(p.actDesc.NewChild("adm_stop"), &wg, p.admin.Stop)
 	}
 	wg.Wait()
 	if p.offsetMgrF != nil {
@@ -164,8 +163,7 @@ func (p *T) Consume(group, topic string, ack Ack) (consumer.Message, error) {
 				select {
 				case eventsCh <- consumer.Ack(ack.offset):
 				case <-time.After(p.cfg.Consumer.LongPollingTimeout):
-					log.Errorf("<%s> ack timeout: partition=%d, offset=%d",
-						p.actorID, ack.partition, ack.offset)
+					p.actDesc.Log().Errorf("ack timeout: partition=%d, offset=%d", ack.partition, ack.offset)
 				}
 			}()
 		}

@@ -17,7 +17,7 @@ import (
 )
 
 type T struct {
-	ns       *actor.ID
+	ns       *actor.Descriptor
 	c        *C
 	kazooClt *kazoo.Kazoo
 	kafkaClt sarama.Client
@@ -26,7 +26,7 @@ type T struct {
 }
 
 func New(c *C) *T {
-	kh := &T{ns: actor.RootID.NewChild("kafka_helper"), c: c}
+	kh := &T{ns: actor.Root().NewChild("kafka_helper"), c: c}
 	cfg := testhelpers.NewTestProxyCfg("kafka_helper").SaramaClientCfg()
 	cfg.Producer.RequiredAcks = sarama.WaitForAll
 	cfg.Producer.Flush.Messages = 1

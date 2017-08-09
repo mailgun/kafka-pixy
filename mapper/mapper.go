@@ -7,7 +7,6 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/none"
-	log "github.com/sirupsen/logrus"
 )
 
 // T maintains mapping of workers that generate requests to executors. An
@@ -28,7 +27,7 @@ import (
 // workers that used to be assigned to it have either been stopped or assigned
 // another to other executors.
 type T struct {
-	actorID     *actor.ID
+	actDesc     *actor.Descriptor
 	resolver    Resolver
 	eventsCh    chan event
 	assignments map[Worker]Executor
@@ -87,9 +86,9 @@ const (
 )
 
 // Spawn creates a mapper instance and starts its internal goroutines.
-func Spawn(namespace *actor.ID, resolver Resolver) *T {
+func Spawn(parentActDesc *actor.Descriptor, resolver Resolver) *T {
 	m := &T{
-		actorID:     namespace.NewChild("mapper"),
+		actDesc:     parentActDesc.NewChild("mapper"),
 		resolver:    resolver,
 		eventsCh:    make(chan event, eventsChBufSize),
 		assignments: make(map[Worker]Executor),
@@ -97,7 +96,7 @@ func Spawn(namespace *actor.ID, resolver Resolver) *T {
 		connections: make(map[*sarama.Broker]Executor),
 		stopCh:      make(chan none.T),
 	}
-	actor.Spawn(m.actorID, &m.wg, m.run)
+	actor.Spawn(m.actDesc, &m.wg, m.run)
 	return m
 }
 
@@ -169,11 +168,11 @@ func (m *T) run() {
 		// If redispatch is required and there is none running at the moment
 		// then spawn a redispatch goroutine.
 		if !changes.isEmtpy() && nilOrRedispatchDoneCh == nil {
-			log.Infof("<%s> reassign: change=%s", m.actorID, changes)
-			reassignActorID := m.actorID.NewChild("reassign")
+			m.actDesc.Log().Infof("reassign: change=%s", changes)
+			reassignActDesc := m.actDesc.NewChild("reassign")
 			changesForReassign := changes
-			actor.Spawn(reassignActorID, nil, func() {
-				m.reassign(reassignActorID, changesForReassign, redispatchDoneCh)
+			actor.Spawn(reassignActDesc, nil, func() {
+				m.reassign(reassignActDesc, changesForReassign, redispatchDoneCh)
 			})
 			changes = m.newMappingChanges()
 			nilOrRedispatchDoneCh = redispatchDoneCh
@@ -186,7 +185,7 @@ func (m *T) run() {
 }
 
 // reassign updates partition-to-broker assignments using the external resolver.
-func (m *T) reassign(actorID *actor.ID, change *mappingChanges, doneCh chan none.T) {
+func (m *T) reassign(actDesc *actor.Descriptor, change *mappingChanges, doneCh chan none.T) {
 	defer func() { doneCh <- none.V }()
 
 	// Travers through stopped workers and dereference brokers assigned to them.
@@ -196,7 +195,7 @@ func (m *T) reassign(actorID *actor.ID, change *mappingChanges, doneCh chan none
 		delete(change.spawned, worker)
 		if executor != nil {
 			m.references[executor] = m.references[executor] - 1
-			log.Infof("<%s> unassign %s -> %s (ref=%d)", actorID, worker, executor, m.references[executor])
+			actDesc.Log().Infof("unassign %s -> %s (ref=%d)", worker, executor, m.references[executor])
 		}
 	}
 	// Weed out workers that have already been closed.
@@ -207,10 +206,10 @@ func (m *T) reassign(actorID *actor.ID, change *mappingChanges, doneCh chan none
 	}
 	// Run resolution for the created and outdated workers.
 	for worker := range change.spawned {
-		m.resolveBroker(actorID, worker)
+		m.resolveBroker(actDesc, worker)
 	}
 	for worker := range change.outdated {
-		m.resolveBroker(actorID, worker)
+		m.resolveBroker(actDesc, worker)
 	}
 	// All broker assignments have been propagated to workers, so it is safe to
 	// close executors that are not used anymore.
@@ -218,7 +217,7 @@ func (m *T) reassign(actorID *actor.ID, change *mappingChanges, doneCh chan none
 		if referenceCount != 0 {
 			continue
 		}
-		log.Infof("<%s> decomission %s", actorID, executor)
+		actDesc.Log().Infof("decomission %s", executor)
 		executor.Stop()
 		delete(m.references, executor)
 		if m.connections[executor.BrokerConn()] == executor {
@@ -230,17 +229,17 @@ func (m *T) reassign(actorID *actor.ID, change *mappingChanges, doneCh chan none
 // resolveBroker determines a broker connection for the worker and assigns
 // executor associated with the broker connection to the worker. If there is
 // no such executor then it is created.
-func (m *T) resolveBroker(actorID *actor.ID, worker Worker) {
+func (m *T) resolveBroker(actDesc *actor.Descriptor, worker Worker) {
 	var newExecutor Executor
 	brokerConn, err := m.resolver.ResolveBroker(worker)
 	if err != nil {
-		log.Infof("<%s> failed to resolve broker: worker=%s, err=(%s)", actorID, worker, err)
+		actDesc.Log().WithError(err).Infof("failed to resolve broker: worker=%s", worker)
 	} else {
 		if brokerConn != nil {
 			newExecutor = m.connections[brokerConn]
 			if newExecutor == nil && brokerConn != nil {
 				newExecutor = m.resolver.SpawnExecutor(brokerConn)
-				log.Infof("<%s> spawned %s", actorID, newExecutor)
+				actDesc.Log().Infof("spawned %s", newExecutor)
 				m.connections[brokerConn] = newExecutor
 			}
 		}
@@ -256,14 +255,12 @@ func (m *T) resolveBroker(actorID *actor.ID, worker Worker) {
 	// Update both old and new executor reference counts.
 	if oldExecutor != nil {
 		m.references[oldExecutor] = m.references[oldExecutor] - 1
-		log.Infof("<%s> unassign %s -> %s (ref=%d)",
-			actorID, worker, oldExecutor, m.references[oldExecutor])
+		actDesc.Log().Infof("unassign %s -> %s (ref=%d)", worker, oldExecutor, m.references[oldExecutor])
 	}
 	if newExecutor == nil {
-		log.Infof("<%s> assign %s -> <nil>", actorID, worker)
+		actDesc.Log().Infof("assign %s -> <nil>", worker)
 		return
 	}
 	m.references[newExecutor] = m.references[newExecutor] + 1
-	log.Infof("<%s> assign %s -> %s (ref=%d)",
-		actorID, worker, newExecutor, m.references[newExecutor])
+	actDesc.Log().Infof("assign %s -> %s (ref=%d)", worker, newExecutor, m.references[newExecutor])
 }

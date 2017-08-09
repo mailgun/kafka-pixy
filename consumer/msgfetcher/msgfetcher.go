@@ -11,7 +11,6 @@ import (
 	"github.com/mailgun/kafka-pixy/mapper"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 )
 
 // Factory provides API to spawn message fetcher that read messages from
@@ -32,7 +31,7 @@ type Factory interface {
 	//    then the newest partition offset, then the newest partition offset is
 	//    selected.
 	// The real offset value is returned by the function.
-	Spawn(namespace *actor.ID, topic string, partition int32, offset int64) (T, int64, error)
+	Spawn(parentActDesc *actor.Descriptor, topic string, partition int32, offset int64) (T, int64, error)
 
 	// Stop shuts down the consumer. It must be called after all child partition
 	// consumers have already been closed.
@@ -60,10 +59,10 @@ var (
 )
 
 type factory struct {
-	namespace *actor.ID
-	cfg       *config.Proxy
-	kafkaClt  sarama.Client
-	mapper    *mapper.T
+	actDesc  *actor.Descriptor
+	cfg      *config.Proxy
+	kafkaClt sarama.Client
+	mapper   *mapper.T
 
 	childrenMu sync.Mutex
 	children   map[instanceID]*msgFetcher
@@ -77,19 +76,19 @@ type instanceID struct {
 // SpawnFactory creates a new message fetcher factory using the given client.
 // It is still necessary to call Stop() on the underlying client after shutting
 // down this factory.
-func SpawnFactory(namespace *actor.ID, cfg *config.Proxy, kafkaClt sarama.Client) (Factory, error) {
+func SpawnFactory(parentActDesc *actor.Descriptor, cfg *config.Proxy, kafkaClt sarama.Client) (Factory, error) {
 	f := &factory{
-		namespace: namespace.NewChild("msg_fetcher_f"),
-		cfg:       cfg,
-		kafkaClt:  kafkaClt,
-		children:  make(map[instanceID]*msgFetcher),
+		actDesc:  parentActDesc.NewChild("msg_fetcher_f"),
+		cfg:      cfg,
+		kafkaClt: kafkaClt,
+		children: make(map[instanceID]*msgFetcher),
 	}
-	f.mapper = mapper.Spawn(f.namespace, f)
+	f.mapper = mapper.Spawn(f.actDesc, f)
 	return f, nil
 }
 
 // implements `Factory`.
-func (f *factory) Spawn(namespace *actor.ID, topic string, partition int32, offset int64) (T, int64, error) {
+func (f *factory) Spawn(parentActDesc *actor.Descriptor, topic string, partition int32, offset int64) (T, int64, error) {
 	realOffset, err := f.chooseStartingOffset(topic, partition, offset)
 	if err != nil {
 		return nil, sarama.OffsetNewest, err
@@ -102,8 +101,12 @@ func (f *factory) Spawn(namespace *actor.ID, topic string, partition int32, offs
 	if _, ok := f.children[id]; ok {
 		return nil, sarama.OffsetNewest, sarama.ConfigurationError("That topic/partition is already being consumed")
 	}
+
+	actDesc := parentActDesc.NewChild("msg_fetcher")
+	actDesc.AddLogField("kafka.topic", topic)
+	actDesc.AddLogField("kafka.partition", partition)
 	mf := &msgFetcher{
-		actorID:      namespace.NewChild("msg_fetcher"),
+		actDesc:      actDesc,
 		f:            f,
 		id:           id,
 		assignmentCh: make(chan mapper.Executor, 1),
@@ -115,7 +118,7 @@ func (f *factory) Spawn(namespace *actor.ID, topic string, partition int32, offs
 		mf.errorsCh = make(chan error, f.cfg.Consumer.ChannelBufferSize)
 	}
 	f.children[id] = mf
-	actor.Spawn(mf.actorID, &mf.wg, mf.run)
+	actor.Spawn(mf.actDesc, &mf.wg, mf.run)
 	return mf, realOffset, nil
 }
 
@@ -136,15 +139,15 @@ func (f *factory) ResolveBroker(worker mapper.Worker) (*sarama.Broker, error) {
 // implements `mapper.Resolver.Executor()`
 func (f *factory) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
 	be := &brokerExecutor{
-		aggrActorID:     f.namespace.NewChild("broker", brokerConn.ID(), "aggr"),
-		execActorID:     f.namespace.NewChild("broker", brokerConn.ID(), "exec"),
+		aggrActDesc:     f.actDesc.NewChild("broker", brokerConn.ID(), "aggr"),
+		execActDesc:     f.actDesc.NewChild("broker", brokerConn.ID(), "exec"),
 		cfg:             f.cfg,
 		conn:            brokerConn,
 		requestsCh:      make(chan fetchReq),
 		batchRequestsCh: make(chan []fetchReq),
 	}
-	actor.Spawn(be.aggrActorID, &be.wg, be.runAggregator)
-	actor.Spawn(be.execActorID, &be.wg, be.runExecutor)
+	actor.Spawn(be.aggrActDesc, &be.wg, be.runAggregator)
+	actor.Spawn(be.execActDesc, &be.wg, be.runExecutor)
 	return be
 }
 
@@ -193,7 +196,7 @@ func (f *factory) onMsgIStreamStopped(mf *msgFetcher) {
 
 // implements `mapper.Worker`.
 type msgFetcher struct {
-	actorID      *actor.ID
+	actDesc      *actor.Descriptor
 	f            *factory
 	id           instanceID
 	offset       int64
@@ -250,7 +253,7 @@ func (mf *msgFetcher) run() {
 	for {
 		select {
 		case bw := <-mf.assignmentCh:
-			log.Infof("<%s> assigned %s", mf.actorID, bw)
+			mf.actDesc.Log().Infof("assigned %s", bw)
 			if bw == nil {
 				mf.triggerOrScheduleReassign("no broker assigned")
 				continue
@@ -272,8 +275,8 @@ func (mf *msgFetcher) run() {
 
 		case result := <-nilOrFetchResultsCh:
 			nilOrFetchResultsCh = nil
-			if fetchedMessages, err = mf.parseFetchResult(mf.actorID, result); err != nil {
-				log.Infof("<%s> fetch failed: err=%s", mf.actorID, err)
+			if fetchedMessages, err = mf.parseFetchResult(result); err != nil {
+				mf.actDesc.Log().WithError(err).Info("fetch failed")
 				mf.reportError(err)
 				if err == sarama.ErrOffsetOutOfRange {
 					// There's no point in retrying this it will just fail the
@@ -306,7 +309,7 @@ func (mf *msgFetcher) run() {
 
 		case <-mf.nilOrReassignRetryTimerCh:
 			mf.f.mapper.TriggerReassign(mf)
-			log.Infof("<%s> reassign triggered by timeout", mf.actorID)
+			mf.actDesc.Log().Info("reassign triggered by timeout")
 			mf.nilOrReassignRetryTimerCh = time.After(mf.f.cfg.Consumer.RetryBackoff)
 
 		case <-mf.closingCh:
@@ -319,17 +322,17 @@ func (mf *msgFetcher) triggerOrScheduleReassign(reason string) {
 	mf.assignedBrokerRequestCh = nil
 	now := time.Now().UTC()
 	if now.Sub(mf.lastReassignTime) > mf.f.cfg.Consumer.RetryBackoff {
-		log.Infof("<%s> trigger reassign: reason=(%s)", mf.actorID, reason)
+		mf.actDesc.Log().Infof("trigger reassign: reason=%s", reason)
 		mf.lastReassignTime = now
 		mf.f.mapper.TriggerReassign(mf)
 	} else {
-		log.Infof("<%s> schedule reassign: reason=(%s)", mf.actorID, reason)
+		mf.actDesc.Log().Infof("schedule reassign: reason=%s", reason)
 	}
 	mf.nilOrReassignRetryTimerCh = time.After(mf.f.cfg.Consumer.RetryBackoff)
 }
 
 // parseFetchResult parses a fetch response received a broker.
-func (mf *msgFetcher) parseFetchResult(cid *actor.ID, fetchResult fetchRes) ([]consumer.Message, error) {
+func (mf *msgFetcher) parseFetchResult(fetchResult fetchRes) ([]consumer.Message, error) {
 	if fetchResult.Err != nil {
 		return nil, fetchResult.Err
 	}
@@ -351,7 +354,7 @@ func (mf *msgFetcher) parseFetchResult(cid *actor.ID, fetchResult fetchRes) ([]c
 	// We got no messages. If we got a trailing one, it means there is a
 	// producer that writes messages larger then Consumer.FetchMaxBytes in size.
 	if len(block.MsgSet.Messages) == 0 && block.MsgSet.PartialTrailingMessage {
-		log.Errorf("<%s> oversized message skipped: offset=%d", cid, mf.offset)
+		mf.actDesc.Log().Errorf("oversized message skipped: offset=%d", mf.offset)
 		mf.reportError(errMessageTooLarge)
 		return nil, nil
 	}
@@ -399,7 +402,7 @@ func (mf *msgFetcher) reportError(err error) {
 }
 
 func (mf *msgFetcher) String() string {
-	return mf.actorID.String()
+	return mf.actDesc.String()
 }
 
 // brokerExecutor maintains a connection with a particular Kafka broker. It
@@ -410,8 +413,8 @@ func (mf *msgFetcher) String() string {
 //
 // implements `mapper.Executor`.
 type brokerExecutor struct {
-	aggrActorID     *actor.ID
-	execActorID     *actor.ID
+	aggrActDesc     *actor.Descriptor
+	execActDesc     *actor.Descriptor
 	cfg             *config.Proxy
 	conn            *sarama.Broker
 	requestsCh      chan fetchReq
@@ -497,7 +500,7 @@ func (be *brokerExecutor) runExecutor() {
 		if lastErr != nil {
 			lastErrTime = time.Now().UTC()
 			be.conn.Close()
-			log.Infof("<%s> connection reset: err=(%s)", be.execActorID, lastErr)
+			be.execActDesc.Log().WithError(lastErr).Info("connection reset")
 		}
 		// Fan the response out to the message streams.
 		for _, fr := range fetchRequests {
@@ -510,5 +513,5 @@ func (be *brokerExecutor) String() string {
 	if be == nil {
 		return "<nil>"
 	}
-	return be.aggrActorID.String()
+	return be.aggrActDesc.String()
 }

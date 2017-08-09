@@ -16,11 +16,11 @@ type IDSuite struct{}
 var _ = Suite(&IDSuite{})
 
 func (s *IDSuite) TestRootID(c *C) {
-	c.Assert("", Equals, fmt.Sprintf("%s", RootID))
+	c.Assert(fmt.Sprintf("%s", Root()), Equals, "")
 }
 
 func (s *IDSuite) TestNewChild(c *C) {
-	id1 := RootID.NewChild("foo")
+	id1 := root.NewChild("foo")
 	c.Assert("/foo[0]", Equals, fmt.Sprintf("%s", id1))
 	id2 := id1.NewChild("bar")
 	c.Assert("/foo[0]/bar[0]", Equals, fmt.Sprintf("%s", id2))
@@ -31,7 +31,7 @@ func (s *IDSuite) TestNewChild(c *C) {
 	id5 := id4.NewChild("blah")
 	c.Assert("/foo[0]/bazz[0]/blah[0]", Equals, fmt.Sprintf("%s", id5))
 
-	id6 := RootID.NewChild("foo")
+	id6 := root.NewChild("foo")
 	c.Assert("/foo[1]", Equals, fmt.Sprintf("%s", id6))
 	id7 := id6.NewChild("bar")
 	c.Assert("/foo[1]/bar[0]", Equals, fmt.Sprintf("%s", id7))
@@ -42,10 +42,10 @@ func (s *IDSuite) TestNewChild(c *C) {
 }
 
 func (s *IDSuite) TestNewChildEmpty(c *C) {
-	id := RootID.NewChild("foo").NewChild("bar")
+	id := root.NewChild("foo").NewChild("bar")
 	c.Assert(id.NewChild(), Equals, id)
 }
 
 func (s *IDSuite) TestNewChildComplex(c *C) {
-	c.Assert(RootID.NewChild("foo", 0, []string{"d"}, nil, "bar").String(), Equals, "/foo_0_[d]_<nil>_bar[0]")
+	c.Assert(root.NewChild("foo", 0, []string{"d"}, nil, "bar").String(), Equals, "/foo_0_[d]_<nil>_bar[0]")
 }

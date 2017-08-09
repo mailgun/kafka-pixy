@@ -9,7 +9,6 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -25,14 +24,14 @@ const (
 //
 // TODO Consider implementing some sort of dead message processing.
 type T struct {
-	mergerActorID     *actor.ID
-	dispatcherActorID *actor.ID
-	saramaClient      sarama.Client
-	saramaProducer    sarama.AsyncProducer
-	shutdownTimeout   time.Duration
-	dispatcherCh      chan *sarama.ProducerMessage
-	resultCh          chan produceResult
-	wg                sync.WaitGroup
+	mergActDesc     *actor.Descriptor
+	dispActDesc     *actor.Descriptor
+	saramaClient    sarama.Client
+	saramaProducer  sarama.AsyncProducer
+	shutdownTimeout time.Duration
+	dispatcherCh    chan *sarama.ProducerMessage
+	resultCh        chan produceResult
+	wg              sync.WaitGroup
 
 	// To be used in tests only
 	testDroppedMsgCh chan<- *sarama.ProducerMessage
@@ -44,7 +43,7 @@ type produceResult struct {
 }
 
 // Spawn creates a producer instance and starts its internal goroutines.
-func Spawn(namespace *actor.ID, cfg *config.Proxy) (*T, error) {
+func Spawn(parentActDesc *actor.Descriptor, cfg *config.Proxy) (*T, error) {
 	saramaCfg := cfg.SaramaProducerCfg()
 	saramaCfg.Producer.Return.Successes = true
 	saramaCfg.Producer.Return.Errors = true
@@ -58,18 +57,17 @@ func Spawn(namespace *actor.ID, cfg *config.Proxy) (*T, error) {
 		return nil, errors.Wrap(err, "failed to create sarama.Producer")
 	}
 
-	prodNamespace := namespace.NewChild("prod")
 	p := &T{
-		mergerActorID:     prodNamespace.NewChild("merger"),
-		dispatcherActorID: prodNamespace.NewChild("dispatcher"),
-		saramaClient:      saramaClient,
-		saramaProducer:    saramaProducer,
-		shutdownTimeout:   cfg.Producer.ShutdownTimeout,
-		dispatcherCh:      make(chan *sarama.ProducerMessage, cfg.Producer.ChannelBufferSize),
-		resultCh:          make(chan produceResult, cfg.Producer.ChannelBufferSize),
+		mergActDesc:     parentActDesc.NewChild("prod_merg"),
+		dispActDesc:     parentActDesc.NewChild("prod_disp"),
+		saramaClient:    saramaClient,
+		saramaProducer:  saramaProducer,
+		shutdownTimeout: cfg.Producer.ShutdownTimeout,
+		dispatcherCh:    make(chan *sarama.ProducerMessage, cfg.Producer.ChannelBufferSize),
+		resultCh:        make(chan produceResult, cfg.Producer.ChannelBufferSize),
 	}
-	actor.Spawn(p.mergerActorID, &p.wg, p.runMerger)
-	actor.Spawn(p.dispatcherActorID, &p.wg, p.runDispatcher)
+	actor.Spawn(p.mergActDesc, &p.wg, p.runMerger)
+	actor.Spawn(p.dispActDesc, &p.wg, p.runDispatcher)
 	return p, nil
 }
 
@@ -181,7 +179,7 @@ func (p *T) runDispatcher() {
 	}
 gracefulShutdown:
 	// Give the `sarama.AsyncProducer` some time to commit buffered messages.
-	log.Infof("<%v> About to stop producer: pendingMsgCount=%d", p.dispatcherActorID, pendingMsgCount)
+	p.dispActDesc.Log().Infof("About to stop producer: pendingMsgCount=%d", pendingMsgCount)
 	shutdownTimeoutCh := time.After(p.shutdownTimeout)
 	for pendingMsgCount > 0 {
 		select {
@@ -193,7 +191,7 @@ gracefulShutdown:
 		}
 	}
 shutdownNow:
-	log.Infof("<%v> Stopping producer: pendingMsgCount=%d", p.dispatcherActorID, pendingMsgCount)
+	p.dispActDesc.Log().Infof("Stopping producer: pendingMsgCount=%d", pendingMsgCount)
 	p.saramaProducer.AsyncClose()
 	for prodResult := range p.resultCh {
 		p.handleProduceResult(prodResult)
@@ -211,8 +209,7 @@ func (p *T) handleProduceResult(result produceResult) {
 	}
 	prodMsgRepr := fmt.Sprintf(`{Topic: "%s", Key: "%s", Value: "%s"}`,
 		result.Msg.Topic, encoderRepr(result.Msg.Key), encoderRepr(result.Msg.Value))
-	log.Errorf("<%v> Failed to submit message: msg=%v, err=(%s)",
-		p.dispatcherActorID, prodMsgRepr, result.Err)
+	p.dispActDesc.Log().WithError(result.Err).Errorf("Failed to submit message: msg=%v", prodMsgRepr)
 	if p.testDroppedMsgCh != nil {
 		p.testDroppedMsgCh <- result.Msg
 	}

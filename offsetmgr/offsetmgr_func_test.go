@@ -14,7 +14,7 @@ import (
 )
 
 type OffsetMgrFuncSuite struct {
-	ns  *actor.ID
+	ns  *actor.Descriptor
 	cfg *config.Proxy
 	kh  *kafkahelper.T
 }
@@ -26,7 +26,7 @@ func (s *OffsetMgrFuncSuite) SetUpSuite(c *C) {
 }
 
 func (s *OffsetMgrFuncSuite) SetUpTest(c *C) {
-	s.ns = actor.RootID.NewChild("T")
+	s.ns = actor.Root().NewChild("T")
 	s.cfg = testhelpers.NewTestProxyCfg("c1")
 	s.kh = kafkahelper.New(c)
 }

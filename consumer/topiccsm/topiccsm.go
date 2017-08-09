@@ -20,7 +20,7 @@ import (
 // implements `dispatcher.Tier`.
 // implements `multiplexer.Out`.
 type T struct {
-	actorID    *actor.ID
+	actDesc    *actor.Descriptor
 	cfg        *config.Proxy
 	group      string
 	topic      string
@@ -32,9 +32,12 @@ type T struct {
 
 // Creates a topic consumer instance. It should be explicitly started in
 // accordance with the `dispatcher.Tier` contract.
-func New(namespace *actor.ID, group, topic string, cfg *config.Proxy, lifespanCh chan<- *T) *T {
+func New(parentActDesc *actor.Descriptor, group, topic string, cfg *config.Proxy, lifespanCh chan<- *T) *T {
+	actDesc := parentActDesc.NewChild(fmt.Sprintf("T:%s", topic))
+	actDesc.AddLogField("kafka.group", group)
+	actDesc.AddLogField("kafka.topic", topic)
 	return &T{
-		actorID:    namespace.NewChild(fmt.Sprintf("T:%s", topic)),
+		actDesc:    actDesc,
 		cfg:        cfg,
 		group:      group,
 		topic:      topic,
@@ -70,7 +73,7 @@ func (tc *T) Requests() chan<- dispatcher.Request {
 
 // implements `dispatcher.Tier`.
 func (tc *T) Start(stoppedCh chan<- dispatcher.Tier) {
-	actor.Spawn(tc.actorID, &tc.wg, func() {
+	actor.Spawn(tc.actDesc, &tc.wg, func() {
 		defer func() { stoppedCh <- tc }()
 		tc.run()
 	})
@@ -112,5 +115,5 @@ func (tc *T) run() {
 }
 
 func (tc *T) String() string {
-	return tc.actorID.String()
+	return tc.actDesc.String()
 }

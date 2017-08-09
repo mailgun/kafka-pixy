@@ -19,7 +19,7 @@ func Test(t *testing.T) {
 }
 
 type MsgFetcherSuite struct {
-	ns      *actor.ID
+	ns      *actor.Descriptor
 	cfg     *config.Proxy
 	broker0 *sarama.MockBroker
 }
@@ -35,7 +35,7 @@ func (s *MsgFetcherSuite) SetUpSuite(c *C) {
 
 func (s *MsgFetcherSuite) SetUpTest(c *C) {
 	testReportErrors = true
-	s.ns = actor.RootID.NewChild("T")
+	s.ns = actor.Root().NewChild("T")
 	s.cfg = testhelpers.NewTestProxyCfg("mis")
 	s.cfg.Kafka.Version.Set(sarama.V0_8_2_2)
 	s.broker0 = sarama.NewMockBroker(c, 0)

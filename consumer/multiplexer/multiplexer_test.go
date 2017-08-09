@@ -15,7 +15,7 @@ func Test(t *testing.T) {
 }
 
 type MultiplexerSuite struct {
-	ns *actor.ID
+	ns *actor.Descriptor
 }
 
 var _ = Suite(&MultiplexerSuite{})
@@ -25,7 +25,7 @@ func (s *MultiplexerSuite) SetUpSuite(c *C) {
 }
 
 func (s *MultiplexerSuite) SetUpTest(c *C) {
-	s.ns = actor.RootID.NewChild("T")
+	s.ns = actor.Root().NewChild("T")
 }
 
 func (s *MultiplexerSuite) TestSortedInputs(c *C) {

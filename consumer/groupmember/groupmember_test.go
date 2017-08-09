@@ -18,7 +18,7 @@ func Test(t *testing.T) {
 }
 
 type GroupMemberSuite struct {
-	ns       *actor.ID
+	ns       *actor.Descriptor
 	kazooClt *kazoo.Kazoo
 }
 
@@ -32,7 +32,7 @@ func (s *GroupMemberSuite) SetUpSuite(c *C) {
 }
 
 func (s *GroupMemberSuite) SetUpTest(c *C) {
-	s.ns = actor.RootID.NewChild("T")
+	s.ns = actor.Root().NewChild("T")
 }
 
 func (s *GroupMemberSuite) TestNormalizeTopics(c *C) {

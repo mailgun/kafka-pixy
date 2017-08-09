@@ -10,7 +10,6 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -37,7 +36,7 @@ func init() {
 // T represents an entity that tracks offered and acknowledged messages and
 // maintains offset data for the current state.
 type T struct {
-	actorID      *actor.ID
+	actDesc      *actor.Descriptor
 	offerTimeout time.Duration
 	offset       offsetmgr.Offset
 	ackedRanges  []offsetRange
@@ -61,9 +60,9 @@ func SparseAcks2Str(offset offsetmgr.Offset) string {
 }
 
 // New creates a new offset tracker instance.
-func New(actorID *actor.ID, offset offsetmgr.Offset, offerTimeout time.Duration) *T {
+func New(actDesc *actor.Descriptor, offset offsetmgr.Offset, offerTimeout time.Duration) *T {
 	ot := T{
-		actorID:      actorID,
+		actDesc:      actDesc,
 		offerTimeout: offerTimeout,
 		offset:       offset,
 	}
@@ -72,7 +71,7 @@ func New(actorID *actor.ID, offset offsetmgr.Offset, offerTimeout time.Duration)
 	if err != nil {
 		ot.ackedRanges = nil
 		ot.offset.Meta = ""
-		log.Errorf("<%v> bad sparse acks: %v, err=%+v", ot.actorID, offset, err)
+		ot.actDesc.Log().WithError(err).Errorf("bad sparse acks: %v", offset)
 	}
 	return &ot
 }
@@ -128,8 +127,8 @@ func (ot *T) OnAcked(offset int64) (offsetmgr.Offset, int) {
 	offerRemoved := ot.removeOffer(offset)
 	ackedRangesUpdated := ot.updateAckedRanges(offset)
 	if !offerRemoved || !ackedRangesUpdated {
-		log.Errorf("<%s> bad ack: offerMissing=%t, duplicateAck=%t",
-			ot.actorID, !offerRemoved, !ackedRangesUpdated)
+		ot.actDesc.Log().Errorf("bad ack: offerMissing=%t, duplicateAck=%t",
+			!offerRemoved, !ackedRangesUpdated)
 	}
 	if ackedRangesUpdated {
 		ot.offset.Meta = encodeAckedRanges(ot.offset.Val, ot.ackedRanges)
@@ -193,14 +192,14 @@ func (ot *T) shouldWait4Ack(now time.Time) (bool, time.Duration) {
 	for _, o := range ot.offers {
 		if o.deadline.After(now) {
 			timeout := o.deadline.Sub(now)
-			log.Infof("<%s> waiting for acks: count=%d, offset=%d, timeout=%v",
-				ot.actorID, len(ot.offers), o.offset, timeout)
+			ot.actDesc.Log().Infof("waiting for acks: count=%d, offset=%d, timeout=%v",
+				len(ot.offers), o.offset, timeout)
 			return true, timeout
 		}
 	}
 	// Complain about all not acknowledged messages before giving up.
 	for _, o := range ot.offers {
-		log.Errorf("<%s> not acked: offset=%d", ot.actorID, o.msg.Offset)
+		ot.actDesc.Log().Errorf("not acked: offset=%d", o.msg.Offset)
 	}
 	return false, 0
 }
@@ -231,7 +230,7 @@ func (ot *T) dropOffers(offset int64) {
 			break
 		}
 		drop = i + 1
-		log.Errorf("<%v> offer dropped: offset=%d", ot.actorID, offer.offset)
+		ot.actDesc.Log().Errorf("offer dropped: offset=%d", offer.offset)
 	}
 	if drop > 0 {
 		left := len(ot.offers) - drop

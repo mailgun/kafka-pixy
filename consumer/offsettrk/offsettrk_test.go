@@ -21,7 +21,7 @@ const (
 var _ = Suite(&OffsetTrkSuite{})
 
 type OffsetTrkSuite struct {
-	ns *actor.ID
+	ns *actor.Descriptor
 }
 
 func Test(t *testing.T) {
@@ -33,7 +33,7 @@ func (s *OffsetTrkSuite) SetUpSuite(c *C) {
 }
 
 func (s *OffsetTrkSuite) SetUpTest(c *C) {
-	s.ns = actor.RootID.NewChild("T")
+	s.ns = actor.Root().NewChild("T")
 }
 
 // Acknowledged offsets are properly reflected in ackedRanges.

@@ -19,7 +19,7 @@ func Test(t *testing.T) {
 }
 
 type OffsetMgrSuite struct {
-	ns *actor.ID
+	ns *actor.Descriptor
 }
 
 var _ = Suite(&OffsetMgrSuite{})
@@ -34,7 +34,7 @@ func (s *OffsetMgrSuite) TearDownSuite(c *C) {
 }
 
 func (s *OffsetMgrSuite) SetUpTest(c *C) {
-	s.ns = actor.RootID.NewChild("T")
+	s.ns = actor.Root().NewChild("T")
 }
 
 // When a partition consumer is created, then an initial offset is sent down
@@ -168,7 +168,7 @@ func (s *OffsetMgrSuite) TestCommitError(c *C) {
 	// When
 	om.SubmitOffset(Offset{1000, "foo"})
 	var wg sync.WaitGroup
-	actor.Spawn(actor.RootID.NewChild("stopper"), &wg, om.Stop)
+	actor.Spawn(actor.Root().NewChild("stopper"), &wg, om.Stop)
 
 	// Then
 	err = <-om.(*offsetMgr).testErrorsCh
@@ -228,8 +228,8 @@ func (s *OffsetMgrSuite) TestCommitIncompleteResponse(c *C) {
 	om1.SubmitOffset(Offset{1001, "foo1"})
 	om2.SubmitOffset(Offset{2001, "bar2"})
 	var wg sync.WaitGroup
-	actor.Spawn(actor.RootID.NewChild("stopper"), &wg, om1.Stop)
-	actor.Spawn(actor.RootID.NewChild("stopper"), &wg, om2.Stop)
+	actor.Spawn(actor.Root().NewChild("stopper"), &wg, om1.Stop)
+	actor.Spawn(actor.Root().NewChild("stopper"), &wg, om2.Stop)
 
 	// Then
 	err = <-om1.(*offsetMgr).testErrorsCh

@@ -12,11 +12,10 @@ import (
 	"github.com/mailgun/kafka-pixy/server/grpcsrv"
 	"github.com/mailgun/kafka-pixy/server/httpsrv"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 )
 
 type T struct {
-	actorID *actor.ID
+	actDesc *actor.Descriptor
 	proxies map[string]*proxy.T
 	servers []server.T
 	stopCh  chan struct{}
@@ -25,13 +24,13 @@ type T struct {
 
 func Spawn(cfg *config.App) (*T, error) {
 	s := &T{
-		actorID: actor.RootID.NewChild("service"),
+		actDesc: actor.Root().NewChild("service"),
 		proxies: make(map[string]*proxy.T, len(cfg.Proxies)),
 		stopCh:  make(chan struct{}),
 	}
 
 	for cluster, pxyCfg := range cfg.Proxies {
-		pxy, err := proxy.Spawn(actor.RootID, cluster, pxyCfg)
+		pxy, err := proxy.Spawn(actor.Root(), cluster, pxyCfg)
 		if err != nil {
 			s.stopProxies()
 			return nil, errors.Wrapf(err, "failed to spawn proxy, name=%s", cluster)
@@ -70,7 +69,7 @@ func Spawn(cfg *config.App) (*T, error) {
 		return nil, errors.Errorf("at least one API server should be configured")
 	}
 
-	actor.Spawn(s.actorID, &s.wg, s.run)
+	actor.Spawn(s.actDesc, &s.wg, s.run)
 	return s, nil
 }
 
@@ -101,13 +100,13 @@ func (s *T) run() {
 	chosen, val, ok := reflect.Select(selectCases)
 	if chosen < len(s.servers) && ok {
 		serverErr := val.Interface().(error)
-		log.Errorf("API server crashed: %+v", serverErr)
+		s.actDesc.Log().WithError(serverErr).Error("API server crashed")
 	}
 
 	// Initiate stop of all API servers.
 	var wg sync.WaitGroup
 	for _, fe := range s.servers {
-		actor.Spawn(s.actorID.NewChild("srv_stop"), &wg, fe.Stop)
+		actor.Spawn(s.actDesc.NewChild("srv_stop"), &wg, fe.Stop)
 	}
 	wg.Wait()
 
@@ -119,7 +118,7 @@ func (s *T) run() {
 func (s *T) stopProxies() {
 	var wg sync.WaitGroup
 	for pxyAlias, pxy := range s.proxies {
-		actor.Spawn(s.actorID.NewChild(fmt.Sprintf("%s_stop", pxyAlias)), &wg, pxy.Stop)
+		actor.Spawn(s.actDesc.NewChild(fmt.Sprintf("%s_stop", pxyAlias)), &wg, pxy.Stop)
 	}
 	wg.Wait()
 }

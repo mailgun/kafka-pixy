@@ -27,7 +27,7 @@ const (
 
 type PartitionCsmSuite struct {
 	cfg          *config.Proxy
-	ns           *actor.ID
+	ns           *actor.Descriptor
 	groupMember  *groupmember.T
 	msgIStreamF  msgfetcher.Factory
 	offsetMgrF   offsetmgr.Factory
@@ -55,7 +55,7 @@ func (s *PartitionCsmSuite) SetUpTest(c *C) {
 	s.cfg.Consumer.MaxRetries = 1
 	check4RetryInterval = 50 * time.Millisecond
 
-	s.ns = actor.RootID.NewChild("T")
+	s.ns = actor.Root().NewChild("T")
 	s.groupMember = groupmember.Spawn(s.ns, group, memberID, s.cfg, s.kh.KazooClt())
 	var err error
 	if s.msgIStreamF, err = msgfetcher.SpawnFactory(s.ns, s.cfg, s.kh.KafkaClt()); err != nil {

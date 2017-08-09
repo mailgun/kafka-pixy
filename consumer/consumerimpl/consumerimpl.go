@@ -27,7 +27,7 @@ import (
 // implements `consumer.T`.
 // implements `dispatcher.Factory`.
 type t struct {
-	namespace  *actor.ID
+	actDesc    *actor.Descriptor
 	cfg        *config.Proxy
 	dispatcher *dispatcher.T
 	kafkaClt   sarama.Client
@@ -37,9 +37,7 @@ type t struct {
 
 // Spawn creates a consumer instance with the specified configuration and
 // starts all its goroutines.
-func Spawn(namespace *actor.ID, cfg *config.Proxy, offsetMgrF offsetmgr.Factory) (*t, error) {
-	namespace = namespace.NewChild("cons")
-
+func Spawn(parentActDesc *actor.Descriptor, cfg *config.Proxy, offsetMgrF offsetmgr.Factory) (*t, error) {
 	kafkaClt, err := sarama.NewClient(cfg.Kafka.SeedPeers, cfg.SaramaClientCfg())
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create Kafka client for message streams")
@@ -51,13 +49,13 @@ func Spawn(namespace *actor.ID, cfg *config.Proxy, offsetMgrF offsetmgr.Factory)
 	}
 
 	c := &t{
-		namespace:  namespace,
+		actDesc:    parentActDesc.NewChild("cons"),
 		cfg:        cfg,
 		kafkaClt:   kafkaClt,
 		offsetMgrF: offsetMgrF,
 		kazooClt:   kazooClt,
 	}
-	c.dispatcher = dispatcher.New(c.namespace, c, c.cfg)
+	c.dispatcher = dispatcher.New(c.actDesc, c, c.cfg)
 	c.dispatcher.Start()
 	return c, nil
 }
@@ -84,10 +82,10 @@ func (c *t) KeyOf(req dispatcher.Request) string {
 
 // implements `dispatcher.Factory`.
 func (c *t) NewTier(key string) dispatcher.Tier {
-	return groupcsm.New(c.namespace, key, c.cfg, c.kafkaClt, c.kazooClt, c.offsetMgrF)
+	return groupcsm.New(c.actDesc, key, c.cfg, c.kafkaClt, c.kazooClt, c.offsetMgrF)
 }
 
 // String returns a string ID of this instance to be used in logs.
 func (sc *t) String() string {
-	return sc.namespace.String()
+	return sc.actDesc.String()
 }

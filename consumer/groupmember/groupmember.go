@@ -10,7 +10,6 @@ import (
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/pkg/errors"
 	"github.com/samuel/go-zookeeper/zk"
-	log "github.com/sirupsen/logrus"
 	"github.com/wvanbergen/kazoo-go"
 )
 
@@ -23,7 +22,7 @@ const safeClaimRetriesCount = 10
 // other members to join, leave and update their subscriptions, and generates
 // notifications of such changes.
 type T struct {
-	actorID          *actor.ID
+	actDesc          *actor.Descriptor
 	cfg              *config.Proxy
 	group            string
 	groupZNode       *kazoo.Consumergroup
@@ -38,11 +37,13 @@ type T struct {
 
 // Spawn creates a consumer group member instance and starts its background
 // goroutines.
-func Spawn(namespace *actor.ID, group, memberID string, cfg *config.Proxy, kazooClt *kazoo.Kazoo) *T {
+func Spawn(parentActDesc *actor.Descriptor, group, memberID string, cfg *config.Proxy, kazooClt *kazoo.Kazoo) *T {
 	groupZNode := kazooClt.Consumergroup(group)
 	groupMemberZNode := groupZNode.Instance(memberID)
+	actDesc := parentActDesc.NewChild("member")
+	actDesc.AddLogField("kafka.group", group)
 	gm := &T{
-		actorID:          namespace.NewChild("member"),
+		actDesc:          actDesc,
 		cfg:              cfg,
 		group:            group,
 		groupZNode:       groupZNode,
@@ -51,7 +52,7 @@ func Spawn(namespace *actor.ID, group, memberID string, cfg *config.Proxy, kazoo
 		subscriptionsCh:  make(chan map[string][]string),
 		stopCh:           make(chan none.T),
 	}
-	actor.Spawn(gm.actorID, &gm.wg, gm.run)
+	actor.Spawn(gm.actDesc, &gm.wg, gm.run)
 	return gm
 }
 
@@ -72,17 +73,18 @@ func (gm *T) Subscriptions() <-chan map[string][]string {
 // ClaimPartition claims a topic/partition to be consumed by this member of the
 // consumer group. It blocks until either succeeds or canceled by the caller. It
 // returns a function that should be called to release the claim.
-func (gm *T) ClaimPartition(claimerActorID *actor.ID, topic string, partition int32, cancelCh <-chan none.T) func() {
+func (gm *T) ClaimPartition(claimerActDesc *actor.Descriptor, topic string, partition int32, cancelCh <-chan none.T) func() {
 	beginAt := time.Now()
 	retries := 0
-	logFailureFn := log.Infof
 	err := gm.groupMemberZNode.ClaimPartition(topic, partition)
 	for err != nil {
+		logEntry := claimerActDesc.Log().WithError(err)
+		logFailureFn := logEntry.Infof
 		if retries++; retries > safeClaimRetriesCount {
-			logFailureFn = log.Errorf
+			logFailureFn = logEntry.Errorf
 		}
-		logFailureFn("<%s> failed to claim partition: via=%s, retries=%d, took=%s, err=(%s)",
-			claimerActorID, gm.actorID, retries, millisSince(beginAt), err)
+		logFailureFn("failed to claim partition: via=%s, retries=%d, took=%s",
+			gm.actDesc, retries, millisSince(beginAt))
 		select {
 		case <-time.After(gm.cfg.Consumer.RetryBackoff):
 		case <-cancelCh:
@@ -90,24 +92,25 @@ func (gm *T) ClaimPartition(claimerActorID *actor.ID, topic string, partition in
 		}
 		err = gm.groupMemberZNode.ClaimPartition(topic, partition)
 	}
-	log.Infof("<%s> partition claimed: via=%s, retries=%d, took=%s",
-		claimerActorID, gm.actorID, retries, millisSince(beginAt))
+	claimerActDesc.Log().Infof("partition claimed: via=%s, retries=%d, took=%s",
+		gm.actDesc, retries, millisSince(beginAt))
 	return func() {
 		beginAt := time.Now()
 		retries := 0
-		logFailureFn := log.Infof
 		err := gm.groupMemberZNode.ReleasePartition(topic, partition)
 		for err != nil && err != kazoo.ErrPartitionNotClaimed {
+			logEntry := claimerActDesc.Log().WithError(err)
+			logFailureFn := logEntry.Infof
 			if retries++; retries > safeClaimRetriesCount {
-				logFailureFn = log.Errorf
+				logFailureFn = logEntry.Errorf
 			}
-			logFailureFn("<%s> failed to release partition: via=%s, retries=%d, took=%s, err=(%s)",
-				claimerActorID, gm.actorID, retries, millisSince(beginAt), err)
+			logFailureFn("failed to release partition: via=%s, retries=%d, took=%s",
+				gm.actDesc, retries, millisSince(beginAt))
 			<-time.After(gm.cfg.Consumer.RetryBackoff)
 			err = gm.groupMemberZNode.ReleasePartition(topic, partition)
 		}
-		log.Infof("<%s> partition released: via=%s, retries=%d, took=%s",
-			claimerActorID, gm.actorID, retries, millisSince(beginAt))
+		claimerActDesc.Log().Infof("partition released: via=%s, retries=%d, took=%s",
+			gm.actDesc, retries, millisSince(beginAt))
 	}
 }
 
@@ -124,7 +127,7 @@ func (gm *T) run() {
 	// Ensure a group ZNode exist.
 	err := gm.groupZNode.Create()
 	for err != nil {
-		log.Errorf("<%s> failed to create a group znode: err=(%s)", gm.actorID, err)
+		gm.actDesc.Log().WithError(err).Error("failed to create a group znode")
 		select {
 		case <-time.After(gm.cfg.Consumer.RetryBackoff):
 		case <-gm.stopCh:
@@ -138,7 +141,7 @@ func (gm *T) run() {
 	defer func() {
 		err := gm.groupMemberZNode.Deregister()
 		for err != nil && err != kazoo.ErrInstanceNotRegistered {
-			log.Errorf("<%s> failed to deregister: err=(%s)", gm.actorID, err)
+			gm.actDesc.Log().WithError(err).Error("failed to deregister")
 			<-time.After(gm.cfg.Consumer.RetryBackoff)
 			err = gm.groupMemberZNode.Deregister()
 		}
@@ -173,11 +176,11 @@ func (gm *T) run() {
 
 		if shouldSubmitTopics {
 			if err = gm.submitTopics(pendingTopics); err != nil {
-				log.Errorf("<%s> failed to submit topics: err=(%s)", gm.actorID, err)
+				gm.actDesc.Log().WithError(err).Error("failed to submit topics")
 				nilOrTimeoutCh = time.After(gm.cfg.Consumer.RetryBackoff)
 				continue
 			}
-			log.Infof("<%s> submitted: topics=%v", gm.actorID, pendingTopics)
+			gm.actDesc.Log().Infof("submitted: topics=%v", pendingTopics)
 			shouldSubmitTopics = false
 			shouldFetchMembers = true
 		}
@@ -185,7 +188,7 @@ func (gm *T) run() {
 		if shouldFetchMembers {
 			members, nilOrGroupUpdatedCh, err = gm.groupZNode.WatchInstances()
 			if err != nil {
-				log.Errorf("<%s> failed to watch members: err=(%s)", gm.actorID, err)
+				gm.actDesc.Log().WithError(err).Error("failed to watch members")
 				nilOrTimeoutCh = time.After(gm.cfg.Consumer.RetryBackoff)
 				continue
 			}
@@ -201,16 +204,16 @@ func (gm *T) run() {
 		if shouldFetchSubscriptions {
 			pendingSubscriptions, err = gm.fetchSubscriptions(members)
 			if err != nil {
-				log.Errorf("<%s> failed to fetch subscriptions: err=(%s)", gm.actorID, err)
+				gm.actDesc.Log().WithError(err).Error("failed to fetch subscriptions")
 				nilOrTimeoutCh = time.After(gm.cfg.Consumer.RetryBackoff)
 				continue
 			}
 			shouldFetchSubscriptions = false
-			log.Infof("<%s> fetched subscriptions: %v", gm.actorID, pendingSubscriptions)
+			gm.actDesc.Log().Infof("fetched subscriptions: %v", pendingSubscriptions)
 			if subscriptionsEqual(pendingSubscriptions, gm.subscriptions) {
 				nilOrSubscriptionsCh = nil
 				pendingSubscriptions = nil
-				log.Infof("<%s> redundant group update ignored: %v", gm.actorID, gm.subscriptions)
+				gm.actDesc.Log().Infof("redundant group update ignored: %v", gm.subscriptions)
 				continue
 			}
 			nilOrSubscriptionsCh = gm.subscriptionsCh

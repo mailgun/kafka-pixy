@@ -23,6 +23,9 @@ func Init(jsonCfg string, cfg *config.App) error {
 		return errors.Wrap(err, "failed to parse logger config")
 	}
 
+	formatter := &textFormatter{}
+	log.SetFormatter(formatter)
+
 	stdoutEnabled := false
 	nonStdoutEnabled := false
 	for _, loggerCfg := range loggingCfg {
@@ -69,7 +72,7 @@ func Init(jsonCfg string, cfg *config.App) error {
 	}
 
 	saramaLogger := log.New()
-	saramaLogger.Formatter = &saramaFormatter{&log.TextFormatter{}}
+	saramaLogger.Formatter = &saramaFormatter{formatter}
 	sarama.Logger = saramaLogger
 
 	zk.DefaultLogger = log.StandardLogger()

@@ -22,7 +22,6 @@ import (
 	"github.com/mailgun/kafka-pixy/proxy"
 	"github.com/mailgun/manners"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -51,7 +50,7 @@ var (
 )
 
 type T struct {
-	actorID    *actor.ID
+	actDesc    *actor.Descriptor
 	addr       string
 	listener   net.Listener
 	httpServer *manners.GracefulServer
@@ -83,7 +82,7 @@ func New(addr string, proxySet *proxy.Set) (*T, error) {
 	router := mux.NewRouter()
 	httpServer := manners.NewWithServer(&http.Server{Handler: router})
 	hs := &T{
-		actorID:    actor.RootID.NewChild(fmt.Sprintf("http://%s", addr)),
+		actDesc:    actor.Root().NewChild(fmt.Sprintf("http://%s", addr)),
 		addr:       addr,
 		listener:   manners.NewListener(listener),
 		httpServer: httpServer,
@@ -116,7 +115,7 @@ func New(addr string, proxySet *proxy.Set) (*T, error) {
 // Starts triggers asynchronous HTTP server start. If it fails then the error
 // will be sent down to `ErrorCh()`.
 func (s *T) Start() {
-	actor.Spawn(s.actorID, &s.wg, func() {
+	actor.Spawn(s.actDesc, &s.wg, func() {
 		if err := s.httpServer.Serve(s.listener); err != nil {
 			s.errorCh <- errors.Wrap(err, "HTTP API server failed")
 		}
@@ -150,7 +149,7 @@ func (s *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 
 	pxy, err := s.getProxy(r)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
+		s.respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 	topic := mux.Vars(r)[prmTopic]
@@ -160,14 +159,14 @@ func (s *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 	// Get the message body from the HTTP request.
 	var msg sarama.Encoder
 	if msg, err = s.readMsg(r); err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
+		s.respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 
 	// Asynchronously submit the message to the Kafka cluster.
 	if !isSync {
 		pxy.AsyncProduce(topic, toEncoderPreservingNil(key), msg)
-		respondWithJSON(w, http.StatusOK, EmptyResponse)
+		s.respondWithJSON(w, http.StatusOK, EmptyResponse)
 		return
 	}
 
@@ -180,11 +179,11 @@ func (s *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 		default:
 			status = http.StatusInternalServerError
 		}
-		respondWithJSON(w, status, errorRs{err.Error()})
+		s.respondWithJSON(w, status, errorRs{err.Error()})
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, produceRs{
+	s.respondWithJSON(w, http.StatusOK, produceRs{
 		Partition: prodMsg.Partition,
 		Offset:    prodMsg.Offset,
 	})
@@ -228,18 +227,18 @@ func (s *T) handleConsume(w http.ResponseWriter, r *http.Request) {
 
 	pxy, err := s.getProxy(r)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
+		s.respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 	topic := mux.Vars(r)[prmTopic]
 	group, err := getGroupParam(r, false)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
+		s.respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 	ack, err := parseAck(r, true)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
+		s.respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 
@@ -254,11 +253,11 @@ func (s *T) handleConsume(w http.ResponseWriter, r *http.Request) {
 		default:
 			status = http.StatusInternalServerError
 		}
-		respondWithJSON(w, status, errorRs{err.Error()})
+		s.respondWithJSON(w, status, errorRs{err.Error()})
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, consumeRs{
+	s.respondWithJSON(w, http.StatusOK, consumeRs{
 		Key:       consMsg.Key,
 		Value:     consMsg.Value,
 		Partition: consMsg.Partition,
@@ -272,27 +271,27 @@ func (s *T) handleAck(w http.ResponseWriter, r *http.Request) {
 
 	pxy, err := s.getProxy(r)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
+		s.respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 	topic := mux.Vars(r)[prmTopic]
 	group, err := getGroupParam(r, false)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
+		s.respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 	ack, err := parseAck(r, true)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
+		s.respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 
 	err = pxy.Ack(group, topic, ack)
 	if err != nil {
-		respondWithJSON(w, http.StatusInternalServerError, errorRs{err.Error()})
+		s.respondWithJSON(w, http.StatusInternalServerError, errorRs{err.Error()})
 		return
 	}
-	respondWithJSON(w, http.StatusOK, EmptyResponse)
+	s.respondWithJSON(w, http.StatusOK, EmptyResponse)
 }
 
 // handleGetOffsets is an HTTP request handler for `GET /topic/{topic}/offsets`
@@ -301,23 +300,23 @@ func (s *T) handleGetOffsets(w http.ResponseWriter, r *http.Request) {
 
 	pxy, err := s.getProxy(r)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
+		s.respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 	topic := mux.Vars(r)[prmTopic]
 	group, err := getGroupParam(r, false)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
+		s.respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 
 	partitionOffsets, err := pxy.GetGroupOffsets(group, topic)
 	if err != nil {
 		if errors.Cause(err) == sarama.ErrUnknownTopicOrPartition {
-			respondWithJSON(w, http.StatusNotFound, errorRs{"Unknown topic"})
+			s.respondWithJSON(w, http.StatusNotFound, errorRs{"Unknown topic"})
 			return
 		}
-		respondWithJSON(w, http.StatusInternalServerError, errorRs{err.Error()})
+		s.respondWithJSON(w, http.StatusInternalServerError, errorRs{err.Error()})
 		return
 	}
 
@@ -339,7 +338,7 @@ func (s *T) handleGetOffsets(w http.ResponseWriter, r *http.Request) {
 		offset := offsetmgr.Offset{Val: po.Offset, Meta: po.Metadata}
 		offsetViews[i].SparseAcks = offsettrk.SparseAcks2Str(offset)
 	}
-	respondWithJSON(w, http.StatusOK, offsetViews)
+	s.respondWithJSON(w, http.StatusOK, offsetViews)
 }
 
 // handleGetOffsets is an HTTP request handler for `POST /topic/{topic}/offsets`
@@ -348,27 +347,27 @@ func (s *T) handleSetOffsets(w http.ResponseWriter, r *http.Request) {
 
 	pxy, err := s.getProxy(r)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
+		s.respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 	topic := mux.Vars(r)[prmTopic]
 	group, err := getGroupParam(r, false)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
+		s.respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		errorText := fmt.Sprintf("Failed to read the request: err=(%s)", err)
-		respondWithJSON(w, http.StatusBadRequest, errorRs{errorText})
+		s.respondWithJSON(w, http.StatusBadRequest, errorRs{errorText})
 		return
 	}
 
 	var partitionOffsetViews []partitionInfo
 	if err := json.Unmarshal(body, &partitionOffsetViews); err != nil {
 		errorText := fmt.Sprintf("Failed to parse the request: err=(%s)", err)
-		respondWithJSON(w, http.StatusBadRequest, errorRs{errorText})
+		s.respondWithJSON(w, http.StatusBadRequest, errorRs{errorText})
 		return
 	}
 
@@ -382,14 +381,14 @@ func (s *T) handleSetOffsets(w http.ResponseWriter, r *http.Request) {
 	err = pxy.SetGroupOffsets(group, topic, partitionOffsets)
 	if err != nil {
 		if err = errors.Cause(err); err == sarama.ErrUnknownTopicOrPartition {
-			respondWithJSON(w, http.StatusNotFound, errorRs{"Unknown topic"})
+			s.respondWithJSON(w, http.StatusNotFound, errorRs{"Unknown topic"})
 			return
 		}
-		respondWithJSON(w, http.StatusInternalServerError, errorRs{err.Error()})
+		s.respondWithJSON(w, http.StatusInternalServerError, errorRs{err.Error()})
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, EmptyResponse)
+	s.respondWithJSON(w, http.StatusOK, EmptyResponse)
 }
 
 // handleGetTopicConsumers is an HTTP request handler for `GET /topic/{topic}/consumers`
@@ -399,14 +398,14 @@ func (s *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
 
 	pxy, err := s.getProxy(r)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
+		s.respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 	topic := mux.Vars(r)[prmTopic]
 
 	group, err := getGroupParam(r, true)
 	if err != nil {
-		respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
+		s.respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
 
@@ -414,17 +413,17 @@ func (s *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
 	if group == "" {
 		consumers, err = pxy.GetAllTopicConsumers(topic)
 		if err != nil {
-			respondWithJSON(w, http.StatusInternalServerError, errorRs{err.Error()})
+			s.respondWithJSON(w, http.StatusInternalServerError, errorRs{err.Error()})
 			return
 		}
 	} else {
 		groupConsumers, err := pxy.GetTopicConsumers(group, topic)
 		if err != nil {
 			if _, ok := err.(admin.ErrInvalidParam); ok {
-				respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
+				s.respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 				return
 			}
-			respondWithJSON(w, http.StatusInternalServerError, errorRs{err.Error()})
+			s.respondWithJSON(w, http.StatusInternalServerError, errorRs{err.Error()})
 			return
 		}
 		consumers = make(map[string]map[string][]int32)
@@ -435,7 +434,7 @@ func (s *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
 
 	encodedRes, err := json.MarshalIndent(consumers, "", "  ")
 	if err != nil {
-		log.Errorf("Failed to send HTTP response: status=%d, body=%v, err=%+v", http.StatusOK, encodedRes, err)
+		s.actDesc.Log().WithError(err).Errorf("Failed to send HTTP response: status=%d, body=%v", http.StatusOK, encodedRes)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -444,7 +443,7 @@ func (s *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add(hdrContentType, "application/json")
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write(encodedRes); err != nil {
-		log.Errorf("Failed to send HTTP response: status=%d, body=%v, err=%+v", http.StatusOK, encodedRes, err)
+		s.actDesc.Log().WithError(err).Errorf("Failed to send HTTP response: status=%d, body=%v", http.StatusOK, encodedRes)
 	}
 }
 
@@ -495,10 +494,10 @@ func getParamBytes(r *http.Request, name string) []byte {
 
 // respondWithJSON marshals `body` to a JSON string and sends it s an HTTP
 // response body along with the specified `status` code.
-func respondWithJSON(w http.ResponseWriter, status int, body interface{}) {
+func (s *T) respondWithJSON(w http.ResponseWriter, status int, body interface{}) {
 	encodedRes, err := json.MarshalIndent(body, "", "  ")
 	if err != nil {
-		log.Errorf("Failed to send HTTP response: status=%d, body=%v, err=%+v", status, body, err)
+		s.actDesc.Log().WithError(err).Errorf("Failed to send HTTP response: status=%d, body=%v", status, body)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -506,7 +505,7 @@ func respondWithJSON(w http.ResponseWriter, status int, body interface{}) {
 	w.Header().Add(hdrContentType, "application/json")
 	w.WriteHeader(status)
 	if _, err := w.Write(encodedRes); err != nil {
-		log.Errorf("Failed to send HTTP response: status=%d, body=%v, err=%+v", status, body, err)
+		s.actDesc.Log().WithError(err).Errorf("Failed to send HTTP response: status=%d, body=%v", status, body)
 	}
 }
 
