@@ -79,7 +79,7 @@ func (s *ConsumerSuite) TestInitialOffsetTooLarge(c *C) {
 	c.Assert(err, Equals, consumer.ErrRequestTimeout)
 
 	produced := s.kh.PutMessages("offset-too-large", "test.1", map[string]int{"key": 5})
-	consumed := s.consume(c, sc, "g1", "test.1", 1)
+	consumed := consume(c, sc, "g1", "test.1", 1, 5 * time.Second)
 	c.Assert(consumed["key"][0].Offset, Equals, newestOffsets[0]+3)
 	assertMsg(c, consumed["key"][0], produced["key"][3])
 }
@@ -96,7 +96,7 @@ func (s *ConsumerSuite) TestSinglePartitionTopic(c *C) {
 	defer sc.Stop()
 
 	// When/Then
-	consumed := s.consume(c, sc, "g1", "test.1", 1)
+	consumed := consume(c, sc, "g1", "test.1", 1, 5 * time.Second)
 	assertMsg(c, consumed[""][0], produced[""][0])
 }
 
@@ -110,7 +110,7 @@ func (s *ConsumerSuite) TestSequentialConsume(c *C) {
 	sc1, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
 	log.Infof("*** GIVEN 1")
-	consumed := s.consume(c, sc1, "g1", "test.1", 2)
+	consumed := consume(c, sc1, "g1", "test.1", 2, 5 * time.Second)
 	assertMsg(c, consumed[""][0], produced[""][0])
 	assertMsg(c, consumed[""][1], produced[""][1])
 
@@ -123,7 +123,7 @@ func (s *ConsumerSuite) TestSequentialConsume(c *C) {
 
 	// Then: the second message is consumed.
 	log.Infof("*** THEN")
-	consumed = s.consume(c, sc2, "g1", "test.1", 1, consumed)
+	consumed = consume(c, sc2, "g1", "test.1", 1, 5 * time.Second, consumed)
 	assertMsg(c, consumed[""][2], produced[""][2])
 }
 
@@ -141,11 +141,11 @@ func (s *ConsumerSuite) TestMultiplePartitions(c *C) {
 
 	// When: exactly one half of all produced events is consumed.
 	log.Infof("*** WHEN")
-	consumed := s.consume(c, sc, "g1", "test.4", 1)
+	consumed := consume(c, sc, "g1", "test.4", 1, 5 * time.Second)
 	// Wait until first messages from partitions `A` and `B` are fetched.
 	waitFirstFetched(sc, 2)
 	// Consume 100 messages total
-	consumed = s.consume(c, sc, "g1", "test.4", 99, consumed)
+	consumed = consume(c, sc, "g1", "test.4", 99, 20 * time.Second, consumed)
 
 	// Then: we have events consumed from both partitions more or less evenly.
 	log.Infof("*** THEN")
@@ -169,9 +169,9 @@ func (s *ConsumerSuite) TestMultipleTopics(c *C) {
 
 	// When
 	log.Infof("*** WHEN")
-	consumed := s.consume(c, sc, "g1", "test.4", 1)
-	consumed = s.consume(c, sc, "g1", "test.1", 1, consumed)
-	consumed = s.consume(c, sc, "g1", "test.4", 1, consumed)
+	consumed := consume(c, sc, "g1", "test.4", 1, 5 * time.Second)
+	consumed = consume(c, sc, "g1", "test.1", 1, 5 * time.Second, consumed)
+	consumed = consume(c, sc, "g1", "test.4", 1, 5 * time.Second, consumed)
 
 	// Then
 	log.Infof("*** THEN")
@@ -195,10 +195,10 @@ func (s *ConsumerSuite) TestMultipleGroups(c *C) {
 
 	// When
 	log.Infof("*** WHEN")
-	consumed1 := s.consume(c, sc, "g1", "test.4", 10)
-	consumed2 := s.consume(c, sc, "g2", "test.4", 20)
-	consumed1 = s.consume(c, sc, "g1", "test.4", 20, consumed1)
-	consumed2 = s.consume(c, sc, "g2", "test.4", 10, consumed2)
+	consumed1 := consume(c, sc, "g1", "test.4", 10, 5 * time.Second)
+	consumed2 := consume(c, sc, "g2", "test.4", 20, 5 * time.Second)
+	consumed1 = consume(c, sc, "g1", "test.4", 20, 5 * time.Second, consumed1)
+	consumed2 = consume(c, sc, "g2", "test.4", 10, 5 * time.Second, consumed2)
 
 	// Then: both groups consumed the same events
 	log.Infof("*** THEN")
@@ -217,7 +217,7 @@ func (s *ConsumerSuite) TestTooFewPartitions(c *C) {
 	defer sc1.Stop()
 	log.Infof("*** GIVEN 1")
 	// Consume first message to make `consumer-1` subscribe for `test.1`
-	consumed := s.consume(c, sc1, "g1", "test.1", 2)
+	consumed := consume(c, sc1, "g1", "test.1", 2, 5 * time.Second)
 	assertMsg(c, consumed[""][0], produced[""][0])
 
 	// When:
@@ -231,7 +231,7 @@ func (s *ConsumerSuite) TestTooFewPartitions(c *C) {
 	// return messages.
 	log.Infof("*** THEN")
 	c.Assert(err, Equals, consumer.ErrRequestTimeout)
-	s.consume(c, sc1, "g1", "test.1", 1, consumed)
+	consume(c, sc1, "g1", "test.1", 1, 5 * time.Second, consumed)
 	assertMsg(c, consumed[""][1], produced[""][1])
 }
 
@@ -249,14 +249,14 @@ func (s *ConsumerSuite) TestRebalanceOnJoin(c *C) {
 	// Consume the first message to make the consumer join the group and
 	// subscribe to the topic.
 	log.Infof("*** GIVEN 1")
-	consumed1 := s.consume(c, sc1, "g1", "test.4", 1)
+	consumed1 := consume(c, sc1, "g1", "test.4", 1, 5 * time.Second)
 	// Wait until first messages from partitions `A` and `B` are fetched.
 	waitFirstFetched(sc1, 2)
 
 	// Consume 4 messages and make sure that there are messages from both
 	// partitions among them.
 	log.Infof("*** GIVEN 2")
-	consumed1 = s.consume(c, sc1, "g1", "test.4", 4, consumed1)
+	consumed1 = consume(c, sc1, "g1", "test.4", 4, 5 * time.Second, consumed1)
 	c.Assert(len(consumed1["A"]), Not(Equals), 0)
 	c.Assert(len(consumed1["B"]), Not(Equals), 0)
 	consumedBeforeJoin := len(consumed1["B"])
@@ -269,8 +269,8 @@ func (s *ConsumerSuite) TestRebalanceOnJoin(c *C) {
 
 	// Then:
 	log.Infof("*** THEN")
-	consumed2 := s.consume(c, sc2, "g1", "test.4", consumeAll)
-	consumed1 = s.consume(c, sc1, "g1", "test.4", consumeAll, consumed1)
+	consumed2 := consume(c, sc2, "g1", "test.4", consumeAll, 5 * time.Second)
+	consumed1 = consume(c, sc1, "g1", "test.4", consumeAll, 5 * time.Second, consumed1)
 	// Partition "A" has been consumed by `consumer-1` only
 	c.Assert(len(consumed1["A"]), Equals, 10)
 	c.Assert(len(consumed2["A"]), Equals, 0)
@@ -304,7 +304,7 @@ func (s *ConsumerSuite) TestRebalanceOnLeave(c *C) {
 	// subscribe to the topic.
 	consumed := make([]map[string][]consumer.Message, 3)
 	for i := 0; i < 3; i++ {
-		consumed[i] = s.consume(c, consumers[i], "g1", "test.4", 1)
+		consumed[i] = consume(c, consumers[i], "g1", "test.4", 1, 5 * time.Second)
 	}
 	// consumer[0] can consume the first message from any partition and
 	// consumer[1] can consume the first message from either `B` or `C`.
@@ -328,7 +328,7 @@ func (s *ConsumerSuite) TestRebalanceOnLeave(c *C) {
 			assertMsg(c, consumed[2]["B"][0], produced["B"][0])
 		}
 	}
-	s.consume(c, consumers[2], "g1", "test.4", 4, consumed[2])
+	consume(c, consumers[2], "g1", "test.4", 4, 5 * time.Second, consumed[2])
 	c.Assert(len(consumed[2]["B"]), Equals, 5)
 	lastConsumedFromBby2 := consumed[2]["B"][4]
 
@@ -355,7 +355,7 @@ func (s *ConsumerSuite) TestRebalanceOnLeave(c *C) {
 	log.Infof("*** Consumed so far: %v", consumedSoFar)
 	log.Infof("*** Yet to be consumed by cons[1]: %v", yetToBeConsumedBy1)
 
-	consumedBy1 := s.consume(c, consumers[1], "g1", "test.4", yetToBeConsumedBy1)
+	consumedBy1 := consume(c, consumers[1], "g1", "test.4", yetToBeConsumedBy1, 5 * time.Second)
 	c.Assert(len(consumedBy1["B"]), Equals, len(produced["B"])-consumedSoFar["B"])
 	c.Assert(consumedBy1["B"][0].Offset, Equals, lastConsumedFromBby2.Offset+1)
 }
@@ -382,8 +382,8 @@ func (s *ConsumerSuite) TestRebalanceOnTimeout(c *C) {
 	// Consume the first message to make the consumers join the group and
 	// subscribe to the topic.
 	log.Infof("*** GIVEN 1")
-	consumed[0] = s.consume(c, sc0, "g1", "test.4", 1)
-	consumed[1] = s.consume(c, sc1, "g1", "test.4", 1)
+	consumed[0] = consume(c, sc0, "g1", "test.4", 1, 5 * time.Second)
+	consumed[1] = consume(c, sc1, "g1", "test.4", 1, 5 * time.Second)
 
 	if len(consumed[0]["B"]) == 0 {
 		c.Assert(len(consumed[0]["A"]), Equals, 1)
@@ -397,10 +397,10 @@ func (s *ConsumerSuite) TestRebalanceOnTimeout(c *C) {
 	// partition assigned to it.
 	log.Infof("*** GIVEN 2")
 	actor.Spawn(s.ns.NewChild("consume[0]"), &wg, func() {
-		consumed[0] = s.consume(c, sc0, "g1", "test.4", 4, consumed[0])
+		consumed[0] = consume(c, sc0, "g1", "test.4", 4, 5 * time.Second, consumed[0])
 	})
 	actor.Spawn(s.ns.NewChild("consume[1]"), &wg, func() {
-		consumed[1] = s.consume(c, sc1, "g1", "test.4", 4, consumed[1])
+		consumed[1] = consume(c, sc1, "g1", "test.4", 4, 5 * time.Second, consumed[1])
 	})
 	wg.Wait()
 
@@ -422,7 +422,7 @@ func (s *ConsumerSuite) TestRebalanceOnTimeout(c *C) {
 
 	// ...and consumes the remaining messages from all partitions.
 	log.Infof("*** THEN")
-	consumed[0] = s.consume(c, sc0, "g1", "test.4", 10, consumed[0])
+	consumed[0] = consume(c, sc0, "g1", "test.4", 10, 5 * time.Second, consumed[0])
 	c.Assert(len(consumed[0]["A"]), Equals, 10)
 	c.Assert(len(consumed[0]["B"]), Equals, 5)
 	c.Assert(len(consumed[1]["A"]), Equals, 0)
@@ -495,7 +495,7 @@ func (s *ConsumerSuite) TestLotsOfPartitions(c *C) {
 
 	// When
 	log.Infof("*** WHEN")
-	consumed := s.consume(c, sc, "g1", "test.64", consumeAll)
+	consumed := consume(c, sc, "g1", "test.64", consumeAll, 10 * time.Second)
 
 	// Then
 	log.Infof("*** THEN")
@@ -539,10 +539,10 @@ func (s *ConsumerSuite) TestNewGroup(c *C) {
 // rebalanced between active consumers, but the consumer keeps consuming
 // messages from other topics.
 func (s *ConsumerSuite) TestTopicTimeout(c *C) {
-	// Given
+	s.kh.ResetOffsets("g1", "test.1")
+	s.kh.PutMessages("topic-expire", "test.1", map[string]int{"A": 10})
 	s.kh.ResetOffsets("g1", "test.4")
-	s.kh.PutMessages("expire", "test.1", map[string]int{"A": 10})
-	s.kh.PutMessages("expire", "test.4", map[string]int{"B": 10})
+	s.kh.PutMessages("topic-expire", "test.4", map[string]int{"B": 10})
 
 	s.cfg.Consumer.LongPollingTimeout = 3000 * time.Millisecond
 	s.cfg.Consumer.RegistrationTimeout = 10000 * time.Millisecond
@@ -561,9 +561,9 @@ func (s *ConsumerSuite) TestTopicTimeout(c *C) {
 	// subscribe to the topics.
 	log.Infof("*** GIVEN 1")
 	start := time.Now()
-	consumedTest1ByCons1 := s.consume(c, cons1, "g1", "test.1", 1)
+	consumedTest1ByCons1 := consume(c, cons1, "g1", "test.1", 1, 5 * time.Second)
 	c.Assert(len(consumedTest1ByCons1["A"]), Equals, 1)
-	consumedTest4ByCons1 := s.consume(c, cons1, "g1", "test.4", 1)
+	consumedTest4ByCons1 := consume(c, cons1, "g1", "test.4", 1, 5 * time.Second)
 	c.Assert(len(consumedTest4ByCons1["B"]), Equals, 1)
 	_, err = cons2.Consume("g1", "test.1")
 	c.Assert(err, Equals, consumer.ErrRequestTimeout)
@@ -573,7 +573,7 @@ func (s *ConsumerSuite) TestTopicTimeout(c *C) {
 	time.Sleep(delay)
 
 	log.Infof("*** GIVEN 2:")
-	consumedTest4ByCons1 = s.consume(c, cons1, "g1", "test.4", 1, consumedTest4ByCons1)
+	consumedTest4ByCons1 = consume(c, cons1, "g1", "test.4", 1, 5 * time.Second, consumedTest4ByCons1)
 	c.Assert(len(consumedTest4ByCons1["B"]), Equals, 2)
 	_, err = cons2.Consume("g1", "test.1")
 	c.Assert(err, Equals, consumer.ErrRequestTimeout)
@@ -586,9 +586,9 @@ func (s *ConsumerSuite) TestTopicTimeout(c *C) {
 
 	// Then: the test.1 only partition is reassigned to cons2.
 	log.Infof("*** THEN")
-	consumedTest1ByCons2 := s.consume(c, cons2, "g1", "test.1", 1)
+	consumedTest1ByCons2 := consume(c, cons2, "g1", "test.1", 1, 10 * time.Second)
 	c.Assert(len(consumedTest1ByCons2["A"]), Equals, 1)
-	consumedTest4ByCons1 = s.consume(c, cons1, "g1", "test.4", 1, consumedTest4ByCons1)
+	consumedTest4ByCons1 = consume(c, cons1, "g1", "test.4", 1, 5 * time.Second, consumedTest4ByCons1)
 	c.Assert(len(consumedTest4ByCons1["B"]), Equals, 3)
 }
 
@@ -603,8 +603,8 @@ func (s *ConsumerSuite) compareMsg(consMsg consumer.Message, prodMsg *sarama.Pro
 
 const consumeAll = -1
 
-func (s *ConsumerSuite) consume(c *C, sc *t, group, topic string, count int,
-	extend ...map[string][]consumer.Message) map[string][]consumer.Message {
+func consume(c *C, sc *t, group, topic string, count int,
+	timeout time.Duration, extend ...map[string][]consumer.Message) map[string][]consumer.Message {
 
 	var consumed map[string][]consumer.Message
 	if len(extend) == 0 {
@@ -612,13 +612,19 @@ func (s *ConsumerSuite) consume(c *C, sc *t, group, topic string, count int,
 	} else {
 		consumed = extend[0]
 	}
+
+	start := time.Now()
 	for i := 0; i != count; i++ {
 		msg, err := sc.Consume(group, topic)
 		if err == consumer.ErrRequestTimeout {
+			if time.Now().Sub(start) < timeout {
+				continue
+			}
 			if count == consumeAll {
 				return consumed
 			}
-			c.Fatalf("Not enough messages consumed: expected=%d, actual=%d", count, i)
+			c.Errorf("Not enough messages consumed: expected=%d, actual=%d", count, i)
+			return consumed
 		}
 		c.Assert(err, IsNil)
 		logConsumed(sc, msg)
