@@ -68,11 +68,6 @@
 			"Rev": "5ee121b6e962bf95caf2804f475bfcb9305ba6f6"
 		},
 		{
-			"ImportPath": "github.com/mailgun/manners",
-			"Comment": "0.4.0-12-gfada451",
-			"Rev": "fada45142db3f93097ca917da107aa3fad0ffcb5"
-		},
-		{
 			"ImportPath": "github.com/mailru/easyjson",
 			"Rev": "2f5df55504ebc322e4d52d34df6a1f5b503bf26d"
 		},

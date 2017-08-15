@@ -1,6 +1,7 @@
 package httpsrv
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -20,7 +21,6 @@ import (
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/prettyfmt"
 	"github.com/mailgun/kafka-pixy/proxy"
-	"github.com/mailgun/manners"
 	"github.com/pkg/errors"
 )
 
@@ -53,7 +53,7 @@ type T struct {
 	actDesc    *actor.Descriptor
 	addr       string
 	listener   net.Listener
-	httpServer *manners.GracefulServer
+	httpServer *http.Server
 	proxySet   *proxy.Set
 	wg         sync.WaitGroup
 	errorCh    chan error
@@ -80,11 +80,11 @@ func New(addr string, proxySet *proxy.Set) (*T, error) {
 	}
 	// Create a graceful HTTP server instance.
 	router := mux.NewRouter()
-	httpServer := manners.NewWithServer(&http.Server{Handler: router})
+	httpServer := &http.Server{Handler: router}
 	hs := &T{
 		actDesc:    actor.Root().NewChild(fmt.Sprintf("http://%s", addr)),
 		addr:       addr,
-		listener:   manners.NewListener(listener),
+		listener:   listener,
 		httpServer: httpServer,
 		proxySet:   proxySet,
 		errorCh:    make(chan error, 1),
@@ -133,7 +133,7 @@ func (s *T) ErrorCh() <-chan error {
 // for incoming requests first, and then blocks waiting for pending requests to
 // complete.
 func (s *T) Stop() {
-	s.httpServer.Close()
+	s.httpServer.Shutdown(context.Background())
 	s.wg.Wait()
 	close(s.errorCh)
 }
