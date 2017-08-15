@@ -33,7 +33,7 @@ type T struct {
 // Creates a topic consumer instance. It should be explicitly started in
 // accordance with the `dispatcher.Tier` contract.
 func New(parentActDesc *actor.Descriptor, group, topic string, cfg *config.Proxy, lifespanCh chan<- *T) *T {
-	actDesc := parentActDesc.NewChild(fmt.Sprintf("T:%s", topic))
+	actDesc := parentActDesc.NewChild(fmt.Sprintf("%s", topic))
 	actDesc.AddLogField("kafka.group", group)
 	actDesc.AddLogField("kafka.topic", topic)
 	return &T{

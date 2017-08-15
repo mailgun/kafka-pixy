@@ -50,7 +50,7 @@ func (d *Descriptor) NewChild(nameParts ...interface{}) *Descriptor {
 	idx := d.childrenCounts[name]
 	d.childrenCounts[name] = idx + 1
 	d.childrenMu.Unlock()
-	childAbsName := fmt.Sprintf("%s/%s[%d]", d.absoluteName, name, idx)
+	childAbsName := fmt.Sprintf("%s/%s.%d", d.absoluteName, name, idx)
 	childLog := d.log.WithField(fieldActorName, childAbsName)
 	child := Descriptor{
 		absoluteName: childAbsName,

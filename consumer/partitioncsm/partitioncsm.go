@@ -61,7 +61,7 @@ type T struct {
 func Spawn(parentActDesc *actor.Descriptor, group, topic string, partition int32, cfg *config.Proxy,
 	groupMember *groupmember.T, msgFetcherF msgfetcher.Factory, offsetMgrF offsetmgr.Factory,
 ) *T {
-	actDesc := parentActDesc.NewChild(fmt.Sprintf("P:%s_%d", topic, partition))
+	actDesc := parentActDesc.NewChild(fmt.Sprintf("%s.p%d", topic, partition))
 	actDesc.AddLogField("kafka.group", group)
 	actDesc.AddLogField("kafka.topic", topic)
 	actDesc.AddLogField("kafka.partition", partition)

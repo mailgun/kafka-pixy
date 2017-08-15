@@ -49,7 +49,7 @@ type T struct {
 func New(parentActDesc *actor.Descriptor, group string, cfg *config.Proxy, kafkaClt sarama.Client,
 	kazooClt *kazoo.Kazoo, offsetMgrF offsetmgr.Factory,
 ) *T {
-	supActDesc := parentActDesc.NewChild(fmt.Sprintf("G:%s", group))
+	supActDesc := parentActDesc.NewChild(fmt.Sprintf("%s", group))
 	supActDesc.AddLogField("kafka.group", group)
 	gc := &T{
 		supActDesc:         supActDesc,
