@@ -91,9 +91,8 @@ func (gc *T) Requests() chan<- dispatcher.Request {
 }
 
 // implements `dispatcher.Tier`.
-func (gc *T) Start(stoppedCh chan<- dispatcher.Tier) {
+func (gc *T) Start() {
 	actor.Spawn(gc.supActDesc, &gc.wg, func() {
-		defer func() { stoppedCh <- gc }()
 		var err error
 		gc.msgFetcherF, err = msgfetcher.SpawnFactory(gc.supActDesc, gc.cfg, gc.kafkaClt)
 		if err != nil {

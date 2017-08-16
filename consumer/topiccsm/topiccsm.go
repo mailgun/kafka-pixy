@@ -72,11 +72,8 @@ func (tc *T) Requests() chan<- dispatcher.Request {
 }
 
 // implements `dispatcher.Tier`.
-func (tc *T) Start(stoppedCh chan<- dispatcher.Tier) {
-	actor.Spawn(tc.actDesc, &tc.wg, func() {
-		defer func() { stoppedCh <- tc }()
-		tc.run()
-	})
+func (tc *T) Start() {
+	actor.Spawn(tc.actDesc, &tc.wg, tc.run)
 }
 
 // implements `dispatcher.Tier`.

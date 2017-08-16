@@ -105,8 +105,8 @@ func (s *T) run() {
 
 	// Initiate stop of all API servers.
 	var wg sync.WaitGroup
-	for _, fe := range s.servers {
-		actor.Spawn(s.actDesc.NewChild("srv_stop"), &wg, fe.Stop)
+	for _, srv := range s.servers {
+		actor.Spawn(s.actDesc.NewChild("srv_stop"), &wg, srv.Stop)
 	}
 	wg.Wait()
 
