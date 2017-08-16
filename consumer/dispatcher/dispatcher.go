@@ -181,7 +181,9 @@ func (d *T) resolveTier(req Request) Tier {
 		et = d.newExpiringTier(d.factory, childKey)
 		d.children[childKey] = et
 	}
-	if !et.expired && et.timer.Reset(et.d.cfg.Consumer.RegistrationTimeout) {
+	// If the resolved tier is not expired, then reset its timer and return it.
+	if !et.expired && et.timer.Stop() {
+		et.timer.Reset(et.d.cfg.Consumer.RegistrationTimeout)
 		return et.instance
 	}
 	if et.successor == nil {
