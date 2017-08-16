@@ -108,7 +108,7 @@ func (pc *T) run() {
 	case <-pc.stopCh:
 		return
 	}
-	pc.actDesc.Log().Infof("initial offset: %d, sparseAcks=%s",
+	pc.actDesc.Log().Infof("initial offset: %d(%s)",
 		pc.committedOffset.Val, offsettrk.SparseAcks2Str(pc.committedOffset))
 	pc.offsetTrk = offsettrk.New(pc.actDesc, pc.committedOffset, pc.cfg.Consumer.AckTimeout)
 	pc.submittedOffset = pc.committedOffset
@@ -149,8 +149,9 @@ func (pc *T) runFetchLoop() bool {
 	// and report in the logs.
 	if pc.submittedOffset != pc.committedOffset {
 		pc.offsetMgr.SubmitOffset(pc.submittedOffset)
-		pc.actDesc.Log().Errorf("offset adjusted: %d, sparseAcks=%s",
-			pc.submittedOffset.Val, offsettrk.SparseAcks2Str(pc.submittedOffset))
+		pc.actDesc.Log().Errorf("offset adjusted: new=%d(%s), old=%d(%s)",
+			pc.submittedOffset.Val, offsettrk.SparseAcks2Str(pc.submittedOffset),
+			pc.committedOffset.Val, offsettrk.SparseAcks2Str(pc.committedOffset))
 	}
 	var (
 		nilOrMsgFetcherCh = mf.Messages()
