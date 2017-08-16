@@ -5,6 +5,8 @@
 Implemented:
 * Posts can now be performed with content type `x-www-form-urlencoded`, in that
   case message should be passed in the `msg` form parameter.
+* Stuctural logging with sirupsen/logrus and mailgun/logrus-hooks/kafkahook.
+* Support for Kafka version 0.10.2.0.
 
 Fixed:
 * [#100](https://github.com/mailgun/kafka-pixy/issues/100) Consumption from a
@@ -15,7 +17,7 @@ Fixed:
 Implemented:
 * At-Least-Once delivery guarantee via synchronous production and
   explicit acknowledgement of consumed messages.
-* Support for Kafka up to version 0.10.1.x.
+* Support for Kafka version 0.10.1.0.
 
 #### Version 0.12.0 (2017-02-21)
 

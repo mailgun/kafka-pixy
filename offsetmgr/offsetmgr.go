@@ -9,7 +9,6 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/mapper"
-	"github.com/mailgun/log"
 	"github.com/pkg/errors"
 )
 
@@ -29,7 +28,7 @@ type Factory interface {
 	// It returns an error if given group-topic-partition has a running
 	// OffsetManager instance already. After an old offset manager instance is
 	// stopped a new one can be started.
-	Spawn(namespace *actor.ID, group, topic string, partition int32) (T, error)
+	Spawn(parentActDesc *actor.Descriptor, group, topic string, partition int32) (T, error)
 
 	// Stop waits for the spawned offset managers to stop and then terminates. Note
 	// that all spawned offset managers has to be explicitly stopped by calling
@@ -81,24 +80,24 @@ var (
 )
 
 // SpawnFactory creates a new offset manager factory from the given client.
-func SpawnFactory(namespace *actor.ID, cfg *config.Proxy, kafkaClt sarama.Client) Factory {
+func SpawnFactory(parentActDesc *actor.Descriptor, cfg *config.Proxy, kafkaClt sarama.Client) Factory {
 	f := &factory{
-		namespace: namespace.NewChild("offset_mgr_f"),
-		kafkaClt:  kafkaClt,
-		cfg:       cfg,
-		children:  make(map[instanceID]*offsetMgr),
+		actDesc:  parentActDesc.NewChild("offset_mgr_f"),
+		kafkaClt: kafkaClt,
+		cfg:      cfg,
+		children: make(map[instanceID]*offsetMgr),
 	}
-	f.mapper = mapper.Spawn(f.namespace, f)
+	f.mapper = mapper.Spawn(f.actDesc, f)
 	return f
 }
 
 // implements `Factory`
 // implements `mapper.Resolver`
 type factory struct {
-	namespace *actor.ID
-	kafkaClt  sarama.Client
-	cfg       *config.Proxy
-	mapper    *mapper.T
+	actDesc  *actor.Descriptor
+	kafkaClt sarama.Client
+	cfg      *config.Proxy
+	mapper   *mapper.T
 
 	childrenMu sync.Mutex
 	children   map[instanceID]*offsetMgr
@@ -111,7 +110,7 @@ type instanceID struct {
 }
 
 // implements `Factory`
-func (f *factory) Spawn(namespace *actor.ID, group, topic string, partition int32) (T, error) {
+func (f *factory) Spawn(namespace *actor.Descriptor, group, topic string, partition int32) (T, error) {
 	id := instanceID{group, topic, partition}
 
 	f.childrenMu.Lock()
@@ -119,8 +118,12 @@ func (f *factory) Spawn(namespace *actor.ID, group, topic string, partition int3
 	if _, ok := f.children[id]; ok {
 		return nil, errors.Errorf("offset manager %v already exists", id)
 	}
+	actDesc := namespace.NewChild("offset_mgr")
+	actDesc.AddLogField("kafka.group", group)
+	actDesc.AddLogField("kafka.topic", topic)
+	actDesc.AddLogField("kafka.partition", partition)
 	om := &offsetMgr{
-		actorID:            namespace.NewChild("offset_mgr"),
+		actDesc:            actDesc,
 		f:                  f,
 		id:                 id,
 		submitRequestsCh:   make(chan submitReq),
@@ -131,7 +134,7 @@ func (f *factory) Spawn(namespace *actor.ID, group, topic string, partition int3
 		om.testErrorsCh = make(chan error, f.cfg.Consumer.ChannelBufferSize)
 	}
 	f.children[id] = om
-	actor.Spawn(om.actorID, &om.wg, om.run)
+	actor.Spawn(om.actDesc, &om.wg, om.run)
 	return om, nil
 }
 
@@ -152,15 +155,15 @@ func (f *factory) ResolveBroker(worker mapper.Worker) (*sarama.Broker, error) {
 // implements `mapper.Resolver`.
 func (f *factory) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
 	be := &brokerExecutor{
-		aggrActorID:     f.namespace.NewChild("broker", brokerConn.ID(), "aggr"),
-		execActorID:     f.namespace.NewChild("broker", brokerConn.ID(), "exec"),
+		aggrActDesc:     f.actDesc.NewChild("broker", brokerConn.ID(), "aggr"),
+		execActDesc:     f.actDesc.NewChild("broker", brokerConn.ID(), "exec"),
 		cfg:             f.cfg,
 		conn:            brokerConn,
 		requestsCh:      make(chan submitReq),
 		batchRequestsCh: make(chan map[string]map[instanceID]submitReq),
 	}
-	actor.Spawn(be.aggrActorID, &be.wg, be.runAggregator)
-	actor.Spawn(be.execActorID, &be.wg, be.runExecutor)
+	actor.Spawn(be.aggrActDesc, &be.wg, be.runAggregator)
+	actor.Spawn(be.execActDesc, &be.wg, be.runExecutor)
 	return be
 }
 
@@ -183,7 +186,7 @@ func (f *factory) onOffsetMgrStopped(om *offsetMgr) {
 // implements `T`
 // implements `mapper.Worker`
 type offsetMgr struct {
-	actorID            *actor.ID
+	actDesc            *actor.Descriptor
 	f                  *factory
 	id                 instanceID
 	submitRequestsCh   chan submitReq
@@ -225,7 +228,7 @@ func (om *offsetMgr) Assignment() chan<- mapper.Executor {
 }
 
 func (om *offsetMgr) String() string {
-	return om.actorID.String()
+	return om.actDesc.String()
 }
 
 func (om *offsetMgr) run() {
@@ -252,7 +255,7 @@ func (om *offsetMgr) run() {
 	for {
 		select {
 		case bw := <-om.assignmentCh:
-			log.Infof("<%s> assigned %s", om.actorID, bw)
+			om.actDesc.Log().Infof("assigned %s", bw)
 			if bw == nil {
 				om.triggerOrScheduleReassign(errNoCoordinator, "no broker assigned")
 				continue
@@ -307,7 +310,7 @@ func (om *offsetMgr) run() {
 			}
 		case <-om.nilOrReassignRetryTimerCh:
 			om.f.mapper.TriggerReassign(om)
-			log.Infof("<%s> reassign triggered by timeout", om.actorID)
+			om.actDesc.Log().Info("reassign triggered by timeout")
 			om.nilOrReassignRetryTimerCh = time.After(om.f.cfg.Consumer.RetryBackoff)
 		}
 	}
@@ -319,11 +322,11 @@ func (om *offsetMgr) triggerOrScheduleReassign(err error, reason string) {
 	om.nilOrBrokerRequestsCh = nil
 	now := time.Now().UTC()
 	if now.Sub(om.lastReassignTime) > om.f.cfg.Consumer.RetryBackoff {
-		log.Infof("<%s> trigger reassign: reason=%s, err=(%s)", om.actorID, reason, err)
+		om.actDesc.Log().WithError(err).Infof("trigger reassign: reason=%s", reason)
 		om.lastReassignTime = now
 		om.f.mapper.TriggerReassign(om)
 	} else {
-		log.Infof("<%s> schedule reassign: reason=%s, err=(%s)", om.actorID, reason, err)
+		om.actDesc.Log().WithError(err).Infof("schedule reassign: reason=%s", reason)
 	}
 	om.nilOrReassignRetryTimerCh = time.After(om.f.cfg.Consumer.RetryBackoff)
 }
@@ -393,8 +396,8 @@ type submitRes struct {
 //
 // implements `mapper.Executor`.
 type brokerExecutor struct {
-	aggrActorID     *actor.ID
-	execActorID     *actor.ID
+	aggrActDesc     *actor.Descriptor
+	execActDesc     *actor.Descriptor
 	cfg             *config.Proxy
 	conn            *sarama.Broker
 	requestsCh      chan submitReq
@@ -474,7 +477,7 @@ offsetCommitLoop:
 				if lastErr != nil {
 					lastErrTime = time.Now().UTC()
 					be.conn.Close()
-					log.Infof("<%s> connection reset: err=(%v)", be.execActorID, lastErr)
+					be.execActDesc.Log().WithError(lastErr).Info("connection reset")
 					continue offsetCommitLoop
 				}
 				// Fan the response out to the partition offset managers.
@@ -490,5 +493,5 @@ func (be *brokerExecutor) String() string {
 	if be == nil {
 		return "<nil>"
 	}
-	return be.aggrActorID.String()
+	return be.aggrActDesc.String()
 }

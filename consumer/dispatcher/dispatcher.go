@@ -7,7 +7,6 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer"
-	"github.com/mailgun/log"
 )
 
 // T reads consume requests submitted to the `Requests()` channel and
@@ -17,7 +16,7 @@ import (
 // down stream dispatch tier is created it is cached in case more requests
 // resolving to it will come in the nearest future.
 type T struct {
-	actorID           *actor.ID
+	actDesc           *actor.Descriptor
 	cfg               *config.Proxy
 	factory           Factory
 	requestsCh        chan Request
@@ -79,9 +78,9 @@ type expiringTier struct {
 	expired   bool
 }
 
-func New(namespace *actor.ID, factory Factory, cfg *config.Proxy) *T {
+func New(parentActDesc *actor.Descriptor, factory Factory, cfg *config.Proxy) *T {
 	d := &T{
-		actorID:           namespace.NewChild("dispatcher"),
+		actDesc:           parentActDesc.NewChild("dispatcher"),
 		cfg:               cfg,
 		factory:           factory,
 		requestsCh:        make(chan Request, cfg.Consumer.ChannelBufferSize),
@@ -93,7 +92,7 @@ func New(namespace *actor.ID, factory Factory, cfg *config.Proxy) *T {
 }
 
 func (d *T) Start() {
-	actor.Spawn(d.actorID, &d.wg, d.run)
+	actor.Spawn(d.actDesc, &d.wg, d.run)
 }
 
 func (d *T) Stop() {
@@ -188,7 +187,7 @@ func (d *T) resolveTier(req Request) Tier {
 // asynchronous stop. When the tier is stopped it will notify about that via the
 // `stoppedChildrenCh` channel.
 func (d *T) handleExpired(dt Tier) {
-	log.Infof("<%s> child expired: %s", d.actorID, dt)
+	d.actDesc.Log().Infof("child expired: %s", dt)
 	et := d.children[dt.Key()]
 	if et == nil || et.instance != dt || et.expired {
 		return
@@ -201,7 +200,7 @@ func (d *T) handleExpired(dt Tier) {
 // started and takes over the tier's spot among the downstream dispatch tiers,
 // otherwise the tier is deleted.
 func (d *T) handleStopped(dt Tier) Tier {
-	log.Infof("<%s> child stopped: %s", d.actorID, dt)
+	d.actDesc.Log().Infof("child stopped: %s", dt)
 	et := d.children[dt.Key()]
 	if et == nil {
 		return nil
@@ -211,7 +210,7 @@ func (d *T) handleStopped(dt Tier) Tier {
 		delete(d.children, dt.Key())
 		return nil
 	}
-	log.Infof("<%s> starting successor: %s", d.actorID, successor)
+	d.actDesc.Log().Infof("starting successor: %s", successor)
 	et.expired = false
 	et.instance = successor
 	et.successor = nil

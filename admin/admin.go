@@ -24,19 +24,19 @@ const (
 
 // T provides methods to perform administrative operations on a Kafka cluster.
 type T struct {
-	namespace *actor.ID
-	cfg       *config.Proxy
-	kafkaClt  sarama.Client
-	zkConn    *zk.Conn
-	mtx       sync.Mutex
+	parentActDesc *actor.Descriptor
+	cfg           *config.Proxy
+	kafkaClt      sarama.Client
+	zkConn        *zk.Conn
+	mtx           sync.Mutex
 }
 
 // Spawn creates an admin instance with the specified configuration and starts
 // internal goroutines to support its operation.
-func Spawn(namespace *actor.ID, cfg *config.Proxy) (*T, error) {
+func Spawn(parentActDesc *actor.Descriptor, cfg *config.Proxy) (*T, error) {
 	a := T{
-		namespace: namespace,
-		cfg:       cfg,
+		parentActDesc: parentActDesc,
+		cfg:           cfg,
 	}
 	return &a, nil
 }
@@ -120,8 +120,8 @@ func (a *T) getGroupOffsets(group, topic string) ([]PartitionOffset, error) {
 			reqNewest.AddBlock(topic, p.partition, sarama.OffsetNewest, 1)
 			reqOldest.AddBlock(topic, p.partition, sarama.OffsetOldest, 1)
 		}
-		actorID := actor.RootID.NewChild("adminOffsetFetcher")
-		actor.Spawn(actorID, &wg, func() {
+		actDesc := actor.Root().NewChild("adminOffsetFetcher")
+		actor.Spawn(actDesc, &wg, func() {
 			resOldest, err := broker.GetAvailableOffsets(&reqOldest)
 			if err != nil {
 				errorsCh <- errors.Wrapf(err, "failed to fetch oldest offset, broker=%v", broker.ID())

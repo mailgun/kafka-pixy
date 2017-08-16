@@ -16,7 +16,7 @@ func Test(t *testing.T) {
 }
 
 type AdminSuite struct {
-	ns  *actor.ID
+	ns  *actor.Descriptor
 	cfg *config.Proxy
 	kh  *kafkahelper.T
 }
@@ -24,7 +24,7 @@ type AdminSuite struct {
 var _ = Suite(&AdminSuite{})
 
 func (s *AdminSuite) SetUpSuite(c *C) {
-	testhelpers.InitLogging(c)
+	testhelpers.InitLogging()
 	s.cfg = config.DefaultProxy()
 	s.cfg.ClientID = "producer"
 	s.cfg.Kafka.SeedPeers = testhelpers.KafkaPeers
@@ -37,7 +37,7 @@ func (s *AdminSuite) TearDownSuite(c *C) {
 }
 
 func (s *AdminSuite) SetUpTest(c *C) {
-	s.ns = actor.RootID.NewChild("T")
+	s.ns = actor.Root().NewChild("T")
 }
 
 // The end offset of partition ranges is properly reflects the number of

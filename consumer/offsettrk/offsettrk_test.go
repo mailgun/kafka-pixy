@@ -7,6 +7,7 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
+	"github.com/mailgun/kafka-pixy/testhelpers"
 	. "gopkg.in/check.v1"
 )
 
@@ -20,15 +21,19 @@ const (
 var _ = Suite(&OffsetTrkSuite{})
 
 type OffsetTrkSuite struct {
-	ns *actor.ID
+	ns *actor.Descriptor
 }
 
 func Test(t *testing.T) {
 	TestingT(t)
 }
 
+func (s *OffsetTrkSuite) SetUpSuite(c *C) {
+	testhelpers.InitLogging()
+}
+
 func (s *OffsetTrkSuite) SetUpTest(c *C) {
-	s.ns = actor.RootID.NewChild("T")
+	s.ns = actor.Root().NewChild("T")
 }
 
 // Acknowledged offsets are properly reflected in ackedRanges.

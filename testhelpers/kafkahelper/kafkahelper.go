@@ -11,13 +11,13 @@ import (
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/testhelpers"
-	"github.com/mailgun/log"
+	log "github.com/sirupsen/logrus"
 	"github.com/wvanbergen/kazoo-go"
 	. "gopkg.in/check.v1"
 )
 
 type T struct {
-	ns       *actor.ID
+	ns       *actor.Descriptor
 	c        *C
 	kazooClt *kazoo.Kazoo
 	kafkaClt sarama.Client
@@ -26,7 +26,7 @@ type T struct {
 }
 
 func New(c *C) *T {
-	kh := &T{ns: actor.RootID.NewChild("kafka_helper"), c: c}
+	kh := &T{ns: actor.Root().NewChild("kafka_helper"), c: c}
 	cfg := testhelpers.NewTestProxyCfg("kafka_helper").SaramaClientCfg()
 	cfg.Producer.RequiredAcks = sarama.WaitForAll
 	cfg.Producer.Flush.Messages = 1

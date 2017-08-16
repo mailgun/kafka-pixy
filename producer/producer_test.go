@@ -14,7 +14,7 @@ import (
 )
 
 type ProducerSuite struct {
-	ns           *actor.ID
+	ns           *actor.Descriptor
 	cfg          *config.Proxy
 	kh           *kafkahelper.T
 	droppedMsgCh chan *sarama.ProducerMessage
@@ -27,11 +27,11 @@ func Test(t *testing.T) {
 var _ = Suite(&ProducerSuite{})
 
 func (s *ProducerSuite) SetUpSuite(c *C) {
-	testhelpers.InitLogging(c)
+	testhelpers.InitLogging()
 }
 
 func (s *ProducerSuite) SetUpTest(c *C) {
-	s.ns = actor.RootID.NewChild("T")
+	s.ns = actor.Root().NewChild("T")
 	s.droppedMsgCh = make(chan *sarama.ProducerMessage, 100)
 	s.cfg = config.DefaultProxy()
 	s.cfg.Kafka.SeedPeers = testhelpers.KafkaPeers

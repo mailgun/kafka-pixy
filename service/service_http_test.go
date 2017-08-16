@@ -28,7 +28,7 @@ import (
 )
 
 type ServiceHTTPSuite struct {
-	ns         *actor.ID
+	ns         *actor.Descriptor
 	cfg        *config.App
 	kh         *kafkahelper.T
 	unixClient *http.Client
@@ -38,11 +38,11 @@ type ServiceHTTPSuite struct {
 var _ = Suite(&ServiceHTTPSuite{})
 
 func (s *ServiceHTTPSuite) SetUpSuite(c *C) {
-	testhelpers.InitLogging(c)
+	testhelpers.InitLogging()
 }
 
 func (s *ServiceHTTPSuite) SetUpTest(c *C) {
-	s.ns = actor.RootID.NewChild("T")
+	s.ns = actor.Root().NewChild("T")
 	s.cfg = &config.App{Proxies: make(map[string]*config.Proxy)}
 	s.cfg.TCPAddr = "127.0.0.1:19092"
 	s.cfg.UnixAddr = path.Join(os.TempDir(), "kafka-pixy.sock")

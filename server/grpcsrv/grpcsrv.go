@@ -24,7 +24,7 @@ const (
 )
 
 type T struct {
-	actorID  *actor.ID
+	actDesc  *actor.Descriptor
 	listener net.Listener
 	grpcSrv  *grpc.Server
 	proxySet *proxy.Set
@@ -41,7 +41,7 @@ func New(addr string, proxySet *proxy.Set) (*T, error) {
 
 	grpcSrv := grpc.NewServer(grpc.MaxMsgSize(maxRequestSize))
 	s := T{
-		actorID:  actor.RootID.NewChild(fmt.Sprintf("grpc://%s", addr)),
+		actDesc:  actor.Root().NewChild(fmt.Sprintf("grpc://%s", addr)),
 		listener: listener,
 		grpcSrv:  grpcSrv,
 		proxySet: proxySet,
@@ -54,7 +54,7 @@ func New(addr string, proxySet *proxy.Set) (*T, error) {
 // Starts triggers asynchronous gRPC server start. If it fails then the error
 // will be sent down to `ErrorCh()`.
 func (s *T) Start() {
-	actor.Spawn(s.actorID, &s.wg, func() {
+	actor.Spawn(s.actDesc, &s.wg, func() {
 		if err := s.grpcSrv.Serve(s.listener); err != nil {
 			s.errorCh <- errors.Wrap(err, "gRPC API listener failed")
 		}

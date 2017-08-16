@@ -6,23 +6,32 @@ import (
 	"runtime/debug"
 	"sync"
 
-	"github.com/mailgun/log"
+	log "github.com/sirupsen/logrus"
 )
 
-type ID struct {
-	absoluteName string
+const fieldActorName = "tid"
 
-	childrenMu       sync.Mutex
-	childrenCounters map[string]int32
+// Descriptor
+type Descriptor struct {
+	absoluteName string
+	log          *log.Entry
+
+	childrenMu     sync.Mutex
+	childrenCounts map[string]int32
 }
 
-// RootID is the root of the context id hierarchy.
-var RootID = &ID{}
+var root = Descriptor{log: log.NewEntry(log.StandardLogger())}
 
-// NewChild creates a child id.
-func (id *ID) NewChild(nameParts ...interface{}) *ID {
+// Root returns the root actor descriptor that all other descriptors are either
+// direct or indirect descendants of.
+func Root() *Descriptor {
+	return &root
+}
+
+// NewChild creates a child descriptor.
+func (d *Descriptor) NewChild(nameParts ...interface{}) *Descriptor {
 	if len(nameParts) == 0 {
-		return id
+		return d
 	}
 
 	var buf bytes.Buffer
@@ -34,23 +43,43 @@ func (id *ID) NewChild(nameParts ...interface{}) *ID {
 	}
 	name := buf.String()
 
-	id.childrenMu.Lock()
-	if id.childrenCounters == nil {
-		id.childrenCounters = make(map[string]int32)
+	d.childrenMu.Lock()
+	if d.childrenCounts == nil {
+		d.childrenCounts = make(map[string]int32)
 	}
-	idx := id.childrenCounters[name]
-	id.childrenCounters[name] = idx + 1
-	id.childrenMu.Unlock()
-	return &ID{absoluteName: fmt.Sprintf("%s/%s[%d]", id.absoluteName, name, idx)}
+	idx := d.childrenCounts[name]
+	d.childrenCounts[name] = idx + 1
+	d.childrenMu.Unlock()
+	childAbsName := fmt.Sprintf("%s/%s.%d", d.absoluteName, name, idx)
+	childLog := d.log.WithField(fieldActorName, childAbsName)
+	child := Descriptor{
+		absoluteName: childAbsName,
+		log:          childLog,
+	}
+	return &child
 }
 
-func (id *ID) String() string {
-	return id.absoluteName
+// AddLogField adds a field to the associated structured log entry. Note that
+// this method is not synchronized therefor all AddLogCalls must be performed
+// from the same goroutine that created the descriptor and before the
+// descriptor is passed to child goroutines.
+func (d *Descriptor) AddLogField(key string, value interface{}) {
+	d.log = d.log.WithField(key, value)
+}
+
+// Log returns logger with associated fields. Fields are inherited from the
+// parent logger.
+func (d *Descriptor) Log() *log.Entry {
+	return d.log
+}
+
+func (d *Descriptor) String() string {
+	return d.absoluteName
 }
 
 // Spawn starts function `f` as a goroutine making it a member of the `wg`
 // wait group.
-func Spawn(actorID *ID, wg *sync.WaitGroup, f func()) {
+func Spawn(actDesc *Descriptor, wg *sync.WaitGroup, f func()) {
 	if wg != nil {
 		wg.Add(1)
 	}
@@ -58,13 +87,13 @@ func Spawn(actorID *ID, wg *sync.WaitGroup, f func()) {
 		if wg != nil {
 			defer wg.Done()
 		}
-		log.Infof("<%s> started", actorID)
+		actDesc.Log().Info("started")
 		defer func() {
 			if p := recover(); p != nil {
-				log.Errorf("<%s> paniced: %v, stack=%s", actorID, p, debug.Stack())
+				actDesc.Log().Errorf("paniced: %v, stack=%s", p, debug.Stack())
 				panic(p)
 			}
-			log.Infof("<%s> stopped", actorID)
+			actDesc.Log().Info("stopped")
 		}()
 		f()
 	}()

@@ -18,21 +18,21 @@ func Test(t *testing.T) {
 }
 
 type GroupMemberSuite struct {
-	ns       *actor.ID
+	ns       *actor.Descriptor
 	kazooClt *kazoo.Kazoo
 }
 
 var _ = Suite(&GroupMemberSuite{})
 
 func (s *GroupMemberSuite) SetUpSuite(c *C) {
-	testhelpers.InitLogging(c)
+	testhelpers.InitLogging()
 	var err error
 	s.kazooClt, err = kazoo.NewKazoo(testhelpers.ZookeeperPeers, kazoo.NewConfig())
 	c.Assert(err, IsNil)
 }
 
 func (s *GroupMemberSuite) SetUpTest(c *C) {
-	s.ns = actor.RootID.NewChild("T")
+	s.ns = actor.Root().NewChild("T")
 }
 
 func (s *GroupMemberSuite) TestNormalizeTopics(c *C) {

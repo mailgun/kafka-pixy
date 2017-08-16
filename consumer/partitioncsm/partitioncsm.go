@@ -14,7 +14,6 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer/offsettrk"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
-	"github.com/mailgun/log"
 	"github.com/pkg/errors"
 )
 
@@ -35,7 +34,7 @@ var (
 // message is pulled from the `messages()` channel, it is considered to be
 // consumed and its offset is committed.
 type T struct {
-	actorID     *actor.ID
+	actDesc     *actor.Descriptor
 	cfg         *config.Proxy
 	group       string
 	topic       string
@@ -59,11 +58,15 @@ type T struct {
 }
 
 // Spawn creates a partition consumer instance and starts its goroutines.
-func Spawn(namespace *actor.ID, group, topic string, partition int32, cfg *config.Proxy,
+func Spawn(parentActDesc *actor.Descriptor, group, topic string, partition int32, cfg *config.Proxy,
 	groupMember *groupmember.T, msgFetcherF msgfetcher.Factory, offsetMgrF offsetmgr.Factory,
 ) *T {
+	actDesc := parentActDesc.NewChild(fmt.Sprintf("%s.p%d", topic, partition))
+	actDesc.AddLogField("kafka.group", group)
+	actDesc.AddLogField("kafka.topic", topic)
+	actDesc.AddLogField("kafka.partition", partition)
 	pc := &T{
-		actorID:     namespace.NewChild(fmt.Sprintf("P:%s_%d", topic, partition)),
+		actDesc:     actDesc,
 		cfg:         cfg,
 		group:       group,
 		topic:       topic,
@@ -75,7 +78,7 @@ func Spawn(namespace *actor.ID, group, topic string, partition int32, cfg *confi
 		eventsCh:    make(chan consumer.Event, 1),
 		stopCh:      make(chan none.T),
 	}
-	actor.Spawn(pc.actorID, &pc.wg, pc.run)
+	actor.Spawn(pc.actDesc, &pc.wg, pc.run)
 	return pc
 }
 
@@ -91,11 +94,11 @@ func (pc *T) Messages() <-chan consumer.Message {
 
 func (pc *T) run() {
 	defer close(pc.messagesCh)
-	defer pc.groupMember.ClaimPartition(pc.actorID, pc.topic, pc.partition, pc.stopCh)()
+	defer pc.groupMember.ClaimPartition(pc.actDesc, pc.topic, pc.partition, pc.stopCh)()
 
 	var err error
-	if pc.offsetMgr, err = pc.offsetMgrF.Spawn(pc.actorID, pc.group, pc.topic, pc.partition); err != nil {
-		panic(errors.Wrapf(err, "<%s> must never happen", pc.actorID))
+	if pc.offsetMgr, err = pc.offsetMgrF.Spawn(pc.actDesc, pc.group, pc.topic, pc.partition); err != nil {
+		panic(errors.Wrapf(err, "<%s> must never happen", pc.actDesc))
 	}
 	defer pc.stopOffsetMgr()
 
@@ -105,9 +108,9 @@ func (pc *T) run() {
 	case <-pc.stopCh:
 		return
 	}
-	log.Infof("<%s> initial offset: %d, sparseAcks=%s",
-		pc.actorID, pc.committedOffset.Val, offsettrk.SparseAcks2Str(pc.committedOffset))
-	pc.offsetTrk = offsettrk.New(pc.actorID, pc.committedOffset, pc.cfg.Consumer.AckTimeout)
+	pc.actDesc.Log().Infof("initial offset: %d(%s)",
+		pc.committedOffset.Val, offsettrk.SparseAcks2Str(pc.committedOffset))
+	pc.offsetTrk = offsettrk.New(pc.actDesc, pc.committedOffset, pc.cfg.Consumer.AckTimeout)
 	pc.submittedOffset = pc.committedOffset
 	pc.offsetsOk = true
 	pc.notifyTestInitialized(pc.committedOffset)
@@ -135,9 +138,9 @@ func (pc *T) Stop() {
 
 func (pc *T) runFetchLoop() bool {
 	// Initialize a message fetcher to read from the initial offset.
-	mf, realOffsetVal, err := pc.msgFetcherF.Spawn(pc.actorID, pc.topic, pc.partition, pc.committedOffset.Val)
+	mf, realOffsetVal, err := pc.msgFetcherF.Spawn(pc.actDesc, pc.topic, pc.partition, pc.committedOffset.Val)
 	if err != nil {
-		panic(errors.Wrapf(err, "<%s> must never happen", pc.actorID))
+		panic(errors.Wrapf(err, "<%s> must never happen", pc.actDesc))
 	}
 	defer mf.Stop()
 
@@ -146,8 +149,9 @@ func (pc *T) runFetchLoop() bool {
 	// and report in the logs.
 	if pc.submittedOffset != pc.committedOffset {
 		pc.offsetMgr.SubmitOffset(pc.submittedOffset)
-		log.Errorf("<%s> offset adjusted: %d, sparseAcks=%s",
-			pc.actorID, pc.submittedOffset.Val, offsettrk.SparseAcks2Str(pc.submittedOffset))
+		pc.actDesc.Log().Errorf("offset adjusted: new=%d(%s), old=%d(%s)",
+			pc.submittedOffset.Val, offsettrk.SparseAcks2Str(pc.submittedOffset),
+			pc.committedOffset.Val, offsettrk.SparseAcks2Str(pc.committedOffset))
 	}
 	var (
 		nilOrMsgFetcherCh = mf.Messages()
@@ -182,7 +186,7 @@ func (pc *T) runFetchLoop() bool {
 			switch event.T {
 			case consumer.EvOffered:
 				if event.Offset != msg.Offset {
-					log.Errorf("<%s> invalid offer offset %d, want=%d", pc.actorID, event.Offset, msg.Offset)
+					pc.actDesc.Log().Errorf("invalid offer offset %d, want=%d", event.Offset, msg.Offset)
 					continue
 				}
 				offeredCount := pc.offsetTrk.OnOffered(msg)
@@ -191,7 +195,7 @@ func (pc *T) runFetchLoop() bool {
 					continue
 				}
 				if offeredCount > pc.cfg.Consumer.MaxPendingMessages {
-					log.Warningf("<%s> offered count above HWM: %d", pc.actorID, offeredCount)
+					pc.actDesc.Log().Warnf("offered count above HWM: %d", offeredCount)
 					nilOrMsgFetcherCh = nil
 					continue
 				}
@@ -219,16 +223,16 @@ func (pc *T) runFetchLoop() bool {
 func (pc *T) nextRetry() (consumer.Message, bool) {
 	msg, retryNo, ok := pc.offsetTrk.NextRetry()
 	for ok && retryNo > pc.cfg.Consumer.MaxRetries {
-		log.Errorf("<%s> too many retries: retryNo=%d, offset=%d, key=%s, msg=%s",
-			pc.actorID, retryNo, msg.Offset, string(msg.Key), base64.StdEncoding.EncodeToString(msg.Value))
+		pc.actDesc.Log().Errorf("too many retries: retryNo=%d, offset=%d, key=%s, msg=%s",
+			retryNo, msg.Offset, string(msg.Key), base64.StdEncoding.EncodeToString(msg.Value))
 		pc.submittedOffset, _ = pc.offsetTrk.OnAcked(msg.Offset)
 		pc.offsetMgr.SubmitOffset(pc.submittedOffset)
 		// TODO: Dump expired messages to a long term storage?
 		msg, retryNo, ok = pc.offsetTrk.NextRetry()
 	}
 	if ok {
-		log.Warningf("<%s> retrying: retryNo=%d, offset=%d, key=%s",
-			pc.actorID, retryNo, msg.Offset, string(msg.Key))
+		pc.actDesc.Log().Warnf("retrying: retryNo=%d, offset=%d, key=%s",
+			retryNo, msg.Offset, string(msg.Key))
 	}
 	return msg, ok
 }
@@ -242,11 +246,11 @@ func (pc *T) stopOffsetMgr() {
 	for pc.committedOffset = range pc.offsetMgr.CommittedOffsets() {
 	}
 	if pc.committedOffset != pc.submittedOffset {
-		log.Errorf("<%s> failed to commit offset: %d, sparseAcks=%s",
-			pc.actorID, pc.submittedOffset.Val, offsettrk.SparseAcks2Str(pc.submittedOffset))
+		pc.actDesc.Log().Errorf("failed to commit offset: %d, sparseAcks=%s",
+			pc.submittedOffset.Val, offsettrk.SparseAcks2Str(pc.submittedOffset))
 	}
-	log.Infof("<%s> last committed offset: %d, sparseAcks=%s",
-		pc.actorID, pc.committedOffset.Val, offsettrk.SparseAcks2Str(pc.committedOffset))
+	pc.actDesc.Log().Infof("last committed offset: %d, sparseAcks=%s",
+		pc.committedOffset.Val, offsettrk.SparseAcks2Str(pc.committedOffset))
 }
 
 // notifyTestInitialized sends initial offset to initialOffsetCh channel.

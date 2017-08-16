@@ -164,6 +164,7 @@ func (kv *KafkaVersion) UnmarshalText(text []byte) error {
 		"0.10.0.0": sarama.V0_10_0_0,
 		"0.10.0.1": sarama.V0_10_0_1,
 		"0.10.1.0": sarama.V0_10_1_0,
+		"0.10.2.0": sarama.V0_10_2_0,
 	}[str]
 	if !ok {
 		return errors.Errorf("bad kafka version, %s", str)

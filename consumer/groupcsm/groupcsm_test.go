@@ -15,17 +15,17 @@ func Test(t *testing.T) {
 }
 
 type GroupConsumerSuite struct {
-	ns *actor.ID
+	ns *actor.Descriptor
 }
 
 var _ = Suite(&GroupConsumerSuite{})
 
 func (s *GroupConsumerSuite) SetUpSuite(c *C) {
-	testhelpers.InitLogging(c)
+	testhelpers.InitLogging()
 }
 
 func (s *GroupConsumerSuite) SetUpTest(*C) {
-	s.ns = actor.RootID.NewChild("T")
+	s.ns = actor.Root().NewChild("T")
 }
 
 func (s *GroupConsumerSuite) TestAssignTopicPartitions(c *C) {

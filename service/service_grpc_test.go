@@ -25,7 +25,7 @@ type ServiceGRPCSuite struct {
 var _ = Suite(&ServiceGRPCSuite{})
 
 func (s *ServiceGRPCSuite) SetUpSuite(c *C) {
-	testhelpers.InitLogging(c)
+	testhelpers.InitLogging()
 }
 
 func (s *ServiceGRPCSuite) SetUpTest(c *C) {

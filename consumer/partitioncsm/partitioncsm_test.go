@@ -14,7 +14,7 @@ import (
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
-	"github.com/mailgun/log"
+	log "github.com/sirupsen/logrus"
 	. "gopkg.in/check.v1"
 )
 
@@ -27,7 +27,7 @@ const (
 
 type PartitionCsmSuite struct {
 	cfg          *config.Proxy
-	ns           *actor.ID
+	ns           *actor.Descriptor
 	groupMember  *groupmember.T
 	msgIStreamF  msgfetcher.Factory
 	offsetMgrF   offsetmgr.Factory
@@ -42,7 +42,7 @@ func Test(t *testing.T) {
 }
 
 func (s *PartitionCsmSuite) SetUpSuite(c *C) {
-	testhelpers.InitLogging(c)
+	testhelpers.InitLogging()
 	s.kh = kafkahelper.New(c)
 	// Make sure that topic has at least 100 messages. There may be more,
 	// because other tests are also using it.
@@ -55,7 +55,7 @@ func (s *PartitionCsmSuite) SetUpTest(c *C) {
 	s.cfg.Consumer.MaxRetries = 1
 	check4RetryInterval = 50 * time.Millisecond
 
-	s.ns = actor.RootID.NewChild("T")
+	s.ns = actor.Root().NewChild("T")
 	s.groupMember = groupmember.Spawn(s.ns, group, memberID, s.cfg, s.kh.KazooClt())
 	var err error
 	if s.msgIStreamF, err = msgfetcher.SpawnFactory(s.ns, s.cfg, s.kh.KafkaClt()); err != nil {

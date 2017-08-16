@@ -12,7 +12,7 @@ import (
 )
 
 type MsgFetcherFuncSuite struct {
-	ns  *actor.ID
+	ns  *actor.Descriptor
 	kh  *kafkahelper.T
 	cfg *config.Proxy
 }
@@ -20,7 +20,7 @@ type MsgFetcherFuncSuite struct {
 var _ = Suite(&MsgFetcherFuncSuite{})
 
 func (s *MsgFetcherFuncSuite) SetUpSuite(c *C) {
-	testhelpers.InitLogging(c)
+	testhelpers.InitLogging()
 	s.kh = kafkahelper.New(c)
 }
 
@@ -29,7 +29,7 @@ func (s *MsgFetcherFuncSuite) TearDownSuite(c *C) {
 }
 
 func (s *MsgFetcherFuncSuite) SetUpTest(c *C) {
-	s.ns = actor.RootID.NewChild("T")
+	s.ns = actor.Root().NewChild("T")
 	s.cfg = testhelpers.NewTestProxyCfg("mis")
 }
 
