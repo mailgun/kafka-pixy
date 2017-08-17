@@ -495,7 +495,7 @@ func (s *ConsumerSuite) TestLotsOfPartitions(c *C) {
 
 	// When
 	log.Infof("*** WHEN")
-	consumed := consume(c, sc, "g1", "test.64", consumeAll, 10*time.Second)
+	consumed := consume(c, sc, "g1", "test.64", 189, 10*time.Second)
 
 	// Then
 	log.Infof("*** THEN")
