@@ -7,23 +7,35 @@ if [ -n "${TOXIPROXY_VERSION}" ]; then
     ${REPOSITORY_ROOT}/vagrant/run_toxiproxy.sh &
     while ! nc -q 1 localhost 2181 </dev/null; do echo "Waiting"; sleep 1; done
     while ! nc -q 1 localhost 9092 </dev/null; do echo "Waiting"; sleep 1; done
-    ZOOKEEPER_WAIT_PORT=21805
-    KAFKA_WAIT_PORT=29095
+    ZK_BASE_PORT=21800
+    KAFKA_BASE_PORT=29090
 else
-    ZOOKEEPER_WAIT_PORT=2185
-    KAFKA_WAIT_PORT=9095
+    ZK_BASE_PORT=2180
+    KAFKA_BASE_PORT=9090
 fi
 
 # Launch and wait for Zookeeper
-for i in 1 2 3 4 5; do
-    KAFKA_PORT=`expr $i + 9090`
-    cd ${KAFKA_INSTALL_ROOT}/kafka-${KAFKA_PORT} && bin/zookeeper-server-start.sh -daemon config/zookeeper.properties
+for i in $(seq 1 ${ZK_NODE_COUNT}); do
+    ZK_PORT=$((2180 + ${i}))
+    ${INSTALL_ROOT}/kafka/bin/zookeeper-server-start.sh -daemon ${INSTALL_ROOT}/zookeeper-${ZK_PORT}/config/zookeeper.properties
 done
-while ! nc -q 1 localhost ${ZOOKEEPER_WAIT_PORT} </dev/null; do echo "Waiting"; sleep 1; done
+for i in $(seq 1 ${ZK_NODE_COUNT}); do
+    ZK_REAL_PORT=$((${ZK_BASE_PORT} + ${i}))
+    while ! nc -q 1 localhost ${ZK_REAL_PORT} </dev/null; do
+        echo "Wait for ZooKeeper at ${ZK_REAL_PORT} to start ...";
+        sleep 1;
+    done
+done
 
 # Launch and wait for Kafka
-for i in 1 2 3 4 5; do
-    KAFKA_PORT=`expr $i + 9090`
-    cd ${KAFKA_INSTALL_ROOT}/kafka-${KAFKA_PORT} && bin/kafka-server-start.sh -daemon config/server.properties
+for i in $(seq 1 ${KAFKA_NODE_COUNT}); do
+    KAFKA_PORT=$((9090 + ${i}))
+    ${INSTALL_ROOT}/kafka/bin/kafka-server-start.sh -daemon ${INSTALL_ROOT}/kafka-${KAFKA_PORT}/config/server.properties
 done
-while ! nc -q 1 localhost ${KAFKA_WAIT_PORT} </dev/null; do echo "Waiting"; sleep 1; done
+for i in $(seq 1 ${KAFKA_NODE_COUNT}); do
+    KAFKA_REAL_PORT=$((${KAFKA_BASE_PORT} + ${i}))
+    while ! nc -q 1 localhost ${KAFKA_REAL_PORT} </dev/null; do
+        echo "Wait for Kafka at ${KAFKA_REAL_PORT} to start ...";
+        sleep 1;
+    done
+done

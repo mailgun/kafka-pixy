@@ -2,57 +2,66 @@
 
 set -ex
 
-mkdir -p ${KAFKA_INSTALL_ROOT}
-if [ ! -f ${KAFKA_INSTALL_ROOT}/kafka-${KAFKA_VERSION}.tgz ]; then
-    wget --quiet http://apache.mirror.gtcomm.net/kafka/${KAFKA_VERSION}/kafka_2.10-${KAFKA_VERSION}.tgz -O ${KAFKA_INSTALL_ROOT}/kafka-${KAFKA_VERSION}.tgz
+mkdir -p ${INSTALL_ROOT}
+if [ ! -f ${INSTALL_ROOT}/kafka-${KAFKA_VERSION}.tgz ]; then
+    wget --quiet http://apache.mirror.gtcomm.net/kafka/${KAFKA_VERSION}/kafka_2.10-${KAFKA_VERSION}.tgz -O ${INSTALL_ROOT}/kafka-${KAFKA_VERSION}.tgz
 fi
 
 if [ -n "${TOXIPROXY_VERSION}" ]; then
-    if [ ! -f ${KAFKA_INSTALL_ROOT}/toxiproxy-${TOXIPROXY_VERSION} ]; then
-        wget --quiet https://github.com/Shopify/toxiproxy/releases/download/v${TOXIPROXY_VERSION}/toxiproxy-linux-amd64 -O ${KAFKA_INSTALL_ROOT}/toxiproxy-${TOXIPROXY_VERSION}
-        chmod +x ${KAFKA_INSTALL_ROOT}/toxiproxy-${TOXIPROXY_VERSION}
+    if [ ! -f ${INSTALL_ROOT}/toxiproxy-${TOXIPROXY_VERSION} ]; then
+        wget --quiet https://github.com/Shopify/toxiproxy/releases/download/v${TOXIPROXY_VERSION}/toxiproxy-linux-amd64 -O ${INSTALL_ROOT}/toxiproxy-${TOXIPROXY_VERSION}
+        chmod +x ${INSTALL_ROOT}/toxiproxy-${TOXIPROXY_VERSION}
     fi
-    rm -f ${KAFKA_INSTALL_ROOT}/toxiproxy
-    ln -s ${KAFKA_INSTALL_ROOT}/toxiproxy-${TOXIPROXY_VERSION} ${KAFKA_INSTALL_ROOT}/toxiproxy
+    rm -f ${INSTALL_ROOT}/toxiproxy
+    ln -s ${INSTALL_ROOT}/toxiproxy-${TOXIPROXY_VERSION} ${INSTALL_ROOT}/toxiproxy
+
+    ZK_BASE_PORT=21800
+    KAFKA_BASE_PORT=29090
+else
+    ZK_BASE_PORT=2180
+    KAFKA_BASE_PORT=9090
 fi
 
-for i in 1 2 3 4 5; do
-    ZK_PORT=`expr $i + 2180`
-    KAFKA_PORT=`expr $i + 9090`
-    if [ -n "${TOXIPROXY_VERSION}" ]; then
-        ZK_PORT_REAL=`expr $i + 21800`
-        KAFKA_PORT_REAL=`expr $i + 29090`
-        KAFKA_HOST=localhost
-    else
-        ZK_PORT_REAL=${ZK_PORT}
-        KAFKA_PORT_REAL=${KAFKA_PORT}
-        KAFKA_HOST=0.0.0.0
-    fi
+# unpack kafka
+mkdir -p ${INSTALL_ROOT}/kafka
+tar xzf ${INSTALL_ROOT}/kafka-${KAFKA_VERSION}.tgz -C ${INSTALL_ROOT}/kafka --strip-components 1
 
-    # unpack kafka
-    mkdir -p ${KAFKA_INSTALL_ROOT}/kafka-${KAFKA_PORT}
-    tar xzf ${KAFKA_INSTALL_ROOT}/kafka-${KAFKA_VERSION}.tgz -C ${KAFKA_INSTALL_ROOT}/kafka-${KAFKA_PORT} --strip-components 1
+for i in $(seq 1 ${KAFKA_NODE_COUNT}); do
+    KAFKA_PORT=$((9090 + ${i}))
+    KAFKA_PORT_REAL=$((${KAFKA_BASE_PORT} + ${i}))
 
     # broker configuration
-    cp ${REPOSITORY_ROOT}/vagrant/server.properties ${KAFKA_INSTALL_ROOT}/kafka-${KAFKA_PORT}/config/
-    sed -i s/KAFKAID/${KAFKA_PORT}/g ${KAFKA_INSTALL_ROOT}/kafka-${KAFKA_PORT}/config/server.properties
-    sed -i s/KAFKAPORT/${KAFKA_PORT_REAL}/g ${KAFKA_INSTALL_ROOT}/kafka-${KAFKA_PORT}/config/server.properties
-    sed -i s/KAFKAHOST/${KAFKA_HOST}/g ${KAFKA_INSTALL_ROOT}/kafka-${KAFKA_PORT}/config/server.properties
-    sed -i s/KAFKA_HOSTNAME/${KAFKA_HOSTNAME}/g ${KAFKA_INSTALL_ROOT}/kafka-${KAFKA_PORT}/config/server.properties
-    sed -i s/ZK_PORT/${ZK_PORT}/g ${KAFKA_INSTALL_ROOT}/kafka-${KAFKA_PORT}/config/server.properties
+    mkdir -p ${INSTALL_ROOT}/kafka-${KAFKA_PORT}/config
+    cp ${REPOSITORY_ROOT}/vagrant/server.properties ${INSTALL_ROOT}/kafka-${KAFKA_PORT}/config/
+    KAFKA_CFG_FILE=${INSTALL_ROOT}/kafka-${KAFKA_PORT}/config/server.properties
 
-    KAFKA_DATADIR="${KAFKA_INSTALL_ROOT}/kafka-${KAFKA_PORT}/data"
+    sed -i s/KAFKAID/${KAFKA_PORT}/g ${KAFKA_CFG_FILE}
+    sed -i s/KAFKAPORT/${KAFKA_PORT_REAL}/g ${KAFKA_CFG_FILE}
+    sed -i s/KAFKA_HOSTNAME/${KAFKA_HOSTNAME}/g ${KAFKA_CFG_FILE}
+
+    KAFKA_DATADIR="${INSTALL_ROOT}/kafka-${KAFKA_PORT}/data"
     mkdir -p ${KAFKA_DATADIR}
-    sed -i s#KAFKA_DATADIR#${KAFKA_DATADIR}#g ${KAFKA_INSTALL_ROOT}/kafka-${KAFKA_PORT}/config/server.properties
+    sed -i s#KAFKA_DATADIR#${KAFKA_DATADIR}#g ${KAFKA_CFG_FILE}
+done
+
+for i in $(seq 1 ${ZK_NODE_COUNT}); do
+    ZK_PORT=$((2180 + ${i}))
+    ZK_PORT_REAL=$((${ZK_BASE_PORT} + ${i}))
 
     # zookeeper configuration
-    cp ${REPOSITORY_ROOT}/vagrant/zookeeper.properties ${KAFKA_INSTALL_ROOT}/kafka-${KAFKA_PORT}/config/
-    sed -i s/KAFKAID/${KAFKA_PORT}/g ${KAFKA_INSTALL_ROOT}/kafka-${KAFKA_PORT}/config/zookeeper.properties
-    sed -i s/ZK_PORT/${ZK_PORT_REAL}/g ${KAFKA_INSTALL_ROOT}/kafka-${KAFKA_PORT}/config/zookeeper.properties
+    mkdir -p ${INSTALL_ROOT}/zookeeper-${ZK_PORT}/config
+    cp ${REPOSITORY_ROOT}/vagrant/zookeeper.properties ${INSTALL_ROOT}/zookeeper-${ZK_PORT}/config/
+    ZK_CFG_FILE=${INSTALL_ROOT}/zookeeper-${ZK_PORT}/config/zookeeper.properties
 
-    ZK_DATADIR="${KAFKA_INSTALL_ROOT}/zookeeper-${ZK_PORT}"
+    sed -i s/ZK_PORT/${ZK_PORT_REAL}/g ${ZK_CFG_FILE}
+    # add a list of all zookeeper nodes to the config
+    for j in $(seq 1 ${ZK_NODE_COUNT}); do
+        echo "server.${j}=localhost:$((2280 + ${j})):$((2380 + ${j}))" >> ${ZK_CFG_FILE}
+    done
+
+    ZK_DATADIR="${INSTALL_ROOT}/zookeeper-${ZK_PORT}/data"
     mkdir -p ${ZK_DATADIR}
-    sed -i s#ZK_DATADIR#${ZK_DATADIR}#g ${KAFKA_INSTALL_ROOT}/kafka-${KAFKA_PORT}/config/zookeeper.properties
+    sed -i s#ZK_DATADIR#${ZK_DATADIR}#g ${ZK_CFG_FILE}
 
-    echo $i > ${KAFKA_INSTALL_ROOT}/zookeeper-${ZK_PORT}/myid
+    echo $i > ${ZK_DATADIR}/myid
 done
