@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -31,7 +30,7 @@ func (f *textFormatter) Format(entry *log.Entry) ([]byte, error) {
 
 	prefixFieldClashes(entry.Data)
 
-	timestampFormat := time.RFC3339
+	timestampFormat := "2006-01-02 15:04:05.000000 Z07"
 	b.WriteString(entry.Time.Format(timestampFormat))
 	b.WriteByte(' ')
 	f.appendValue(b, entry.Level.String())
