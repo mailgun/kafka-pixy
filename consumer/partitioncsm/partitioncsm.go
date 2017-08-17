@@ -108,8 +108,7 @@ func (pc *T) run() {
 	case <-pc.stopCh:
 		return
 	}
-	pc.actDesc.Log().Infof("initial offset: %d(%s)",
-		pc.committedOffset.Val, offsettrk.SparseAcks2Str(pc.committedOffset))
+	pc.actDesc.Log().Infof("initial offset: %s", offsetRepr(pc.committedOffset))
 	pc.offsetTrk = offsettrk.New(pc.actDesc, pc.committedOffset, pc.cfg.Consumer.AckTimeout)
 	pc.submittedOffset = pc.committedOffset
 	pc.offsetsOk = true
@@ -149,39 +148,38 @@ func (pc *T) runFetchLoop() bool {
 	// and report in the logs.
 	if pc.submittedOffset != pc.committedOffset {
 		pc.offsetMgr.SubmitOffset(pc.submittedOffset)
-		pc.actDesc.Log().Errorf("offset adjusted: new=%d(%s), old=%d(%s)",
-			pc.submittedOffset.Val, offsettrk.SparseAcks2Str(pc.submittedOffset),
-			pc.committedOffset.Val, offsettrk.SparseAcks2Str(pc.committedOffset))
+		pc.actDesc.Log().Errorf("offset adjusted: new=%s, old=%s",
+			offsetRepr(pc.submittedOffset), offsetRepr(pc.committedOffset))
 	}
 	var (
-		nilOrMsgFetcherCh = mf.Messages()
-		nilOrMessagesCh   chan consumer.Message
-		retryTicker       = time.NewTicker(check4RetryInterval)
-		msg               consumer.Message
-		msgOk             bool
+		nilOrMsgInCh  = mf.Messages()
+		nilOrMsgOutCh chan consumer.Message
+		retryTicker   = time.NewTicker(check4RetryInterval)
+		msg           consumer.Message
+		msgOk         bool
 	)
 	defer retryTicker.Stop()
 	for {
 		select {
-		case msg = <-nilOrMsgFetcherCh:
+		case msg = <-nilOrMsgInCh:
 			if ok, _ := pc.offsetTrk.IsAcked(msg.Offset); ok {
 				continue
 			}
 			msg.EventsCh = pc.eventsCh
 			msgOk = true
 			pc.notifyTestFetched()
-			nilOrMsgFetcherCh = nil
-			nilOrMessagesCh = pc.messagesCh
+			nilOrMsgInCh = nil
+			nilOrMsgOutCh = pc.messagesCh
 		case <-retryTicker.C:
 			if msgOk {
 				continue
 			}
 			if msg, msgOk = pc.nextRetry(); msgOk {
-				nilOrMsgFetcherCh = nil
-				nilOrMessagesCh = pc.messagesCh
+				nilOrMsgInCh = nil
+				nilOrMsgOutCh = pc.messagesCh
 			}
-		case nilOrMessagesCh <- msg:
-			nilOrMessagesCh = nil
+		case nilOrMsgOutCh <- msg:
+			nilOrMsgOutCh = nil
 		case event := <-pc.eventsCh:
 			switch event.T {
 			case consumer.EvOffered:
@@ -191,21 +189,21 @@ func (pc *T) runFetchLoop() bool {
 				}
 				offeredCount := pc.offsetTrk.OnOffered(msg)
 				if msg, msgOk = pc.nextRetry(); msgOk {
-					nilOrMessagesCh = pc.messagesCh
+					nilOrMsgOutCh = pc.messagesCh
 					continue
 				}
 				if offeredCount > pc.cfg.Consumer.MaxPendingMessages {
 					pc.actDesc.Log().Warnf("offered count above HWM: %d", offeredCount)
-					nilOrMsgFetcherCh = nil
+					nilOrMsgInCh = nil
 					continue
 				}
-				nilOrMsgFetcherCh = mf.Messages()
+				nilOrMsgInCh = mf.Messages()
 			case consumer.EvAcked:
 				var offeredCount int
 				pc.submittedOffset, offeredCount = pc.offsetTrk.OnAcked(event.Offset)
 				pc.offsetMgr.SubmitOffset(pc.submittedOffset)
 				if !msgOk && offeredCount <= pc.cfg.Consumer.MaxPendingMessages {
-					nilOrMsgFetcherCh = mf.Messages()
+					nilOrMsgInCh = mf.Messages()
 				}
 			}
 		case pc.committedOffset = <-pc.offsetMgr.CommittedOffsets():
@@ -246,11 +244,9 @@ func (pc *T) stopOffsetMgr() {
 	for pc.committedOffset = range pc.offsetMgr.CommittedOffsets() {
 	}
 	if pc.committedOffset != pc.submittedOffset {
-		pc.actDesc.Log().Errorf("failed to commit offset: %d, sparseAcks=%s",
-			pc.submittedOffset.Val, offsettrk.SparseAcks2Str(pc.submittedOffset))
+		pc.actDesc.Log().Errorf("failed to commit offset: %s", offsetRepr(pc.submittedOffset))
 	}
-	pc.actDesc.Log().Infof("last committed offset: %d, sparseAcks=%s",
-		pc.committedOffset.Val, offsettrk.SparseAcks2Str(pc.committedOffset))
+	pc.actDesc.Log().Infof("last committed offset: %s", offsetRepr(pc.committedOffset))
 }
 
 // notifyTestInitialized sends initial offset to initialOffsetCh channel.
@@ -267,4 +263,8 @@ func (pc *T) notifyTestFetched() {
 		pc.firstMsgFetched = true
 		FirstMessageFetchedCh <- pc
 	}
+}
+
+func offsetRepr(offset offsetmgr.Offset) string {
+	return fmt.Sprintf("%d(%s)", offset.Val, offsettrk.SparseAcks2Str(offset))
 }
