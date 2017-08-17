@@ -493,12 +493,12 @@ func (s *PartitionCsmSuite) TestFetcherDeath(c *C) {
 	defer pc.Stop()
 
 	// When/Then
-	msg := expectMsg(c, pc, 500*time.Millisecond)
+	msg := expectMsg(c, pc, 3*time.Second)
 	sendEvOffered(msg)
 	sendEvAcked(msg)
 	c.Assert(msg.Offset, Equals, int64(1001))
 
-	msg = expectMsg(c, pc, 500*time.Millisecond)
+	msg = expectMsg(c, pc, 3*time.Second)
 	sendEvOffered(msg)
 	c.Assert(msg.Offset, Equals, int64(1002))
 }
