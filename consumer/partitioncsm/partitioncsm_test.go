@@ -450,6 +450,59 @@ func (s *PartitionCsmSuite) TestRetryNoMoreMessages(c *C) {
 	c.Assert(offsettrk.SparseAcks2Str(offsetsAfter[partition]), Equals, "")
 }
 
+// If fetcher dies (detectable by closing of its message channel), that means
+// it got an error response from a broker it could not recover from, e.g.
+// a partition segment it was reading from got expired and was deleted. In this
+// case the partition consumer initializes another fetcher instance to read
+// from the next available offset.
+func (s *PartitionCsmSuite) TestFetcherDeath(c *C) {
+	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{}})
+	testMsg := sarama.StringEncoder("Foo")
+
+	// FIXME: Mock broker speaks v0.8.2.x protocol only. Update it?
+	s.cfg.Kafka.Version.Set(sarama.V0_8_2_2)
+
+	fatalErrorRs := &sarama.FetchResponse{}
+	fatalErrorRs.AddError(topic, partition, sarama.ErrOffsetOutOfRange)
+
+	mockBroker := sarama.NewMockBroker(c, 0)
+	defer mockBroker.Close()
+	mockBroker.SetHandlerByMap(map[string]sarama.MockResponse{
+		"MetadataRequest": sarama.NewMockMetadataResponse(c).
+			SetBroker(mockBroker.Addr(), mockBroker.BrokerID()).
+			SetLeader(topic, partition, mockBroker.BrokerID()),
+		"OffsetRequest": sarama.NewMockOffsetResponse(c).
+			SetOffset(topic, partition, sarama.OffsetOldest, 1001).
+			SetOffset(topic, partition, sarama.OffsetNewest, 1984),
+		"FetchRequest": sarama.NewMockSequence(
+			sarama.NewMockFetchResponse(c, 1).
+				SetMessage(topic, partition, 1001, testMsg),
+			fatalErrorRs,
+			sarama.NewMockFetchResponse(c, 1).
+				SetMessage(topic, partition, 1002, testMsg),
+		),
+	})
+
+	kafkaClt, _ := sarama.NewClient([]string{mockBroker.Addr()}, s.cfg.SaramaClientCfg())
+	defer kafkaClt.Close()
+	msgFetcherF, err := msgfetcher.SpawnFactory(s.ns, s.cfg, kafkaClt)
+	c.Assert(err, IsNil)
+	defer msgFetcherF.Stop()
+
+	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, msgFetcherF, s.offsetMgrF)
+	defer pc.Stop()
+
+	// When/Then
+	msg := expectMsg(c, pc, 500*time.Millisecond)
+	sendEvOffered(msg)
+	sendEvAcked(msg)
+	c.Assert(msg.Offset, Equals, int64(1001))
+
+	msg = expectMsg(c, pc, 500*time.Millisecond)
+	sendEvOffered(msg)
+	c.Assert(msg.Offset, Equals, int64(1002))
+}
+
 func sendEvOffered(msg consumer.Message) {
 	log.Infof("*** sending EvOffered: offset=%d", msg.Offset)
 	select {
@@ -466,4 +519,14 @@ func sendEvAcked(msg consumer.Message) {
 	case <-time.After(500 * time.Millisecond):
 		log.Infof("*** timeout sending `acked`: offset=%d", msg.Offset)
 	}
+}
+
+func expectMsg(c *C, pc *T, timeout time.Duration) consumer.Message {
+	select {
+	case msg := <-pc.Messages():
+		return msg
+	case <-time.After(timeout):
+		c.Errorf("Timeout")
+	}
+	return consumer.Message{}
 }

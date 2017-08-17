@@ -137,7 +137,7 @@ func (pc *T) Stop() {
 
 func (pc *T) runFetchLoop() bool {
 	// Initialize a message fetcher to read from the initial offset.
-	mf, realOffsetVal, err := pc.msgFetcherF.Spawn(pc.actDesc, pc.topic, pc.partition, pc.committedOffset.Val)
+	mf, realOffsetVal, err := pc.msgFetcherF.Spawn(pc.actDesc, pc.topic, pc.partition, pc.submittedOffset.Val)
 	if err != nil {
 		panic(errors.Wrapf(err, "<%s> must never happen", pc.actDesc))
 	}
@@ -161,12 +161,18 @@ func (pc *T) runFetchLoop() bool {
 	defer retryTicker.Stop()
 	for {
 		select {
-		case msg = <-nilOrMsgInCh:
+		case msg, msgOk = <-nilOrMsgInCh:
+			// If the fetcher terminated due to failure, then quit the fetch
+			// loop signaling that it needs to be reinitialized.
+			if !msgOk {
+				return true
+			}
+			// If a fetched message has already been acked, then skip it.
 			if ok, _ := pc.offsetTrk.IsAcked(msg.Offset); ok {
+				msgOk = false
 				continue
 			}
 			msg.EventsCh = pc.eventsCh
-			msgOk = true
 			pc.notifyTestFetched()
 			nilOrMsgInCh = nil
 			nilOrMsgOutCh = pc.messagesCh
