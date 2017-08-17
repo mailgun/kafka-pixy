@@ -614,7 +614,7 @@ func consume(c *C, sc *t, group, topic string, count int,
 	}
 
 	start := time.Now()
-	for i := 0; i != count; i++ {
+	for i := 0; i != count; {
 		msg, err := sc.Consume(group, topic)
 		if err == consumer.ErrRequestTimeout {
 			if time.Now().Sub(start) < timeout {
@@ -626,6 +626,7 @@ func consume(c *C, sc *t, group, topic string, count int,
 			c.Errorf("Not enough messages consumed: expected=%d, actual=%d", count, i)
 			return consumed
 		}
+		i++
 		c.Assert(err, IsNil)
 		logConsumed(sc, msg)
 		// Acknowledge consumed messages immediately
