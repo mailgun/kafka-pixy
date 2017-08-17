@@ -255,7 +255,7 @@ func (mf *msgFetcher) run() {
 		case bw := <-mf.assignmentCh:
 			mf.actDesc.Log().Infof("assigned %s", bw)
 			if bw == nil {
-				mf.triggerOrScheduleReassign("no broker assigned")
+				mf.triggerOrScheduleReassign(errors.New("broker not assigned"))
 				continue
 			}
 			mf.nilOrReassignRetryTimerCh = nil
@@ -276,14 +276,14 @@ func (mf *msgFetcher) run() {
 		case result := <-nilOrFetchResultsCh:
 			nilOrFetchResultsCh = nil
 			if fetchedMessages, err = mf.parseFetchResult(result); err != nil {
-				mf.actDesc.Log().WithError(err).Info("fetch failed")
-				mf.reportError(err)
 				if err == sarama.ErrOffsetOutOfRange {
+					mf.actDesc.Log().WithError(err).Error("fatal error")
+					mf.reportError(err)
 					// There's no point in retrying this it will just fail the
 					// same way, therefore is nothing to do but give up.
 					return
 				}
-				mf.triggerOrScheduleReassign("fetch error")
+				mf.triggerOrScheduleReassign(errors.Wrap(err, "request failed"))
 				continue
 			}
 			// If no messages has been fetched, then trigger another request.
@@ -318,15 +318,16 @@ func (mf *msgFetcher) run() {
 	}
 }
 
-func (mf *msgFetcher) triggerOrScheduleReassign(reason string) {
+func (mf *msgFetcher) triggerOrScheduleReassign(err error) {
+	mf.reportError(err)
 	mf.assignedBrokerRequestCh = nil
 	now := time.Now().UTC()
 	if now.Sub(mf.lastReassignTime) > mf.f.cfg.Consumer.RetryBackoff {
-		mf.actDesc.Log().Infof("trigger reassign: reason=%s", reason)
+		mf.actDesc.Log().WithError(err).Error("trigger reassign")
 		mf.lastReassignTime = now
 		mf.f.mapper.TriggerReassign(mf)
 	} else {
-		mf.actDesc.Log().Infof("schedule reassign: reason=%s", reason)
+		mf.actDesc.Log().WithError(err).Error("schedule reassign")
 	}
 	mf.nilOrReassignRetryTimerCh = time.After(mf.f.cfg.Consumer.RetryBackoff)
 }
