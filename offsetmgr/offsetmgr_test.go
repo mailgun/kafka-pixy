@@ -2,7 +2,7 @@ package offsetmgr
 
 import (
 	"net"
-	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -10,6 +10,7 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/testhelpers"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	. "gopkg.in/check.v1"
 )
@@ -99,7 +100,7 @@ func (s *OffsetMgrSuite) TestInitialNoCoordinator(c *C) {
 
 	// Then
 	err = <-om.(*offsetMgr).testErrorsCh
-	c.Assert(err, DeepEquals, errNoCoordinator)
+	c.Assert(err.Error(), Equals, "broker not assigned")
 }
 
 // A partition offset manager can be closed even while it keeps trying to
@@ -132,7 +133,7 @@ func (s *OffsetMgrSuite) TestInitialFetchError(c *C) {
 
 	// Then
 	err = <-om.(*offsetMgr).testErrorsCh
-	c.Assert(err, Equals, sarama.ErrNotLeaderForPartition)
+	c.Assert(errors.Cause(err), Equals, sarama.ErrNotLeaderForPartition)
 }
 
 // If offset commit fails then the corresponding error is sent down to the
@@ -172,7 +173,7 @@ func (s *OffsetMgrSuite) TestCommitError(c *C) {
 
 	// Then
 	err = <-om.(*offsetMgr).testErrorsCh
-	c.Assert(err, Equals, sarama.ErrNotLeaderForPartition)
+	c.Assert(errors.Cause(err), Equals, sarama.ErrNotLeaderForPartition)
 
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
@@ -233,7 +234,7 @@ func (s *OffsetMgrSuite) TestCommitIncompleteResponse(c *C) {
 
 	// Then
 	err = <-om1.(*offsetMgr).testErrorsCh
-	c.Assert(err, Equals, sarama.ErrIncompleteResponse)
+	c.Assert(errors.Cause(err), Equals, sarama.ErrIncompleteResponse)
 	c.Assert(<-om2.CommittedOffsets(), Equals, Offset{2001, "bar2"})
 
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
@@ -282,7 +283,7 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 	// STAGE 1: Requests for coordinator time out.
 	log.Infof("    STAGE 1")
 	err = <-om.(*offsetMgr).testErrorsCh
-	c.Assert(err, Equals, errRequestTimeout)
+	c.Assert(strings.HasPrefix(err.Error(), "request timeout"), Equals, true)
 
 	// STAGE 2: Requests for initial offset return errors
 	log.Infof("    STAGE 2")
@@ -293,11 +294,11 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 			SetOffset("g1", "t1", 7, 0, "", sarama.ErrNotLeaderForPartition),
 	})
 	for err = range om.(*offsetMgr).testErrorsCh {
-		if err != errRequestTimeout {
+		if !strings.HasPrefix(err.Error(), "request timeout") {
 			break
 		}
 	}
-	c.Assert(err, Equals, sarama.ErrNotLeaderForPartition)
+	c.Assert(errors.Cause(err), Equals, sarama.ErrNotLeaderForPartition)
 
 	// STAGE 3: Val commit requests fail
 	log.Infof("    STAGE 3")
@@ -310,11 +311,11 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 			SetError("g1", "t1", 7, sarama.ErrOffsetMetadataTooLarge),
 	})
 	for err = range om.(*offsetMgr).testErrorsCh {
-		if !reflect.DeepEqual(err, sarama.ErrNotLeaderForPartition) {
+		if errors.Cause(err) != sarama.ErrNotLeaderForPartition {
 			break
 		}
 	}
-	c.Assert(err, DeepEquals, sarama.ErrOffsetMetadataTooLarge)
+	c.Assert(errors.Cause(err), DeepEquals, sarama.ErrOffsetMetadataTooLarge)
 
 	// STAGE 4: Finally everything is fine
 	log.Infof("    STAGE 4")
@@ -531,7 +532,7 @@ func (s *OffsetMgrSuite) TestBugConnectionRestored(c *C) {
 	case err = <-om.(*offsetMgr).testErrorsCh:
 	case <-time.After(200 * time.Millisecond):
 	}
-	_, ok := err.(*net.OpError)
+	_, ok := errors.Cause(err).(*net.OpError)
 	c.Assert(ok, Equals, true, Commentf("Unexpected or no error: err=%v", err))
 
 	log.Infof("    GIVEN 2")

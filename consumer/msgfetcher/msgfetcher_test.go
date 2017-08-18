@@ -10,6 +10,7 @@ import (
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/testhelpers"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	. "gopkg.in/check.v1"
 )
@@ -236,7 +237,7 @@ func (s *MsgFetcherSuite) TestLeaderRefreshError(c *C) {
 	})
 
 	for {
-		err := <-mf.(*msgFetcher).errorsCh
+		err := errors.Cause(<-mf.(*msgFetcher).errorsCh)
 		if err == errIncompleteResponse {
 			continue
 		}
@@ -394,7 +395,7 @@ func (s *MsgFetcherSuite) TestClosePartitionWithoutLeader(c *C) {
 	})
 
 	// When
-	if err := <-mf.(*msgFetcher).errorsCh; err != sarama.ErrNotLeaderForPartition {
+	if err := <-mf.(*msgFetcher).errorsCh; errors.Cause(err) != sarama.ErrNotLeaderForPartition {
 		c.Errorf("Unexpected error: %v", err)
 	}
 

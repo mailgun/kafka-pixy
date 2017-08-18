@@ -58,7 +58,7 @@ type Tier interface {
 	Requests() chan<- Request
 
 	// Start spins up the tier's goroutine(s).
-	Start(stoppedCh chan<- Tier)
+	Start()
 
 	// Stop makes all tier goroutines stop and releases all resources.
 	Stop()
@@ -134,7 +134,7 @@ func (d *T) run() {
 done:
 	for _, et := range d.children {
 		if !et.expired {
-			go et.instance.Stop()
+			d.asyncTierStop(et.instance)
 		}
 	}
 	// The children dispatch tiers will stop as soon as they process all
@@ -144,14 +144,14 @@ done:
 	for len(d.children) > 0 {
 		dt := <-d.stoppedChildrenCh
 		if successor := d.handleStopped(dt); successor != nil {
-			go successor.Stop()
+			d.asyncTierStop(successor)
 		}
 	}
 }
 
 func (d *T) newExpiringTier(parent Factory, key string) *expiringTier {
 	dt := parent.NewTier(key)
-	dt.Start(d.stoppedChildrenCh)
+	dt.Start()
 	timeout := d.cfg.Consumer.RegistrationTimeout
 	et := &expiringTier{
 		d:        d,
@@ -160,6 +160,13 @@ func (d *T) newExpiringTier(parent Factory, key string) *expiringTier {
 		timer:    time.AfterFunc(timeout, func() { d.expiredChildrenCh <- dt }),
 	}
 	return et
+}
+
+func (d *T) asyncTierStop(t Tier) {
+	go func() {
+		t.Stop()
+		d.stoppedChildrenCh <- t
+	}()
 }
 
 // resolveTier returns a downstream dispatch tier corresponding to the dispatch
@@ -174,7 +181,9 @@ func (d *T) resolveTier(req Request) Tier {
 		et = d.newExpiringTier(d.factory, childKey)
 		d.children[childKey] = et
 	}
-	if !et.expired && et.timer.Reset(et.d.cfg.Consumer.RegistrationTimeout) {
+	// If the resolved tier is not expired, then reset its timer and return it.
+	if !et.expired && et.timer.Stop() {
+		et.timer.Reset(et.d.cfg.Consumer.RegistrationTimeout)
 		return et.instance
 	}
 	if et.successor == nil {
@@ -193,7 +202,7 @@ func (d *T) handleExpired(dt Tier) {
 		return
 	}
 	et.expired = true
-	go et.instance.Stop()
+	d.asyncTierStop(et.instance)
 }
 
 // handleStopped if the specified dispatch tier has a successor then it is
@@ -214,8 +223,8 @@ func (d *T) handleStopped(dt Tier) Tier {
 	et.expired = false
 	et.instance = successor
 	et.successor = nil
-	successor.Start(et.d.stoppedChildrenCh)
+	successor.Start()
 	timeout := et.d.cfg.Consumer.RegistrationTimeout
-	et.timer = time.AfterFunc(timeout, func() { et.d.expiredChildrenCh <- successor })
+	et.timer = time.AfterFunc(timeout, func() { d.expiredChildrenCh <- successor })
 	return et.instance
 }

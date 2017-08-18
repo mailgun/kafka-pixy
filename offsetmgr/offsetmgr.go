@@ -71,9 +71,6 @@ type Offset struct {
 }
 
 var (
-	errNoCoordinator  = errors.New("failed to resolve coordinator")
-	errRequestTimeout = errors.New("request timeout")
-
 	// To be used in tests only! If true then offset manager will initialize
 	// their errors channel and will send internal errors.
 	testReportErrors bool
@@ -257,7 +254,7 @@ func (om *offsetMgr) run() {
 		case bw := <-om.assignmentCh:
 			om.actDesc.Log().Infof("assigned %s", bw)
 			if bw == nil {
-				om.triggerOrScheduleReassign(errNoCoordinator, "no broker assigned")
+				om.triggerOrScheduleReassign(errors.New("broker not assigned"))
 				continue
 			}
 			om.nilOrReassignRetryTimerCh = nil
@@ -268,7 +265,7 @@ func (om *offsetMgr) run() {
 			if !initialOffsetFetched {
 				initialOffset, err := om.fetchInitialOffset(be.conn)
 				if err != nil {
-					om.triggerOrScheduleReassign(err, "failed to fetch initial offset")
+					om.triggerOrScheduleReassign(errors.Wrap(err, "failed to fetch initial offset"))
 					continue
 				}
 				om.committedOffsetsCh <- initialOffset
@@ -295,7 +292,7 @@ func (om *offsetMgr) run() {
 
 		case submitRes := <-submitResponseCh:
 			if err := om.getCommitError(submitRes.kafkaRes); err != nil {
-				om.triggerOrScheduleReassign(err, "offset commit failed")
+				om.triggerOrScheduleReassign(errors.Wrap(err, "request failed"))
 				continue
 			}
 			lastCommittedOffset = submitRes.req.offset
@@ -304,9 +301,9 @@ func (om *offsetMgr) run() {
 				return
 			}
 		case <-commitTicker.C:
-			isRequestTimeout := time.Now().UTC().Sub(lastSubmitTime) > offsetCommitTimeout
-			if isRequestTimeout && lastSubmitRequest.offset != lastCommittedOffset {
-				om.triggerOrScheduleReassign(errRequestTimeout, "offset commit failed")
+			took := time.Now().UTC().Sub(lastSubmitTime)
+			if took > offsetCommitTimeout && lastSubmitRequest.offset != lastCommittedOffset {
+				om.triggerOrScheduleReassign(errors.Errorf("request timeout %v", took))
 			}
 		case <-om.nilOrReassignRetryTimerCh:
 			om.f.mapper.TriggerReassign(om)
@@ -316,17 +313,17 @@ func (om *offsetMgr) run() {
 	}
 }
 
-func (om *offsetMgr) triggerOrScheduleReassign(err error, reason string) {
+func (om *offsetMgr) triggerOrScheduleReassign(err error) {
 	om.reportError(err)
 	om.assignedBrokerRequestsCh = nil
 	om.nilOrBrokerRequestsCh = nil
 	now := time.Now().UTC()
 	if now.Sub(om.lastReassignTime) > om.f.cfg.Consumer.RetryBackoff {
-		om.actDesc.Log().WithError(err).Infof("trigger reassign: reason=%s", reason)
+		om.actDesc.Log().WithError(err).Error("trigger reassign")
 		om.lastReassignTime = now
 		om.f.mapper.TriggerReassign(om)
 	} else {
-		om.actDesc.Log().WithError(err).Infof("schedule reassign: reason=%s", reason)
+		om.actDesc.Log().WithError(err).Error("schedule reassign")
 	}
 	om.nilOrReassignRetryTimerCh = time.After(om.f.cfg.Consumer.RetryBackoff)
 }
