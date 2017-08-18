@@ -67,15 +67,17 @@ func Init(jsonCfg string, cfg *config.App) error {
 			nonStdoutEnabled = true
 		}
 	}
-	if !stdoutEnabled || nonStdoutEnabled {
-		log.SetOutput(ioutil.Discard)
-	}
 
 	saramaLogger := log.New()
 	saramaLogger.Formatter = &saramaFormatter{formatter}
 	sarama.Logger = saramaLogger
 
 	zk.DefaultLogger = log.StandardLogger()
+
+	if !stdoutEnabled || nonStdoutEnabled {
+		log.SetOutput(ioutil.Discard)
+		saramaLogger.Out = ioutil.Discard
+	}
 	return nil
 }
 
