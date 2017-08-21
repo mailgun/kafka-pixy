@@ -1,4 +1,4 @@
-package groupmember
+package subscriber
 
 import (
 	"sync"

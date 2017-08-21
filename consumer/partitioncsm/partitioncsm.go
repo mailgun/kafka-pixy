@@ -9,9 +9,9 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer"
-	"github.com/mailgun/kafka-pixy/consumer/groupmember"
 	"github.com/mailgun/kafka-pixy/consumer/msgfetcher"
 	"github.com/mailgun/kafka-pixy/consumer/offsettrk"
+	"github.com/mailgun/kafka-pixy/consumer/subscriber"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/pkg/errors"
@@ -39,7 +39,7 @@ type T struct {
 	group       string
 	topic       string
 	partition   int32
-	groupMember *groupmember.T
+	groupMember *subscriber.T
 	msgFetcherF msgfetcher.Factory
 	offsetMgrF  offsetmgr.Factory
 	messagesCh  chan consumer.Message
@@ -59,7 +59,7 @@ type T struct {
 
 // Spawn creates a partition consumer instance and starts its goroutines.
 func Spawn(parentActDesc *actor.Descriptor, group, topic string, partition int32, cfg *config.Proxy,
-	groupMember *groupmember.T, msgFetcherF msgfetcher.Factory, offsetMgrF offsetmgr.Factory,
+	groupMember *subscriber.T, msgFetcherF msgfetcher.Factory, offsetMgrF offsetmgr.Factory,
 ) *T {
 	actDesc := parentActDesc.NewChild(fmt.Sprintf("%s.p%d", topic, partition))
 	actDesc.AddLogField("kafka.group", group)

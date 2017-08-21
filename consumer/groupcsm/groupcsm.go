@@ -10,10 +10,10 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer/dispatcher"
-	"github.com/mailgun/kafka-pixy/consumer/groupmember"
 	"github.com/mailgun/kafka-pixy/consumer/msgfetcher"
 	"github.com/mailgun/kafka-pixy/consumer/multiplexer"
 	"github.com/mailgun/kafka-pixy/consumer/partitioncsm"
+	"github.com/mailgun/kafka-pixy/consumer/subscriber"
 	"github.com/mailgun/kafka-pixy/consumer/topiccsm"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
@@ -36,7 +36,7 @@ type T struct {
 	kazooClt           *kazoo.Kazoo
 	msgFetcherF        msgfetcher.Factory
 	offsetMgrF         offsetmgr.Factory
-	groupMember        *groupmember.T
+	subscriber         *subscriber.T
 	multiplexers       map[string]*multiplexer.T
 	topicCsmLifespanCh chan *topiccsm.T
 	stopCh             chan none.T
@@ -99,14 +99,14 @@ func (gc *T) Start() {
 			// Must never happen.
 			panic(errors.Wrap(err, "failed to create sarama.Consumer"))
 		}
-		gc.groupMember = groupmember.Spawn(gc.supActDesc, gc.group, gc.cfg.ClientID, gc.cfg, gc.kazooClt)
+		gc.subscriber = subscriber.Spawn(gc.supActDesc, gc.group, gc.cfg.ClientID, gc.cfg, gc.kazooClt)
 		var manageWg sync.WaitGroup
 		actor.Spawn(gc.mgrActDesc, &manageWg, gc.runManager)
 		gc.dispatcher.Start()
 		// Wait for a stop signal and shutdown gracefully when one is received.
 		<-gc.stopCh
 		gc.dispatcher.Stop()
-		gc.groupMember.Stop()
+		gc.subscriber.Stop()
 		manageWg.Wait()
 		gc.msgFetcherF.Stop()
 	})
@@ -148,12 +148,12 @@ func (gc *T) runManager() {
 				topicConsumers[tc.Topic()] = tc
 			}
 			topics = listTopics(topicConsumers)
-			nilOrRegistryTopicsCh = gc.groupMember.Topics()
+			nilOrRegistryTopicsCh = gc.subscriber.Topics()
 			continue
 		case nilOrRegistryTopicsCh <- topics:
 			nilOrRegistryTopicsCh = nil
 			continue
-		case subscriptions, ok = <-gc.groupMember.Subscriptions():
+		case subscriptions, ok = <-gc.subscriber.Subscriptions():
 			nilOrRetryCh = nil
 			if !ok {
 				if !rebalancingInProgress {
@@ -235,7 +235,7 @@ func (gc *T) runRebalancing(actDesc *actor.Descriptor, topicConsumers map[string
 		topic := topic
 		spawnInFn := func(partition int32) multiplexer.In {
 			return partitioncsm.Spawn(gc.supActDesc, gc.group, topic, partition,
-				gc.cfg, gc.groupMember, gc.msgFetcherF, gc.offsetMgrF)
+				gc.cfg, gc.subscriber, gc.msgFetcherF, gc.offsetMgrF)
 		}
 		mux = multiplexer.New(gc.supActDesc, spawnInFn)
 		gc.rewireMuxAsync(topic, &wg, mux, tc, assignedTopicPartitions)
