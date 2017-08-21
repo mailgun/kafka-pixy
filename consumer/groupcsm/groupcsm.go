@@ -311,8 +311,8 @@ func assignTopicPartitions(partitions []int32, subscribers []string) map[string]
 	if partitionCount == 0 || subscriberCount == 0 {
 		return nil
 	}
-	sort.Sort(Int32Slice(partitions))
-	sort.Sort(sort.StringSlice(subscribers))
+	sort.Slice(partitions, func(i, j int) bool { return partitions[i] < partitions[j] })
+	sort.Strings(subscribers)
 
 	subscribersToPartitions := make(map[string][]int32, subscriberCount)
 	partitionsPerSubscriber := partitionCount / subscriberCount
@@ -341,9 +341,3 @@ func listTopics(topicConsumers map[string]*topiccsm.T) []string {
 	}
 	return topics
 }
-
-type Int32Slice []int32
-
-func (p Int32Slice) Len() int           { return len(p) }
-func (p Int32Slice) Less(i, j int) bool { return p[i] < p[j] }
-func (p Int32Slice) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }

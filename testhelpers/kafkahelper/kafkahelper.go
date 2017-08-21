@@ -149,7 +149,7 @@ func (kh *T) PutMessages(prefix, topic string, keys map[string]int) map[string][
 	}
 	// Sort the produced messages in ascending order of their offsets.
 	for _, keyMessages := range messages {
-		sort.Sort(messageSlice(keyMessages))
+		sort.Slice(keyMessages, func(i, j int) bool { return keyMessages[i].Offset < keyMessages[j].Offset })
 	}
 	wg.Wait()
 	return messages
@@ -217,9 +217,3 @@ func (kh *T) GetCommittedOffsets(group, topic string) []offsetmgr.Offset {
 	wg.Wait()
 	return offsets
 }
-
-type messageSlice []*sarama.ProducerMessage
-
-func (p messageSlice) Len() int           { return len(p) }
-func (p messageSlice) Less(i, j int) bool { return p[i].Offset < p[j].Offset }
-func (p messageSlice) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }

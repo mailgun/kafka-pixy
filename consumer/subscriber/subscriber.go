@@ -266,7 +266,7 @@ func normalizeTopics(s []string) []string {
 	if s == nil || len(s) == 0 {
 		return nil
 	}
-	sort.Sort(sort.StringSlice(s))
+	sort.Strings(s)
 	return s
 }
 

@@ -8,9 +8,9 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer"
-	"github.com/mailgun/kafka-pixy/consumer/groupmember"
 	"github.com/mailgun/kafka-pixy/consumer/msgfetcher"
 	"github.com/mailgun/kafka-pixy/consumer/offsettrk"
+	"github.com/mailgun/kafka-pixy/consumer/subscriber"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
@@ -28,7 +28,7 @@ const (
 type PartitionCsmSuite struct {
 	cfg          *config.Proxy
 	ns           *actor.Descriptor
-	groupMember  *groupmember.T
+	groupMember  *subscriber.T
 	msgFetcherF  msgfetcher.Factory
 	offsetMgrF   offsetmgr.Factory
 	kh           *kafkahelper.T
@@ -56,7 +56,7 @@ func (s *PartitionCsmSuite) SetUpTest(c *C) {
 	check4RetryInterval = 50 * time.Millisecond
 
 	s.ns = actor.Root().NewChild("T")
-	s.groupMember = groupmember.Spawn(s.ns, group, memberID, s.cfg, s.kh.KazooClt())
+	s.groupMember = subscriber.Spawn(s.ns, group, memberID, s.cfg, s.kh.KazooClt())
 	var err error
 	if s.msgFetcherF, err = msgfetcher.SpawnFactory(s.ns, s.cfg, s.kh.KafkaClt()); err != nil {
 		panic(err)

@@ -215,7 +215,7 @@ func makeSortedIns(inputs map[int32]*input) []*input {
 	for p := range inputs {
 		partitions = append(partitions, p)
 	}
-	sort.Sort(Int32Slice(partitions))
+	sort.Slice(partitions, func(i, j int) bool { return partitions[i] < partitions[j] })
 	sortedIns := make([]*input, len(inputs))
 	for i, p := range partitions {
 		sortedIns[i] = inputs[p]
@@ -259,9 +259,3 @@ func selectInput(prevSelectedIdx int, sortedIns []*input) int {
 	}
 	return selectedIdx
 }
-
-type Int32Slice []int32
-
-func (p Int32Slice) Len() int           { return len(p) }
-func (p Int32Slice) Less(i, j int) bool { return p[i] < p[j] }
-func (p Int32Slice) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
