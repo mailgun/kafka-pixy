@@ -93,12 +93,7 @@ func (gc *T) Requests() chan<- dispatcher.Request {
 // implements `dispatcher.Tier`.
 func (gc *T) Start() {
 	actor.Spawn(gc.supActDesc, &gc.wg, func() {
-		var err error
-		gc.msgFetcherF, err = msgfetcher.SpawnFactory(gc.supActDesc, gc.cfg, gc.kafkaClt)
-		if err != nil {
-			// Must never happen.
-			panic(errors.Wrap(err, "failed to create sarama.Consumer"))
-		}
+		gc.msgFetcherF = msgfetcher.SpawnFactory(gc.supActDesc, gc.cfg, gc.kafkaClt)
 		gc.subscriber = subscriber.Spawn(gc.supActDesc, gc.group, gc.cfg.ClientID, gc.cfg, gc.kazooClt)
 		var manageWg sync.WaitGroup
 		actor.Spawn(gc.mgrActDesc, &manageWg, gc.runManager)

@@ -57,10 +57,7 @@ func (s *PartitionCsmSuite) SetUpTest(c *C) {
 
 	s.ns = actor.Root().NewChild("T")
 	s.groupMember = subscriber.Spawn(s.ns, group, memberID, s.cfg, s.kh.KazooClt())
-	var err error
-	if s.msgFetcherF, err = msgfetcher.SpawnFactory(s.ns, s.cfg, s.kh.KafkaClt()); err != nil {
-		panic(err)
-	}
+	s.msgFetcherF = msgfetcher.SpawnFactory(s.ns, s.cfg, s.kh.KafkaClt())
 	s.offsetMgrF = offsetmgr.SpawnFactory(s.ns, s.cfg, s.kh.KafkaClt())
 
 	s.initOffsetCh = make(chan offsetmgr.Offset, 1)
@@ -485,8 +482,7 @@ func (s *PartitionCsmSuite) TestFetcherDeath(c *C) {
 
 	kafkaClt, _ := sarama.NewClient([]string{mockBroker.Addr()}, s.cfg.SaramaClientCfg())
 	defer kafkaClt.Close()
-	msgFetcherF, err := msgfetcher.SpawnFactory(s.ns, s.cfg, kafkaClt)
-	c.Assert(err, IsNil)
+	msgFetcherF := msgfetcher.SpawnFactory(s.ns, s.cfg, kafkaClt)
 	defer msgFetcherF.Stop()
 
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, msgFetcherF, s.offsetMgrF)

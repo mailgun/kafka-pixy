@@ -76,7 +76,7 @@ type instanceID struct {
 // SpawnFactory creates a new message fetcher factory using the given client.
 // It is still necessary to call Stop() on the underlying client after shutting
 // down this factory.
-func SpawnFactory(parentActDesc *actor.Descriptor, cfg *config.Proxy, kafkaClt sarama.Client) (Factory, error) {
+func SpawnFactory(parentActDesc *actor.Descriptor, cfg *config.Proxy, kafkaClt sarama.Client) Factory {
 	f := &factory{
 		actDesc:  parentActDesc.NewChild("msg_fetcher_f"),
 		cfg:      cfg,
@@ -84,7 +84,7 @@ func SpawnFactory(parentActDesc *actor.Descriptor, cfg *config.Proxy, kafkaClt s
 		children: make(map[instanceID]*msgFetcher),
 	}
 	f.mapper = mapper.Spawn(f.actDesc, f)
-	return f, nil
+	return f
 }
 
 // implements `Factory`.

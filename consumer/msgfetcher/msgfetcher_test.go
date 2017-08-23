@@ -68,8 +68,7 @@ func (s *MsgFetcherSuite) TestOffsetManual(c *C) {
 	defer kafkaClt.Close()
 
 	// When
-	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
-	c.Assert(err, IsNil)
+	f := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	defer f.Stop()
 
 	mf, concreteOffset, err := f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, 1234)
@@ -109,8 +108,7 @@ func (s *MsgFetcherSuite) TestOffsetNewest(c *C) {
 	kafkaClt, _ := sarama.NewClient([]string{s.broker0.Addr()}, s.cfg.SaramaClientCfg())
 	defer kafkaClt.Close()
 
-	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
-	c.Assert(err, IsNil)
+	f := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	defer f.Stop()
 
 	// When
@@ -141,8 +139,7 @@ func (s *MsgFetcherSuite) TestRecreate(c *C) {
 	kafkaClt, _ := sarama.NewClient([]string{s.broker0.Addr()}, s.cfg.SaramaClientCfg())
 	defer kafkaClt.Close()
 
-	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
-	c.Assert(err, IsNil)
+	f := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	defer f.Stop()
 
 	mf, _, err := f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, 10)
@@ -175,8 +172,7 @@ func (s *MsgFetcherSuite) TestDuplicate(c *C) {
 	defer kafkaClt.Close()
 
 	s.cfg.Consumer.ChannelBufferSize = 0
-	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
-	c.Assert(err, IsNil)
+	f := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	defer f.Stop()
 
 	mf1, _, err := f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, 0)
@@ -216,8 +212,7 @@ func (s *MsgFetcherSuite) TestLeaderRefreshError(c *C) {
 	defer kafkaClt.Close()
 
 	s.cfg.Consumer.RetryBackoff = 200 * time.Millisecond
-	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
-	c.Assert(err, IsNil)
+	f := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	defer f.Stop()
 
 	mf, _, err := f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
@@ -293,8 +288,7 @@ func (s *MsgFetcherSuite) TestFatalErrorStop(c *C) {
 	kafkaClt, _ := sarama.NewClient([]string{s.broker0.Addr()}, saramaCfg)
 	defer kafkaClt.Close()
 
-	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
-	c.Assert(err, IsNil)
+	f := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	defer f.Stop()
 
 	mf, _, err := f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
@@ -342,8 +336,7 @@ func (s *MsgFetcherSuite) TestInvalidTopic(c *C) {
 	kafkaClt, _ := sarama.NewClient([]string{s.broker0.Addr()}, s.cfg.SaramaClientCfg())
 	defer kafkaClt.Close()
 
-	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
-	c.Assert(err, IsNil)
+	f := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	defer f.Stop()
 
 	// When
@@ -376,8 +369,7 @@ func (s *MsgFetcherSuite) TestClosePartitionWithoutLeader(c *C) {
 	defer kafkaClt.Close()
 
 	s.cfg.Consumer.RetryBackoff = 100 * time.Millisecond
-	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
-	c.Assert(err, IsNil)
+	f := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	defer f.Stop()
 
 	mf, _, err := f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, sarama.OffsetOldest)
@@ -421,8 +413,7 @@ func (s *MsgFetcherSuite) TestShutsDownOutOfRange(c *C) {
 	kafkaClt, _ := sarama.NewClient([]string{s.broker0.Addr()}, s.cfg.SaramaClientCfg())
 	defer kafkaClt.Close()
 
-	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
-	c.Assert(err, IsNil)
+	f := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	defer f.Stop()
 
 	// When
@@ -459,8 +450,7 @@ func (s *MsgFetcherSuite) TestExtraOffsets(c *C) {
 	kafkaClt, _ := sarama.NewClient([]string{s.broker0.Addr()}, s.cfg.SaramaClientCfg())
 	defer kafkaClt.Close()
 
-	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
-	c.Assert(err, IsNil)
+	f := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	defer f.Stop()
 
 	// When
@@ -496,8 +486,7 @@ func (s *MsgFetcherSuite) TestNonSequentialOffsets(c *C) {
 	kafkaClt, _ := sarama.NewClient([]string{s.broker0.Addr()}, s.cfg.SaramaClientCfg())
 	defer kafkaClt.Close()
 
-	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
-	c.Assert(err, IsNil)
+	f := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	defer f.Stop()
 
 	// When
@@ -549,8 +538,7 @@ func (s *MsgFetcherSuite) TestRebalancingMultiplePartitions(c *C) {
 	defer kafkaClt.Close()
 
 	s.cfg.Consumer.RetryBackoff = 50 * time.Millisecond
-	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
-	c.Assert(err, IsNil)
+	f := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	defer f.Stop()
 
 	// we expect to end up (eventually) consuming exactly ten messages on each partition
@@ -688,8 +676,7 @@ func (s *MsgFetcherSuite) TestInterleavedClose(c *C) {
 	defer kafkaClt.Close()
 
 	s.cfg.Consumer.ChannelBufferSize = 0
-	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
-	c.Assert(err, IsNil)
+	f := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	defer f.Stop()
 
 	pc0, _, err := f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, 1000)
@@ -745,8 +732,7 @@ func (s *MsgFetcherSuite) TestBounceWithReferenceOpen(c *C) {
 
 	s.cfg.Consumer.RetryBackoff = 100 * time.Millisecond
 	s.cfg.Consumer.ChannelBufferSize = 1
-	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
-	c.Assert(err, IsNil)
+	f := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	defer f.Stop()
 
 	pc0, _, err := f.Spawn(s.ns.NewChild("my_topic", 0), "my_topic", 0, 1000)
@@ -808,8 +794,7 @@ func (s *MsgFetcherSuite) TestOffsetOutOfRange(c *C) {
 	kafkaClt, _ := sarama.NewClient([]string{s.broker0.Addr()}, s.cfg.SaramaClientCfg())
 	defer kafkaClt.Close()
 
-	f, err := SpawnFactory(s.ns, s.cfg, kafkaClt)
-	c.Assert(err, IsNil)
+	f := SpawnFactory(s.ns, s.cfg, kafkaClt)
 	defer f.Stop()
 
 	// When/Then
