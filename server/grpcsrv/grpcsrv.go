@@ -126,6 +126,8 @@ func (s *T) ConsumeNAck(ctx context.Context, req *pb.ConsNAckRq) (*pb.ConsRs, er
 			return nil, grpc.Errorf(codes.NotFound, err.Error())
 		case consumer.ErrTooManyRequests:
 			return nil, grpc.Errorf(codes.ResourceExhausted, err.Error())
+		case consumer.ErrShutdown:
+			return nil, grpc.Errorf(codes.Unavailable, err.Error())
 		default:
 			return nil, grpc.Errorf(codes.Internal, err.Error())
 		}

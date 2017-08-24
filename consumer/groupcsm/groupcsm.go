@@ -15,7 +15,6 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer/partitioncsm"
 	"github.com/mailgun/kafka-pixy/consumer/subscriber"
 	"github.com/mailgun/kafka-pixy/consumer/topiccsm"
-	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/pkg/errors"
 	"github.com/wvanbergen/kazoo-go"
@@ -27,8 +26,7 @@ import (
 // implements `dispatcher.Factory`.
 // implements `dispatcher.Tier`.
 type T struct {
-	supActDesc         *actor.Descriptor
-	mgrActDesc         *actor.Descriptor
+	actDesc            *actor.Descriptor
 	cfg                *config.Proxy
 	group              string
 	dispatcher         *dispatcher.T
@@ -39,86 +37,65 @@ type T struct {
 	subscriber         *subscriber.T
 	multiplexers       map[string]*multiplexer.T
 	topicCsmLifespanCh chan *topiccsm.T
-	stopCh             chan none.T
 	wg                 sync.WaitGroup
 
 	// Exist just to be overridden in tests with mocks.
 	fetchTopicPartitionsFn func(topic string) ([]int32, error)
 }
 
-func New(parentActDesc *actor.Descriptor, group string, cfg *config.Proxy, kafkaClt sarama.Client,
-	kazooClt *kazoo.Kazoo, offsetMgrF offsetmgr.Factory,
+func Spawn(parentActDesc *actor.Descriptor, childSpec dispatcher.ChildSpec,
+	cfg *config.Proxy, kafkaClt sarama.Client, kazooClt *kazoo.Kazoo,
+	offsetMgrF offsetmgr.Factory,
 ) *T {
-	supActDesc := parentActDesc.NewChild(fmt.Sprintf("%s", group))
-	supActDesc.AddLogField("kafka.group", group)
+	group := string(childSpec.Key())
+	actDesc := parentActDesc.NewChild(fmt.Sprintf("%s", group))
+	actDesc.AddLogField("kafka.group", group)
 	gc := &T{
-		supActDesc:         supActDesc,
-		mgrActDesc:         supActDesc.NewChild("manager"),
-		cfg:                cfg,
-		group:              group,
-		kafkaClt:           kafkaClt,
-		kazooClt:           kazooClt,
-		offsetMgrF:         offsetMgrF,
-		multiplexers:       make(map[string]*multiplexer.T),
-		topicCsmLifespanCh: make(chan *topiccsm.T),
-		stopCh:             make(chan none.T),
-
+		actDesc:                actDesc,
+		cfg:                    cfg,
+		group:                  group,
+		kafkaClt:               kafkaClt,
+		kazooClt:               kazooClt,
+		offsetMgrF:             offsetMgrF,
+		multiplexers:           make(map[string]*multiplexer.T),
+		topicCsmLifespanCh:     make(chan *topiccsm.T),
 		fetchTopicPartitionsFn: kafkaClt.Partitions,
 	}
-	gc.dispatcher = dispatcher.New(gc.supActDesc, gc, cfg)
+
+	gc.subscriber = subscriber.Spawn(gc.actDesc, gc.group, gc.cfg.ClientID, gc.cfg, gc.kazooClt)
+	gc.msgFetcherF = msgfetcher.SpawnFactory(gc.actDesc, gc.cfg, gc.kafkaClt)
+	actor.Spawn(gc.actDesc, &gc.wg, gc.run)
+
+	// Finalizer is called when all downstream topic consumers expire or if
+	// the dispatcher is explicitly told to stop by the upstream dispatcher.
+	finalizer := func() {
+		gc.subscriber.Stop()
+		// The run goroutine stops when the subscriber's channel is closed.
+		gc.wg.Wait()
+		// Only after run is stopped it is safe to shutdown the fetcher factory.
+		gc.msgFetcherF.Stop()
+	}
+	gc.dispatcher = dispatcher.Spawn(gc.actDesc, gc, cfg,
+		dispatcher.WithChildSpec(childSpec), dispatcher.WithFinalizer(finalizer))
 	return gc
 }
 
 // implements `dispatcher.Factory`.
-func (gc *T) KeyOf(req dispatcher.Request) string {
-	return req.Topic
+func (gc *T) KeyOf(req dispatcher.Request) dispatcher.Key {
+	return dispatcher.Key(req.Topic)
 }
 
 // implements `dispatcher.Factory`.
-func (gc *T) NewTier(key string) dispatcher.Tier {
-	tc := topiccsm.New(gc.supActDesc, gc.group, key, gc.cfg, gc.topicCsmLifespanCh)
-	return tc
-}
-
-// implements `dispatcher.Tier`.
-func (gc *T) Key() string {
-	return gc.group
-}
-
-// implements `dispatcher.Tier`.
-func (gc *T) Requests() chan<- dispatcher.Request {
-	return gc.dispatcher.Requests()
-}
-
-// implements `dispatcher.Tier`.
-func (gc *T) Start() {
-	actor.Spawn(gc.supActDesc, &gc.wg, func() {
-		gc.msgFetcherF = msgfetcher.SpawnFactory(gc.supActDesc, gc.cfg, gc.kafkaClt)
-		gc.subscriber = subscriber.Spawn(gc.supActDesc, gc.group, gc.cfg.ClientID, gc.cfg, gc.kazooClt)
-		var manageWg sync.WaitGroup
-		actor.Spawn(gc.mgrActDesc, &manageWg, gc.runManager)
-		gc.dispatcher.Start()
-		// Wait for a stop signal and shutdown gracefully when one is received.
-		<-gc.stopCh
-		gc.dispatcher.Stop()
-		gc.subscriber.Stop()
-		manageWg.Wait()
-		gc.msgFetcherF.Stop()
-	})
-}
-
-// implements `dispatcher.Tier`.
-func (gc *T) Stop() {
-	close(gc.stopCh)
-	gc.wg.Wait()
+func (gc *T) SpawnChild(childSpec dispatcher.ChildSpec) {
+	topiccsm.Spawn(gc.actDesc, gc.group, childSpec, gc.cfg, gc.topicCsmLifespanCh)
 }
 
 // String return string ID of this group consumer to be posted in logs.
 func (gc *T) String() string {
-	return gc.supActDesc.String()
+	return gc.actDesc.String()
 }
 
-func (gc *T) runManager() {
+func (gc *T) run() {
 	var (
 		topicConsumers        = make(map[string]*topiccsm.T)
 		topics                []string
@@ -161,7 +138,7 @@ func (gc *T) runManager() {
 		case err := <-rebalanceResultCh:
 			rebalancingInProgress = false
 			if err != nil {
-				gc.mgrActDesc.Log().WithError(err).Error("rebalancing failed")
+				gc.actDesc.Log().WithError(err).Error("rebalancing failed")
 				if stopped {
 					goto done
 				}
@@ -177,7 +154,7 @@ func (gc *T) runManager() {
 		}
 
 		if rebalancingRequired && !rebalancingInProgress && !retryScheduled {
-			rebalanceActDesc := gc.mgrActDesc.NewChild("rebalance")
+			rebalanceActDesc := gc.actDesc.NewChild("rebalance")
 			// Copy topicConsumers to make sure `rebalance` doesn't see any
 			// changes we make while it is running.
 			topicConsumersCopy := make(map[string]*topiccsm.T, len(topicConsumers))
@@ -229,10 +206,10 @@ func (gc *T) runRebalancing(actDesc *actor.Descriptor, topicConsumers map[string
 		}
 		topic := topic
 		spawnInFn := func(partition int32) multiplexer.In {
-			return partitioncsm.Spawn(gc.supActDesc, gc.group, topic, partition,
+			return partitioncsm.Spawn(gc.actDesc, gc.group, topic, partition,
 				gc.cfg, gc.subscriber, gc.msgFetcherF, gc.offsetMgrF)
 		}
-		mux = multiplexer.New(gc.supActDesc, spawnInFn)
+		mux = multiplexer.New(gc.actDesc, spawnInFn)
 		gc.rewireMuxAsync(topic, &wg, mux, tc, assignedTopicPartitions)
 		gc.multiplexers[topic] = mux
 	}
@@ -250,7 +227,7 @@ func (gc *T) runRebalancing(actDesc *actor.Descriptor, topicConsumers map[string
 
 // rewireMuxAsync calls muxInputs in another goroutine.
 func (gc *T) rewireMuxAsync(topic string, wg *sync.WaitGroup, mux *multiplexer.T, tc *topiccsm.T, assigned []int32) {
-	actor.Spawn(gc.supActDesc.NewChild("rewire", topic), wg, func() {
+	actor.Spawn(gc.actDesc.NewChild("rewire", topic), wg, func() {
 		if tc == nil {
 			// Parameter output is of interface type, therefore nil should be
 			// passed explicitly.

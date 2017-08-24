@@ -250,6 +250,8 @@ func (s *T) handleConsume(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusRequestTimeout
 		case consumer.ErrTooManyRequests:
 			status = http.StatusTooManyRequests
+		case consumer.ErrShutdown:
+			status = http.StatusServiceUnavailable
 		default:
 			status = http.StatusInternalServerError
 		}

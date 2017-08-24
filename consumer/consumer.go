@@ -18,6 +18,7 @@ const (
 
 var (
 	ErrRequestTimeout  = errors.New("long polling timeout")
+	ErrShutdown        = errors.New("service is shutting down")
 	ErrTooManyRequests = errors.New("Too many requests. Consider increasing `consumer.channel_buffer_size` (https://github.com/mailgun/kafka-pixy/blob/master/default.yaml#L43)")
 )
 

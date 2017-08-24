@@ -87,13 +87,13 @@ func Spawn(actDesc *Descriptor, wg *sync.WaitGroup, f func()) {
 		if wg != nil {
 			defer wg.Done()
 		}
-		actDesc.Log().Info("started")
+		actDesc.Log().Info("Started")
 		defer func() {
 			if p := recover(); p != nil {
-				actDesc.Log().Errorf("paniced: %v, stack=%s", p, debug.Stack())
+				actDesc.Log().Errorf("Paniced: %v, stack=%s", p, debug.Stack())
 				panic(p)
 			}
-			actDesc.Log().Info("stopped")
+			actDesc.Log().Info("Stopped")
 		}()
 		f()
 	}()
