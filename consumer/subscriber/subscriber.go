@@ -38,9 +38,9 @@ type T struct {
 }
 
 // Spawn creates a subscriber instance and starts its goroutine.
-func Spawn(parentActDesc *actor.Descriptor, group, memberID string, cfg *config.Proxy, kazooClt *kazoo.Kazoo) *T {
+func Spawn(parentActDesc *actor.Descriptor, group string, cfg *config.Proxy, kazooClt *kazoo.Kazoo) *T {
 	groupZNode := kazooClt.Consumergroup(group)
-	groupMemberZNode := groupZNode.Instance(memberID)
+	groupMemberZNode := groupZNode.Instance(cfg.ClientID)
 	actDesc := parentActDesc.NewChild("member")
 	actDesc.AddLogField("kafka.group", group)
 	ss := &T{

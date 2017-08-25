@@ -56,7 +56,7 @@ func (s *PartitionCsmSuite) SetUpTest(c *C) {
 	check4RetryInterval = 50 * time.Millisecond
 
 	s.ns = actor.Root().NewChild("T")
-	s.groupMember = subscriber.Spawn(s.ns, group, memberID, s.cfg, s.kh.KazooClt())
+	s.groupMember = subscriber.Spawn(s.ns, group, s.cfg, s.kh.KazooClt())
 	s.msgFetcherF = msgfetcher.SpawnFactory(s.ns, s.cfg, s.kh.KafkaClt())
 	s.offsetMgrF = offsetmgr.SpawnFactory(s.ns, s.cfg, s.kh.KafkaClt())
 

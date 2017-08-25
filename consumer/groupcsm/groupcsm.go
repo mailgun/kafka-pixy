@@ -62,7 +62,7 @@ func Spawn(parentActDesc *actor.Descriptor, childSpec dispatcher.ChildSpec,
 		fetchTopicPartitionsFn: kafkaClt.Partitions,
 	}
 
-	gc.subscriber = subscriber.Spawn(gc.actDesc, gc.group, gc.cfg.ClientID, gc.cfg, gc.kazooClt)
+	gc.subscriber = subscriber.Spawn(gc.actDesc, gc.group, gc.cfg, gc.kazooClt)
 	gc.msgFetcherF = msgfetcher.SpawnFactory(gc.actDesc, gc.cfg, gc.kafkaClt)
 	actor.Spawn(gc.actDesc, &gc.wg, gc.run)
 

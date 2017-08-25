@@ -74,17 +74,15 @@ func (s *GroupMemberSuite) TestSubscriptionsEqual(c *C) {
 // When a list of topics is sent to the `topics()` channel, a membership change
 // is received with the same list of topics for the registrator name.
 func (s *GroupMemberSuite) TestSimpleSubscribe(c *C) {
-	// Given
-	cfg := config.DefaultProxy()
-	cfg.Consumer.RebalanceDelay = 200 * time.Millisecond
-	gm := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooClt)
-	defer gm.Stop()
+	cfg := newConfig("m1")
+	ss := Spawn(s.ns.NewChild("m1"), "g1", cfg, s.kazooClt)
+	defer ss.Stop()
 
 	// When
-	gm.Topics() <- []string{"foo", "bar"}
+	ss.Topics() <- []string{"foo", "bar"}
 
 	// Then
-	c.Assert(<-gm.Subscriptions(), DeepEquals,
+	c.Assert(<-ss.Subscriptions(), DeepEquals,
 		map[string][]string{"m1": {"bar", "foo"}})
 }
 
@@ -92,51 +90,47 @@ func (s *GroupMemberSuite) TestSimpleSubscribe(c *C) {
 // membership change notification is received back with the most recent topic
 // list for the registrator name.
 func (s *GroupMemberSuite) TestSubscribeSequence(c *C) {
-	// Given
-	cfg := config.DefaultProxy()
-	cfg.Consumer.RebalanceDelay = 200 * time.Millisecond
-	gm := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooClt)
-	defer gm.Stop()
-	gm.Topics() <- []string{"foo", "bar"}
+	cfg := newConfig("m1")
+	ss := Spawn(s.ns.NewChild("m1"), "g1", cfg, s.kazooClt)
+	defer ss.Stop()
+	ss.Topics() <- []string{"foo", "bar"}
 
 	// When
-	gm.Topics() <- []string{"blah", "bazz"}
+	ss.Topics() <- []string{"blah", "bazz"}
 
 	// Then
-	c.Assert(<-gm.Subscriptions(), DeepEquals,
+	c.Assert(<-ss.Subscriptions(), DeepEquals,
 		map[string][]string{"m1": {"bazz", "blah"}})
 }
 
 // If a group member resubscribes to the same list of topics, then nothing is
 // updated.
 func (s *GroupMemberSuite) TestReSubscribe(c *C) {
-	// Given
-	cfg := config.DefaultProxy()
-	cfg.Consumer.RebalanceDelay = 100 * time.Millisecond
+	cfg1 := newConfig("m1")
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
+	defer ss1.Stop()
+	ss1.Topics() <- []string{"foo", "bar"}
 
-	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooClt)
-	defer gm1.Stop()
-	gm1.Topics() <- []string{"foo", "bar"}
-
-	gm2 := Spawn(s.ns.NewChild("m2"), "g1", "m2", cfg, s.kazooClt)
-	defer gm2.Stop()
-	gm2.Topics() <- []string{"bazz", "bar"}
+	cfg2 := newConfig("m2")
+	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.kazooClt)
+	defer ss2.Stop()
+	ss2.Topics() <- []string{"bazz", "bar"}
 
 	membership := map[string][]string{
 		"m1": {"bar", "foo"},
 		"m2": {"bar", "bazz"},
 	}
-	c.Assert(<-gm1.Subscriptions(), DeepEquals, membership)
-	c.Assert(<-gm2.Subscriptions(), DeepEquals, membership)
+	c.Assert(<-ss1.Subscriptions(), DeepEquals, membership)
+	c.Assert(<-ss2.Subscriptions(), DeepEquals, membership)
 
 	// When
-	gm1.Topics() <- []string{"foo", "bar"}
+	ss1.Topics() <- []string{"foo", "bar"}
 
 	// Then
 	select {
-	case update := <-gm1.Subscriptions():
+	case update := <-ss1.Subscriptions():
 		c.Errorf("Unexpected update: %v", update)
-	case update := <-gm2.Subscriptions():
+	case update := <-ss2.Subscriptions():
 		c.Errorf("Unexpected update: %v", update)
 	case <-time.After(300 * time.Millisecond):
 	}
@@ -144,53 +138,51 @@ func (s *GroupMemberSuite) TestReSubscribe(c *C) {
 
 // To unsubscribe from all topics an empty topic list can be sent.
 func (s *GroupMemberSuite) TestSubscribeToNothing(c *C) {
-	// Given
-	cfg := config.DefaultProxy()
-	cfg.Consumer.RebalanceDelay = 100 * time.Millisecond
-	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooClt)
-	defer gm1.Stop()
-	gm2 := Spawn(s.ns.NewChild("m2"), "g1", "m2", cfg, s.kazooClt)
-	defer gm2.Stop()
-	gm1.Topics() <- []string{"foo", "bar"}
-	gm2.Topics() <- []string{"foo"}
-	c.Assert(<-gm1.Subscriptions(), DeepEquals,
+	cfg1 := newConfig("m1")
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
+	defer ss1.Stop()
+	cfg2 := newConfig("m2")
+	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.kazooClt)
+	defer ss2.Stop()
+	ss1.Topics() <- []string{"foo", "bar"}
+	ss2.Topics() <- []string{"foo"}
+	c.Assert(<-ss1.Subscriptions(), DeepEquals,
 		map[string][]string{"m1": {"bar", "foo"}, "m2": {"foo"}})
-	c.Assert(<-gm2.Subscriptions(), DeepEquals,
+	c.Assert(<-ss2.Subscriptions(), DeepEquals,
 		map[string][]string{"m1": {"bar", "foo"}, "m2": {"foo"}})
 
 	// When
-	gm1.Topics() <- []string{}
+	ss1.Topics() <- []string{}
 
 	// Then
-	c.Assert(<-gm1.Subscriptions(), DeepEquals,
+	c.Assert(<-ss1.Subscriptions(), DeepEquals,
 		map[string][]string{"m1": nil, "m2": {"foo"}})
-	c.Assert(<-gm2.Subscriptions(), DeepEquals,
+	c.Assert(<-ss2.Subscriptions(), DeepEquals,
 		map[string][]string{"m1": nil, "m2": {"foo"}})
 }
 
 // To unsubscribe from all topics nil value can be sent.
 func (s *GroupMemberSuite) TestSubscribeToNil(c *C) {
-	// Given
-	cfg := config.DefaultProxy()
-	cfg.Consumer.RebalanceDelay = 100 * time.Millisecond
-	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooClt)
-	defer gm1.Stop()
-	gm2 := Spawn(s.ns.NewChild("m2"), "g1", "m2", cfg, s.kazooClt)
-	defer gm2.Stop()
-	gm1.Topics() <- []string{"foo", "bar"}
-	gm2.Topics() <- []string{"foo"}
-	c.Assert(<-gm1.Subscriptions(), DeepEquals,
+	cfg1 := newConfig("m1")
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
+	defer ss1.Stop()
+	cfg2 := newConfig("m2")
+	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.kazooClt)
+	defer ss2.Stop()
+	ss1.Topics() <- []string{"foo", "bar"}
+	ss2.Topics() <- []string{"foo"}
+	c.Assert(<-ss1.Subscriptions(), DeepEquals,
 		map[string][]string{"m1": {"bar", "foo"}, "m2": {"foo"}})
-	c.Assert(<-gm2.Subscriptions(), DeepEquals,
+	c.Assert(<-ss2.Subscriptions(), DeepEquals,
 		map[string][]string{"m1": {"bar", "foo"}, "m2": {"foo"}})
 
 	// When
-	gm1.Topics() <- nil
+	ss1.Topics() <- nil
 
 	// Then
-	c.Assert(<-gm1.Subscriptions(), DeepEquals,
+	c.Assert(<-ss1.Subscriptions(), DeepEquals,
 		map[string][]string{"m1": nil, "m2": {"foo"}})
-	c.Assert(<-gm2.Subscriptions(), DeepEquals,
+	c.Assert(<-ss2.Subscriptions(), DeepEquals,
 		map[string][]string{"m1": nil, "m2": {"foo"}})
 }
 
@@ -198,20 +190,20 @@ func (s *GroupMemberSuite) TestSubscribeToNil(c *C) {
 // they all receive identical membership change notifications that include all
 // their subscription.
 func (s *GroupMemberSuite) TestMembershipChanges(c *C) {
-	// Given
-	cfg := config.DefaultProxy()
-	cfg.Consumer.RebalanceDelay = 200 * time.Millisecond
-	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooClt)
-	defer gm1.Stop()
-	gm2 := Spawn(s.ns.NewChild("m2"), "g1", "m2", cfg, s.kazooClt)
-	defer gm2.Stop()
-	gm3 := Spawn(s.ns.NewChild("m3"), "g1", "m3", cfg, s.kazooClt)
-	defer gm3.Stop()
+	cfg1 := newConfig("m1")
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
+	defer ss1.Stop()
+	cfg2 := newConfig("m2")
+	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.kazooClt)
+	defer ss2.Stop()
+	cfg3 := newConfig("m3")
+	ss3 := Spawn(s.ns.NewChild("m3"), "g1", cfg3, s.kazooClt)
+	defer ss3.Stop()
 
 	// When
-	gm1.Topics() <- []string{"foo", "bar"}
-	gm2.Topics() <- []string{"foo"}
-	gm3.Topics() <- []string{"foo", "bazz", "blah"}
+	ss1.Topics() <- []string{"foo", "bar"}
+	ss2.Topics() <- []string{"foo"}
+	ss3.Topics() <- []string{"foo", "bazz", "blah"}
 
 	// Then
 	membership := map[string][]string{
@@ -219,38 +211,37 @@ func (s *GroupMemberSuite) TestMembershipChanges(c *C) {
 		"m2": {"foo"},
 		"m3": {"bazz", "blah", "foo"}}
 
-	c.Assert(<-gm1.Subscriptions(), DeepEquals, membership)
-	c.Assert(<-gm2.Subscriptions(), DeepEquals, membership)
-	c.Assert(<-gm3.Subscriptions(), DeepEquals, membership)
+	c.Assert(<-ss1.Subscriptions(), DeepEquals, membership)
+	c.Assert(<-ss2.Subscriptions(), DeepEquals, membership)
+	c.Assert(<-ss3.Subscriptions(), DeepEquals, membership)
 }
 
 // When one of the group members generates a rapid sequence of subscription
 // changes so that at the end its subscription is the same as in the beginning
 // of the sequence then other members won't be notified of such changes.
 func (s *GroupMemberSuite) TestRedundantUpdateIgnored(c *C) {
-	// Given
-	cfg := config.DefaultProxy()
-	cfg.Consumer.RebalanceDelay = 200 * time.Millisecond
-	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooClt)
-	defer gm1.Stop()
-	gm2 := Spawn(s.ns.NewChild("m2"), "g1", "m2", cfg, s.kazooClt)
-	defer gm2.Stop()
+	cfg1 := newConfig("m1")
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
+	defer ss1.Stop()
+	cfg2 := newConfig("m2")
+	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.kazooClt)
+	defer ss2.Stop()
 
-	gm1.Topics() <- []string{"foo", "bar"}
-	gm2.Topics() <- []string{"foo", "bazz", "blah"}
+	ss1.Topics() <- []string{"foo", "bar"}
+	ss2.Topics() <- []string{"foo", "bazz", "blah"}
 
-	c.Assert(<-gm1.Subscriptions(), DeepEquals,
+	c.Assert(<-ss1.Subscriptions(), DeepEquals,
 		map[string][]string{
 			"m1": {"bar", "foo"},
 			"m2": {"bazz", "blah", "foo"}})
 
 	// When
-	gm2.Topics() <- []string{"bar"}
-	gm2.Topics() <- []string{"foo", "bazz", "blah"}
+	ss2.Topics() <- []string{"bar"}
+	ss2.Topics() <- []string{"foo", "bazz", "blah"}
 
 	// Then
 	select {
-	case update := <-gm1.Subscriptions():
+	case update := <-ss1.Subscriptions():
 		c.Errorf("Unexpected update: %v", update)
 	case <-time.After(300 * time.Millisecond):
 	}
@@ -258,22 +249,21 @@ func (s *GroupMemberSuite) TestRedundantUpdateIgnored(c *C) {
 
 // When a group registrator claims a topic partitions it becomes its owner.
 func (s *GroupMemberSuite) TestClaimPartition(c *C) {
-	// Given
-	cfg := config.DefaultProxy()
-	gm := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooClt)
-	defer gm.Stop()
+	cfg := newConfig("m1")
+	ss := Spawn(s.ns.NewChild("m1"), "g1", cfg, s.kazooClt)
+	defer ss.Stop()
 	cancelCh := make(chan none.T)
 
-	owner, err := partitionOwner(gm, "foo", 1)
+	owner, err := partitionOwner(ss, "foo", 1)
 	c.Assert(err, IsNil)
 	c.Assert(owner, Equals, "")
 
 	// When
-	claim1 := gm.ClaimPartition(s.ns, "foo", 1, cancelCh)
+	claim1 := ss.ClaimPartition(s.ns, "foo", 1, cancelCh)
 	defer claim1()
 
 	// Then
-	owner, err = partitionOwner(gm, "foo", 1)
+	owner, err = partitionOwner(ss, "foo", 1)
 	c.Assert(err, IsNil)
 	c.Assert(owner, Equals, "m1")
 }
@@ -281,14 +271,14 @@ func (s *GroupMemberSuite) TestClaimPartition(c *C) {
 // If a consumer group member instance tries to acquire a partition that has
 // already been acquired by another member then it fails.
 func (s *GroupMemberSuite) TestClaimPartitionClaimed(c *C) {
-	// Given
-	cfg := config.DefaultProxy()
-	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooClt)
-	defer gm1.Stop()
-	gm2 := Spawn(s.ns.NewChild("m2"), "g1", "m2", cfg, s.kazooClt)
-	defer gm2.Stop()
+	cfg1 := newConfig("m1")
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
+	defer ss1.Stop()
+	cfg2 := newConfig("m2")
+	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.kazooClt)
+	defer ss2.Stop()
 	cancelCh := make(chan none.T)
-	claim1 := gm1.ClaimPartition(s.ns, "foo", 1, cancelCh)
+	claim1 := ss1.ClaimPartition(s.ns, "foo", 1, cancelCh)
 	defer claim1()
 
 	// Close cancel channel so that "m2" tries claiming the partition only once,
@@ -296,31 +286,30 @@ func (s *GroupMemberSuite) TestClaimPartitionClaimed(c *C) {
 	close(cancelCh)
 
 	// When
-	claim2 := gm2.ClaimPartition(s.ns, "foo", 1, cancelCh)
+	claim2 := ss2.ClaimPartition(s.ns, "foo", 1, cancelCh)
 	defer claim2()
 
 	// Then
-	owner, err := partitionOwner(gm1, "foo", 1)
+	owner, err := partitionOwner(ss1, "foo", 1)
 	c.Assert(err, IsNil)
 	c.Assert(owner, Equals, "m1")
 }
 
 // It is ok to claim the same partition twice by the same group member.
 func (s *GroupMemberSuite) TestClaimPartitionTwice(c *C) {
-	// Given
-	cfg := config.DefaultProxy()
-	gm := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooClt)
-	defer gm.Stop()
+	cfg := newConfig("m1")
+	ss := Spawn(s.ns.NewChild("m1"), "g1", cfg, s.kazooClt)
+	defer ss.Stop()
 	cancelCh := make(chan none.T)
 
 	// When
-	claim1 := gm.ClaimPartition(s.ns, "foo", 1, cancelCh)
+	claim1 := ss.ClaimPartition(s.ns, "foo", 1, cancelCh)
 	defer claim1()
-	claim2 := gm.ClaimPartition(s.ns, "foo", 1, cancelCh)
+	claim2 := ss.ClaimPartition(s.ns, "foo", 1, cancelCh)
 	defer claim2()
 
 	// Then
-	owner, err := partitionOwner(gm, "foo", 1)
+	owner, err := partitionOwner(ss, "foo", 1)
 	c.Assert(err, IsNil)
 	c.Assert(owner, Equals, "m1")
 }
@@ -328,19 +317,18 @@ func (s *GroupMemberSuite) TestClaimPartitionTwice(c *C) {
 // If a partition has been claimed more then once then it is release as soon as
 // any of the claims is revoked.
 func (s *GroupMemberSuite) TestReleasePartition(c *C) {
-	// Given
-	cfg := config.DefaultProxy()
-	gm := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooClt)
-	defer gm.Stop()
+	cfg := newConfig("m1")
+	ss := Spawn(s.ns.NewChild("m1"), "g1", cfg, s.kazooClt)
+	defer ss.Stop()
 	cancelCh := make(chan none.T)
-	claim1 := gm.ClaimPartition(s.ns, "foo", 1, cancelCh)
-	claim2 := gm.ClaimPartition(s.ns, "foo", 1, cancelCh)
+	claim1 := ss.ClaimPartition(s.ns, "foo", 1, cancelCh)
+	claim2 := ss.ClaimPartition(s.ns, "foo", 1, cancelCh)
 
 	// When
 	claim2() // the second claim is revoked here but it could have been any.
 
 	// Then
-	owner, err := partitionOwner(gm, "foo", 1)
+	owner, err := partitionOwner(ss, "foo", 1)
 	c.Assert(err, IsNil)
 	c.Assert(owner, Equals, "")
 
@@ -350,26 +338,26 @@ func (s *GroupMemberSuite) TestReleasePartition(c *C) {
 // If a partition is claimed by another group member then `ClaimPartition` call
 // blocks until it is released.
 func (s *GroupMemberSuite) TestClaimPartitionParallel(c *C) {
-	// Given
-	cfg := config.DefaultProxy()
-	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooClt)
-	defer gm1.Stop()
-	gm2 := Spawn(s.ns.NewChild("m2"), "g1", "m2", cfg, s.kazooClt)
-	defer gm2.Stop()
+	cfg1 := newConfig("m1")
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
+	defer ss1.Stop()
+	cfg2 := newConfig("m2")
+	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.kazooClt)
+	defer ss2.Stop()
 	cancelCh := make(chan none.T)
 
-	claim1 := gm1.ClaimPartition(s.ns, "foo", 1, cancelCh)
+	claim1 := ss1.ClaimPartition(s.ns, "foo", 1, cancelCh)
 	go func() {
 		time.Sleep(300 * time.Millisecond)
 		claim1()
 	}()
 
 	// When: block here until m1 releases the claim over foo/1.
-	claim2 := gm2.ClaimPartition(s.ns, "foo", 1, cancelCh)
+	claim2 := ss2.ClaimPartition(s.ns, "foo", 1, cancelCh)
 	defer claim2()
 
 	// Then: the partition is claimed by m2.
-	owner, err := partitionOwner(gm2, "foo", 1)
+	owner, err := partitionOwner(ss2, "foo", 1)
 	c.Assert(err, IsNil)
 	c.Assert(owner, Equals, "m2")
 }
@@ -377,17 +365,17 @@ func (s *GroupMemberSuite) TestClaimPartitionParallel(c *C) {
 // If a partition is claimed by another group member then `ClaimPartition` call
 // blocks until it is released.
 func (s *GroupMemberSuite) TestClaimPartitionCanceled(c *C) {
-	// Given
-	cfg := config.DefaultProxy()
-	gm1 := Spawn(s.ns.NewChild("m1"), "g1", "m1", cfg, s.kazooClt)
-	defer gm1.Stop()
-	gm2 := Spawn(s.ns.NewChild("m2"), "g1", "m2", cfg, s.kazooClt)
-	defer gm2.Stop()
+	cfg1 := newConfig("m1")
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
+	defer ss1.Stop()
+	cfg2 := newConfig("m2")
+	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.kazooClt)
+	defer ss2.Stop()
 	cancelCh1 := make(chan none.T)
 	cancelCh2 := make(chan none.T)
 	wg := &sync.WaitGroup{}
 
-	claim1 := gm1.ClaimPartition(s.ns, "foo", 1, cancelCh1)
+	claim1 := ss1.ClaimPartition(s.ns, "foo", 1, cancelCh1)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -404,11 +392,11 @@ func (s *GroupMemberSuite) TestClaimPartitionCanceled(c *C) {
 	}()
 
 	// When
-	claim2 := gm2.ClaimPartition(s.ns, "foo", 1, cancelCh2)
+	claim2 := ss2.ClaimPartition(s.ns, "foo", 1, cancelCh2)
 	defer claim2()
 
 	// Then: the partition is still claimed by m1.
-	owner, err := partitionOwner(gm2, "foo", 1)
+	owner, err := partitionOwner(ss2, "foo", 1)
 	c.Assert(err, IsNil)
 	c.Assert(owner, Equals, "m1")
 
@@ -427,4 +415,11 @@ func partitionOwner(gm *T, topic string, partition int32) (string, error) {
 		return "", nil
 	}
 	return owner.ID, nil
+}
+
+func newConfig(clientId string) *config.Proxy {
+	cfg := config.DefaultProxy()
+	cfg.ClientID = clientId
+	cfg.Consumer.RebalanceDelay = 100 * time.Millisecond
+	return cfg
 }
