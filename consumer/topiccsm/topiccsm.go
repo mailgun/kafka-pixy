@@ -129,9 +129,9 @@ func (tc *T) ensureExpireTimer() {
 		return
 	}
 	if tc.expireTimer == nil {
-		tc.expireTimer = time.NewTimer(tc.cfg.Consumer.RegistrationTimeout)
+		tc.expireTimer = time.NewTimer(tc.cfg.Consumer.SubscriptionTimeout)
 	} else {
-		tc.expireTimer.Reset(tc.cfg.Consumer.RegistrationTimeout)
+		tc.expireTimer.Reset(tc.cfg.Consumer.SubscriptionTimeout)
 	}
 	tc.nilOrExpireTimerCh = tc.expireTimer.C
 }

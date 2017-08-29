@@ -7,7 +7,7 @@ with automatic consumer group control. It is designed to hide the
 complexity of the Kafka client protocol and provide a stupid simple
 API that is trivial to implement in any language.
 
-Kafka-Pixy supports Kafka versions form **0.8.2.x** to **0.10.1.x**. It uses
+Kafka-Pixy supports Kafka versions form **0.8.2.0** to **0.10.2.0**. It uses
 the Kafka [Offset Commit/Fetch API](https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol#AGuideToTheKafkaProtocol-OffsetCommit/FetchAPI)
 to keep track of consumer offsets. However [Group Membership API](https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol#AGuideToTheKafkaProtocol-GroupMembershipAPI)
 is not yet implemented, therefore it needs to talk to Zookeeper directly to

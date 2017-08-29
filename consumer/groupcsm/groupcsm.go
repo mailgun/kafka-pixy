@@ -229,7 +229,7 @@ func (gc *T) runRebalancing(actDesc *actor.Descriptor, topicConsumers map[string
 func (gc *T) rewireMuxAsync(topic string, wg *sync.WaitGroup, mux *multiplexer.T, tc *topiccsm.T, assigned []int32) {
 	actor.Spawn(gc.actDesc.NewChild("rewire", topic), wg, func() {
 		if tc == nil {
-			// Parameter output is of interface type, therefore nil should be
+			// Parameter output is an interface type, therefore nil should be
 			// passed explicitly.
 			mux.WireUp(nil, nil)
 			return

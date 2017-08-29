@@ -374,7 +374,7 @@ func (s *ConsumerSuite) TestRebalanceOnTimeout(c *C) {
 	defer sc0.Stop()
 
 	cfg2 := testhelpers.NewTestProxyCfg("c2")
-	cfg2.Consumer.RegistrationTimeout = 500 * time.Millisecond
+	cfg2.Consumer.SubscriptionTimeout = 500 * time.Millisecond
 	sc1, err := Spawn(s.ns, cfg2, s.omf)
 	c.Assert(err, IsNil)
 	defer sc1.Stop()
@@ -535,7 +535,7 @@ func (s *ConsumerSuite) TestNewGroup(c *C) {
 }
 
 // If a consumer stops consuming one of the topics for more than
-// `Config.Consumer.RegistrationTimeout` then the topic partitions are
+// `Config.Consumer.SubscriptionTimeout` then the topic partitions are
 // rebalanced between active consumers, but the consumer keeps consuming
 // messages from other topics.
 func (s *ConsumerSuite) TestTopicTimeout(c *C) {
@@ -545,14 +545,14 @@ func (s *ConsumerSuite) TestTopicTimeout(c *C) {
 	s.kh.PutMessages("topic-expire", "test.4", map[string]int{"B": 10})
 
 	s.cfg.Consumer.LongPollingTimeout = 3000 * time.Millisecond
-	s.cfg.Consumer.RegistrationTimeout = 10000 * time.Millisecond
+	s.cfg.Consumer.SubscriptionTimeout = 10000 * time.Millisecond
 	cons1, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
 	defer cons1.Stop()
 
 	cfg2 := testhelpers.NewTestProxyCfg("c2")
 	cfg2.Consumer.LongPollingTimeout = 3000 * time.Millisecond
-	cfg2.Consumer.RegistrationTimeout = 10000 * time.Millisecond
+	cfg2.Consumer.SubscriptionTimeout = 10000 * time.Millisecond
 	cons2, err := Spawn(s.ns, cfg2, s.omf)
 	c.Assert(err, IsNil)
 	defer cons2.Stop()

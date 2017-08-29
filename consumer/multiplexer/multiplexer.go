@@ -11,8 +11,8 @@ import (
 )
 
 // T fetches messages from inputs and multiplexes them to the output, giving
-// preferences to inputs with higher lag. Multiplexes assumes ownership over
-// inputs in the sense that it decides when an new input instance needs to
+// preferences to inputs with higher lag. Multiplexer assumes ownership over
+// inputs in the sense that it decides when an new input instance needs to be
 // started, or the old one stopped.
 type T struct {
 	actDesc   *actor.Descriptor
