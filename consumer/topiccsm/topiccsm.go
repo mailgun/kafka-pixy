@@ -19,19 +19,16 @@ var requestTimeoutRs = dispatcher.Response{Err: consumer.ErrRequestTimeout}
 // received for `Config.Consumer.LongPollingTimeout` then a timeout error is
 // sent to the requests' reply channel.
 //
-// implements `dispatcher.Tier`.
 // implements `multiplexer.Out`.
 type T struct {
-	actDesc            *actor.Descriptor
-	childSpec          dispatcher.ChildSpec
-	cfg                *config.Proxy
-	group              string
-	topic              string
-	expireTimer        *time.Timer
-	nilOrExpireTimerCh <-chan time.Time
-	lifespanCh         chan<- *T
-	messagesCh         chan consumer.Message
-	wg                 sync.WaitGroup
+	actDesc    *actor.Descriptor
+	childSpec  dispatcher.ChildSpec
+	cfg        *config.Proxy
+	group      string
+	topic      string
+	lifespanCh chan<- *T
+	messagesCh chan consumer.Message
+	wg         sync.WaitGroup
 }
 
 // Creates a topic consumer instance. It should be explicitly started in
@@ -75,63 +72,47 @@ func (tc *T) run() {
 		tc.lifespanCh <- tc
 	}()
 
+	expireTimer := time.NewTimer(tc.cfg.Consumer.SubscriptionTimeout)
+	defer expireTimer.Stop()
+	var lastRequestTime time.Time
 	for {
 		select {
-		case consumeReq, ok := <-tc.childSpec.Requests():
+		case consumeRq, ok := <-tc.childSpec.Requests():
 			if !ok {
 				tc.actDesc.Log().Info("Signaled to shutdown")
 				return
 			}
-			tc.stopExpireTimer()
-
-			requestAge := time.Now().UTC().Sub(consumeReq.Timestamp)
-			ttl := tc.cfg.Consumer.LongPollingTimeout - requestAge
+			lastRequestTime = time.Now().UTC()
+			requestAge := lastRequestTime.Sub(consumeRq.Timestamp)
+			requestTTL := tc.cfg.Consumer.LongPollingTimeout - requestAge
 			// The request has been waiting in the buffer for too long. If we
 			// reply with a fetched message, then there is a good chance that the
 			// client won't receive it due to the client HTTP timeout. Therefore
 			// we reject the request to avoid message loss.
-			if ttl <= 0 {
-				consumeReq.ResponseCh <- requestTimeoutRs
+			if requestTTL <= 0 {
+				consumeRq.ResponseCh <- requestTimeoutRs
 				continue
 			}
 			select {
 			case msg := <-tc.messagesCh:
 				msg.EventsCh <- consumer.Event{consumer.EvOffered, msg.Offset}
-				consumeReq.ResponseCh <- dispatcher.Response{Msg: msg}
-			case <-time.After(ttl):
-				consumeReq.ResponseCh <- requestTimeoutRs
+				consumeRq.ResponseCh <- dispatcher.Response{Msg: msg}
+			case <-time.After(requestTTL):
+				consumeRq.ResponseCh <- requestTimeoutRs
 			}
-		case <-tc.nilOrExpireTimerCh:
-			tc.actDesc.Log().Info("Topic registration expired")
-			return
-		default:
-			tc.ensureExpireTimer()
+		case <-expireTimer.C:
+			now := time.Now().UTC()
+			sinceLastRequest := now.Sub(lastRequestTime)
+			subscriptionTTL := tc.cfg.Consumer.SubscriptionTimeout - sinceLastRequest
+			if subscriptionTTL <= 0 {
+				tc.actDesc.Log().Info("Topic subscription expired")
+				return
+			}
+			expireTimer.Reset(subscriptionTTL)
 		}
 	}
 }
 
 func (tc *T) String() string {
 	return tc.actDesc.String()
-}
-
-func (tc *T) stopExpireTimer() {
-	if tc.expireTimer == nil {
-		return
-	}
-	if !tc.expireTimer.Stop() {
-		<-tc.expireTimer.C
-	}
-	tc.nilOrExpireTimerCh = nil
-}
-
-func (tc *T) ensureExpireTimer() {
-	if tc.nilOrExpireTimerCh != nil {
-		return
-	}
-	if tc.expireTimer == nil {
-		tc.expireTimer = time.NewTimer(tc.cfg.Consumer.SubscriptionTimeout)
-	} else {
-		tc.expireTimer.Reset(tc.cfg.Consumer.SubscriptionTimeout)
-	}
-	tc.nilOrExpireTimerCh = tc.expireTimer.C
 }
