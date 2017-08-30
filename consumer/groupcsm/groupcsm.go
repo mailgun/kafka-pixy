@@ -87,7 +87,7 @@ func (gc *T) KeyOf(req dispatcher.Request) dispatcher.Key {
 
 // implements `dispatcher.Factory`.
 func (gc *T) SpawnChild(childSpec dispatcher.ChildSpec) {
-	topiccsm.Spawn(gc.actDesc, gc.group, childSpec, gc.cfg, gc.topicCsmLifespanCh)
+	topiccsm.Spawn(gc.actDesc, gc.group, childSpec, gc.cfg, gc.topicCsmLifespanCh, func() bool { return true })
 }
 
 // String return string ID of this group consumer to be posted in logs.

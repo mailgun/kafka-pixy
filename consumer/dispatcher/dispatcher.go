@@ -90,6 +90,15 @@ type ChildSpec struct {
 	disposalCh chan<- Key
 }
 
+// NewChildSpec4Test creates a ChildSpec to be used in testing.
+func NewChildSpec4Test(requests chan Request) ChildSpec {
+	return ChildSpec{
+		key:        "test",
+		requestsCh: requests,
+		disposalCh: make(chan Key),
+	}
+}
+
 // Key returns a key value that all requests dispatched to the child's
 // requests channel will have.
 func (cs *ChildSpec) Key() Key {
