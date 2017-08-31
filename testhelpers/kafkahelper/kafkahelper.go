@@ -17,6 +17,7 @@ import (
 )
 
 type T struct {
+	cfg      *config.Proxy
 	ns       *actor.Descriptor
 	c        *C
 	kazooClt *kazoo.Kazoo
@@ -26,14 +27,13 @@ type T struct {
 }
 
 func New(c *C) *T {
-	kh := &T{ns: actor.Root().NewChild("kafka_helper"), c: c}
-	cfg := testhelpers.NewTestProxyCfg("kafka_helper").SaramaClientCfg()
+	kh := &T{ns: actor.Root().NewChild("kh"), c: c}
+	cfg := testhelpers.NewTestProxyCfg("kh").SaramaClientCfg()
 	cfg.Producer.RequiredAcks = sarama.WaitForAll
 	cfg.Producer.Flush.Messages = 1
+	cfg.Producer.Flush.Frequency = 10 * time.Millisecond
 	cfg.Producer.Return.Successes = true
 	cfg.Producer.Return.Errors = true
-	cfg.Consumer.Offsets.CommitInterval = 50 * time.Millisecond
-	cfg.ClientID = "unittest-runner"
 	err := error(nil)
 	if kh.kazooClt, err = kazoo.NewKazoo(testhelpers.ZookeeperPeers, kazoo.NewConfig()); err != nil {
 		panic(err)
@@ -156,7 +156,9 @@ func (kh *T) PutMessages(prefix, topic string, keys map[string]int) map[string][
 }
 
 func (kh *T) ResetOffsets(group, topic string) {
-	omf := offsetmgr.SpawnFactory(kh.ns, config.DefaultProxy(), kh.kafkaClt)
+	cfg := config.DefaultProxy()
+	cfg.Consumer.OffsetsCommitInterval = 1 * time.Millisecond
+	omf := offsetmgr.SpawnFactory(kh.ns, cfg, kh.kafkaClt)
 	defer omf.Stop()
 	partitions, err := kh.kafkaClt.Partitions(topic)
 	kh.c.Assert(err, IsNil)
@@ -178,7 +180,9 @@ func (kh *T) ResetOffsets(group, topic string) {
 }
 
 func (kh *T) SetOffsets(group, topic string, offsets []offsetmgr.Offset) {
-	omf := offsetmgr.SpawnFactory(kh.ns, config.DefaultProxy(), kh.kafkaClt)
+	cfg := config.DefaultProxy()
+	cfg.Consumer.OffsetsCommitInterval = 1 * time.Millisecond
+	omf := offsetmgr.SpawnFactory(kh.ns, cfg, kh.kafkaClt)
 	defer omf.Stop()
 	partitions, err := kh.kafkaClt.Partitions(topic)
 	kh.c.Assert(err, IsNil)
@@ -198,7 +202,9 @@ func (kh *T) SetOffsets(group, topic string, offsets []offsetmgr.Offset) {
 }
 
 func (kh *T) GetCommittedOffsets(group, topic string) []offsetmgr.Offset {
-	omf := offsetmgr.SpawnFactory(kh.ns, config.DefaultProxy(), kh.kafkaClt)
+	cfg := config.DefaultProxy()
+	cfg.Consumer.OffsetsCommitInterval = 1 * time.Millisecond
+	omf := offsetmgr.SpawnFactory(kh.ns, cfg, kh.kafkaClt)
 	defer omf.Stop()
 	partitions, err := kh.kafkaClt.Partitions(topic)
 	kh.c.Assert(err, IsNil)

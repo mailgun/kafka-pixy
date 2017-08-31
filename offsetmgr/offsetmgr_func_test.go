@@ -28,6 +28,7 @@ func (s *OffsetMgrFuncSuite) SetUpSuite(c *C) {
 func (s *OffsetMgrFuncSuite) SetUpTest(c *C) {
 	s.ns = actor.Root().NewChild("T")
 	s.cfg = testhelpers.NewTestProxyCfg("c1")
+	s.cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
 	s.kh = kafkahelper.New(c)
 }
 
@@ -67,6 +68,7 @@ func (s *OffsetMgrFuncSuite) TestMultipleGroups(c *C) {
 	f := offsetmgr.SpawnFactory(s.ns, s.cfg, s.kh.KafkaClt())
 	defer f.Stop()
 
+	// Start 10 offset managers for the same topic but different groups.
 	oms := make([]offsetmgr.T, 10)
 	var err error
 	for i := range oms {
@@ -76,7 +78,7 @@ func (s *OffsetMgrFuncSuite) TestMultipleGroups(c *C) {
 		c.Assert(err, IsNil)
 	}
 
-	// When
+	// When: Make all 10 offset managers commit an offset and stop.
 	var wg sync.WaitGroup
 	for i := range oms {
 		meta := fmt.Sprintf("meta%d", i)
@@ -92,17 +94,23 @@ func (s *OffsetMgrFuncSuite) TestMultipleGroups(c *C) {
 	}
 	wg.Wait()
 
-	// Then
+	// Then: make sure that offsets committed by the offset managers are read
+	// by next generation of offset managers.
 	for i := range oms {
-		group := fmt.Sprintf("g%d", i)
-		tid := s.ns.NewChild(group, "test.1", "then")
-		om, err := f.Spawn(tid, group, "test.1", 0)
-		c.Assert(err, IsNil)
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			group := fmt.Sprintf("g%d", i)
+			tid := s.ns.NewChild(group, "test.1", "then")
+			om, err := f.Spawn(tid, group, "test.1", 0)
+			defer om.Stop()
+			c.Assert(err, IsNil)
 
-		offset := <-om.CommittedOffsets()
-		meta := fmt.Sprintf("meta%d", i)
-		c.Assert(offset, Equals, offsetmgr.Offset{newOffset + 99, meta})
-
-		om.Stop()
+			offset := <-om.CommittedOffsets()
+			meta := fmt.Sprintf("meta%d", i)
+			c.Assert(offset, Equals, offsetmgr.Offset{newOffset + 99, meta})
+		}()
 	}
+	wg.Wait()
 }
