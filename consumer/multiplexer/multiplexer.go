@@ -22,6 +22,9 @@ type T struct {
 	isRunning bool
 	stopCh    chan none.T
 	wg        sync.WaitGroup
+
+	sortedInsMu sync.Mutex
+	sortedIns   []*input
 }
 
 // In defines an interface of a multiplexer input.
@@ -29,6 +32,10 @@ type In interface {
 	// Messages returns a channel that multiplexer receives messages from.
 	// Read messages should NOT be considered as consumed by the input.
 	Messages() <-chan consumer.Message
+
+	// IsSafe2Stop returns true if stopping the input now will cause neither
+	// loss nor duplication of messages for the clients, false otherwise.
+	IsSafe2Stop() bool
 
 	// Stop signals the input to stop and blocks waiting for its goroutines to
 	// complete.
@@ -68,6 +75,20 @@ type input struct {
 // inputs to the output.
 func (m *T) IsRunning() bool {
 	return m.isRunning
+}
+
+// IsSafe2Stop returns true if it is safe to stop all of the multiplexer
+// inputs. If at least one of them is not safe to stop then false is returned.
+func (m *T) IsSafe2Stop() bool {
+	m.sortedInsMu.Lock()
+	sortedIns := m.sortedIns
+	m.sortedInsMu.Unlock()
+	for _, in := range sortedIns {
+		if !in.IsSafe2Stop() {
+			return false
+		}
+	}
+	return true
 }
 
 // WireUp ensures that assigned inputs are spawned and multiplexed to the
@@ -118,6 +139,7 @@ func (m *T) WireUp(output Out, assigned []int32) {
 			m.inputs[p] = &input{In: m.spawnInFn(p), partition: p}
 		}
 	}
+	m.refreshSortedIns()
 	if !m.IsRunning() && len(m.inputs) > 0 {
 		m.start()
 	}
@@ -143,19 +165,25 @@ func (m *T) stopIfRunning() {
 	}
 }
 
+func (m *T) refreshSortedIns() {
+	sortedIns := makeSortedIns(m.inputs)
+	m.sortedInsMu.Lock()
+	m.sortedIns = sortedIns
+	m.sortedInsMu.Unlock()
+}
+
 func (m *T) run() {
 reset:
 	inputCount := len(m.inputs)
 	if inputCount == 0 {
 		return
 	}
-	sortedIns := makeSortedIns(m.inputs)
 	// Prepare a list of reflective select cases. It is used when none of the
 	// inputs has fetched messages and we need to wait on all of them. Yes,
 	// reflection is slow, but it is only used when there is nothing to
 	// consume anyway.
 	selectCases := make([]reflect.SelectCase, inputCount+1)
-	for i, in := range sortedIns {
+	for i, in := range m.sortedIns {
 		selectCases[i] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(in.Messages())}
 	}
 	selectCases[inputCount] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(m.stopCh)}
@@ -164,7 +192,7 @@ reset:
 	for {
 		// Collect next messages from inputs that have them available.
 		isAtLeastOneAvailable := false
-		for _, in := range sortedIns {
+		for _, in := range m.sortedIns {
 			if in.msgOk {
 				isAtLeastOneAvailable = true
 				continue
@@ -176,6 +204,7 @@ reset:
 				if !ok {
 					m.actDesc.Log().Infof("input channel closed: partition=%d", in.partition)
 					delete(m.inputs, in.partition)
+					m.refreshSortedIns()
 					goto reset
 				}
 				in.msg = msg
@@ -192,18 +221,18 @@ reset:
 			if idx == inputCount {
 				return
 			}
-			sortedIns[idx].msg = value.Interface().(consumer.Message)
-			sortedIns[idx].msgOk = true
+			m.sortedIns[idx].msg = value.Interface().(consumer.Message)
+			m.sortedIns[idx].msgOk = true
 		}
 		// At this point there is at least one message available.
-		inputIdx = selectInput(inputIdx, sortedIns)
+		inputIdx = selectInput(inputIdx, m.sortedIns)
 		// Block until the output reads the next message of the selected input
 		// or a stop signal is received.
 		select {
 		case <-m.stopCh:
 			return
-		case m.output.Messages() <- sortedIns[inputIdx].msg:
-			sortedIns[inputIdx].msgOk = false
+		case m.output.Messages() <- m.sortedIns[inputIdx].msg:
+			m.sortedIns[inputIdx].msgOk = false
 		}
 	}
 }

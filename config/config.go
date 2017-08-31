@@ -98,7 +98,7 @@ type Proxy struct {
 	Consumer struct {
 
 		// Period of time that Kafka-Pixy should wait for an acknowledgement
-		// before retrying. It must be less then SubscriptionTimeout.
+		// before retrying.
 		AckTimeout time.Duration `yaml:"ack_timeout"`
 
 		// Size of all buffered channels created by the consumer module.
@@ -353,8 +353,8 @@ func (p *Proxy) validate() error {
 	}
 	// Validate the Consumer parameters.
 	switch {
-	case p.Consumer.AckTimeout >= p.Consumer.SubscriptionTimeout:
-		return errors.New("consumer.ack_timeout must be < consumer.subscription_timeout")
+	case p.Consumer.AckTimeout <= 0:
+		return errors.New("consumer.ack_timeout must be > 0")
 	case p.Consumer.ChannelBufferSize <= 0:
 		return errors.New("consumer.channel_buffer_size must be > 0")
 	case p.Consumer.FetchMaxBytes <= 0:

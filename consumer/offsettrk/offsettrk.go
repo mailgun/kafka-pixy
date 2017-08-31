@@ -71,20 +71,20 @@ func New(actDesc *actor.Descriptor, offset offsetmgr.Offset, offerTimeout time.D
 	if err != nil {
 		ot.ackedRanges = nil
 		ot.offset.Meta = ""
-		ot.actDesc.Log().WithError(err).Errorf("bad sparse acks: %v", offset)
+		ot.actDesc.Log().WithError(err).Errorf("Bad sparse acks: %v", offset)
 	}
 	return &ot
 }
 
 // Adjust adjusts the tracked offset. Offers with offsets lower then the new
 // offset value are dropped.
-func (ot *T) Adjust(offset int64) offsetmgr.Offset {
+func (ot *T) Adjust(offset int64) (offsetmgr.Offset, int) {
 	if offset < ot.offset.Val {
-		return ot.offset
+		return ot.offset, len(ot.offers)
 	}
-	ot.dropOffers(offset)
+	ot.dropOffersBefore(offset)
 	ot.correctOffset(offset)
-	return ot.offset
+	return ot.offset, len(ot.offers)
 }
 
 // OnOffered should be called when a message has been offered to a consumer. It
@@ -127,7 +127,7 @@ func (ot *T) OnAcked(offset int64) (offsetmgr.Offset, int) {
 	offerRemoved := ot.removeOffer(offset)
 	ackedRangesUpdated := ot.updateAckedRanges(offset)
 	if !offerRemoved || !ackedRangesUpdated {
-		ot.actDesc.Log().Errorf("bad ack: offerMissing=%t, duplicateAck=%t",
+		ot.actDesc.Log().Errorf("Bad ack: offerMissing=%t, duplicateAck=%t",
 			!offerRemoved, !ackedRangesUpdated)
 	}
 	if ackedRangesUpdated {
@@ -172,10 +172,10 @@ func (ot *T) nextRetry(now time.Time) (consumer.Message, int, bool) {
 		}
 		// When we reach the first never retried offer with a deadline set in
 		// the future it is guaranteed that all further offers in the list have
-		// not expired yet. BUT it is only true if messages are offered in the
-		// order of their offsets. Which is indeed how partition consumer is
-		// doing it. However the offset tracker API allows any order. So the
-		// following logic is not valid in general case.
+		// not expired yet. It is only true if messages are offered in the
+		// order of their offsets, which is indeed how partition consumer does
+		// it. But the offset tracker API allows any order. So the following
+		// logic is not valid in general case.
 		if o.retryNo == 0 {
 			return consumer.Message{}, -1, false
 		}
@@ -183,25 +183,42 @@ func (ot *T) nextRetry(now time.Time) (consumer.Message, int, bool) {
 	return consumer.Message{}, -1, false
 }
 
-// ShouldWait4Ack tells whether there are messages that acknowledgments are
-// worth waiting for, and if so returns a timeout for that wait.
-func (ot *T) ShouldWait4Ack() (bool, time.Duration) {
+// ShouldWait4Ack tells how much time until all offers expire.
+func (ot *T) ShouldWait4Ack() time.Duration {
 	return ot.shouldWait4Ack(time.Now())
 }
-func (ot *T) shouldWait4Ack(now time.Time) (bool, time.Duration) {
+func (ot *T) shouldWait4Ack(now time.Time) time.Duration {
+	var maxTimeout time.Duration
+	var validOffersCount = 0
 	for _, o := range ot.offers {
 		if o.deadline.After(now) {
+			validOffersCount++
 			timeout := o.deadline.Sub(now)
-			ot.actDesc.Log().Infof("waiting for acks: count=%d, offset=%d, timeout=%v",
-				len(ot.offers), o.offset, timeout)
-			return true, timeout
+			if maxTimeout < timeout {
+				maxTimeout = timeout
+			}
 		}
+	}
+	if validOffersCount > 0 {
+		ot.actDesc.Log().Infof("Waiting for acks: count=%d, timeout=%v",
+			len(ot.offers), maxTimeout)
+		return maxTimeout
 	}
 	// Complain about all not acknowledged messages before giving up.
 	for _, o := range ot.offers {
 		ot.actDesc.Log().Errorf("not acked: offset=%d", o.msg.Offset)
 	}
-	return false, 0
+	return 0
+}
+
+//
+func (ot *T) DiscardOffers() {
+	for i, o := range ot.offers {
+		// Complain about all not acknowledged messages before giving up.
+		ot.actDesc.Log().Errorf("Drop expired offer: offset=%d", o.msg.Offset)
+		ot.offers[i] = offer{}
+	}
+	ot.offers = ot.offers[:0]
 }
 
 func (ot *T) newOffer(msg consumer.Message) offer {
@@ -223,14 +240,14 @@ func (ot *T) removeOffer(offset int64) bool {
 	return true
 }
 
-func (ot *T) dropOffers(offset int64) {
+func (ot *T) dropOffersBefore(offset int64) {
 	drop := 0
 	for i, offer := range ot.offers {
 		if offset <= offer.offset {
 			break
 		}
 		drop = i + 1
-		ot.actDesc.Log().Errorf("offer dropped: offset=%d", offer.offset)
+		ot.actDesc.Log().Errorf("Offer dropped: offset=%d", offer.offset)
 	}
 	if drop > 0 {
 		left := len(ot.offers) - drop

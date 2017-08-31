@@ -93,17 +93,15 @@ func (s *GroupConsumerSuite) TestAssignTopicPartitions(c *C) {
 func (s *GroupConsumerSuite) TestResolvePartitions(c *C) {
 	cfg := config.DefaultProxy()
 	cfg.ClientID = "c"
-	gc := T{
-		cfg: cfg,
-		fetchTopicPartitionsFn: func(topic string) ([]int32, error) {
-			return map[string][]int32{
-				"t1": {1, 2, 3, 4, 5},
-				"t2": {1, 2},
-				"t3": {1, 2, 3, 4, 5},
-				"t4": {1, 2, 3},
-				"t5": {1, 2, 3},
-			}[topic], nil
-		},
+	gc := T{cfg: cfg}
+	topicPartitionsFn := func(topic string) ([]int32, error) {
+		return map[string][]int32{
+			"t1": {1, 2, 3, 4, 5},
+			"t2": {1, 2},
+			"t3": {1, 2, 3, 4, 5},
+			"t4": {1, 2, 3},
+			"t5": {1, 2, 3},
+		}[topic], nil
 	}
 
 	// When
@@ -115,7 +113,7 @@ func (s *GroupConsumerSuite) TestResolvePartitions(c *C) {
 			"d": {"t1", "t4"},
 			"e": {},
 			"f": nil,
-		})
+		}, topicPartitionsFn)
 
 	// Then
 	c.Assert(err, IsNil)
@@ -129,15 +127,13 @@ func (s *GroupConsumerSuite) TestResolvePartitions(c *C) {
 func (s *GroupConsumerSuite) TestResolvePartitionsEmpty(c *C) {
 	cfg := config.DefaultProxy()
 	cfg.ClientID = "c"
-	gc := T{
-		cfg: cfg,
-		fetchTopicPartitionsFn: func(topic string) ([]int32, error) {
-			return nil, nil
-		},
+	gc := T{cfg: cfg}
+	topicPartitionsFn := func(topic string) ([]int32, error) {
+		return nil, nil
 	}
 
 	// When
-	topicsToPartitions, err := gc.resolvePartitions(nil)
+	topicsToPartitions, err := gc.resolvePartitions(nil, topicPartitionsFn)
 
 	// Then
 	c.Assert(err, IsNil)
@@ -147,15 +143,13 @@ func (s *GroupConsumerSuite) TestResolvePartitionsEmpty(c *C) {
 func (s *GroupConsumerSuite) TestResolvePartitionsError(c *C) {
 	cfg := config.DefaultProxy()
 	cfg.ClientID = "c"
-	gc := T{
-		cfg: cfg,
-		fetchTopicPartitionsFn: func(topic string) ([]int32, error) {
-			return nil, errors.New("Kaboom!")
-		},
+	gc := T{cfg: cfg}
+	topicPartitionsFn := func(topic string) ([]int32, error) {
+		return nil, errors.New("Kaboom!")
 	}
 
 	// When
-	topicsToPartitions, err := gc.resolvePartitions(map[string][]string{"c": {"t1"}})
+	topicsToPartitions, err := gc.resolvePartitions(map[string][]string{"c": {"t1"}}, topicPartitionsFn)
 
 	// Then
 	c.Assert(err.Error(), Equals, "failed to get partition list, topic=t1: Kaboom!")

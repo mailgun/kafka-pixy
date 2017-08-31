@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"fmt"
+
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/testhelpers"
@@ -503,13 +505,13 @@ func (s *MultiplexerSuite) TestStop(c *C) {
 // If an input channel closes then respective input is removed from rotation.
 func (s *MultiplexerSuite) TestInputChanClose(c *C) {
 	ins := map[int32]In{
-		1: newMockIn(
+		1: newSafeMockIn(
 			msg(1001, 1),
 			msg(1002, 1),
 			msg(1003, 1)),
 		2: newMockIn(
 			msg(2001, 1)),
-		3: newMockIn(
+		3: newSafeMockIn(
 			msg(3001, 1),
 			msg(3002, 1),
 			msg(3003, 1)),
@@ -526,15 +528,61 @@ func (s *MultiplexerSuite) TestInputChanClose(c *C) {
 	// Then
 	checkMsg(c, out.messagesCh, msg(1001, 1))
 	checkMsg(c, out.messagesCh, msg(2001, 1))
+	c.Assert(m.IsSafe2Stop(), Equals, false)
 	checkMsg(c, out.messagesCh, msg(1002, 1))
+	c.Assert(m.IsSafe2Stop(), Equals, true)
 	checkMsg(c, out.messagesCh, msg(3001, 1))
 	checkMsg(c, out.messagesCh, msg(1003, 1))
 	checkMsg(c, out.messagesCh, msg(3002, 1))
 	checkMsg(c, out.messagesCh, msg(3003, 1))
 }
 
+func (s *MultiplexerSuite) TestIsSafe2Stop(c *C) {
+	ins := map[int32]*mockIn{
+		1: newSafeMockIn(),
+		2: newMockIn(),
+		3: newMockIn(),
+		4: newSafeMockIn(),
+		5: newMockIn(),
+	}
+	out := newMockOut(0)
+	m := New(s.ns, func(p int32) In { return ins[p] })
+	for i, tc := range []struct {
+		inputs    []int32
+		safe2Stop bool
+	}{0: {
+		inputs:    []int32{1},
+		safe2Stop: true,
+	}, 1: {
+		inputs:    []int32{2},
+		safe2Stop: false,
+	}, 2: {
+		inputs:    []int32{1, 4},
+		safe2Stop: true,
+	}, 3: {
+		inputs:    []int32{1, 3, 4},
+		safe2Stop: false,
+	}, 4: {
+		inputs:    []int32{},
+		safe2Stop: true,
+	}, 5: {
+		inputs:    []int32{1, 2, 4},
+		safe2Stop: false,
+	}} {
+		fmt.Printf("Test case #%d: inputs=%v\n", i, tc.inputs)
+
+		// When
+		m.WireUp(out, tc.inputs)
+		m.Stop()
+
+		// Then
+		c.Assert(m.IsSafe2Stop(), Equals, tc.safe2Stop)
+	}
+}
+
 type mockIn struct {
 	messagesCh chan consumer.Message
+	safe2Stop  bool
 }
 
 func newMockIn(messages ...consumer.Message) *mockIn {
@@ -547,9 +595,20 @@ func newMockIn(messages ...consumer.Message) *mockIn {
 	return &mi
 }
 
+func newSafeMockIn(messages ...consumer.Message) *mockIn {
+	mi := newMockIn(messages...)
+	mi.safe2Stop = true
+	return mi
+}
+
 // implements `In`
 func (mi *mockIn) Messages() <-chan consumer.Message {
 	return mi.messagesCh
+}
+
+// implements `In`
+func (mi *mockIn) IsSafe2Stop() bool {
+	return mi.safe2Stop
 }
 
 // implements `In`

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mailgun/kafka-pixy/actor"
@@ -52,6 +53,7 @@ type T struct {
 	submittedOffset offsetmgr.Offset
 	offsetsOk       bool
 	offsetTrk       *offsettrk.T
+	offerCount      int32
 
 	// For tests only!
 	firstMsgFetched bool
@@ -92,6 +94,17 @@ func (pc *T) Messages() <-chan consumer.Message {
 	return pc.messagesCh
 }
 
+// implements `multiplexer.In`
+func (pc *T) IsSafe2Stop() bool {
+	return atomic.LoadInt32(&pc.offerCount) == 0
+}
+
+// implements `multiplexer.In`
+func (pc *T) Stop() {
+	close(pc.stopCh)
+	pc.wg.Wait()
+}
+
 func (pc *T) run() {
 	defer close(pc.messagesCh)
 	defer pc.groupMember.ClaimPartition(pc.actDesc, pc.topic, pc.partition, pc.stopCh)()
@@ -108,20 +121,24 @@ func (pc *T) run() {
 	case <-pc.stopCh:
 		return
 	}
-	pc.actDesc.Log().Infof("initial offset: %s", offsetRepr(pc.committedOffset))
+	pc.actDesc.Log().Infof("Initial offset: %s", offsetRepr(pc.committedOffset))
 	pc.offsetTrk = offsettrk.New(pc.actDesc, pc.committedOffset, pc.cfg.Consumer.AckTimeout)
 	pc.submittedOffset = pc.committedOffset
 	pc.offsetsOk = true
 	pc.notifyTestInitialized(pc.committedOffset)
 
+	// Run a fetch loop until the partition consumer is signalled to stop.
 	for pc.runFetchLoop() {
 	}
 
-	for ok, timeout := pc.offsetTrk.ShouldWait4Ack(); ok; ok, timeout = pc.offsetTrk.ShouldWait4Ack() {
+	// Wait for clients to acknowledge pending offers.
+	for timeout := pc.offsetTrk.ShouldWait4Ack(); timeout > 0; timeout = pc.offsetTrk.ShouldWait4Ack() {
 		select {
 		case event := <-pc.eventsCh:
 			if event.T == consumer.EvAcked {
-				pc.submittedOffset, _ = pc.offsetTrk.OnAcked(event.Offset)
+				var offerCount int
+				pc.submittedOffset, offerCount = pc.offsetTrk.OnAcked(event.Offset)
+				atomic.StoreInt32(&pc.offerCount, int32(offerCount))
 				pc.offsetMgr.SubmitOffset(pc.submittedOffset)
 			}
 		case <-time.After(timeout):
@@ -130,25 +147,24 @@ func (pc *T) run() {
 	}
 }
 
-func (pc *T) Stop() {
-	close(pc.stopCh)
-	pc.wg.Wait()
-}
-
 func (pc *T) runFetchLoop() bool {
 	// Initialize a message fetcher to read from the initial offset.
 	mf, realOffsetVal, err := pc.msgFetcherF.Spawn(pc.actDesc, pc.topic, pc.partition, pc.submittedOffset.Val)
 	if err != nil {
-		panic(errors.Wrapf(err, "<%s> must never happen", pc.actDesc))
+		pc.actDesc.Log().WithError(err).Error("Failed to spawn fetcher")
+		return true
 	}
 	defer mf.Stop()
 
-	pc.submittedOffset = pc.offsetTrk.Adjust(realOffsetVal)
+	var offerCount int
+	pc.submittedOffset, offerCount = pc.offsetTrk.Adjust(realOffsetVal)
+	atomic.StoreInt32(&pc.offerCount, int32(offerCount))
+
 	// If the real offset is different from the committed one then submit it
 	// and report in the logs.
 	if pc.submittedOffset != pc.committedOffset {
 		pc.offsetMgr.SubmitOffset(pc.submittedOffset)
-		pc.actDesc.Log().Errorf("offset adjusted: new=%s, old=%s",
+		pc.actDesc.Log().Errorf("Adjusted offset: new=%s, old=%s",
 			offsetRepr(pc.submittedOffset), offsetRepr(pc.committedOffset))
 	}
 	var (
@@ -174,8 +190,9 @@ func (pc *T) runFetchLoop() bool {
 			}
 			msg.EventsCh = pc.eventsCh
 			pc.notifyTestFetched()
-			nilOrMsgInCh = nil
 			nilOrMsgOutCh = pc.messagesCh
+			// Stop fetching messages until this one is offered to a client.
+			nilOrMsgInCh = nil
 		case <-retryTicker.C:
 			if msgOk {
 				continue
@@ -190,25 +207,26 @@ func (pc *T) runFetchLoop() bool {
 			switch event.T {
 			case consumer.EvOffered:
 				if event.Offset != msg.Offset {
-					pc.actDesc.Log().Errorf("invalid offer offset %d, want=%d", event.Offset, msg.Offset)
+					pc.actDesc.Log().Errorf("Invalid offer offset %d, want=%d", event.Offset, msg.Offset)
 					continue
 				}
-				offeredCount := pc.offsetTrk.OnOffered(msg)
+				offerCount = pc.offsetTrk.OnOffered(msg)
+				atomic.StoreInt32(&pc.offerCount, int32(offerCount))
 				if msg, msgOk = pc.nextRetry(); msgOk {
 					nilOrMsgOutCh = pc.messagesCh
 					continue
 				}
-				if offeredCount > pc.cfg.Consumer.MaxPendingMessages {
-					pc.actDesc.Log().Warnf("offered count above HWM: %d", offeredCount)
+				if offerCount > pc.cfg.Consumer.MaxPendingMessages {
+					pc.actDesc.Log().Warnf("Offer count above HWM: %d", offerCount)
 					nilOrMsgInCh = nil
 					continue
 				}
 				nilOrMsgInCh = mf.Messages()
 			case consumer.EvAcked:
-				var offeredCount int
-				pc.submittedOffset, offeredCount = pc.offsetTrk.OnAcked(event.Offset)
+				pc.submittedOffset, offerCount = pc.offsetTrk.OnAcked(event.Offset)
+				atomic.StoreInt32(&pc.offerCount, int32(offerCount))
 				pc.offsetMgr.SubmitOffset(pc.submittedOffset)
-				if !msgOk && offeredCount <= pc.cfg.Consumer.MaxPendingMessages {
+				if !msgOk && offerCount <= pc.cfg.Consumer.MaxPendingMessages {
 					nilOrMsgInCh = mf.Messages()
 				}
 			}
@@ -227,7 +245,7 @@ func (pc *T) runFetchLoop() bool {
 func (pc *T) nextRetry() (consumer.Message, bool) {
 	msg, retryNo, ok := pc.offsetTrk.NextRetry()
 	for ok && retryNo > pc.cfg.Consumer.MaxRetries {
-		pc.actDesc.Log().Errorf("too many retries: retryNo=%d, offset=%d, key=%s, msg=%s",
+		pc.actDesc.Log().Errorf("Too many retries: retryNo=%d, offset=%d, key=%s, msg=%s",
 			retryNo, msg.Offset, string(msg.Key), base64.StdEncoding.EncodeToString(msg.Value))
 		pc.submittedOffset, _ = pc.offsetTrk.OnAcked(msg.Offset)
 		pc.offsetMgr.SubmitOffset(pc.submittedOffset)
@@ -235,7 +253,7 @@ func (pc *T) nextRetry() (consumer.Message, bool) {
 		msg, retryNo, ok = pc.offsetTrk.NextRetry()
 	}
 	if ok {
-		pc.actDesc.Log().Warnf("retrying: retryNo=%d, offset=%d, key=%s",
+		pc.actDesc.Log().Warnf("Retrying: retryNo=%d, offset=%d, key=%s",
 			retryNo, msg.Offset, string(msg.Key))
 	}
 	return msg, ok
@@ -250,9 +268,9 @@ func (pc *T) stopOffsetMgr() {
 	for pc.committedOffset = range pc.offsetMgr.CommittedOffsets() {
 	}
 	if pc.committedOffset != pc.submittedOffset {
-		pc.actDesc.Log().Errorf("failed to commit offset: %s", offsetRepr(pc.submittedOffset))
+		pc.actDesc.Log().Errorf("Failed to commit offset: %s", offsetRepr(pc.submittedOffset))
 	}
-	pc.actDesc.Log().Infof("last committed offset: %s", offsetRepr(pc.committedOffset))
+	pc.actDesc.Log().Infof("Last committed offset: %s", offsetRepr(pc.committedOffset))
 }
 
 // notifyTestInitialized sends initial offset to initialOffsetCh channel.
