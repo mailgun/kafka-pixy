@@ -61,6 +61,19 @@ type PartitionOffset struct {
 	Metadata  string
 }
 
+type PartitionMetadata struct {
+	ID       int32
+	Leader   int32
+	Replicas []int32
+	Isr      []int32
+}
+
+type TopicMetadata struct {
+	Topic      string
+	Config     []byte
+	Partitions []PartitionMetadata
+}
+
 type indexedPartition struct {
 	index     int
 	partition int32
@@ -328,3 +341,76 @@ func getOffsetResult(res *sarama.OffsetResponse, topic string, partition int32) 
 	}
 	return block.Offsets[0], nil
 }
+
+func (a *T) GetTopicsMetadata(withPartitions, withConfig bool) ([]TopicMetadata, error) {
+	kafkaClt, err := a.lazyKafkaClt()
+	if err != nil {
+		return nil, err
+	}
+
+	topics, err := kafkaClt.Topics()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get topics")
+	}
+
+	topicsMetadata := make([]TopicMetadata, len(topics))
+	for i, topic := range topics {
+		tm := &topicsMetadata[i]
+		tm.Topic = topic
+		if !withPartitions {
+			continue
+		}
+
+		partitions, err := kafkaClt.Partitions(topic)
+		if err != nil {
+			// Ignore all errors, do our best to get available info
+			continue
+		}
+
+		tm.Partitions = make([]PartitionMetadata, len(partitions))
+		for i, partition := range partitions {
+			pm := &tm.Partitions[i]
+			pm.ID = partition
+
+			leader, _ := kafkaClt.Leader(topic, partition)
+			if leader != nil {
+				pm.Leader = leader.ID()
+			} else {
+				pm.Leader = -1
+			}
+
+			isr, _ := kafkaClt.InSyncReplicas(topic, partition)
+			if isr != nil {
+				pm.Isr = isr
+			}
+
+			replicas, _ := kafkaClt.Replicas(topic, partition)
+			if replicas != nil {
+				pm.Replicas = replicas
+			}
+		}
+	}
+
+	if withConfig {
+		kzConn, err := a.lazyZKConn()
+		if err != nil {
+			return nil, err
+		}
+		for i := range topicsMetadata {
+			t := &topicsMetadata[i]
+			cfgPath := fmt.Sprintf("%s/config/topics/%s", a.cfg.ZooKeeper.Chroot, t.Topic)
+			cfg, _, err := kzConn.Get(cfgPath)
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to fetch topic configuration")
+			}
+			t.Config = cfg
+		}
+	}
+	return topicsMetadata, nil
+}
+
+type int32Slice []int32
+
+func (p int32Slice) Len() int           { return len(p) }
+func (p int32Slice) Less(i, j int) bool { return p[i] < p[j] }
+func (p int32Slice) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }

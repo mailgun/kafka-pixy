@@ -33,16 +33,18 @@ const (
 	hdrContentType   = "Content-Type"
 
 	// HTTP request parameters.
-	prmCluster      = "cluster"
-	prmTopic        = "topic"
-	prmKey          = "key"
-	prmSync         = "sync"
-	prmGroup        = "group"
-	prmNoAck        = "noAck"
-	prmAckPartition = "ackPartition"
-	prmPartition    = "partition"
-	prmAckOffset    = "ackOffset"
-	prmOffset       = "offset"
+	prmCluster              = "cluster"
+	prmTopic                = "topic"
+	prmKey                  = "key"
+	prmSync                 = "sync"
+	prmGroup                = "group"
+	prmNoAck                = "noAck"
+	prmAckPartition         = "ackPartition"
+	prmPartition            = "partition"
+	prmAckOffset            = "ackOffset"
+	prmOffset               = "offset"
+	prmTopicsWithPartitions = "withPartitions"
+	prmTopicsWithConfig     = "withConfig"
 )
 
 var (
@@ -107,6 +109,9 @@ func New(addr string, proxySet *proxy.Set) (*T, error) {
 
 	router.HandleFunc(fmt.Sprintf("/clusters/{%s}/topics/{%s}/consumers", prmCluster, prmTopic), hs.handleGetTopicConsumers).Methods("GET")
 	router.HandleFunc(fmt.Sprintf("/topics/{%s}/consumers", prmTopic), hs.handleGetTopicConsumers).Methods("GET")
+
+	router.HandleFunc(fmt.Sprintf("/clusters/{%s}/topics", prmCluster), hs.handleGetTopicsMetadata).Methods("GET")
+	router.HandleFunc("/topics", hs.handleGetTopicsMetadata).Methods("GET")
 
 	router.HandleFunc("/_ping", hs.handlePing).Methods("GET")
 	return hs, nil
@@ -453,6 +458,70 @@ func (s *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleGetTopics is an HTTP request handler for `GET /topics`
+func (s *T) handleGetTopicsMetadata(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+	var err error
+
+	pxy, err := s.getProxy(r)
+	if err != nil {
+		s.respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
+		return
+	}
+
+	err = r.ParseForm()
+	if err != nil {
+		s.respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
+		return
+	}
+
+	_, withConfig := r.Form[prmTopicsWithConfig]
+	_, withPartitions := r.Form[prmTopicsWithPartitions]
+
+	topicsMetadata, err := pxy.GetTopicsMetadata(withPartitions, withConfig)
+	if err != nil {
+		s.respondWithJSON(w, http.StatusInternalServerError, errorRs{err.Error()})
+		return
+	}
+
+	if withPartitions || withConfig {
+		topicsMetadataView := make(map[string]*topicMetadata)
+		for _, tm := range topicsMetadata {
+			tm_view := new(topicMetadata)
+			if withPartitions {
+				for _, p := range tm.Partitions {
+					p_view := partitionMetadata{
+						ID:       p.ID,
+						Leader:   p.Leader,
+						Replicas: p.Replicas,
+						Isr:      p.Isr,
+					}
+					tm_view.Partitions = append(tm_view.Partitions, p_view)
+				}
+			}
+			if withConfig {
+				cfg := new(topicConfig)
+				err = json.Unmarshal(tm.Config, &cfg)
+				if err != nil {
+					s.respondWithJSON(w, http.StatusInternalServerError, errorRs{err.Error()})
+					return
+				}
+
+				tm_view.Config = cfg
+			}
+			topicsMetadataView[tm.Topic] = tm_view
+		}
+		s.respondWithJSON(w, http.StatusOK, topicsMetadataView)
+		return
+	}
+
+	topics := make([]string, 0, len(topicsMetadata))
+	for _, tm := range topicsMetadata {
+		topics = append(topics, tm.Topic)
+	}
+	s.respondWithJSON(w, http.StatusOK, topics)
+}
+
 func (s *T) handlePing(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	w.WriteHeader(http.StatusOK)
@@ -484,6 +553,23 @@ type partitionInfo struct {
 
 type errorRs struct {
 	Error string `json:"error"`
+}
+
+type topicConfig struct {
+	Version   int32             `json:"version"`
+	ConfigMap map[string]string `json:"config"`
+}
+
+type partitionMetadata struct {
+	ID       int32   `json:"partition"`
+	Leader   int32   `json:"leader"`
+	Replicas []int32 `json:"replicas"`
+	Isr      []int32 `json:"isr"`
+}
+
+type topicMetadata struct {
+	Config     *topicConfig        `json:"topic_config,omitempty"`
+	Partitions []partitionMetadata `json:"partitions,omitempty"`
 }
 
 // getParamBytes returns the request parameter s a slice of bytes. It works

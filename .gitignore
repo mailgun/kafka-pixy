@@ -23,3 +23,7 @@ _testmain.go
 *.test
 *.prof
 .idea/
+*.iml
+
+kafka-pixy
+.vagrant/
