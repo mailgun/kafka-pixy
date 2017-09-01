@@ -245,7 +245,6 @@ func (om *offsetMgr) run() {
 		initialOffsetFetched  = false
 		stopped               = false
 		commitTicker          = time.NewTicker(om.f.cfg.Consumer.OffsetsCommitInterval)
-		offsetCommitTimeout   = om.f.cfg.Consumer.OffsetsCommitInterval * 3
 		lastSubmitTime        time.Time
 	)
 	defer commitTicker.Stop()
@@ -302,7 +301,7 @@ func (om *offsetMgr) run() {
 			}
 		case <-commitTicker.C:
 			took := time.Now().UTC().Sub(lastSubmitTime)
-			if took > offsetCommitTimeout && lastSubmitRequest.offset != lastCommittedOffset {
+			if took > om.f.cfg.Consumer.OffsetsCommitTimeout && lastSubmitRequest.offset != lastCommittedOffset {
 				om.triggerOrScheduleReassign(errors.Errorf("request timeout %v", took))
 			}
 		case <-om.nilOrReassignRetryTimerCh:

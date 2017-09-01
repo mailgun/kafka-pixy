@@ -406,6 +406,7 @@ func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 	cfg := testhelpers.NewTestProxyCfg("c1")
 	cfg.Consumer.RetryBackoff = 100 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
+	cfg.Consumer.OffsetsCommitTimeout = 150 * time.Millisecond
 	saramaCfg := sarama.NewConfig()
 	saramaCfg.Net.ReadTimeout = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, saramaCfg)

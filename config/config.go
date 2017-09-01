@@ -135,6 +135,10 @@ type Proxy struct {
 		// How frequently to commit offsets to Kafka.
 		OffsetsCommitInterval time.Duration `yaml:"offsets_commit_interval"`
 
+		// How long to wait for an offset to be committed by Kafka before
+		// retrying.
+		OffsetsCommitTimeout time.Duration `yaml:"offsets_commit_timeout"`
+
 		// Kafka-Pixy should wait this long after it gets notification that a
 		// consumer joined/left a consumer group it is a member of before
 		// rebalancing.
@@ -367,6 +371,8 @@ func (p *Proxy) validate() error {
 		return errors.New("consumer.max_retries must be > 0")
 	case p.Consumer.OffsetsCommitInterval <= 0:
 		return errors.New("consumer.offsets_commit_interval must be > 0")
+	case p.Consumer.OffsetsCommitTimeout <= 0:
+		return errors.New("consumer.offsets_commit_timeout must be > 0")
 	case p.Consumer.RebalanceDelay <= 0:
 		return errors.New("consumer.rebalance_delay must be > 0")
 	case p.Consumer.SubscriptionTimeout <= 0:
@@ -418,6 +424,7 @@ func defaultProxyWithClientID(clientID string) *Proxy {
 	c.Consumer.MaxPendingMessages = 300
 	c.Consumer.MaxRetries = 3
 	c.Consumer.OffsetsCommitInterval = 500 * time.Millisecond
+	c.Consumer.OffsetsCommitTimeout = 1500 * time.Millisecond
 	c.Consumer.RebalanceDelay = 250 * time.Millisecond
 	c.Consumer.SubscriptionTimeout = 20 * time.Second
 	c.Consumer.RetryBackoff = 500 * time.Millisecond
