@@ -84,7 +84,7 @@ func (ss *T) ClaimPartition(claimerActDesc *actor.Descriptor, topic string, part
 		if retries++; retries > safeClaimRetriesCount {
 			logFailureFn = logEntry.Errorf
 		}
-		logFailureFn("failed to claim partition: via=%s, retries=%d, took=%s",
+		logFailureFn("Failed to claim partition: via=%s, retries=%d, took=%s",
 			ss.actDesc, retries, millisSince(beginAt))
 		select {
 		case <-time.After(ss.cfg.Consumer.RetryBackoff):
@@ -93,7 +93,7 @@ func (ss *T) ClaimPartition(claimerActDesc *actor.Descriptor, topic string, part
 		}
 		err = ss.groupMemberZNode.ClaimPartition(topic, partition)
 	}
-	claimerActDesc.Log().Infof("partition claimed: via=%s, retries=%d, took=%s",
+	claimerActDesc.Log().Infof("Partition claimed: via=%s, retries=%d, took=%s",
 		ss.actDesc, retries, millisSince(beginAt))
 	return func() {
 		beginAt := time.Now()
@@ -105,12 +105,12 @@ func (ss *T) ClaimPartition(claimerActDesc *actor.Descriptor, topic string, part
 			if retries++; retries > safeClaimRetriesCount {
 				logFailureFn = logEntry.Errorf
 			}
-			logFailureFn("failed to release partition: via=%s, retries=%d, took=%s",
+			logFailureFn("Failed to release partition: via=%s, retries=%d, took=%s",
 				ss.actDesc, retries, millisSince(beginAt))
 			<-time.After(ss.cfg.Consumer.RetryBackoff)
 			err = ss.groupMemberZNode.ReleasePartition(topic, partition)
 		}
-		claimerActDesc.Log().Infof("partition released: via=%s, retries=%d, took=%s",
+		claimerActDesc.Log().Infof("Partition released: via=%s, retries=%d, took=%s",
 			ss.actDesc, retries, millisSince(beginAt))
 	}
 }
@@ -128,7 +128,7 @@ func (ss *T) run() {
 	// Ensure a group ZNode exist.
 	err := ss.groupZNode.Create()
 	for err != nil {
-		ss.actDesc.Log().WithError(err).Error("failed to create a group znode")
+		ss.actDesc.Log().WithError(err).Error("Failed to create a group znode")
 		select {
 		case <-time.After(ss.cfg.Consumer.RetryBackoff):
 		case <-ss.stopCh:
@@ -142,7 +142,7 @@ func (ss *T) run() {
 	defer func() {
 		err := ss.groupMemberZNode.Deregister()
 		for err != nil && err != kazoo.ErrInstanceNotRegistered {
-			ss.actDesc.Log().WithError(err).Error("failed to deregister")
+			ss.actDesc.Log().WithError(err).Error("Failed to deregister")
 			<-time.After(ss.cfg.Consumer.RetryBackoff)
 			err = ss.groupMemberZNode.Deregister()
 		}
@@ -177,11 +177,11 @@ func (ss *T) run() {
 
 		if shouldSubmitTopics {
 			if err = ss.submitTopics(pendingTopics); err != nil {
-				ss.actDesc.Log().WithError(err).Error("failed to submit topics")
+				ss.actDesc.Log().WithError(err).Error("Failed to submit topics")
 				nilOrTimeoutCh = time.After(ss.cfg.Consumer.RetryBackoff)
 				continue
 			}
-			ss.actDesc.Log().Infof("submitted: topics=%v", pendingTopics)
+			ss.actDesc.Log().Infof("Submitted: topics=%v", pendingTopics)
 			shouldSubmitTopics = false
 			shouldFetchMembers = true
 		}
@@ -189,7 +189,7 @@ func (ss *T) run() {
 		if shouldFetchMembers {
 			members, nilOrGroupUpdatedCh, err = ss.groupZNode.WatchInstances()
 			if err != nil {
-				ss.actDesc.Log().WithError(err).Error("failed to watch members")
+				ss.actDesc.Log().WithError(err).Error("Failed to watch members")
 				nilOrTimeoutCh = time.After(ss.cfg.Consumer.RetryBackoff)
 				continue
 			}
@@ -205,16 +205,16 @@ func (ss *T) run() {
 		if shouldFetchSubscriptions {
 			pendingSubscriptions, err = ss.fetchSubscriptions(members)
 			if err != nil {
-				ss.actDesc.Log().WithError(err).Error("failed to fetch subscriptions")
+				ss.actDesc.Log().WithError(err).Error("Failed to fetch subscriptions")
 				nilOrTimeoutCh = time.After(ss.cfg.Consumer.RetryBackoff)
 				continue
 			}
 			shouldFetchSubscriptions = false
-			ss.actDesc.Log().Infof("fetched subscriptions: %v", pendingSubscriptions)
+			ss.actDesc.Log().Infof("Fetched subscriptions: %v", pendingSubscriptions)
 			if subscriptionsEqual(pendingSubscriptions, ss.subscriptions) {
 				nilOrSubscriptionsCh = nil
 				pendingSubscriptions = nil
-				ss.actDesc.Log().Infof("redundant group update ignored: %v", ss.subscriptions)
+				ss.actDesc.Log().Infof("Redundant group update ignored: %v", ss.subscriptions)
 				continue
 			}
 			nilOrSubscriptionsCh = ss.subscriptionsCh
@@ -234,7 +234,7 @@ func (ss *T) fetchSubscriptions(members []*kazoo.ConsumergroupInstance) (map[str
 		var registration *kazoo.Registration
 		registration, err := member.Registration()
 		for err != nil {
-			return nil, errors.Wrapf(err, "failed to fetch registration, member=%s", member.ID)
+			return nil, errors.Wrapf(err, "Failed to fetch registration, member=%s", member.ID)
 		}
 		// Sort topics to ensure deterministic output.
 		topics := make([]string, 0, len(registration.Subscription))
@@ -247,23 +247,25 @@ func (ss *T) fetchSubscriptions(members []*kazoo.ConsumergroupInstance) (map[str
 }
 
 func (ss *T) submitTopics(topics []string) error {
-	if ss.topics != nil {
+	if len(ss.topics) != 0 {
 		err := ss.groupMemberZNode.Deregister()
 		if err != nil && err != kazoo.ErrInstanceNotRegistered {
-			return errors.Wrap(err, "failed to deregister")
+			return errors.Wrap(err, "Failed to deregister")
 		}
 	}
 	ss.topics = nil
-	err := ss.groupMemberZNode.Register(topics)
-	for err != nil {
-		return errors.Wrap(err, "failed to register")
+	if len(topics) != 0 {
+		err := ss.groupMemberZNode.Register(topics)
+		for err != nil {
+			return errors.Wrap(err, "Failed to register")
+		}
 	}
 	ss.topics = topics
 	return nil
 }
 
 func normalizeTopics(s []string) []string {
-	if s == nil || len(s) == 0 {
+	if len(s) == 0 {
 		return nil
 	}
 	sort.Strings(s)

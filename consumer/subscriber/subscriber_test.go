@@ -156,9 +156,9 @@ func (s *GroupMemberSuite) TestSubscribeToNothing(c *C) {
 
 	// Then
 	c.Assert(<-ss1.Subscriptions(), DeepEquals,
-		map[string][]string{"m1": nil, "m2": {"foo"}})
+		map[string][]string{"m2": {"foo"}})
 	c.Assert(<-ss2.Subscriptions(), DeepEquals,
-		map[string][]string{"m1": nil, "m2": {"foo"}})
+		map[string][]string{"m2": {"foo"}})
 }
 
 // To unsubscribe from all topics nil value can be sent.
@@ -181,9 +181,31 @@ func (s *GroupMemberSuite) TestSubscribeToNil(c *C) {
 
 	// Then
 	c.Assert(<-ss1.Subscriptions(), DeepEquals,
-		map[string][]string{"m1": nil, "m2": {"foo"}})
+		map[string][]string{"m2": {"foo"}})
 	c.Assert(<-ss2.Subscriptions(), DeepEquals,
-		map[string][]string{"m1": nil, "m2": {"foo"}})
+		map[string][]string{"m2": {"foo"}})
+}
+
+// It is possible to subscribe to a non-empty list of topics after
+// unsubscribing from everything.
+func (s *GroupMemberSuite) TestSomethingAfterNothingBug(c *C) {
+	cfg1 := newConfig("m1")
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
+	defer ss1.Stop()
+
+	ss1.Topics() <- []string{"foo"}
+	c.Assert(<-ss1.Subscriptions(), DeepEquals,
+		map[string][]string{"m1": {"foo"}})
+	ss1.Topics() <- []string{}
+	c.Assert(<-ss1.Subscriptions(), DeepEquals,
+		map[string][]string{})
+
+	// When
+	ss1.Topics() <- []string{"foo"}
+
+	// Then
+	c.Assert(<-ss1.Subscriptions(), DeepEquals,
+		map[string][]string{"m1": {"foo"}})
 }
 
 // When several different registrator instances subscribe to the same group,
