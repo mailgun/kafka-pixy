@@ -283,7 +283,7 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 	// STAGE 1: Requests for coordinator time out.
 	log.Infof("    STAGE 1")
 	err = <-om.(*offsetMgr).testErrorsCh
-	c.Assert(strings.HasPrefix(err.Error(), "request timeout"), Equals, true)
+	c.Assert(strings.HasPrefix(err.Error(), "broker not assigned"), Equals, true)
 
 	// STAGE 2: Requests for initial offset return errors
 	log.Infof("    STAGE 2")
