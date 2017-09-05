@@ -193,6 +193,7 @@ func (pc *T) runFetchLoop() bool {
 			nilOrMsgOutCh = pc.messagesCh
 			// Stop fetching messages until this one is offered to a client.
 			nilOrMsgInCh = nil
+
 		case <-retryTicker.C:
 			if msgOk {
 				continue
@@ -203,10 +204,11 @@ func (pc *T) runFetchLoop() bool {
 			}
 		case nilOrMsgOutCh <- msg:
 			nilOrMsgOutCh = nil
+
 		case event := <-pc.eventsCh:
 			switch event.T {
 			case consumer.EvOffered:
-				if event.Offset != msg.Offset {
+				if !msgOk || event.Offset != msg.Offset {
 					pc.actDesc.Log().Errorf("Invalid offer offset %d, want=%d", event.Offset, msg.Offset)
 					continue
 				}
@@ -222,6 +224,7 @@ func (pc *T) runFetchLoop() bool {
 					continue
 				}
 				nilOrMsgInCh = mf.Messages()
+
 			case consumer.EvAcked:
 				pc.submittedOffset, offerCount = pc.offsetTrk.OnAcked(event.Offset)
 				atomic.StoreInt32(&pc.offerCount, int32(offerCount))

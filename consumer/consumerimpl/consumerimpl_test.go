@@ -610,7 +610,7 @@ func (s *ConsumerSuite) TestTopicAndAckTimeouts(c *C) {
 	produced := s.kh.PutMessages("with-offers", "test.1", map[string]int{"A": 10})
 
 	s.cfg.Consumer.LongPollingTimeout = 1000 * time.Millisecond
-	s.cfg.Consumer.SubscriptionTimeout = 1500 * time.Millisecond
+	s.cfg.Consumer.SubscriptionTimeout = 2000 * time.Millisecond
 	s.cfg.Consumer.AckTimeout = 5000 * time.Millisecond
 	cons, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
@@ -618,28 +618,38 @@ func (s *ConsumerSuite) TestTopicAndAckTimeouts(c *C) {
 
 	cfg1 := testhelpers.NewTestProxyCfg("c2")
 	cfg1.Consumer.LongPollingTimeout = 1000 * time.Millisecond
-	cfg1.Consumer.SubscriptionTimeout = 1500 * time.Millisecond
+	cfg1.Consumer.SubscriptionTimeout = 5000 * time.Millisecond
 	omf1 := offsetmgr.SpawnFactory(s.ns, cfg1, s.kh.KafkaClt())
 	defer omf1.Stop()
 	cons1, err := Spawn(s.ns, cfg1, omf1)
 	c.Assert(err, IsNil)
 	defer cons1.Stop()
 
+	log.Infof("*** cons.0 consumes 1 message")
 	msg0, err := cons.Consume("g1", "test.1")
 	c.Assert(err, IsNil)
 	assertMsg(c, msg0, produced["A"][0])
 
+	log.Infof("*** cons.1 consume try #1")
 	_, err = cons1.Consume("g1", "test.1")
 	c.Assert(err, Equals, consumer.ErrRequestTimeout)
+	log.Infof("*** cons.1 consume try #2")
 	_, err = cons1.Consume("g1", "test.1")
 	c.Assert(err, Equals, consumer.ErrRequestTimeout)
+	log.Infof("*** cons.1 consume try #3")
 	_, err = cons1.Consume("g1", "test.1")
 	c.Assert(err, Equals, consumer.ErrRequestTimeout)
+	log.Infof("*** cons.1 consume try #4")
+	_, err = cons1.Consume("g1", "test.1")
+	c.Assert(err, Equals, consumer.ErrRequestTimeout)
+	log.Infof("*** cons.1 consume try #5")
 	_, err = cons1.Consume("g1", "test.1")
 	c.Assert(err, Equals, consumer.ErrRequestTimeout)
 
-	time.Sleep(500 * time.Millisecond)
+	log.Infof("*** Pause for cons.0 subscription to expire")
+	time.Sleep(1000 * time.Millisecond)
 
+	log.Infof("*** cons.1 consumes 1 message")
 	msg1, err := cons1.Consume("g1", "test.1")
 	c.Assert(err, IsNil)
 	assertMsg(c, msg1, produced["A"][0])

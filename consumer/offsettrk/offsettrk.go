@@ -206,25 +206,17 @@ func (ot *T) shouldWait4Ack(now time.Time) time.Duration {
 	}
 	// Complain about all not acknowledged messages before giving up.
 	for _, o := range ot.offers {
-		ot.actDesc.Log().Errorf("not acked: offset=%d", o.msg.Offset)
+		ot.actDesc.Log().Errorf("Not acked: offset=%d", o.msg.Offset)
 	}
 	return 0
-}
-
-//
-func (ot *T) DiscardOffers() {
-	for i, o := range ot.offers {
-		// Complain about all not acknowledged messages before giving up.
-		ot.actDesc.Log().Errorf("Drop expired offer: offset=%d", o.msg.Offset)
-		ot.offers[i] = offer{}
-	}
-	ot.offers = ot.offers[:0]
 }
 
 func (ot *T) newOffer(msg consumer.Message) offer {
 	return offer{msg, msg.Offset, 0, time.Now().Add(ot.offerTimeout)}
 }
 
+// removeOffer if there is an offer with the specified offset in the list, then
+// it is removed and true is returned, otherwise it returns false.
 func (ot *T) removeOffer(offset int64) bool {
 	offersCount := len(ot.offers)
 	i := sort.Search(offersCount, func(i int) bool {
@@ -240,6 +232,7 @@ func (ot *T) removeOffer(offset int64) bool {
 	return true
 }
 
+// dropOffersBefore removes all offers that have offset before the given one.
 func (ot *T) dropOffersBefore(offset int64) {
 	drop := 0
 	for i, offer := range ot.offers {
@@ -283,7 +276,9 @@ func (ot *T) correctOffset(offset int64) {
 	ot.offset.Meta = encodeAckedRanges(offset, ot.ackedRanges)
 }
 
-// updateAckedRanges updates acked ranges with a new acked offset.
+// updateAckedRanges updates acked ranges with a new acked offset. It returns
+// true if the acked ranges has been modified by this call. It returns false if
+// the specified offset has already been acked and there is nothing to update.
 func (ot *T) updateAckedRanges(offset int64) bool {
 	ackedRangesCount := len(ot.ackedRanges)
 	if offset < ot.offset.Val {
