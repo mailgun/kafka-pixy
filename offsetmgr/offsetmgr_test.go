@@ -531,10 +531,10 @@ func (s *OffsetMgrSuite) TestBugConnectionRestored(c *C) {
 	// Make sure the partition offset manager established connection with broker2.
 	select {
 	case err = <-om.(*offsetMgr).testErrorsCh:
+		_, ok := errors.Cause(err).(*net.OpError)
+		c.Assert(ok, Equals, true, Commentf("Unexpected or no error: err=%v", err))
 	case <-time.After(200 * time.Millisecond):
 	}
-	_, ok := errors.Cause(err).(*net.OpError)
-	c.Assert(ok, Equals, true, Commentf("Unexpected or no error: err=%v", err))
 
 	log.Infof("    GIVEN 2")
 	// Close both broker2 and the partition offset manager. That will break
@@ -563,14 +563,16 @@ func (s *OffsetMgrSuite) TestBugConnectionRestored(c *C) {
 
 	log.Infof("    THEN")
 	// Then: the new partition offset manager re-establishes connection with
-	// broker2 and successfully retrieves the initial offset.
-	var do Offset
+	// broker2 and successfully retrieves the initial offset. Note that there
+	// maybe several faulty attempts before an initial offset is successfully
+	// retrieved.
 	select {
-	case do = <-om.CommittedOffsets():
-	case err = <-om.(*offsetMgr).testErrorsCh:
-	case <-time.After(200 * time.Millisecond):
+	case initialOffset := <-om.CommittedOffsets():
+		c.Assert(initialOffset.Val, Equals, int64(1000),
+			Commentf("Failed to retrieve initial offset: %s", err))
+	case <-time.After(1 * time.Second):
+		c.Errorf("Timeout waiting for initial offset")
 	}
-	c.Assert(do.Val, Equals, int64(1000), Commentf("Failed to retrieve initial offset: %s", err))
 }
 
 // Test for issue https://github.com/mailgun/kafka-pixy/issues/62. The problem
