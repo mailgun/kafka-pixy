@@ -149,7 +149,6 @@ func (tc *T) serveRequest(consumeRq dispatcher.Request) time.Time {
 	// we reject the request to avoid message loss.
 	if requestTTL <= 0 {
 		consumeRq.ResponseCh <- requestTimeoutRs
-		tc.actDesc.Log().Warn("Stale request")
 		return latestRqTime
 	}
 	select {
