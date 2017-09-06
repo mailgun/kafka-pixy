@@ -9,6 +9,7 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/consumer/dispatcher"
 	"github.com/mailgun/kafka-pixy/consumer/msgfetcher"
 	"github.com/mailgun/kafka-pixy/consumer/multiplexer"
@@ -79,7 +80,7 @@ func Spawn(parentActDesc *actor.Descriptor, childSpec dispatcher.ChildSpec,
 }
 
 // implements `dispatcher.Factory`.
-func (gc *T) KeyOf(req dispatcher.Request) dispatcher.Key {
+func (gc *T) KeyOf(req consumer.Request) dispatcher.Key {
 	return dispatcher.Key(req.Topic)
 }
 

@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	requestTimeoutRs         = dispatcher.Response{Err: consumer.ErrRequestTimeout}
+	requestTimeoutRs         = consumer.Response{Err: consumer.ErrRequestTimeout}
 	safe2StopPollingInterval = 100 * time.Millisecond
 )
 
@@ -139,7 +139,7 @@ func (tc *T) String() string {
 	return tc.actDesc.String()
 }
 
-func (tc *T) serveRequest(consumeRq dispatcher.Request) time.Time {
+func (tc *T) serveRequest(consumeRq consumer.Request) time.Time {
 	latestRqTime := clock.Now().UTC()
 	requestAge := latestRqTime.Sub(consumeRq.Timestamp)
 	requestTTL := tc.cfg.Consumer.LongPollingTimeout - requestAge
@@ -154,7 +154,7 @@ func (tc *T) serveRequest(consumeRq dispatcher.Request) time.Time {
 	select {
 	case msg := <-tc.messagesCh:
 		msg.EventsCh <- consumer.Event{consumer.EvOffered, msg.Offset}
-		consumeRq.ResponseCh <- dispatcher.Response{Msg: msg}
+		consumeRq.ResponseCh <- consumer.Response{Msg: msg}
 	case <-clock.After(requestTTL):
 		consumeRq.ResponseCh <- requestTimeoutRs
 	}

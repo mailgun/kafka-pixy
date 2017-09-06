@@ -59,10 +59,15 @@ func Spawn(parentActDesc *actor.Descriptor, cfg *config.Proxy, offsetMgrF offset
 
 // implements `consumer.T`
 func (c *t) Consume(group, topic string) (consumer.Message, error) {
-	rq := dispatcher.NewRequest(group, topic)
-	c.dispatcher.Requests() <- rq
-	rs := <-rq.ResponseCh
+	rs := <-c.AsyncConsume(group, topic)
 	return rs.Msg, rs.Err
+}
+
+// implements `consumer.T`
+func (c *t) AsyncConsume(group, topic string) <-chan consumer.Response {
+	rq := consumer.NewRequest(group, topic)
+	c.dispatcher.Requests() <- rq
+	return rq.ResponseCh
 }
 
 // implements `consumer.T`
@@ -73,7 +78,7 @@ func (c *t) Stop() {
 }
 
 // implements `dispatcher.Factory`.
-func (c *t) KeyOf(rq dispatcher.Request) dispatcher.Key {
+func (c *t) KeyOf(rq consumer.Request) dispatcher.Key {
 	return dispatcher.Key(rq.Group)
 }
 

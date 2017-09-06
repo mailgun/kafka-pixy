@@ -11,8 +11,8 @@ import (
 )
 
 var (
-	rsTooManyRequests = Response{Err: consumer.ErrTooManyRequests}
-	rsUnavailable     = Response{Err: consumer.ErrShutdown}
+	rsTooManyRequests = consumer.Response{Err: consumer.ErrTooManyRequests}
+	rsUnavailable     = consumer.Response{Err: consumer.ErrShutdown}
 )
 
 // T dispatcher requests to child nodes based on the request key value
@@ -31,10 +31,10 @@ type T struct {
 	actDesc    *actor.Descriptor
 	cfg        *config.Proxy
 	factory    Factory
-	requestsCh chan Request
+	requestsCh chan consumer.Request
 	childSpec  *ChildSpec
 	finalizer  func()
-	children   map[Key]chan Request
+	children   map[Key]chan consumer.Request
 	disposalCh chan Key
 	stoppedCh  chan none.T
 }
@@ -42,33 +42,10 @@ type T struct {
 // Key uniquely identifies a child that should handle a particular request.
 type Key string
 
-// Request defines requests send downstream by the dispatcher.
-type Request struct {
-	Timestamp  time.Time
-	Group      string
-	Topic      string
-	ResponseCh chan Response
-}
-
-func NewRequest(group, topic string) Request {
-	return Request{
-		Timestamp:  time.Now().UTC(),
-		Group:      group,
-		Topic:      topic,
-		ResponseCh: make(chan Response, 1),
-	}
-}
-
-// Response defines responses returned upstream by the children.
-type Response struct {
-	Msg consumer.Message
-	Err error
-}
-
 // Factory defines an interface to create dispatcher children.
 type Factory interface {
 	// KeyOf returns a key of a child that should server the specified request.
-	KeyOf(rq Request) Key
+	KeyOf(rq consumer.Request) Key
 
 	// SpawnChild creates and starts a new child instance that should read and
 	// handle requests from requestsCh. The requests sent down to the channel
@@ -86,12 +63,12 @@ type Factory interface {
 // ChildSpec is a data structure passed to Factory.SpawnChild.
 type ChildSpec struct {
 	key        Key
-	requestsCh chan Request
+	requestsCh chan consumer.Request
 	disposalCh chan<- Key
 }
 
 // NewChildSpec4Test creates a ChildSpec to be used in testing.
-func NewChildSpec4Test(requests chan Request) ChildSpec {
+func NewChildSpec4Test(requests chan consumer.Request) ChildSpec {
 	return ChildSpec{
 		key:        "test",
 		requestsCh: requests,
@@ -108,7 +85,7 @@ func (cs *ChildSpec) Key() Key {
 // Requests returns a channel that dispatcher will send requests for this
 // child to. The child is supposed to read from this channel. If the parent
 // dispatcher closes the channel it means that the child should stop.
-func (cs *ChildSpec) Requests() <-chan Request {
+func (cs *ChildSpec) Requests() <-chan consumer.Request {
 	return cs.requestsCh
 }
 
@@ -148,7 +125,7 @@ func Spawn(parentActDesc *actor.Descriptor, factory Factory, cfg *config.Proxy, 
 		actDesc:    parentActDesc.NewChild("disp"),
 		cfg:        cfg,
 		factory:    factory,
-		children:   make(map[Key]chan Request),
+		children:   make(map[Key]chan consumer.Request),
 		disposalCh: make(chan Key, cfg.Consumer.ChannelBufferSize),
 		stoppedCh:  make(chan none.T),
 	}
@@ -156,7 +133,7 @@ func Spawn(parentActDesc *actor.Descriptor, factory Factory, cfg *config.Proxy, 
 		option(d)
 	}
 	if d.requestsCh == nil {
-		d.requestsCh = make(chan Request, cfg.Consumer.ChannelBufferSize)
+		d.requestsCh = make(chan consumer.Request, cfg.Consumer.ChannelBufferSize)
 	}
 	actor.Spawn(d.actDesc, nil, d.run)
 	return d
@@ -185,7 +162,7 @@ func (d *T) Wait4Stop(timeout time.Duration) bool {
 }
 
 // Requests returns a channel to send requests to the dispatcher.
-func (d *T) Requests() chan<- Request {
+func (d *T) Requests() chan<- consumer.Request {
 	return d.requestsCh
 }
 
@@ -207,7 +184,7 @@ func (d *T) run() {
 			childRequestsCh := d.children[key]
 			// If there is no child for the key, then spawn one.
 			if childRequestsCh == nil {
-				childRequestsCh = make(chan Request, d.cfg.Consumer.ChannelBufferSize)
+				childRequestsCh = make(chan consumer.Request, d.cfg.Consumer.ChannelBufferSize)
 				d.actDesc.Log().Infof("Spawning child: key=%s", key)
 				d.factory.SpawnChild(ChildSpec{
 					key:        key,

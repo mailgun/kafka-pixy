@@ -26,7 +26,7 @@ type TopicCsmSuite struct {
 	epoch      time.Time
 	cfg        *config.Proxy
 	ns         *actor.Descriptor
-	requestsCh chan dispatcher.Request
+	requestsCh chan consumer.Request
 	childSpec  dispatcher.ChildSpec
 	lifespanCh chan *T
 
@@ -48,7 +48,7 @@ func (s *TopicCsmSuite) SetUpTest(c *C) {
 	clock.Freeze(s.epoch)
 	s.cfg = testhelpers.NewTestProxyCfg("topiccsm")
 	s.ns = actor.Root().NewChild("T")
-	s.requestsCh = make(chan dispatcher.Request, 100)
+	s.requestsCh = make(chan consumer.Request, 100)
 	s.childSpec = dispatcher.NewChildSpec4Test(s.requestsCh)
 	s.lifespanCh = make(chan *T, 2)
 
@@ -83,7 +83,7 @@ func (s *TopicCsmSuite) TestRequestResponse(c *C) {
 		<-s.lifespanCh      // Wait for it to do so.
 	}()
 
-	requests := make([]dispatcher.Request, 10)
+	requests := make([]consumer.Request, 10)
 	messages := make([]consumer.Message, 10)
 	eventsChs := make([]chan consumer.Event, 10)
 	for i := 0; i < 10; i++ {
@@ -102,7 +102,7 @@ func (s *TopicCsmSuite) TestRequestResponse(c *C) {
 	// Then
 	for i := 0; i < 10; i++ {
 		c.Assert(<-requests[i].ResponseCh, DeepEquals,
-			dispatcher.Response{Msg: messages[i]})
+			consumer.Response{Msg: messages[i]})
 		c.Assert(<-eventsChs[i], DeepEquals,
 			consumer.Event{consumer.EvOffered, messages[i].Offset})
 	}
@@ -134,7 +134,7 @@ func (s *TopicCsmSuite) TestLongPollingExpires(c *C) {
 	s.requestsCh <- rq3
 	c.Assert(clock.Advance(297), Equals, time.Duration(299))
 	tc.Messages() <- msg1
-	assertResponse(c, rq1, dispatcher.Response{Msg: msg1}, time.Second)
+	assertResponse(c, rq1, consumer.Response{Msg: msg1}, time.Second)
 
 	// When: The rq2 expires, but rq3 still has 1 ns to last.
 	c.Assert(clock.Advance(2), Equals, time.Duration(301))
@@ -142,7 +142,7 @@ func (s *TopicCsmSuite) TestLongPollingExpires(c *C) {
 	// Then
 	assertResponse(c, rq2, requestTimeoutRs, time.Second)
 	tc.Messages() <- msg2
-	assertResponse(c, rq3, dispatcher.Response{Msg: msg2}, time.Second)
+	assertResponse(c, rq3, consumer.Response{Msg: msg2}, time.Second)
 }
 
 // Stale requests are rejected immediately.
@@ -296,10 +296,10 @@ func (s *TopicCsmSuite) TestAckTimeoutSafe(c *C) {
 	assertStopped(c, s.lifespanCh, time.Second)
 }
 
-func newRequest() dispatcher.Request {
-	return dispatcher.Request{
+func newRequest() consumer.Request {
+	return consumer.Request{
 		Timestamp:  clock.Now().UTC(),
-		ResponseCh: make(chan dispatcher.Response, 1),
+		ResponseCh: make(chan consumer.Response, 1),
 	}
 }
 
@@ -313,7 +313,7 @@ func newMessage(idx int) (consumer.Message, chan consumer.Event) {
 	return msg, eventsCh
 }
 
-func assertResponse(c *C, rq dispatcher.Request, rs dispatcher.Response, timeout time.Duration) {
+func assertResponse(c *C, rq consumer.Request, rs consumer.Response, timeout time.Duration) {
 	select {
 	case gotRs := <-rq.ResponseCh:
 		c.Assert(gotRs, DeepEquals, rs)

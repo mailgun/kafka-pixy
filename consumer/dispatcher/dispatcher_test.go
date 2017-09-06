@@ -44,11 +44,11 @@ func (s *DispatcherSuite) TestChildrenOnDemand(c *C) {
 	d := Spawn(s.ns, s.groupF, s.cfg)
 	defer d.Stop()
 
-	requests := []Request{
-		0: NewRequest("g1", "t1"),
-		1: NewRequest("g2", "t2"),
-		2: NewRequest("g2", "t3"),
-		3: NewRequest("g1", "t4"),
+	requests := []consumer.Request{
+		0: consumer.NewRequest("g1", "t1"),
+		1: consumer.NewRequest("g2", "t2"),
+		2: consumer.NewRequest("g2", "t3"),
+		3: consumer.NewRequest("g1", "t4"),
 	}
 
 	// When
@@ -77,10 +77,10 @@ func (s *DispatcherSuite) TestSuccessorSpawned(c *C) {
 	d := Spawn(s.ns, s.groupF, s.cfg)
 	defer d.Stop()
 
-	requests := sendAll(d, []Request{
-		0: NewRequest("g1", "t1"),
-		1: NewRequest("g1", "t2"),
-		2: NewRequest("g1", "t3"),
+	requests := sendAll(d, []consumer.Request{
+		0: consumer.NewRequest("g1", "t1"),
+		1: consumer.NewRequest("g1", "t2"),
+		2: consumer.NewRequest("g1", "t3"),
 	})
 
 	child := <-s.groupF.spawnedCh
@@ -102,9 +102,9 @@ func (s *DispatcherSuite) TestDisposeTwice(c *C) {
 	d := Spawn(s.ns, s.groupF, s.cfg)
 	defer d.Stop()
 
-	requests := []Request{
-		0: NewRequest("g1", "t1"),
-		1: NewRequest("g1", "t2"),
+	requests := []consumer.Request{
+		0: consumer.NewRequest("g1", "t1"),
+		1: consumer.NewRequest("g1", "t2"),
 	}
 
 	d.Requests() <- requests[0]
@@ -115,7 +115,7 @@ func (s *DispatcherSuite) TestDisposeTwice(c *C) {
 	child.Dispose()
 	child.Dispose()
 
-	// Then: a successor is spawned on demand by the next request.
+	// Then: a successor is spawned on demand by the next consumer.Request.
 	d.Requests() <- requests[1]
 	successor := <-s.groupF.spawnedCh
 	defer successor.Dispose()
@@ -128,19 +128,19 @@ func (s *DispatcherSuite) TestRequestChOverflow(c *C) {
 	d := Spawn(s.ns, s.groupF, s.cfg)
 	defer d.Stop()
 
-	// Generate as many requests as the request channel capacity.
-	stuckRequests := make([]Request, s.cfg.Consumer.ChannelBufferSize)
+	// Generate as many requests as the consumer.Request channel capacity.
+	stuckRequests := make([]consumer.Request, s.cfg.Consumer.ChannelBufferSize)
 	for i := range stuckRequests {
 		stuckRequests[i].Group = "g1"
-		stuckRequests[i].ResponseCh = make(chan Response, 1)
+		stuckRequests[i].ResponseCh = make(chan consumer.Response, 1)
 		d.Requests() <- stuckRequests[i]
 	}
-	overflowRq := Request{Group: "g1", ResponseCh: make(chan Response, 1)}
+	overflowRq := consumer.Request{Group: "g1", ResponseCh: make(chan consumer.Response, 1)}
 
 	// When
 	d.Requests() <- overflowRq
 
-	// Then: the overflow request is rejected with an error
+	// Then: the overflow consumer.Request is rejected with an error
 	assertRejected(c, overflowRq, consumer.ErrTooManyRequests, 100*time.Millisecond)
 
 	// Requests feeling the g1 child channel must not have a response.
@@ -148,7 +148,7 @@ func (s *DispatcherSuite) TestRequestChOverflow(c *C) {
 		assertNoResponse(c, rq)
 	}
 	// Requests addressed to another child are not affected
-	anotherRq := Request{Group: "g2"}
+	anotherRq := consumer.Request{Group: "g2"}
 	d.Requests() <- anotherRq
 	child1 := <-s.groupF.spawnedCh
 	defer child1.Dispose()
@@ -167,17 +167,17 @@ drain:
 	}
 }
 
-// When a dispatcher is stopped it closes request channels of all its children
+// When a dispatcher is stopped it closes consumer.Request channels of all its children
 // and waits for the children to call Dispose on their specs. If a child stops
-// leaving unprocessed requests in its request channel, then dispatcher rejects
+// leaving unprocessed requests in its consumer.Request channel, then dispatcher rejects
 // all leftover requests.
 func (s *DispatcherSuite) TestStopLeftover(c *C) {
 	d := Spawn(s.ns, s.groupF, s.cfg)
 
-	requests := sendAll(d, []Request{
-		0: NewRequest("g1", "t1"),
-		1: NewRequest("g1", "t2"),
-		2: NewRequest("g2", "t3"),
+	requests := sendAll(d, []consumer.Request{
+		0: consumer.NewRequest("g1", "t1"),
+		1: consumer.NewRequest("g1", "t2"),
+		2: consumer.NewRequest("g2", "t3"),
 	})
 
 	child1 := <-s.groupF.spawnedCh
@@ -215,14 +215,14 @@ func (s *DispatcherSuite) TestStopLeftover(c *C) {
 func (s *DispatcherSuite) TestStopHierarchy(c *C) {
 	rootD := Spawn(s.ns, s.groupF, s.cfg)
 
-	requests := sendAll(rootD, []Request{
-		0: NewRequest("g1", "t1"),
-		1: NewRequest("g1", "t2"),
-		2: NewRequest("g1", "t1"),
-		3: NewRequest("g1", "t1"),
-		4: NewRequest("g1", "t2"),
-		5: NewRequest("g1", "t1"),
-		6: NewRequest("g1", "t2"),
+	requests := sendAll(rootD, []consumer.Request{
+		0: consumer.NewRequest("g1", "t1"),
+		1: consumer.NewRequest("g1", "t2"),
+		2: consumer.NewRequest("g1", "t1"),
+		3: consumer.NewRequest("g1", "t1"),
+		4: consumer.NewRequest("g1", "t2"),
+		5: consumer.NewRequest("g1", "t1"),
+		6: consumer.NewRequest("g1", "t2"),
 	})
 	childG1 := <-s.groupF.spawnedCh
 	d := Spawn(s.ns, s.topicF, s.cfg, WithChildSpec(childG1))
@@ -262,9 +262,9 @@ func (s *DispatcherSuite) TestStopHierarchy(c *C) {
 func (s *DispatcherSuite) TestStopsWithLastChild(c *C) {
 	rootD := Spawn(s.ns, s.groupF, s.cfg)
 	defer rootD.Stop()
-	requests := sendAll(rootD, []Request{
-		0: NewRequest("g1", "t1"),
-		1: NewRequest("g1", "t2"),
+	requests := sendAll(rootD, []consumer.Request{
+		0: consumer.NewRequest("g1", "t1"),
+		1: consumer.NewRequest("g1", "t2"),
 	})
 	childG1 := <-s.groupF.spawnedCh
 	d := Spawn(s.ns, s.topicF, s.cfg, WithChildSpec(childG1))
@@ -297,8 +297,8 @@ func (s *DispatcherSuite) TestFinalizedCalled(c *C) {
 		close(called)
 	}
 	d := Spawn(s.ns, s.groupF, s.cfg, WithFinalizer(finalizer))
-	d.Requests() <- NewRequest("g1", "")
-	d.Requests() <- NewRequest("g2", "")
+	d.Requests() <- consumer.NewRequest("g1", "")
+	d.Requests() <- consumer.NewRequest("g2", "")
 	childG1 := <-s.groupF.spawnedCh
 	childG2 := <-s.groupF.spawnedCh
 
@@ -342,7 +342,7 @@ const (
 	dfTopic
 )
 
-func sendAll(d *T, requests []Request) []Request {
+func sendAll(d *T, requests []consumer.Request) []consumer.Request {
 	for i := range requests {
 		d.Requests() <- requests[i]
 	}
@@ -357,7 +357,7 @@ func newFakeFactory(df dispatchField) *fakeFactory {
 	return &ff
 }
 
-func (ff *fakeFactory) KeyOf(rq Request) Key {
+func (ff *fakeFactory) KeyOf(rq consumer.Request) Key {
 	switch ff.df {
 	case dfGroup:
 		return Key(rq.Group)
@@ -371,18 +371,18 @@ func (ff *fakeFactory) SpawnChild(cs ChildSpec) {
 	ff.spawnedCh <- cs
 }
 
-func assertRejected(c *C, rq Request, err error, timeout time.Duration) {
+func assertRejected(c *C, rq consumer.Request, err error, timeout time.Duration) {
 	select {
-	case rs := <-chan Response(rq.ResponseCh):
+	case rs := <-chan consumer.Response(rq.ResponseCh):
 		c.Assert(rs.Err, Equals, err)
 	case <-time.After(timeout):
 		c.Errorf("Error response expected")
 	}
 }
 
-func assertNoResponse(c *C, rq Request) {
+func assertNoResponse(c *C, rq consumer.Request) {
 	select {
-	case rs := <-chan Response(rq.ResponseCh):
+	case rs := <-chan consumer.Response(rq.ResponseCh):
 		c.Errorf("Unexpected response: %v", rs)
 	default:
 	}
