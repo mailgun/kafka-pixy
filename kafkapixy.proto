@@ -24,6 +24,7 @@ service KafkaPixy {
     // gRPC error codes:
     //  * Invalid Argument (3): see the status description for details;
     //  * Internal (13): see the status description and logs for details;
+    //  * Unavailable (14): the service is shutting down.
     rpc Produce (ProdRq) returns (ProdRs) {}
 
     // Consume reads a message from a topic and optionally acknowledges a

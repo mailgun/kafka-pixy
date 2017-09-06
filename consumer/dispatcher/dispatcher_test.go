@@ -202,7 +202,7 @@ func (s *DispatcherSuite) TestStopLeftover(c *C) {
 
 	// Requests not processed by children before stopped are rejected...
 	assertNoResponse(c, requests[0])
-	assertRejected(c, requests[1], consumer.ErrShutdown, 100*time.Millisecond)
+	assertRejected(c, requests[1], consumer.ErrUnavailable, 100*time.Millisecond)
 	assertNoResponse(c, requests[2])
 }
 
@@ -251,10 +251,10 @@ func (s *DispatcherSuite) TestStopHierarchy(c *C) {
 	assertNoResponse(c, requests[0])
 	assertNoResponse(c, requests[1])
 	assertNoResponse(c, requests[2])
-	assertRejected(c, requests[3], consumer.ErrShutdown, 100*time.Millisecond)
+	assertRejected(c, requests[3], consumer.ErrUnavailable, 100*time.Millisecond)
 	assertNoResponse(c, requests[4])
-	assertRejected(c, requests[5], consumer.ErrShutdown, 100*time.Millisecond)
-	assertRejected(c, requests[6], consumer.ErrShutdown, 100*time.Millisecond)
+	assertRejected(c, requests[5], consumer.ErrUnavailable, 100*time.Millisecond)
+	assertRejected(c, requests[6], consumer.ErrUnavailable, 100*time.Millisecond)
 }
 
 // When the last child of a downstream dispatcher stops and there are no more

@@ -30,14 +30,14 @@ type T struct {
 	saramaProducer  sarama.AsyncProducer
 	shutdownTimeout time.Duration
 	dispatcherCh    chan *sarama.ProducerMessage
-	resultCh        chan produceResult
+	responseCh      chan Response
 	wg              sync.WaitGroup
 
 	// To be used in tests only
 	testDroppedMsgCh chan<- *sarama.ProducerMessage
 }
 
-type produceResult struct {
+type Response struct {
 	Msg *sarama.ProducerMessage
 	Err error
 }
@@ -64,7 +64,7 @@ func Spawn(parentActDesc *actor.Descriptor, cfg *config.Proxy) (*T, error) {
 		saramaProducer:  saramaProducer,
 		shutdownTimeout: cfg.Producer.ShutdownTimeout,
 		dispatcherCh:    make(chan *sarama.ProducerMessage, cfg.Producer.ChannelBufferSize),
-		resultCh:        make(chan produceResult, cfg.Producer.ChannelBufferSize),
+		responseCh:      make(chan Response, cfg.Producer.ChannelBufferSize),
 	}
 	actor.Spawn(p.mergActDesc, &p.wg, p.runMerger)
 	actor.Spawn(p.dispActDesc, &p.wg, p.runDispatcher)
@@ -86,36 +86,31 @@ func (p *T) Stop() {
 // Errors usually indicate a catastrophic failure of the Kafka cluster, or
 // missing topic if there cluster is not configured to auto create topics.
 func (p *T) Produce(topic string, key, message sarama.Encoder) (*sarama.ProducerMessage, error) {
-	replyCh := make(chan produceResult, 1)
-	prodMsg := &sarama.ProducerMessage{
-		Topic:    topic,
-		Key:      key,
-		Value:    message,
-		Metadata: replyCh,
-	}
-	p.dispatcherCh <- prodMsg
-	result := <-replyCh
-	return result.Msg, result.Err
+	rs := <-p.AsyncProduce(topic, key, message)
+	return rs.Msg, rs.Err
 }
 
 // AsyncProduce is an asynchronously counterpart of the `Produce` function.
 // Errors are silently ignored.
-func (p *T) AsyncProduce(topic string, key, message sarama.Encoder) {
+func (p *T) AsyncProduce(topic string, key, message sarama.Encoder) <-chan Response {
+	responseCh := make(chan Response, 1)
 	prodMsg := &sarama.ProducerMessage{
-		Topic: topic,
-		Key:   key,
-		Value: message,
+		Topic:    topic,
+		Key:      key,
+		Value:    message,
+		Metadata: responseCh,
 	}
 	p.dispatcherCh <- prodMsg
+	return responseCh
 }
 
 // merge receives both message acknowledgements and producer errors from the
 // respective `sarama.AsyncProducer` channels, constructs `ProducerResult`s out
-// of them and sends the constructed `ProducerResult` instances to `resultCh`
+// of them and sends the constructed `ProducerResult` instances to `responseCh`
 // to be further inspected by the `dispatcher` goroutine.
 //
 // It keeps running until both `sarama.AsyncProducer` output channels are
-// closed. Then it closes the `resultCh` to notify the `dispatcher` goroutine
+// closed. Then it closes the `responseCh` to notify the `dispatcher` goroutine
 // that all pending messages have been processed and exits.
 func (p *T) runMerger() {
 	nilOrProdSuccessesCh := p.saramaProducer.Successes()
@@ -129,19 +124,19 @@ mergeLoop:
 				nilOrProdSuccessesCh = nil
 				continue mergeLoop
 			}
-			p.resultCh <- produceResult{Msg: ackedMsg}
+			p.responseCh <- Response{Msg: ackedMsg}
 		case prodErr, ok := <-nilOrProdErrorsCh:
 			if !ok {
 				channelsOpened -= 1
 				nilOrProdErrorsCh = nil
 				continue mergeLoop
 			}
-			p.resultCh <- produceResult{Msg: prodErr.Msg, Err: prodErr.Err}
+			p.responseCh <- Response{Msg: prodErr.Msg, Err: prodErr.Err}
 		}
 	}
 	// Close the result channel to notify the `dispatcher` goroutine that all
 	// pending messages have been processed.
-	close(p.resultCh)
+	close(p.responseCh)
 }
 
 // dispatch implements message processing and graceful shutdown. It receives
@@ -172,7 +167,7 @@ func (p *T) runDispatcher() {
 		case nilOrProdInputCh <- prodMsg:
 			nilOrDispatcherCh = p.dispatcherCh
 			nilOrProdInputCh = nil
-		case prodResult := <-p.resultCh:
+		case prodResult := <-p.responseCh:
 			pendingMsgCount -= 1
 			p.handleProduceResult(prodResult)
 		}
@@ -185,7 +180,7 @@ gracefulShutdown:
 		select {
 		case <-shutdownTimeoutCh:
 			goto shutdownNow
-		case prodResult := <-p.resultCh:
+		case prodResult := <-p.responseCh:
 			pendingMsgCount -= 1
 			p.handleProduceResult(prodResult)
 		}
@@ -193,15 +188,15 @@ gracefulShutdown:
 shutdownNow:
 	p.dispActDesc.Log().Infof("Stopping producer: pendingMsgCount=%d", pendingMsgCount)
 	p.saramaProducer.AsyncClose()
-	for prodResult := range p.resultCh {
+	for prodResult := range p.responseCh {
 		p.handleProduceResult(prodResult)
 	}
 }
 
 // handleProduceResult inspects a production results and if it is an error
 // then logs it.
-func (p *T) handleProduceResult(result produceResult) {
-	if replyCh, ok := result.Msg.Metadata.(chan produceResult); ok {
+func (p *T) handleProduceResult(result Response) {
+	if replyCh, ok := result.Msg.Metadata.(chan Response); ok {
 		replyCh <- result
 	}
 	if result.Err == nil {

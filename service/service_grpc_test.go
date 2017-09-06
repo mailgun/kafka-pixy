@@ -32,6 +32,7 @@ func (s *ServiceGRPCSuite) SetUpTest(c *C) {
 	s.cfg = &config.App{Proxies: make(map[string]*config.Proxy)}
 	s.cfg.GRPCAddr = "127.0.0.1:19091"
 	proxyCfg := testhelpers.NewTestProxyCfg("test_svc")
+	proxyCfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
 	s.cfg.Proxies["pxyG"] = proxyCfg
 	s.cfg.DefaultCluster = "pxyG"
 

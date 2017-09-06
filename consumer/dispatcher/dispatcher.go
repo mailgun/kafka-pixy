@@ -12,7 +12,7 @@ import (
 
 var (
 	rsTooManyRequests = consumer.Response{Err: consumer.ErrTooManyRequests}
-	rsUnavailable     = consumer.Response{Err: consumer.ErrShutdown}
+	rsUnavailable     = consumer.Response{Err: consumer.ErrUnavailable}
 )
 
 // T dispatcher requests to child nodes based on the request key value
@@ -177,7 +177,7 @@ func (d *T) run() {
 		select {
 		case rq, ok := <-d.requestsCh:
 			if !ok {
-				d.actDesc.Log().Info("Signaled to shutdown")
+				d.actDesc.Log().Info("Shutting down")
 				goto wrapup
 			}
 			key := d.factory.KeyOf(rq)
@@ -220,8 +220,8 @@ func (d *T) run() {
 				})
 				continue
 			}
-			d.actDesc.Log().Infof("Disposed of child: key=%s, left=%d", key, len(d.children))
 			delete(d.children, key)
+			d.actDesc.Log().Infof("Disposed of child: key=%s, left=%d", key, len(d.children))
 			// For all but the root dispatcher, when the last child terminates,
 			// the dispatcher should also terminate.
 			if d.childSpec != nil && len(d.children) == 0 {
@@ -244,8 +244,8 @@ wrapup:
 		for rq := range requestsCh {
 			rq.ResponseCh <- rsUnavailable
 		}
-		d.actDesc.Log().Infof("Disposed of child: key=%s, left=%d", key, len(d.children))
 		delete(d.children, key)
+		d.actDesc.Log().Infof("Disposed of child: key=%s, left=%d", key, len(d.children))
 	}
 finalize:
 	// And finally call finalizer (pun is not intended :)) if it is specified.

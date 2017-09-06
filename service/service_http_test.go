@@ -46,7 +46,9 @@ func (s *ServiceHTTPSuite) SetUpTest(c *C) {
 	s.cfg = &config.App{Proxies: make(map[string]*config.Proxy)}
 	s.cfg.TCPAddr = "127.0.0.1:19092"
 	s.cfg.UnixAddr = path.Join(os.TempDir(), "kafka-pixy.sock")
-	s.cfg.Proxies["pxyD"] = testhelpers.NewTestProxyCfg("test_svc")
+	proxyCfg := testhelpers.NewTestProxyCfg("test_svc")
+	proxyCfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
+	s.cfg.Proxies["pxyD"] = proxyCfg
 	s.cfg.DefaultCluster = "pxyD"
 
 	os.Remove(s.cfg.UnixAddr)

@@ -17,6 +17,7 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -68,11 +69,10 @@ func (s *T) ErrorCh() <-chan error {
 	return s.errorCh
 }
 
-// Stop gracefully stops the gRPC server. It stops listening on the socket for
-// incoming requests first, and then blocks waiting for pending requests to
-// complete.
+// Stop immediately stops gRPC server. So it is caller's responsibility to make
+// sure that all pending requests are completed.
 func (s *T) Stop() {
-	s.grpcSrv.GracefulStop()
+	s.grpcSrv.Stop()
 	s.wg.Wait()
 	close(s.errorCh)
 }
@@ -81,7 +81,7 @@ func (s *T) Stop() {
 func (s *T) Produce(ctx context.Context, req *pb.ProdRq) (*pb.ProdRs, error) {
 	pxy, err := s.proxySet.Get(req.Cluster)
 	if err != nil {
-		return nil, grpc.Errorf(codes.InvalidArgument, err.Error())
+		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
 
 	if req.AsyncMode {
@@ -93,9 +93,11 @@ func (s *T) Produce(ctx context.Context, req *pb.ProdRq) (*pb.ProdRs, error) {
 	if err != nil {
 		switch err {
 		case sarama.ErrUnknownTopicOrPartition:
-			return nil, grpc.Errorf(codes.InvalidArgument, err.Error())
+			return nil, status.Errorf(codes.InvalidArgument, err.Error())
+		case proxy.ErrUnavailable:
+			return nil, status.Errorf(codes.Unavailable, err.Error())
 		default:
-			return nil, grpc.Errorf(codes.Internal, err.Error())
+			return nil, status.Errorf(codes.Internal, err.Error())
 		}
 	}
 	return &pb.ProdRs{Partition: prodMsg.Partition, Offset: prodMsg.Offset}, nil
@@ -105,7 +107,7 @@ func (s *T) Produce(ctx context.Context, req *pb.ProdRq) (*pb.ProdRs, error) {
 func (s *T) ConsumeNAck(ctx context.Context, req *pb.ConsNAckRq) (*pb.ConsRs, error) {
 	pxy, err := s.proxySet.Get(req.Cluster)
 	if err != nil {
-		return nil, grpc.Errorf(codes.InvalidArgument, err.Error())
+		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
 
 	var ack proxy.Ack
@@ -115,7 +117,7 @@ func (s *T) ConsumeNAck(ctx context.Context, req *pb.ConsNAckRq) (*pb.ConsRs, er
 		ack = proxy.AutoAck()
 	} else {
 		if ack, err = proxy.NewAck(req.AckPartition, req.AckOffset); err != nil {
-			return nil, grpc.Errorf(codes.InvalidArgument, errors.Wrap(err, "invalid ack").Error())
+			return nil, status.Errorf(codes.InvalidArgument, errors.Wrap(err, "invalid ack").Error())
 		}
 	}
 
@@ -123,13 +125,15 @@ func (s *T) ConsumeNAck(ctx context.Context, req *pb.ConsNAckRq) (*pb.ConsRs, er
 	if err != nil {
 		switch err {
 		case consumer.ErrRequestTimeout:
-			return nil, grpc.Errorf(codes.NotFound, err.Error())
+			return nil, status.Errorf(codes.NotFound, err.Error())
 		case consumer.ErrTooManyRequests:
-			return nil, grpc.Errorf(codes.ResourceExhausted, err.Error())
-		case consumer.ErrShutdown:
-			return nil, grpc.Errorf(codes.Unavailable, err.Error())
+			return nil, status.Errorf(codes.ResourceExhausted, err.Error())
+		case consumer.ErrUnavailable:
+			fallthrough
+		case proxy.ErrUnavailable:
+			return nil, status.Errorf(codes.Unavailable, err.Error())
 		default:
-			return nil, grpc.Errorf(codes.Internal, err.Error())
+			return nil, status.Errorf(codes.Internal, err.Error())
 		}
 	}
 	res := pb.ConsRs{
@@ -148,15 +152,15 @@ func (s *T) ConsumeNAck(ctx context.Context, req *pb.ConsNAckRq) (*pb.ConsRs, er
 func (s *T) Ack(ctx context.Context, req *pb.AckRq) (*pb.AckRs, error) {
 	pxy, err := s.proxySet.Get(req.Cluster)
 	if err != nil {
-		return nil, grpc.Errorf(codes.InvalidArgument, err.Error())
+		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
 
 	ack, err := proxy.NewAck(req.Partition, req.Offset)
 	if err != nil {
-		return nil, grpc.Errorf(codes.InvalidArgument, errors.Wrap(err, "invalid ack").Error())
+		return nil, status.Errorf(codes.InvalidArgument, errors.Wrap(err, "invalid ack").Error())
 	}
 	if err = pxy.Ack(req.Group, req.Topic, ack); err != nil {
-		return nil, grpc.Errorf(codes.Code(http.StatusInternalServerError), err.Error())
+		return nil, status.Errorf(codes.Code(http.StatusInternalServerError), err.Error())
 	}
 	return &pb.AckRs{}, nil
 }
@@ -164,14 +168,14 @@ func (s *T) Ack(ctx context.Context, req *pb.AckRq) (*pb.AckRs, error) {
 func (s *T) GetOffsets(ctx context.Context, req *pb.GetOffsetsRq) (*pb.GetOffsetsRs, error) {
 	pxy, err := s.proxySet.Get(req.Cluster)
 	if err != nil {
-		return nil, grpc.Errorf(codes.InvalidArgument, err.Error())
+		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
 	partitionOffsets, err := pxy.GetGroupOffsets(req.Group, req.Topic)
 	if err != nil {
 		if errors.Cause(err) == sarama.ErrUnknownTopicOrPartition {
-			return nil, grpc.Errorf(codes.NotFound, err.Error())
+			return nil, status.Errorf(codes.NotFound, err.Error())
 		}
-		return nil, grpc.Errorf(codes.Code(http.StatusInternalServerError), err.Error())
+		return nil, status.Errorf(codes.Code(http.StatusInternalServerError), err.Error())
 	}
 
 	result := pb.GetOffsetsRs{}

@@ -176,6 +176,8 @@ func (s *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 		switch err {
 		case sarama.ErrUnknownTopicOrPartition:
 			status = http.StatusNotFound
+		case proxy.ErrUnavailable:
+			status = http.StatusServiceUnavailable
 		default:
 			status = http.StatusInternalServerError
 		}
@@ -250,7 +252,9 @@ func (s *T) handleConsume(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusRequestTimeout
 		case consumer.ErrTooManyRequests:
 			status = http.StatusTooManyRequests
-		case consumer.ErrShutdown:
+		case consumer.ErrUnavailable:
+			fallthrough
+		case proxy.ErrUnavailable:
 			status = http.StatusServiceUnavailable
 		default:
 			status = http.StatusInternalServerError

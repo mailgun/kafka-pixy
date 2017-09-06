@@ -91,7 +91,7 @@ func (tc *T) run() {
 			select {
 			case consumeRq, ok := <-tc.childSpec.Requests():
 				if !ok {
-					tc.actDesc.Log().Info("Signaled to shutdown")
+					tc.actDesc.Log().Info("Shutting down")
 					return
 				}
 				latestRqTime = tc.serveRequest(consumeRq)
