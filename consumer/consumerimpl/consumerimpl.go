@@ -1,8 +1,6 @@
 package consumerimpl
 
 import (
-	"time"
-
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
@@ -55,17 +53,21 @@ func Spawn(parentActDesc *actor.Descriptor, cfg *config.Proxy, offsetMgrF offset
 		offsetMgrF: offsetMgrF,
 		kazooClt:   kazooClt,
 	}
-	c.dispatcher = dispatcher.New(c.actDesc, c, c.cfg)
-	c.dispatcher.Start()
+	c.dispatcher = dispatcher.Spawn(c.actDesc, c, c.cfg)
 	return c, nil
 }
 
 // implements `consumer.T`
 func (c *t) Consume(group, topic string) (consumer.Message, error) {
-	replyCh := make(chan dispatcher.Response, 1)
-	c.dispatcher.Requests() <- dispatcher.Request{time.Now().UTC(), group, topic, replyCh}
-	result := <-replyCh
-	return result.Msg, result.Err
+	rs := <-c.AsyncConsume(group, topic)
+	return rs.Msg, rs.Err
+}
+
+// implements `consumer.T`
+func (c *t) AsyncConsume(group, topic string) <-chan consumer.Response {
+	rq := consumer.NewRequest(group, topic)
+	c.dispatcher.Requests() <- rq
+	return rq.ResponseCh
 }
 
 // implements `consumer.T`
@@ -76,16 +78,16 @@ func (c *t) Stop() {
 }
 
 // implements `dispatcher.Factory`.
-func (c *t) KeyOf(req dispatcher.Request) string {
-	return req.Group
+func (c *t) KeyOf(rq consumer.Request) dispatcher.Key {
+	return dispatcher.Key(rq.Group)
 }
 
 // implements `dispatcher.Factory`.
-func (c *t) NewTier(key string) dispatcher.Tier {
-	return groupcsm.New(c.actDesc, key, c.cfg, c.kafkaClt, c.kazooClt, c.offsetMgrF)
+func (c *t) SpawnChild(childSpec dispatcher.ChildSpec) {
+	groupcsm.Spawn(c.actDesc, childSpec, c.cfg, c.kafkaClt, c.kazooClt, c.offsetMgrF)
 }
 
 // String returns a string ID of this instance to be used in logs.
-func (sc *t) String() string {
-	return sc.actDesc.String()
+func (c *t) String() string {
+	return c.actDesc.String()
 }

@@ -98,7 +98,7 @@ type Proxy struct {
 	Consumer struct {
 
 		// Period of time that Kafka-Pixy should wait for an acknowledgement
-		// before retrying. It must be less then RegistrationTimeout.
+		// before retrying.
 		AckTimeout time.Duration `yaml:"ack_timeout"`
 
 		// Size of all buffered channels created by the consumer module.
@@ -116,8 +116,8 @@ type Proxy struct {
 		// the fetch request if there isn't data immediately available.
 		FetchMaxWait time.Duration `yaml:"fetch_max_wait"`
 
-		// Consume request will wait at most this long until a message from the
-		// specified group-topic becomes available.
+		// Consume request will wait at most this long for a message from a
+		// topic to become available before expiring.
 		LongPollingTimeout time.Duration `yaml:"long_polling_timeout"`
 
 		// The maximum number of unacknowledged messages allowed for a
@@ -135,19 +135,22 @@ type Proxy struct {
 		// How frequently to commit offsets to Kafka.
 		OffsetsCommitInterval time.Duration `yaml:"offsets_commit_interval"`
 
+		// How long to wait for an offset to be committed by Kafka before
+		// retrying.
+		OffsetsCommitTimeout time.Duration `yaml:"offsets_commit_timeout"`
+
 		// Kafka-Pixy should wait this long after it gets notification that a
 		// consumer joined/left a consumer group it is a member of before
 		// rebalancing.
 		RebalanceDelay time.Duration `yaml:"rebalance_delay"`
 
-		// Period of time that Kafka-Pixy should keep registration with a
-		// consumer group or subscription for a topic in the absence of
-		// requests to the consumer group or topic.
-		RegistrationTimeout time.Duration `yaml:"registration_timeout"`
-
 		// If a request to a Kafka-Pixy fails for any reason, then it should
 		// wait this long before retrying.
 		RetryBackoff time.Duration `yaml:"retry_backoff"`
+
+		// Period of time that Kafka-Pixy should keep subscription to
+		// a topic by a group in absence of requests from the consumer group.
+		SubscriptionTimeout time.Duration `yaml:"subscription_timeout"`
 	} `yaml:"consumer"`
 }
 
@@ -354,8 +357,8 @@ func (p *Proxy) validate() error {
 	}
 	// Validate the Consumer parameters.
 	switch {
-	case p.Consumer.AckTimeout >= p.Consumer.RegistrationTimeout:
-		return errors.New("consumer.ack_timeout must be < consumer.registration_timeout")
+	case p.Consumer.AckTimeout <= 0:
+		return errors.New("consumer.ack_timeout must be > 0")
 	case p.Consumer.ChannelBufferSize <= 0:
 		return errors.New("consumer.channel_buffer_size must be > 0")
 	case p.Consumer.FetchMaxBytes <= 0:
@@ -368,10 +371,12 @@ func (p *Proxy) validate() error {
 		return errors.New("consumer.max_retries must be > 0")
 	case p.Consumer.OffsetsCommitInterval <= 0:
 		return errors.New("consumer.offsets_commit_interval must be > 0")
+	case p.Consumer.OffsetsCommitTimeout <= 0:
+		return errors.New("consumer.offsets_commit_timeout must be > 0")
 	case p.Consumer.RebalanceDelay <= 0:
 		return errors.New("consumer.rebalance_delay must be > 0")
-	case p.Consumer.RegistrationTimeout <= 0:
-		return errors.New("consumer.registration_timeout must be > 0")
+	case p.Consumer.SubscriptionTimeout <= 0:
+		return errors.New("consumer.subscription_timeout must be > 0")
 	case p.Consumer.RetryBackoff <= 0:
 		return errors.New("consumer.retry_backoff must be > 0")
 	}
@@ -419,8 +424,9 @@ func defaultProxyWithClientID(clientID string) *Proxy {
 	c.Consumer.MaxPendingMessages = 300
 	c.Consumer.MaxRetries = 3
 	c.Consumer.OffsetsCommitInterval = 500 * time.Millisecond
+	c.Consumer.OffsetsCommitTimeout = 1500 * time.Millisecond
 	c.Consumer.RebalanceDelay = 250 * time.Millisecond
-	c.Consumer.RegistrationTimeout = 20 * time.Second
+	c.Consumer.SubscriptionTimeout = 20 * time.Second
 	c.Consumer.RetryBackoff = 500 * time.Millisecond
 	return c
 }

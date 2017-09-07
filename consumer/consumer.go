@@ -18,6 +18,7 @@ const (
 
 var (
 	ErrRequestTimeout  = errors.New("long polling timeout")
+	ErrUnavailable     = errors.New("service is shutting down")
 	ErrTooManyRequests = errors.New("Too many requests. Consider increasing `consumer.channel_buffer_size` (https://github.com/mailgun/kafka-pixy/blob/master/default.yaml#L43)")
 )
 
@@ -35,10 +36,29 @@ type T interface {
 	// and then repeat the request.
 	Consume(group, topic string) (Message, error)
 
+	// AsyncConsume is an asynchronous counterpart of Consume function. It
+	// sends a response down to a buffered channel of the consumer machinery
+	// and returns a channel that a response should be expected from.
+	AsyncConsume(group, topic string) <-chan Response
+
 	// Stop sends a shutdown signal to all internal goroutines and blocks until
 	// they are stopped. It is guaranteed that all last consumed offsets of all
 	// consumer groups/topics are committed to Kafka before Consumer stops.
 	Stop()
+}
+
+// Request
+type Request struct {
+	Timestamp  time.Time
+	Group      string
+	Topic      string
+	ResponseCh chan Response
+}
+
+// Response defines responses returned upstream by the children.
+type Response struct {
+	Msg Message
+	Err error
 }
 
 // Message encapsulates a Kafka message returned by the consumer.
@@ -50,6 +70,15 @@ type Message struct {
 	Timestamp     time.Time // only set if Kafka is version 0.10+
 	HighWaterMark int64
 	EventsCh      chan<- Event
+}
+
+func NewRequest(group, topic string) Request {
+	return Request{
+		Timestamp:  time.Now().UTC(),
+		Group:      group,
+		Topic:      topic,
+		ResponseCh: make(chan Response, 1),
+	}
 }
 
 func Ack(offset int64) Event {

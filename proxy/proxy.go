@@ -20,6 +20,8 @@ const (
 )
 
 var (
+	ErrUnavailable = errors.New("service is shutting down")
+
 	noAck   = Ack{partition: -1}
 	autoAck = Ack{partition: -2}
 )
@@ -28,11 +30,17 @@ var (
 type T struct {
 	actDesc    *actor.Descriptor
 	cfg        *config.Proxy
-	producer   *producer.T
 	kafkaClt   sarama.Client
 	offsetMgrF offsetmgr.Factory
+
+	adminMu sync.RWMutex
+	admin   *admin.T
+
+	producerMu sync.RWMutex
+	producer   *producer.T
+
+	consumerMu sync.RWMutex
 	consumer   consumer.T
-	admin      *admin.T
 
 	// FIXME: We never remove stale elements from eventsChMap. It is sort of ok
 	// FIXME: since the number of group/topic/partition combinations is fairly
@@ -105,15 +113,25 @@ func Spawn(parentActDesc *actor.Descriptor, name string, cfg *config.Proxy) (*T,
 // Stop terminates the proxy instances synchronously.
 func (p *T) Stop() {
 	var wg sync.WaitGroup
+
+	p.producerMu.RLock()
 	if p.producer != nil {
-		actor.Spawn(p.actDesc.NewChild("prod_stop"), &wg, p.producer.Stop)
+		actor.Spawn(p.actDesc.NewChild("prod_stop"), &wg, p.stopProducer)
 	}
+	p.producerMu.RUnlock()
+
+	p.consumerMu.RLock()
 	if p.consumer != nil {
-		actor.Spawn(p.actDesc.NewChild("cons_stop"), &wg, p.consumer.Stop)
+		actor.Spawn(p.actDesc.NewChild("cons_stop"), &wg, p.stopConsumer)
 	}
+	p.consumerMu.RUnlock()
+
+	p.adminMu.RLock()
 	if p.admin != nil {
-		actor.Spawn(p.actDesc.NewChild("adm_stop"), &wg, p.admin.Stop)
+		actor.Spawn(p.actDesc.NewChild("adm_stop"), &wg, p.stopAdmin)
 	}
+	p.adminMu.RUnlock()
+
 	wg.Wait()
 	if p.offsetMgrF != nil {
 		p.offsetMgrF.Stop()
@@ -121,6 +139,28 @@ func (p *T) Stop() {
 	if p.kafkaClt != nil {
 		p.kafkaClt.Close()
 	}
+}
+
+func (p *T) stopConsumer() {
+	p.consumerMu.Lock()
+	cons := p.consumer
+	p.consumer = nil
+	p.consumerMu.Unlock()
+	cons.Stop()
+}
+
+func (p *T) stopProducer() {
+	p.producerMu.Lock()
+	prod := p.producer
+	p.producer = nil
+	p.producerMu.Unlock()
+	prod.Stop()
+}
+
+func (p *T) stopAdmin() {
+	p.adminMu.Lock()
+	p.admin.Stop()
+	p.adminMu.Unlock()
 }
 
 // Produce submits a message to the specified `topic` of the Kafka cluster
@@ -132,13 +172,28 @@ func (p *T) Stop() {
 // Errors usually indicate a catastrophic failure of the Kafka cluster, or
 // missing topic if there cluster is not configured to auto create topics.
 func (p *T) Produce(topic string, key, message sarama.Encoder) (*sarama.ProducerMessage, error) {
-	return p.producer.Produce(topic, key, message)
+	p.producerMu.RLock()
+	if p.producer == nil {
+		p.producerMu.RUnlock()
+		return nil, ErrUnavailable
+	}
+	responseCh := p.producer.AsyncProduce(topic, key, message)
+	p.producerMu.RUnlock()
+
+	rs := <-responseCh
+	return rs.Msg, rs.Err
 }
 
 // AsyncProduce is an asynchronously counterpart of the `Produce` function.
 // Errors are silently ignored.
 func (p *T) AsyncProduce(topic string, key, message sarama.Encoder) {
+	p.producerMu.RLock()
+	if p.producer == nil {
+		p.producerMu.RUnlock()
+		return
+	}
 	p.producer.AsyncProduce(topic, key, message)
+	p.producerMu.RUnlock()
 }
 
 // Consume consumes a message from the specified topic on behalf of the
@@ -168,20 +223,29 @@ func (p *T) Consume(group, topic string, ack Ack) (consumer.Message, error) {
 			}()
 		}
 	}
-	msg, err := p.consumer.Consume(group, topic)
-	if err != nil {
-		return consumer.Message{}, err
+
+	p.consumerMu.RLock()
+	if p.consumer == nil {
+		p.consumerMu.RUnlock()
+		return consumer.Message{}, ErrUnavailable
+	}
+	responseCh := p.consumer.AsyncConsume(group, topic)
+	p.consumerMu.RUnlock()
+
+	rs := <-responseCh
+	if rs.Err != nil {
+		return consumer.Message{}, rs.Err
 	}
 
-	eventsChID := eventsChID{group, topic, msg.Partition}
+	eventsChID := eventsChID{group, topic, rs.Msg.Partition}
 	p.eventsChMapMu.Lock()
-	p.eventsChMap[eventsChID] = msg.EventsCh
+	p.eventsChMap[eventsChID] = rs.Msg.EventsCh
 	p.eventsChMapMu.Unlock()
 
 	if ack == autoAck {
-		msg.EventsCh <- consumer.Ack(msg.Offset)
+		rs.Msg.EventsCh <- consumer.Ack(rs.Msg.Offset)
 	}
-	return msg, nil
+	return rs.Msg, nil
 }
 
 func (p *T) Ack(group, topic string, ack Ack) error {
@@ -190,7 +254,7 @@ func (p *T) Ack(group, topic string, ack Ack) error {
 	eventsCh, ok := p.eventsChMap[eventsChID]
 	p.eventsChMapMu.RUnlock()
 	if !ok {
-		return errors.New("acks channel missing")
+		return errors.Errorf("acks channel missing for %v", eventsChID)
 	}
 	select {
 	case eventsCh <- consumer.Ack(ack.offset):
@@ -204,18 +268,33 @@ func (p *T) Ack(group, topic string, ack Ack) error {
 // current offset range along with the latest offset and metadata committed by
 // the specified consumer group.
 func (p *T) GetGroupOffsets(group, topic string) ([]admin.PartitionOffset, error) {
+	p.adminMu.RLock()
+	defer p.adminMu.RUnlock()
+	if p.admin == nil {
+		return nil, ErrUnavailable
+	}
 	return p.admin.GetGroupOffsets(group, topic)
 }
 
 // SetGroupOffsets commits specific offset values along with metadata for a list
 // of partitions of a particular topic on behalf of the specified group.
 func (p *T) SetGroupOffsets(group, topic string, offsets []admin.PartitionOffset) error {
+	p.adminMu.RLock()
+	defer p.adminMu.RUnlock()
+	if p.admin == nil {
+		return ErrUnavailable
+	}
 	return p.admin.SetGroupOffsets(group, topic, offsets)
 }
 
 // GetTopicConsumers returns client-id -> consumed-partitions-list mapping
 // for a clients from a particular consumer group and a particular topic.
 func (p *T) GetTopicConsumers(group, topic string) (map[string][]int32, error) {
+	p.adminMu.RLock()
+	defer p.adminMu.RUnlock()
+	if p.admin == nil {
+		return nil, ErrUnavailable
+	}
 	return p.admin.GetTopicConsumers(group, topic)
 }
 
@@ -223,5 +302,10 @@ func (p *T) GetTopicConsumers(group, topic string) (map[string][]int32, error) {
 // mapping for a particular topic. Warning, the function performs scan of all
 // consumer groups registered in ZooKeeper and therefore can take a lot of time.
 func (p *T) GetAllTopicConsumers(topic string) (map[string]map[string][]int32, error) {
+	p.adminMu.RLock()
+	defer p.adminMu.RUnlock()
+	if p.admin == nil {
+		return nil, ErrUnavailable
+	}
 	return p.admin.GetAllTopicConsumers(topic)
 }

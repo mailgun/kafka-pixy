@@ -24,6 +24,7 @@ service KafkaPixy {
     // gRPC error codes:
     //  * Invalid Argument (3): see the status description for details;
     //  * Internal (13): see the status description and logs for details;
+    //  * Unavailable (14): the service is shutting down.
     rpc Produce (ProdRq) returns (ProdRs) {}
 
     // Consume reads a message from a topic and optionally acknowledges a
@@ -59,6 +60,7 @@ service KafkaPixy {
     //    config.yaml:proxies.<cluster>.consumer.channel_buffer_size;
     //  * Invalid Argument (3): see the status description for details;
     //  * Internal (13): see the status description and logs for details;
+    //  * Unavailable (14): the service is shutting down.
     rpc ConsumeNAck (ConsNAckRq) returns (ConsRs) {}
 
     // Ack acknowledges a message earlier consumed from a topic.

@@ -642,6 +642,7 @@ try:
       gRPC error codes:
       * Invalid Argument (3): see the status description for details;
       * Internal (13): see the status description and logs for details;
+      * Unavailable (14): the service is shutting down.
       """
       context.set_code(grpc.StatusCode.UNIMPLEMENTED)
       context.set_details('Method not implemented!')
@@ -681,6 +682,7 @@ try:
       config.yaml:proxies.<cluster>.consumer.channel_buffer_size;
       * Invalid Argument (3): see the status description for details;
       * Internal (13): see the status description and logs for details;
+      * Unavailable (14): the service is shutting down.
       """
       context.set_code(grpc.StatusCode.UNIMPLEMENTED)
       context.set_details('Method not implemented!')
@@ -771,6 +773,7 @@ try:
       gRPC error codes:
       * Invalid Argument (3): see the status description for details;
       * Internal (13): see the status description and logs for details;
+      * Unavailable (14): the service is shutting down.
       """
       context.code(beta_interfaces.StatusCode.UNIMPLEMENTED)
     def ConsumeNAck(self, request, context):
@@ -807,6 +810,7 @@ try:
       config.yaml:proxies.<cluster>.consumer.channel_buffer_size;
       * Invalid Argument (3): see the status description for details;
       * Internal (13): see the status description and logs for details;
+      * Unavailable (14): the service is shutting down.
       """
       context.code(beta_interfaces.StatusCode.UNIMPLEMENTED)
     def Ack(self, request, context):
@@ -861,6 +865,7 @@ try:
       gRPC error codes:
       * Invalid Argument (3): see the status description for details;
       * Internal (13): see the status description and logs for details;
+      * Unavailable (14): the service is shutting down.
       """
       raise NotImplementedError()
     Produce.future = None
@@ -898,6 +903,7 @@ try:
       config.yaml:proxies.<cluster>.consumer.channel_buffer_size;
       * Invalid Argument (3): see the status description for details;
       * Internal (13): see the status description and logs for details;
+      * Unavailable (14): the service is shutting down.
       """
       raise NotImplementedError()
     ConsumeNAck.future = None

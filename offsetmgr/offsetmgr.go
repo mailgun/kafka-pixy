@@ -130,6 +130,10 @@ func (f *factory) Spawn(namespace *actor.Descriptor, group, topic string, partit
 	if testReportErrors {
 		om.testErrorsCh = make(chan error, f.cfg.Consumer.ChannelBufferSize)
 	}
+
+	om.retryTimer = time.NewTimer(0)
+	<-om.retryTimer.C
+
 	f.children[id] = om
 	actor.Spawn(om.actDesc, &om.wg, om.run)
 	return om, nil
@@ -191,6 +195,9 @@ type offsetMgr struct {
 	committedOffsetsCh chan Offset
 	wg                 sync.WaitGroup
 
+	retryTimer        *time.Timer
+	nilOrRetryTimerCh <-chan time.Time
+
 	assignedBrokerRequestsCh  chan<- submitReq
 	nilOrBrokerRequestsCh     chan<- submitReq
 	nilOrReassignRetryTimerCh <-chan time.Time
@@ -233,7 +240,7 @@ func (om *offsetMgr) run() {
 	if om.testErrorsCh != nil {
 		defer close(om.testErrorsCh)
 	}
-
+	defer om.retryTimer.Stop()
 	om.f.onOffsetMgrSpawned(om)
 	defer om.f.onOffsetMgrStopped(om)
 
@@ -244,11 +251,8 @@ func (om *offsetMgr) run() {
 		submitResponseCh      = make(chan submitRes, 1)
 		initialOffsetFetched  = false
 		stopped               = false
-		commitTicker          = time.NewTicker(om.f.cfg.Consumer.OffsetsCommitInterval)
-		offsetCommitTimeout   = om.f.cfg.Consumer.OffsetsCommitInterval * 3
 		lastSubmitTime        time.Time
 	)
-	defer commitTicker.Stop()
 	for {
 		select {
 		case bw := <-om.assignmentCh:
@@ -279,7 +283,9 @@ func (om *offsetMgr) run() {
 				if lastSubmitRequest.offset == lastCommittedOffset {
 					return
 				}
-				stopped, nilOrSubmitRequestsCh = true, nil
+				// Keep running until the last submitter offset is committed.
+				stopped = true
+				nilOrSubmitRequestsCh = nil
 				continue
 			}
 			lastSubmitRequest = submitReq
@@ -289,6 +295,10 @@ func (om *offsetMgr) run() {
 		case om.nilOrBrokerRequestsCh <- lastSubmitRequest:
 			om.nilOrBrokerRequestsCh = nil
 			lastSubmitTime = time.Now().UTC()
+			if om.nilOrRetryTimerCh == nil {
+				om.retryTimer.Reset(om.f.cfg.Consumer.OffsetsCommitTimeout)
+				om.nilOrRetryTimerCh = om.retryTimer.C
+			}
 
 		case submitRes := <-submitResponseCh:
 			if err := om.getCommitError(submitRes.kafkaRes); err != nil {
@@ -300,11 +310,20 @@ func (om *offsetMgr) run() {
 			if stopped && lastSubmitRequest.offset == lastCommittedOffset {
 				return
 			}
-		case <-commitTicker.C:
-			took := time.Now().UTC().Sub(lastSubmitTime)
-			if took > offsetCommitTimeout && lastSubmitRequest.offset != lastCommittedOffset {
-				om.triggerOrScheduleReassign(errors.Errorf("request timeout %v", took))
+		case <-om.nilOrRetryTimerCh:
+			om.nilOrRetryTimerCh = nil
+			if lastSubmitRequest.offset == lastCommittedOffset {
+				continue
 			}
+			sinceLastSubmit := time.Now().UTC().Sub(lastSubmitTime)
+			if sinceLastSubmit >= om.f.cfg.Consumer.OffsetsCommitTimeout {
+				om.triggerOrScheduleReassign(errors.Errorf("request timeout %v", sinceLastSubmit))
+				continue
+			}
+			timeoutLeft := om.f.cfg.Consumer.OffsetsCommitTimeout - sinceLastSubmit
+			om.retryTimer.Reset(timeoutLeft)
+			om.nilOrRetryTimerCh = om.retryTimer.C
+
 		case <-om.nilOrReassignRetryTimerCh:
 			om.f.mapper.TriggerReassign(om)
 			om.actDesc.Log().Info("reassign triggered by timeout")
@@ -313,7 +332,18 @@ func (om *offsetMgr) run() {
 	}
 }
 
+func (om *offsetMgr) stopRetryTimer() {
+	if om.nilOrRetryTimerCh == nil {
+		return
+	}
+	if !om.retryTimer.Stop() {
+		<-om.retryTimer.C
+	}
+	om.nilOrRetryTimerCh = nil
+}
+
 func (om *offsetMgr) triggerOrScheduleReassign(err error) {
+	om.stopRetryTimer()
 	om.reportError(err)
 	om.assignedBrokerRequestsCh = nil
 	om.nilOrBrokerRequestsCh = nil

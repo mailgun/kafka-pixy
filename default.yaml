@@ -104,8 +104,8 @@ proxies:
       # the fetch request if there isn't data immediately available.
       fetch_max_wait: 250ms
 
-      # Consume request will wait at most this long until a message from the
-      # specified group/topic becomes available.
+      # Consume request will wait at most this long until for a message from a
+      # topic to become available before expiring.
       long_polling_timeout: 3s
 
       # The maximum number of unacknowledged messages allowed for a particular
@@ -127,11 +127,10 @@ proxies:
       # consumer joined/left its consumer group before starting rebalancing.
       rebalance_delay: 250ms
 
-      # Period of time that Kafka-Pixy should keep registration with a consumer
-      # group or subscription for a topic in the absence of requests to the
-      # consumer group or topic.
-      registration_timeout: 20s
-
       # If a request to a Kafka-Pixy fails for any reason, then it should wait this
       # long before retrying.
       retry_backoff: 500ms
+
+      # Period of time that Kafka-Pixy should keep a subscription for a
+      # topic by a group in absence of requests to from the consumer group.
+      subscription_timeout: 20s

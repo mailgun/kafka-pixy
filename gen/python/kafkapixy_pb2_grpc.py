@@ -61,6 +61,7 @@ class KafkaPixyServicer(object):
     gRPC error codes:
     * Invalid Argument (3): see the status description for details;
     * Internal (13): see the status description and logs for details;
+    * Unavailable (14): the service is shutting down.
     """
     context.set_code(grpc.StatusCode.UNIMPLEMENTED)
     context.set_details('Method not implemented!')
@@ -100,6 +101,7 @@ class KafkaPixyServicer(object):
     config.yaml:proxies.<cluster>.consumer.channel_buffer_size;
     * Invalid Argument (3): see the status description for details;
     * Internal (13): see the status description and logs for details;
+    * Unavailable (14): the service is shutting down.
     """
     context.set_code(grpc.StatusCode.UNIMPLEMENTED)
     context.set_details('Method not implemented!')

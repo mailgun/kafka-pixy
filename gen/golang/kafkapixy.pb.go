@@ -507,6 +507,7 @@ type KafkaPixyClient interface {
 	// gRPC error codes:
 	//  * Invalid Argument (3): see the status description for details;
 	//  * Internal (13): see the status description and logs for details;
+	//  * Unavailable (14): the service is shutting down.
 	Produce(ctx context.Context, in *ProdRq, opts ...grpc.CallOption) (*ProdRs, error)
 	// Consume reads a message from a topic and optionally acknowledges a
 	// message previously consumed from the same topic.
@@ -541,6 +542,7 @@ type KafkaPixyClient interface {
 	//    config.yaml:proxies.<cluster>.consumer.channel_buffer_size;
 	//  * Invalid Argument (3): see the status description for details;
 	//  * Internal (13): see the status description and logs for details;
+	//  * Unavailable (14): the service is shutting down.
 	ConsumeNAck(ctx context.Context, in *ConsNAckRq, opts ...grpc.CallOption) (*ConsRs, error)
 	// Ack acknowledges a message earlier consumed from a topic.
 	//
@@ -630,6 +632,7 @@ type KafkaPixyServer interface {
 	// gRPC error codes:
 	//  * Invalid Argument (3): see the status description for details;
 	//  * Internal (13): see the status description and logs for details;
+	//  * Unavailable (14): the service is shutting down.
 	Produce(context.Context, *ProdRq) (*ProdRs, error)
 	// Consume reads a message from a topic and optionally acknowledges a
 	// message previously consumed from the same topic.
@@ -664,6 +667,7 @@ type KafkaPixyServer interface {
 	//    config.yaml:proxies.<cluster>.consumer.channel_buffer_size;
 	//  * Invalid Argument (3): see the status description for details;
 	//  * Internal (13): see the status description and logs for details;
+	//  * Unavailable (14): the service is shutting down.
 	ConsumeNAck(context.Context, *ConsNAckRq) (*ConsRs, error)
 	// Ack acknowledges a message earlier consumed from a topic.
 	//

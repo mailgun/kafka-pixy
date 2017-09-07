@@ -255,7 +255,7 @@ func (a *T) GetTopicConsumers(group, topic string) (map[string][]int32, error) {
 	}
 
 	for _, partitions := range consumers {
-		sort.Sort(int32Slice(partitions))
+		sort.Slice(partitions, func(i, j int) bool { return partitions[i] < partitions[j] })
 	}
 
 	return consumers, nil
@@ -328,9 +328,3 @@ func getOffsetResult(res *sarama.OffsetResponse, topic string, partition int32) 
 	}
 	return block.Offsets[0], nil
 }
-
-type int32Slice []int32
-
-func (p int32Slice) Len() int           { return len(p) }
-func (p int32Slice) Less(i, j int) bool { return p[i] < p[j] }
-func (p int32Slice) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }

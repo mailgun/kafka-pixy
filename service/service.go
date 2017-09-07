@@ -95,30 +95,33 @@ func (s *T) run() {
 		Chan: reflect.ValueOf(s.stopCh),
 	}
 
-	// Wait until either an error is reported by one of the servers or a Stop
-	// is called.
+	// Block until either an server error is reported or a Stop is called.
 	chosen, val, ok := reflect.Select(selectCases)
 	if chosen < len(s.servers) && ok {
 		serverErr := val.Interface().(error)
 		s.actDesc.Log().WithError(serverErr).Error("API server crashed")
 	}
 
-	// Initiate stop of all API servers.
+	s.actDesc.Log().Info("Shutting down")
+
+	// Stop all proxies first. It is important to keep API servers running
+	// so that offered messages can be acknowledged by consumers.
+	s.stopProxies()
+	s.actDesc.Log().Info("All proxies shutdown")
+
+	// Stop all API servers.
 	var wg sync.WaitGroup
 	for _, srv := range s.servers {
 		actor.Spawn(s.actDesc.NewChild("srv_stop"), &wg, srv.Stop)
 	}
 	wg.Wait()
-
-	// There are no more requests in flight at this point so it is safe to stop
-	// all proxies.
-	s.stopProxies()
+	s.actDesc.Log().Info("All API servers shutdown")
 }
 
 func (s *T) stopProxies() {
 	var wg sync.WaitGroup
 	for pxyAlias, pxy := range s.proxies {
-		actor.Spawn(s.actDesc.NewChild(fmt.Sprintf("%s_stop", pxyAlias)), &wg, pxy.Stop)
+		actor.Spawn(s.actDesc.NewChild(fmt.Sprintf("%s_pxy_stop", pxyAlias)), &wg, pxy.Stop)
 	}
 	wg.Wait()
 }

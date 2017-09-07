@@ -61,25 +61,23 @@ func (s *ConsumerSuite) TestInitialOffsetTooLarge(c *C) {
 	newestOffsets := s.kh.GetNewestOffsets("test.1")
 	log.Infof("*** test.1 offsets: oldest=%v, newest=%v", oldestOffsets, newestOffsets)
 
-	omf := offsetmgr.SpawnFactory(s.ns, config.DefaultProxy(), s.kh.KafkaClt())
-	defer omf.Stop()
-	om, err := omf.Spawn(s.ns, "g1", "test.1", 0)
+	om, err := s.omf.Spawn(s.ns, "g1", "test.1", 0)
 	c.Assert(err, IsNil)
 	om.SubmitOffset(offsetmgr.Offset{newestOffsets[0] + 3, ""})
 	om.Stop()
 
-	sc, err := Spawn(s.ns, s.cfg, s.omf)
+	cons, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
-	defer sc.Stop()
+	defer cons.Stop()
 
 	// When
-	_, err = sc.Consume("g1", "test.1")
+	_, err = cons.Consume("g1", "test.1")
 
 	// Then
 	c.Assert(err, Equals, consumer.ErrRequestTimeout)
 
 	produced := s.kh.PutMessages("offset-too-large", "test.1", map[string]int{"key": 5})
-	consumed := consume(c, sc, "g1", "test.1", 1, 5*time.Second)
+	consumed := consume(c, cons, "g1", "test.1", 1, 5*time.Second)
 	c.Assert(consumed["key"][0].Offset, Equals, newestOffsets[0]+3)
 	assertMsg(c, consumed["key"][0], produced["key"][3])
 }
@@ -91,12 +89,12 @@ func (s *ConsumerSuite) TestSinglePartitionTopic(c *C) {
 	s.kh.ResetOffsets("g1", "test.1")
 	produced := s.kh.PutMessages("single", "test.1", map[string]int{"": 3})
 
-	sc, err := Spawn(s.ns, s.cfg, s.omf)
+	cons, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
-	defer sc.Stop()
+	defer cons.Stop()
 
 	// When/Then
-	consumed := consume(c, sc, "g1", "test.1", 1, 5*time.Second)
+	consumed := consume(c, cons, "g1", "test.1", 1, 5*time.Second)
 	assertMsg(c, consumed[""][0], produced[""][0])
 }
 
@@ -107,23 +105,23 @@ func (s *ConsumerSuite) TestSequentialConsume(c *C) {
 	s.kh.ResetOffsets("g1", "test.1")
 	produced := s.kh.PutMessages("sequencial", "test.1", map[string]int{"": 3})
 
-	sc1, err := Spawn(s.ns, s.cfg, s.omf)
+	cons, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
 	log.Infof("*** GIVEN 1")
-	consumed := consume(c, sc1, "g1", "test.1", 2, 5*time.Second)
+	consumed := consume(c, cons, "g1", "test.1", 2, 5*time.Second)
 	assertMsg(c, consumed[""][0], produced[""][0])
 	assertMsg(c, consumed[""][1], produced[""][1])
 
 	// When: one consumer stopped and another one takes its place.
 	log.Infof("*** WHEN")
-	sc1.Stop()
-	sc2, err := Spawn(s.ns, s.cfg, s.omf)
+	cons.Stop()
+	cons, err = Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
-	defer sc2.Stop()
+	defer cons.Stop()
 
 	// Then: the second message is consumed.
 	log.Infof("*** THEN")
-	consumed = consume(c, sc2, "g1", "test.1", 1, 5*time.Second, consumed)
+	consumed = consume(c, cons, "g1", "test.1", 1, 5*time.Second, consumed)
 	assertMsg(c, consumed[""][2], produced[""][2])
 }
 
@@ -135,17 +133,17 @@ func (s *ConsumerSuite) TestMultiplePartitions(c *C) {
 	s.kh.PutMessages("multiple.partitions", "test.4", map[string]int{"A": 100, "B": 100})
 
 	log.Infof("*** GIVEN 1")
-	sc, err := Spawn(s.ns, s.cfg, s.omf)
+	cons, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
-	defer sc.Stop()
+	defer cons.Stop()
 
 	// When: exactly one half of all produced events is consumed.
 	log.Infof("*** WHEN")
-	consumed := consume(c, sc, "g1", "test.4", 1, 5*time.Second)
+	consumed := consume(c, cons, "g1", "test.4", 1, 5*time.Second)
 	// Wait until first messages from partitions `A` and `B` are fetched.
-	waitFirstFetched(sc, 2)
+	waitFirstFetched(cons, 2)
 	// Consume 100 messages total
-	consumed = consume(c, sc, "g1", "test.4", 99, 20*time.Second, consumed)
+	consumed = consume(c, cons, "g1", "test.4", 99, 20*time.Second, consumed)
 
 	// Then: we have events consumed from both partitions more or less evenly.
 	log.Infof("*** THEN")
@@ -163,15 +161,15 @@ func (s *ConsumerSuite) TestMultipleTopics(c *C) {
 	produced4 := s.kh.PutMessages("multiple.topics", "test.4", map[string]int{"B": 1, "C": 1})
 
 	log.Infof("*** GIVEN 1")
-	sc, err := Spawn(s.ns, s.cfg, s.omf)
+	cons, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
-	defer sc.Stop()
+	defer cons.Stop()
 
 	// When
 	log.Infof("*** WHEN")
-	consumed := consume(c, sc, "g1", "test.4", 1, 5*time.Second)
-	consumed = consume(c, sc, "g1", "test.1", 1, 5*time.Second, consumed)
-	consumed = consume(c, sc, "g1", "test.4", 1, 5*time.Second, consumed)
+	consumed := consume(c, cons, "g1", "test.4", 1, 5*time.Second)
+	consumed = consume(c, cons, "g1", "test.1", 1, 5*time.Second, consumed)
+	consumed = consume(c, cons, "g1", "test.4", 1, 5*time.Second, consumed)
 
 	// Then
 	log.Infof("*** THEN")
@@ -189,16 +187,16 @@ func (s *ConsumerSuite) TestMultipleGroups(c *C) {
 	s.kh.PutMessages("multi", "test.4", map[string]int{"A": 10, "B": 10, "C": 10})
 
 	log.Infof("*** GIVEN 1")
-	sc, err := Spawn(s.ns, s.cfg, s.omf)
+	cons, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
-	defer sc.Stop()
+	defer cons.Stop()
 
 	// When
 	log.Infof("*** WHEN")
-	consumed1 := consume(c, sc, "g1", "test.4", 10, 5*time.Second)
-	consumed2 := consume(c, sc, "g2", "test.4", 20, 5*time.Second)
-	consumed1 = consume(c, sc, "g1", "test.4", 20, 5*time.Second, consumed1)
-	consumed2 = consume(c, sc, "g2", "test.4", 10, 5*time.Second, consumed2)
+	consumed1 := consume(c, cons, "g1", "test.4", 10, 5*time.Second)
+	consumed2 := consume(c, cons, "g2", "test.4", 20, 5*time.Second)
+	consumed1 = consume(c, cons, "g1", "test.4", 20, 5*time.Second, consumed1)
+	consumed2 = consume(c, cons, "g2", "test.4", 10, 5*time.Second, consumed2)
 
 	// Then: both groups consumed the same events
 	log.Infof("*** THEN")
@@ -212,26 +210,29 @@ func (s *ConsumerSuite) TestTooFewPartitions(c *C) {
 	s.kh.ResetOffsets("g1", "test.1")
 	produced := s.kh.PutMessages("few", "test.1", map[string]int{"": 3})
 
-	sc1, err := Spawn(s.ns, s.cfg, s.omf)
+	cons, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
-	defer sc1.Stop()
+	defer cons.Stop()
 	log.Infof("*** GIVEN 1")
 	// Consume first message to make `consumer-1` subscribe for `test.1`
-	consumed := consume(c, sc1, "g1", "test.1", 2, 5*time.Second)
+	consumed := consume(c, cons, "g1", "test.1", 2, 5*time.Second)
 	assertMsg(c, consumed[""][0], produced[""][0])
 
 	// When:
 	log.Infof("*** WHEN")
-	sc2, err := Spawn(s.ns, testhelpers.NewTestProxyCfg("c2"), s.omf)
+	cfg1 := testhelpers.NewTestProxyCfg("c2")
+	omf1 := offsetmgr.SpawnFactory(s.ns, cfg1, s.kh.KafkaClt())
+	defer omf1.Stop()
+	cons1, err := Spawn(s.ns, cfg1, omf1)
 	c.Assert(err, IsNil)
-	defer sc2.Stop()
-	_, err = sc2.Consume("g1", "test.1")
+	defer cons1.Stop()
+	_, err = cons1.Consume("g1", "test.1")
 
 	// Then: `consumer-2` request times out, when `consumer-1` requests keep
 	// return messages.
 	log.Infof("*** THEN")
 	c.Assert(err, Equals, consumer.ErrRequestTimeout)
-	consume(c, sc1, "g1", "test.1", 1, 5*time.Second, consumed)
+	consume(c, cons, "g1", "test.1", 1, 5*time.Second, consumed)
 	assertMsg(c, consumed[""][1], produced[""][1])
 }
 
@@ -242,35 +243,38 @@ func (s *ConsumerSuite) TestRebalanceOnJoin(c *C) {
 	s.kh.ResetOffsets("g1", "test.4")
 	s.kh.PutMessages("join", "test.4", map[string]int{"A": 10, "B": 10})
 
-	sc1, err := Spawn(s.ns, s.cfg, s.omf)
+	cons, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
-	defer sc1.Stop()
+	defer cons.Stop()
 
 	// Consume the first message to make the consumer join the group and
 	// subscribe to the topic.
 	log.Infof("*** GIVEN 1")
-	consumed1 := consume(c, sc1, "g1", "test.4", 1, 5*time.Second)
+	consumed1 := consume(c, cons, "g1", "test.4", 1, 5*time.Second)
 	// Wait until first messages from partitions `A` and `B` are fetched.
-	waitFirstFetched(sc1, 2)
+	waitFirstFetched(cons, 2)
 
 	// Consume 4 messages and make sure that there are messages from both
 	// partitions among them.
 	log.Infof("*** GIVEN 2")
-	consumed1 = consume(c, sc1, "g1", "test.4", 4, 5*time.Second, consumed1)
+	consumed1 = consume(c, cons, "g1", "test.4", 4, 5*time.Second, consumed1)
 	c.Assert(len(consumed1["A"]), Not(Equals), 0)
 	c.Assert(len(consumed1["B"]), Not(Equals), 0)
 	consumedBeforeJoin := len(consumed1["B"])
 
 	// When: another consumer joins the group rebalancing occurs.
 	log.Infof("*** WHEN")
-	sc2, err := Spawn(s.ns, testhelpers.NewTestProxyCfg("c2"), s.omf)
+	cfg1 := testhelpers.NewTestProxyCfg("c2")
+	omf1 := offsetmgr.SpawnFactory(s.ns, cfg1, s.kh.KafkaClt())
+	defer omf1.Stop()
+	cons1, err := Spawn(s.ns, cfg1, omf1)
 	c.Assert(err, IsNil)
-	defer sc2.Stop()
+	defer cons1.Stop()
 
 	// Then:
 	log.Infof("*** THEN")
-	consumed2 := consume(c, sc2, "g1", "test.4", consumeAll, 5*time.Second)
-	consumed1 = consume(c, sc1, "g1", "test.4", consumeAll, 5*time.Second, consumed1)
+	consumed2 := consume(c, cons1, "g1", "test.4", consumeAll, 5*time.Second)
+	consumed1 = consume(c, cons, "g1", "test.4", consumeAll, 5*time.Second, consumed1)
 	// Partition "A" has been consumed by `consumer-1` only
 	c.Assert(len(consumed1["A"]), Equals, 10)
 	c.Assert(len(consumed2["A"]), Equals, 0)
@@ -293,7 +297,10 @@ func (s *ConsumerSuite) TestRebalanceOnLeave(c *C) {
 	var err error
 	consumers := make([]*t, 3)
 	for i := 0; i < 3; i++ {
-		consumers[i], err = Spawn(s.ns, testhelpers.NewTestProxyCfg(fmt.Sprintf("c%d", i)), s.omf)
+		cfg := testhelpers.NewTestProxyCfg(fmt.Sprintf("c%d", i))
+		omf := offsetmgr.SpawnFactory(s.ns, cfg, s.kh.KafkaClt())
+		defer omf.Stop()
+		consumers[i], err = Spawn(s.ns, cfg, omf)
 		c.Assert(err, IsNil)
 	}
 	defer consumers[0].Stop()
@@ -369,20 +376,22 @@ func (s *ConsumerSuite) TestRebalanceOnTimeout(c *C) {
 	s.kh.ResetOffsets("g1", "test.4")
 	s.kh.PutMessages("timeout", "test.4", map[string]int{"A": 10, "B": 10})
 
-	sc0, err := Spawn(s.ns, s.cfg, s.omf)
+	cons, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
-	defer sc0.Stop()
+	defer cons.Stop()
 
-	cfg2 := testhelpers.NewTestProxyCfg("c2")
-	cfg2.Consumer.RegistrationTimeout = 500 * time.Millisecond
-	sc1, err := Spawn(s.ns, cfg2, s.omf)
+	cfg1 := testhelpers.NewTestProxyCfg("c2")
+	cfg1.Consumer.SubscriptionTimeout = 500 * time.Millisecond
+	omf1 := offsetmgr.SpawnFactory(s.ns, cfg1, s.kh.KafkaClt())
+	defer omf1.Stop()
+	sc1, err := Spawn(s.ns, cfg1, omf1)
 	c.Assert(err, IsNil)
 	defer sc1.Stop()
 
 	// Consume the first message to make the consumers join the group and
 	// subscribe to the topic.
 	log.Infof("*** GIVEN 1")
-	consumed[0] = consume(c, sc0, "g1", "test.4", 1, 5*time.Second)
+	consumed[0] = consume(c, cons, "g1", "test.4", 1, 5*time.Second)
 	consumed[1] = consume(c, sc1, "g1", "test.4", 1, 5*time.Second)
 
 	if len(consumed[0]["B"]) == 0 {
@@ -397,7 +406,7 @@ func (s *ConsumerSuite) TestRebalanceOnTimeout(c *C) {
 	// partition assigned to it.
 	log.Infof("*** GIVEN 2")
 	actor.Spawn(s.ns.NewChild("consume[0]"), &wg, func() {
-		consumed[0] = consume(c, sc0, "g1", "test.4", 4, 5*time.Second, consumed[0])
+		consumed[0] = consume(c, cons, "g1", "test.4", 4, 5*time.Second, consumed[0])
 	})
 	actor.Spawn(s.ns.NewChild("consume[1]"), &wg, func() {
 		consumed[1] = consume(c, sc1, "g1", "test.4", 4, 5*time.Second, consumed[1])
@@ -412,17 +421,17 @@ func (s *ConsumerSuite) TestRebalanceOnTimeout(c *C) {
 	c.Assert(len(consumed[1]["A"]), Equals, 0)
 	c.Assert(len(consumed[1]["B"]), Equals, 5)
 
-	drainFirstFetched(sc0)
+	drainFirstFetched(cons)
 
 	// When: `consumer-2` registration timeout elapses, the partitions get
 	// rebalanced so that `consumer-1` becomes assigned to all of them...
 	log.Infof("*** WHEN")
 	// Wait for partition `B` reassigned back to sc1.
-	waitFirstFetched(sc0, 1)
+	waitFirstFetched(cons, 1)
 
 	// ...and consumes the remaining messages from all partitions.
 	log.Infof("*** THEN")
-	consumed[0] = consume(c, sc0, "g1", "test.4", 10, 5*time.Second, consumed[0])
+	consumed[0] = consume(c, cons, "g1", "test.4", 10, 5*time.Second, consumed[0])
 	c.Assert(len(consumed[0]["A"]), Equals, 10)
 	c.Assert(len(consumed[0]["B"]), Equals, 5)
 	c.Assert(len(consumed[1]["A"]), Equals, 0)
@@ -437,9 +446,9 @@ func (s *ConsumerSuite) TestTooManyRequestsError(c *C) {
 	s.kh.PutMessages("join", "test.1", map[string]int{"A": 30})
 
 	s.cfg.Consumer.ChannelBufferSize = 1
-	sc, err := Spawn(s.ns, s.cfg, s.omf)
+	cons, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
-	defer sc.Stop()
+	defer cons.Stop()
 
 	// When
 	var tooManyRequestsCount int32
@@ -449,7 +458,7 @@ func (s *ConsumerSuite) TestTooManyRequestsError(c *C) {
 		go func() {
 			defer wg.Done()
 			for i := 0; i < 10; i++ {
-				_, err := sc.Consume("g1", "test.1")
+				_, err := cons.Consume("g1", "test.1")
 				if err == consumer.ErrTooManyRequests {
 					atomic.AddInt32(&tooManyRequestsCount, 1)
 				}
@@ -468,12 +477,12 @@ func (s *ConsumerSuite) TestTooManyRequestsError(c *C) {
 func (s *ConsumerSuite) TestInvalidTopic(c *C) {
 	// Given
 	s.cfg.Consumer.LongPollingTimeout = 1 * time.Second
-	sc, err := Spawn(s.ns, s.cfg, s.omf)
+	cons, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
-	defer sc.Stop()
+	defer cons.Stop()
 
 	// When
-	_, err = sc.Consume("g1", "no-such-topic")
+	_, err = cons.Consume("g1", "no-such-topic")
 
 	// Then
 	c.Assert(err, Equals, consumer.ErrRequestTimeout)
@@ -484,18 +493,18 @@ func (s *ConsumerSuite) TestLotsOfPartitions(c *C) {
 	// Given
 	s.kh.ResetOffsets("g1", "test.64")
 
-	sc, err := Spawn(s.ns, s.cfg, s.omf)
+	cons, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
-	defer sc.Stop()
+	defer cons.Stop()
 
 	// Consume should stop by timeout and nothing should be consumed.
-	msg, err := sc.Consume("g1", "test.64")
+	msg, err := cons.Consume("g1", "test.64")
 	c.Assert(err, Equals, consumer.ErrRequestTimeout, Commentf("Unexpected message consumed, %v", msg))
 	s.kh.PutMessages("lots", "test.64", map[string]int{"A": 7, "B": 13, "C": 169})
 
 	// When
 	log.Infof("*** WHEN")
-	consumed := consume(c, sc, "g1", "test.64", 189, 10*time.Second)
+	consumed := consume(c, cons, "g1", "test.64", 189, 10*time.Second)
 
 	// Then
 	log.Infof("*** THEN")
@@ -512,32 +521,32 @@ func (s *ConsumerSuite) TestNewGroup(c *C) {
 	s.kh.PutMessages("rand", "test.1", map[string]int{"A1": 1})
 
 	group := fmt.Sprintf("g%d", time.Now().Unix())
-	sc, err := Spawn(s.ns, s.cfg, s.omf)
+	cons, err := Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
 
 	// The very first consumption of a group is terminated by timeout because
 	// the default offset is the topic head.
-	msg, err := sc.Consume(group, "test.1")
+	msg, err := cons.Consume(group, "test.1")
 	c.Assert(err, Equals, consumer.ErrRequestTimeout, Commentf("Unexpected message consumed, %v", msg))
 
 	// When: consumer is stopped, the concrete head offset is committed.
-	sc.Stop()
+	cons.Stop()
 
 	// Then: message produced after that will be consumed by the new consumer
 	// instance from the same group.
 	produced := s.kh.PutMessages("rand", "test.1", map[string]int{"A2": 1})
-	sc, err = Spawn(s.ns, s.cfg, s.omf)
+	cons, err = Spawn(s.ns, s.cfg, s.omf)
 	c.Assert(err, IsNil)
-	defer sc.Stop()
-	msg, err = sc.Consume(group, "test.1")
+	defer cons.Stop()
+	msg, err = cons.Consume(group, "test.1")
 	c.Assert(err, IsNil)
 	assertMsg(c, msg, produced["A2"][0])
 }
 
-// If a consumer stops consuming one of the topics for more than
-// `Config.Consumer.RegistrationTimeout` then the topic partitions are
-// rebalanced between active consumers, but the consumer keeps consuming
-// messages from other topics.
+// If a consumer stops consuming one of the topics for more than the
+// subscription timeout, then the topic partitions are rebalanced between
+// active consumers, but the consumer keeps consuming messages from other
+// topics.
 func (s *ConsumerSuite) TestTopicTimeout(c *C) {
 	s.kh.ResetOffsets("g1", "test.1")
 	s.kh.PutMessages("topic-expire", "test.1", map[string]int{"A": 10})
@@ -545,27 +554,29 @@ func (s *ConsumerSuite) TestTopicTimeout(c *C) {
 	s.kh.PutMessages("topic-expire", "test.4", map[string]int{"B": 10})
 
 	s.cfg.Consumer.LongPollingTimeout = 3000 * time.Millisecond
-	s.cfg.Consumer.RegistrationTimeout = 10000 * time.Millisecond
-	cons1, err := Spawn(s.ns, s.cfg, s.omf)
+	s.cfg.Consumer.SubscriptionTimeout = 10000 * time.Millisecond
+	cons, err := Spawn(s.ns, s.cfg, s.omf)
+	c.Assert(err, IsNil)
+	defer cons.Stop()
+
+	cfg1 := testhelpers.NewTestProxyCfg("c2")
+	cfg1.Consumer.LongPollingTimeout = 3000 * time.Millisecond
+	cfg1.Consumer.SubscriptionTimeout = 10000 * time.Millisecond
+	omf1 := offsetmgr.SpawnFactory(s.ns, cfg1, s.kh.KafkaClt())
+	defer omf1.Stop()
+	cons1, err := Spawn(s.ns, cfg1, omf1)
 	c.Assert(err, IsNil)
 	defer cons1.Stop()
-
-	cfg2 := testhelpers.NewTestProxyCfg("c2")
-	cfg2.Consumer.LongPollingTimeout = 3000 * time.Millisecond
-	cfg2.Consumer.RegistrationTimeout = 10000 * time.Millisecond
-	cons2, err := Spawn(s.ns, cfg2, s.omf)
-	c.Assert(err, IsNil)
-	defer cons2.Stop()
 
 	// Consume the first message to make the consumers join the group and
 	// subscribe to the topics.
 	log.Infof("*** GIVEN 1")
 	start := time.Now()
-	consumedTest1ByCons1 := consume(c, cons1, "g1", "test.1", 1, 5*time.Second)
+	consumedTest1ByCons1 := consume(c, cons, "g1", "test.1", 1, 5*time.Second)
 	c.Assert(len(consumedTest1ByCons1["A"]), Equals, 1)
-	consumedTest4ByCons1 := consume(c, cons1, "g1", "test.4", 1, 5*time.Second)
+	consumedTest4ByCons1 := consume(c, cons, "g1", "test.4", 1, 5*time.Second)
 	c.Assert(len(consumedTest4ByCons1["B"]), Equals, 1)
-	_, err = cons2.Consume("g1", "test.1")
+	_, err = cons1.Consume("g1", "test.1")
 	c.Assert(err, Equals, consumer.ErrRequestTimeout)
 
 	delay := (5000 * time.Millisecond) - time.Now().Sub(start)
@@ -573,9 +584,9 @@ func (s *ConsumerSuite) TestTopicTimeout(c *C) {
 	time.Sleep(delay)
 
 	log.Infof("*** GIVEN 2:")
-	consumedTest4ByCons1 = consume(c, cons1, "g1", "test.4", 1, 5*time.Second, consumedTest4ByCons1)
+	consumedTest4ByCons1 = consume(c, cons, "g1", "test.4", 1, 5*time.Second, consumedTest4ByCons1)
 	c.Assert(len(consumedTest4ByCons1["B"]), Equals, 2)
-	_, err = cons2.Consume("g1", "test.1")
+	_, err = cons1.Consume("g1", "test.1")
 	c.Assert(err, Equals, consumer.ErrRequestTimeout)
 
 	// When: wait for the cons1 subscription to test.1 topic to expire.
@@ -586,10 +597,101 @@ func (s *ConsumerSuite) TestTopicTimeout(c *C) {
 
 	// Then: the test.1 only partition is reassigned to cons2.
 	log.Infof("*** THEN")
-	consumedTest1ByCons2 := consume(c, cons2, "g1", "test.1", 1, 10*time.Second)
+	consumedTest1ByCons2 := consume(c, cons1, "g1", "test.1", 1, 10*time.Second)
 	c.Assert(len(consumedTest1ByCons2["A"]), Equals, 1)
-	consumedTest4ByCons1 = consume(c, cons1, "g1", "test.4", 1, 5*time.Second, consumedTest4ByCons1)
+	consumedTest4ByCons1 = consume(c, cons, "g1", "test.4", 1, 5*time.Second, consumedTest4ByCons1)
 	c.Assert(len(consumedTest4ByCons1["B"]), Equals, 3)
+}
+
+// If there is an unacked message then topic subscription does not expire until
+// the ack timeout expires.
+func (s *ConsumerSuite) TestTopicAndAckTimeouts(c *C) {
+	s.kh.ResetOffsets("g1", "test.1")
+	produced := s.kh.PutMessages("with-offers", "test.1", map[string]int{"A": 10})
+
+	s.cfg.Consumer.LongPollingTimeout = 1000 * time.Millisecond
+	s.cfg.Consumer.SubscriptionTimeout = 2000 * time.Millisecond
+	s.cfg.Consumer.AckTimeout = 5000 * time.Millisecond
+	cons, err := Spawn(s.ns, s.cfg, s.omf)
+	c.Assert(err, IsNil)
+	defer cons.Stop()
+
+	cfg1 := testhelpers.NewTestProxyCfg("c2")
+	cfg1.Consumer.LongPollingTimeout = 1000 * time.Millisecond
+	cfg1.Consumer.SubscriptionTimeout = 5000 * time.Millisecond
+	omf1 := offsetmgr.SpawnFactory(s.ns, cfg1, s.kh.KafkaClt())
+	defer omf1.Stop()
+	cons1, err := Spawn(s.ns, cfg1, omf1)
+	c.Assert(err, IsNil)
+	defer cons1.Stop()
+
+	log.Infof("*** cons.0 consumes 1 message")
+	msg0, err := cons.Consume("g1", "test.1")
+	c.Assert(err, IsNil)
+	assertMsg(c, msg0, produced["A"][0])
+
+	log.Infof("*** cons.1 consume try #1")
+	_, err = cons1.Consume("g1", "test.1")
+	c.Assert(err, Equals, consumer.ErrRequestTimeout)
+	log.Infof("*** cons.1 consume try #2")
+	_, err = cons1.Consume("g1", "test.1")
+	c.Assert(err, Equals, consumer.ErrRequestTimeout)
+	log.Infof("*** cons.1 consume try #3")
+	_, err = cons1.Consume("g1", "test.1")
+	c.Assert(err, Equals, consumer.ErrRequestTimeout)
+	log.Infof("*** cons.1 consume try #4")
+	_, err = cons1.Consume("g1", "test.1")
+	c.Assert(err, Equals, consumer.ErrRequestTimeout)
+	log.Infof("*** cons.1 consume try #5")
+	_, err = cons1.Consume("g1", "test.1")
+	c.Assert(err, Equals, consumer.ErrRequestTimeout)
+
+	log.Infof("*** Pause for cons.0 subscription to expire")
+	time.Sleep(1000 * time.Millisecond)
+
+	log.Infof("*** cons.1 consumes 1 message")
+	msg1, err := cons1.Consume("g1", "test.1")
+	c.Assert(err, IsNil)
+	assertMsg(c, msg1, produced["A"][0])
+}
+
+// After subscription timeout when the last message is acked then the consumer
+// immediately unsubscribes.
+func (s *ConsumerSuite) TestTopicExpireOnAck(c *C) {
+	s.kh.ResetOffsets("g1", "test.1")
+	produced := s.kh.PutMessages("with-offers", "test.1", map[string]int{"A": 10})
+
+	s.cfg.Consumer.LongPollingTimeout = 1000 * time.Millisecond
+	s.cfg.Consumer.SubscriptionTimeout = 1500 * time.Millisecond
+	s.cfg.Consumer.AckTimeout = 42000 * time.Millisecond
+	cons, err := Spawn(s.ns, s.cfg, s.omf)
+	c.Assert(err, IsNil)
+	defer cons.Stop()
+
+	cfg1 := testhelpers.NewTestProxyCfg("c2")
+	cfg1.Consumer.LongPollingTimeout = 2000 * time.Millisecond
+	omf1 := offsetmgr.SpawnFactory(s.ns, cfg1, s.kh.KafkaClt())
+	defer omf1.Stop()
+	cons1, err := Spawn(s.ns, cfg1, omf1)
+	c.Assert(err, IsNil)
+	defer cons1.Stop()
+
+	msg0, err := cons.Consume("g1", "test.1")
+	c.Assert(err, IsNil)
+	assertMsg(c, msg0, produced["A"][0])
+
+	_, err = cons1.Consume("g1", "test.1")
+	c.Assert(err, Equals, consumer.ErrRequestTimeout)
+	_, err = cons1.Consume("g1", "test.1")
+	c.Assert(err, Equals, consumer.ErrRequestTimeout)
+
+	// When
+	msg0.EventsCh <- consumer.Ack(msg0.Offset)
+
+	// Then
+	msg1, err := cons1.Consume("g1", "test.1")
+	c.Assert(err, IsNil)
+	assertMsg(c, msg1, produced["A"][1])
 }
 
 func assertMsg(c *C, consMsg consumer.Message, prodMsg *sarama.ProducerMessage) {

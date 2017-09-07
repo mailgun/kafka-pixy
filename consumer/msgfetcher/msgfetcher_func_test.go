@@ -52,8 +52,7 @@ func (s *MsgFetcherFuncSuite) TestSlacker(c *C) {
 	defer client.Close()
 
 	s.cfg.Consumer.ChannelBufferSize = 10
-	f, err := SpawnFactory(s.ns, s.cfg, client)
-	c.Assert(err, IsNil)
+	f := SpawnFactory(s.ns, s.cfg, client)
 	defer f.Stop()
 
 	mfA, _, err := f.Spawn(s.ns.NewChild("test.1", 0), "test.1", 0, producedTest1["foo"][0].Offset)

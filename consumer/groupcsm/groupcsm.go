@@ -9,13 +9,13 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/consumer/dispatcher"
-	"github.com/mailgun/kafka-pixy/consumer/groupmember"
 	"github.com/mailgun/kafka-pixy/consumer/msgfetcher"
 	"github.com/mailgun/kafka-pixy/consumer/multiplexer"
 	"github.com/mailgun/kafka-pixy/consumer/partitioncsm"
+	"github.com/mailgun/kafka-pixy/consumer/subscriber"
 	"github.com/mailgun/kafka-pixy/consumer/topiccsm"
-	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/pkg/errors"
 	"github.com/wvanbergen/kazoo-go"
@@ -27,103 +27,86 @@ import (
 // implements `dispatcher.Factory`.
 // implements `dispatcher.Tier`.
 type T struct {
-	supActDesc         *actor.Descriptor
-	mgrActDesc         *actor.Descriptor
-	cfg                *config.Proxy
-	group              string
-	dispatcher         *dispatcher.T
-	kafkaClt           sarama.Client
-	kazooClt           *kazoo.Kazoo
-	msgFetcherF        msgfetcher.Factory
-	offsetMgrF         offsetmgr.Factory
-	groupMember        *groupmember.T
-	multiplexers       map[string]*multiplexer.T
-	topicCsmLifespanCh chan *topiccsm.T
-	stopCh             chan none.T
-	wg                 sync.WaitGroup
+	actDesc     *actor.Descriptor
+	cfg         *config.Proxy
+	group       string
+	dispatcher  *dispatcher.T
+	kafkaClt    sarama.Client
+	kazooClt    *kazoo.Kazoo
+	msgFetcherF msgfetcher.Factory
+	offsetMgrF  offsetmgr.Factory
+	subscriber  *subscriber.T
+	topicCsmCh  chan *topiccsm.T
+	wg          sync.WaitGroup
 
-	// Exist just to be overridden in tests with mocks.
-	fetchTopicPartitionsFn func(topic string) ([]int32, error)
+	multiplexersMu sync.Mutex
+	multiplexers   map[string]*multiplexer.T
 }
 
-func New(parentActDesc *actor.Descriptor, group string, cfg *config.Proxy, kafkaClt sarama.Client,
-	kazooClt *kazoo.Kazoo, offsetMgrF offsetmgr.Factory,
+func Spawn(parentActDesc *actor.Descriptor, childSpec dispatcher.ChildSpec,
+	cfg *config.Proxy, kafkaClt sarama.Client, kazooClt *kazoo.Kazoo,
+	offsetMgrF offsetmgr.Factory,
 ) *T {
-	supActDesc := parentActDesc.NewChild(fmt.Sprintf("%s", group))
-	supActDesc.AddLogField("kafka.group", group)
+	group := string(childSpec.Key())
+	actDesc := parentActDesc.NewChild(fmt.Sprintf("%s", group))
+	actDesc.AddLogField("kafka.group", group)
 	gc := &T{
-		supActDesc:         supActDesc,
-		mgrActDesc:         supActDesc.NewChild("manager"),
-		cfg:                cfg,
-		group:              group,
-		kafkaClt:           kafkaClt,
-		kazooClt:           kazooClt,
-		offsetMgrF:         offsetMgrF,
-		multiplexers:       make(map[string]*multiplexer.T),
-		topicCsmLifespanCh: make(chan *topiccsm.T),
-		stopCh:             make(chan none.T),
-
-		fetchTopicPartitionsFn: kafkaClt.Partitions,
+		actDesc:      actDesc,
+		cfg:          cfg,
+		group:        group,
+		kafkaClt:     kafkaClt,
+		kazooClt:     kazooClt,
+		offsetMgrF:   offsetMgrF,
+		multiplexers: make(map[string]*multiplexer.T),
+		topicCsmCh:   make(chan *topiccsm.T),
 	}
-	gc.dispatcher = dispatcher.New(gc.supActDesc, gc, cfg)
+
+	gc.subscriber = subscriber.Spawn(gc.actDesc, gc.group, gc.cfg, gc.kazooClt)
+	gc.msgFetcherF = msgfetcher.SpawnFactory(gc.actDesc, gc.cfg, gc.kafkaClt)
+	actor.Spawn(gc.actDesc, &gc.wg, gc.run)
+
+	// Finalizer is called when all downstream topic consumers expire or if
+	// the dispatcher is explicitly told to stop by the upstream dispatcher.
+	finalizer := func() {
+		gc.subscriber.Stop()
+		// The run goroutine stops when the subscriber's channel is closed.
+		gc.wg.Wait()
+		// Only after run is stopped it is safe to shutdown the fetcher factory.
+		gc.msgFetcherF.Stop()
+	}
+	gc.dispatcher = dispatcher.Spawn(gc.actDesc, gc, cfg,
+		dispatcher.WithChildSpec(childSpec), dispatcher.WithFinalizer(finalizer))
 	return gc
 }
 
 // implements `dispatcher.Factory`.
-func (gc *T) KeyOf(req dispatcher.Request) string {
-	return req.Topic
+func (gc *T) KeyOf(req consumer.Request) dispatcher.Key {
+	return dispatcher.Key(req.Topic)
 }
 
 // implements `dispatcher.Factory`.
-func (gc *T) NewTier(key string) dispatcher.Tier {
-	tc := topiccsm.New(gc.supActDesc, gc.group, key, gc.cfg, gc.topicCsmLifespanCh)
-	return tc
-}
-
-// implements `dispatcher.Tier`.
-func (gc *T) Key() string {
-	return gc.group
-}
-
-// implements `dispatcher.Tier`.
-func (gc *T) Requests() chan<- dispatcher.Request {
-	return gc.dispatcher.Requests()
-}
-
-// implements `dispatcher.Tier`.
-func (gc *T) Start() {
-	actor.Spawn(gc.supActDesc, &gc.wg, func() {
-		var err error
-		gc.msgFetcherF, err = msgfetcher.SpawnFactory(gc.supActDesc, gc.cfg, gc.kafkaClt)
-		if err != nil {
-			// Must never happen.
-			panic(errors.Wrap(err, "failed to create sarama.Consumer"))
-		}
-		gc.groupMember = groupmember.Spawn(gc.supActDesc, gc.group, gc.cfg.ClientID, gc.cfg, gc.kazooClt)
-		var manageWg sync.WaitGroup
-		actor.Spawn(gc.mgrActDesc, &manageWg, gc.runManager)
-		gc.dispatcher.Start()
-		// Wait for a stop signal and shutdown gracefully when one is received.
-		<-gc.stopCh
-		gc.dispatcher.Stop()
-		gc.groupMember.Stop()
-		manageWg.Wait()
-		gc.msgFetcherF.Stop()
-	})
-}
-
-// implements `dispatcher.Tier`.
-func (gc *T) Stop() {
-	close(gc.stopCh)
-	gc.wg.Wait()
+func (gc *T) SpawnChild(childSpec dispatcher.ChildSpec) {
+	topic := string(childSpec.Key())
+	topiccsm.Spawn(gc.actDesc, gc.group, childSpec, gc.cfg, gc.topicCsmCh,
+		func() bool { return gc.isSafe2Stop(topic) })
 }
 
 // String return string ID of this group consumer to be posted in logs.
 func (gc *T) String() string {
-	return gc.supActDesc.String()
+	return gc.actDesc.String()
 }
 
-func (gc *T) runManager() {
+func (gc *T) isSafe2Stop(topic string) bool {
+	gc.multiplexersMu.Lock()
+	mux := gc.multiplexers[topic]
+	gc.multiplexersMu.Unlock()
+	if mux == nil {
+		return true
+	}
+	return mux.IsSafe2Stop()
+}
+
+func (gc *T) run() {
 	var (
 		topicConsumers        = make(map[string]*topiccsm.T)
 		topics                []string
@@ -139,7 +122,7 @@ func (gc *T) runManager() {
 	)
 	for {
 		select {
-		case tc := <-gc.topicCsmLifespanCh:
+		case tc := <-gc.topicCsmCh:
 			// It is assumed that only one topicConsumer can exist for a
 			// particular topic at a time.
 			if topicConsumers[tc.Topic()] == tc {
@@ -148,12 +131,12 @@ func (gc *T) runManager() {
 				topicConsumers[tc.Topic()] = tc
 			}
 			topics = listTopics(topicConsumers)
-			nilOrRegistryTopicsCh = gc.groupMember.Topics()
+			nilOrRegistryTopicsCh = gc.subscriber.Topics()
 			continue
 		case nilOrRegistryTopicsCh <- topics:
 			nilOrRegistryTopicsCh = nil
 			continue
-		case subscriptions, ok = <-gc.groupMember.Subscriptions():
+		case subscriptions, ok = <-gc.subscriber.Subscriptions():
 			nilOrRetryCh = nil
 			if !ok {
 				if !rebalancingInProgress {
@@ -166,7 +149,7 @@ func (gc *T) runManager() {
 		case err := <-rebalanceResultCh:
 			rebalancingInProgress = false
 			if err != nil {
-				gc.mgrActDesc.Log().WithError(err).Error("rebalancing failed")
+				gc.actDesc.Log().WithError(err).Error("rebalancing failed")
 				if stopped {
 					goto done
 				}
@@ -182,7 +165,7 @@ func (gc *T) runManager() {
 		}
 
 		if rebalancingRequired && !rebalancingInProgress && !retryScheduled {
-			rebalanceActDesc := gc.mgrActDesc.NewChild("rebalance")
+			rebalanceActDesc := gc.actDesc.NewChild("rebalance")
 			// Copy topicConsumers to make sure `rebalance` doesn't see any
 			// changes we make while it is running.
 			topicConsumersCopy := make(map[string]*topiccsm.T, len(topicConsumers))
@@ -199,6 +182,7 @@ func (gc *T) runManager() {
 	}
 done:
 	var wg sync.WaitGroup
+	gc.multiplexersMu.Lock()
 	for _, mux := range gc.multiplexers {
 		wg.Add(1)
 		go func(mux *multiplexer.T) {
@@ -206,13 +190,14 @@ done:
 			mux.Stop()
 		}(mux)
 	}
+	gc.multiplexersMu.Unlock()
 	wg.Wait()
 }
 
 func (gc *T) runRebalancing(actDesc *actor.Descriptor, topicConsumers map[string]*topiccsm.T,
 	subscriptions map[string][]string, rebalanceResultCh chan<- error,
 ) {
-	assignedPartitions, err := gc.resolvePartitions(subscriptions)
+	assignedPartitions, err := gc.resolvePartitions(subscriptions, gc.kafkaClt.Partitions)
 	if err != nil {
 		rebalanceResultCh <- err
 		return
@@ -222,8 +207,10 @@ func (gc *T) runRebalancing(actDesc *actor.Descriptor, topicConsumers map[string
 	// Stop consuming partitions that are no longer assigned to this group
 	// and start consuming newly assigned partitions for topics that has been
 	// consumed already.
-	for topic, tcg := range gc.multiplexers {
-		gc.rewireMuxAsync(topic, &wg, tcg, topicConsumers[topic], assignedPartitions[topic])
+	gc.multiplexersMu.Lock()
+	defer gc.multiplexersMu.Unlock()
+	for topic, mux := range gc.multiplexers {
+		gc.rewireMuxAsync(topic, &wg, mux, topicConsumers[topic], assignedPartitions[topic])
 	}
 	// Start consuming partitions for topics that has not been consumed before.
 	for topic, assignedTopicPartitions := range assignedPartitions {
@@ -234,10 +221,10 @@ func (gc *T) runRebalancing(actDesc *actor.Descriptor, topicConsumers map[string
 		}
 		topic := topic
 		spawnInFn := func(partition int32) multiplexer.In {
-			return partitioncsm.Spawn(gc.supActDesc, gc.group, topic, partition,
-				gc.cfg, gc.groupMember, gc.msgFetcherF, gc.offsetMgrF)
+			return partitioncsm.Spawn(gc.actDesc, gc.group, topic, partition,
+				gc.cfg, gc.subscriber, gc.msgFetcherF, gc.offsetMgrF)
 		}
-		mux = multiplexer.New(gc.supActDesc, spawnInFn)
+		mux = multiplexer.New(gc.actDesc, spawnInFn)
 		gc.rewireMuxAsync(topic, &wg, mux, tc, assignedTopicPartitions)
 		gc.multiplexers[topic] = mux
 	}
@@ -255,9 +242,9 @@ func (gc *T) runRebalancing(actDesc *actor.Descriptor, topicConsumers map[string
 
 // rewireMuxAsync calls muxInputs in another goroutine.
 func (gc *T) rewireMuxAsync(topic string, wg *sync.WaitGroup, mux *multiplexer.T, tc *topiccsm.T, assigned []int32) {
-	actor.Spawn(gc.supActDesc.NewChild("rewire", topic), wg, func() {
+	actor.Spawn(gc.actDesc.NewChild("rewire", topic), wg, func() {
 		if tc == nil {
-			// Parameter output is of interface type, therefore nil should be
+			// Parameter output is an interface type, therefore nil should be
 			// passed explicitly.
 			mux.WireUp(nil, nil)
 			return
@@ -268,8 +255,8 @@ func (gc *T) rewireMuxAsync(topic string, wg *sync.WaitGroup, mux *multiplexer.T
 
 // resolvePartitions given topic subscriptions of all consumer group members,
 // resolves what topic partitions are assigned to the specified group member.
-func (gc *T) resolvePartitions(subscriptions map[string][]string) (
-	map[string][]int32, error,
+func (gc *T) resolvePartitions(subscriptions map[string][]string,
+	topicPartitionsFn func(string) ([]int32, error)) (map[string][]int32, error,
 ) {
 	// Convert members->topics to topic->members map.
 	topicsToMembers := make(map[string][]string)
@@ -286,7 +273,7 @@ func (gc *T) resolvePartitions(subscriptions map[string][]string) (
 	// Resolve new partition assignments for all subscribed topics.
 	assignedPartitions := make(map[string][]int32)
 	for topic := range subscribedTopics {
-		topicPartitions, err := gc.fetchTopicPartitionsFn(topic)
+		topicPartitions, err := topicPartitionsFn(topic)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get partition list, topic=%s", topic)
 		}
@@ -311,8 +298,8 @@ func assignTopicPartitions(partitions []int32, subscribers []string) map[string]
 	if partitionCount == 0 || subscriberCount == 0 {
 		return nil
 	}
-	sort.Sort(Int32Slice(partitions))
-	sort.Sort(sort.StringSlice(subscribers))
+	sort.Slice(partitions, func(i, j int) bool { return partitions[i] < partitions[j] })
+	sort.Strings(subscribers)
 
 	subscribersToPartitions := make(map[string][]int32, subscriberCount)
 	partitionsPerSubscriber := partitionCount / subscriberCount
@@ -341,9 +328,3 @@ func listTopics(topicConsumers map[string]*topiccsm.T) []string {
 	}
 	return topics
 }
-
-type Int32Slice []int32
-
-func (p Int32Slice) Len() int           { return len(p) }
-func (p Int32Slice) Less(i, j int) bool { return p[i] < p[j] }
-func (p Int32Slice) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }

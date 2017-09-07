@@ -81,33 +81,33 @@ func (s *OffsetTrkSuite) TestOnAckedRanges(c *C) {
 	}
 }
 
-// Acknowledged offsets are properly reflected in ackedRanges.
+// When an offset is adjusted, then acked ranges are respectively adjusted too.
 func (s *OffsetTrkSuite) TestAdjust(c *C) {
 	initialOffset := int64(300)
 	for i, tc := range []struct {
 		offset    int64
 		ranges    string
-		hasOffers bool
+		offered   int
 		nextOffer int64
 	}{
-		0:  {offset: 300, ranges: "2-4,5-9,12-13,14-16", hasOffers: true, nextOffer: 300},
-		1:  {offset: 301, ranges: "1-3,4-8,11-12,13-15", hasOffers: true, nextOffer: 301},
-		2:  {offset: 304, ranges: "1-5,8-9,10-12", hasOffers: true, nextOffer: 304},
-		3:  {offset: 304, ranges: "1-5,8-9,10-12", hasOffers: true, nextOffer: 304},
-		4:  {offset: 304, ranges: "1-5,8-9,10-12", hasOffers: true, nextOffer: 304},
-		5:  {offset: 309, ranges: "3-4,5-7", hasOffers: true, nextOffer: 309},
-		6:  {offset: 309, ranges: "3-4,5-7", hasOffers: true, nextOffer: 309},
-		7:  {offset: 309, ranges: "3-4,5-7", hasOffers: true, nextOffer: 309},
-		8:  {offset: 309, ranges: "3-4,5-7", hasOffers: true, nextOffer: 309},
-		9:  {offset: 309, ranges: "3-4,5-7", hasOffers: true, nextOffer: 309},
-		10: {offset: 310, ranges: "2-3,4-6", hasOffers: true, nextOffer: 310},
-		11: {offset: 311, ranges: "1-2,3-5", hasOffers: true, nextOffer: 311},
-		12: {offset: 313, ranges: "1-3", hasOffers: true, nextOffer: 313},
-		13: {offset: 313, ranges: "1-3", hasOffers: true, nextOffer: 313},
-		14: {offset: 316, ranges: "", hasOffers: true, nextOffer: 316},
-		15: {offset: 316, ranges: "", hasOffers: true, nextOffer: 316},
-		16: {offset: 316, ranges: "", hasOffers: true, nextOffer: 316},
-		17: {offset: 317, ranges: "", hasOffers: false},
+		0:  {offset: 300, ranges: "2-4,5-9,12-13,14-16", offered: 8, nextOffer: 300},
+		1:  {offset: 301, ranges: "1-3,4-8,11-12,13-15", offered: 7, nextOffer: 301},
+		2:  {offset: 304, ranges: "1-5,8-9,10-12", offered: 6, nextOffer: 304},
+		3:  {offset: 304, ranges: "1-5,8-9,10-12", offered: 6, nextOffer: 304},
+		4:  {offset: 304, ranges: "1-5,8-9,10-12", offered: 6, nextOffer: 304},
+		5:  {offset: 309, ranges: "3-4,5-7", offered: 5, nextOffer: 309},
+		6:  {offset: 309, ranges: "3-4,5-7", offered: 5, nextOffer: 309},
+		7:  {offset: 309, ranges: "3-4,5-7", offered: 5, nextOffer: 309},
+		8:  {offset: 309, ranges: "3-4,5-7", offered: 5, nextOffer: 309},
+		9:  {offset: 309, ranges: "3-4,5-7", offered: 5, nextOffer: 309},
+		10: {offset: 310, ranges: "2-3,4-6", offered: 4, nextOffer: 310},
+		11: {offset: 311, ranges: "1-2,3-5", offered: 3, nextOffer: 311},
+		12: {offset: 313, ranges: "1-3", offered: 2, nextOffer: 313},
+		13: {offset: 313, ranges: "1-3", offered: 2, nextOffer: 313},
+		14: {offset: 316, ranges: "", offered: 1, nextOffer: 316},
+		15: {offset: 316, ranges: "", offered: 1, nextOffer: 316},
+		16: {offset: 316, ranges: "", offered: 1, nextOffer: 316},
+		17: {offset: 317, ranges: "", offered: 0},
 	} {
 		correction := initialOffset + int64(i)
 		ot := New(s.ns, offsetmgr.Offset{Val: initialOffset}, -1)
@@ -121,18 +121,20 @@ func (s *OffsetTrkSuite) TestAdjust(c *C) {
 		c.Assert(SparseAcks2Str(ot.offset), Equals, "2-4,5-9,12-13,14-16")
 
 		// When
-		adjustedOffset := ot.Adjust(correction)
+		adjustedOffset, offeredCount := ot.Adjust(correction)
 
 		// Then
 		c.Assert(adjustedOffset.Val, Equals, tc.offset, Commentf("case #%d", i))
 		c.Assert(SparseAcks2Str(ot.offset), Equals, tc.ranges, Commentf("case #%d", i))
+		c.Assert(offeredCount, Equals, tc.offered, Commentf("case #%d", i))
 
 		msg, _, ok := ot.nextRetry(time.Now())
-		c.Assert(ok, Equals, tc.hasOffers)
-		if tc.hasOffers {
+		if tc.offered > 0 {
+			c.Assert(ok, Equals, true)
 			c.Assert(msg.Offset, Equals, tc.nextOffer, Commentf("case #%d", i))
+		} else {
+			c.Assert(ok, Equals, false)
 		}
-
 	}
 }
 
@@ -358,7 +360,7 @@ func (s *OffsetTrkSuite) TestNextRetry(c *C) {
 	}
 }
 
-func (s *OffsetTrkSuite) TestShouldWait4Ack(c *C) {
+func (s *OffsetTrkSuite) TestMaxOfferTimeout(c *C) {
 	ot := New(s.ns, offsetmgr.Offset{Val: 300}, -1)
 	msgs := []consumer.Message{
 		{Offset: 300},
@@ -371,31 +373,30 @@ func (s *OffsetTrkSuite) TestShouldWait4Ack(c *C) {
 		ot.OnOffered(msg)
 	}
 	ot.offers[0].deadline = begin.Add(3 * time.Second)
-	ot.offers[1].deadline = begin.Add(4 * time.Second)
-	ot.offers[2].deadline = begin.Add(9 * time.Second)
+	ot.offers[1].deadline = begin.Add(9 * time.Second)
+	ot.offers[2].deadline = begin.Add(4 * time.Second)
 
 	for i, tc := range []struct {
 		millis  int
 		wait    bool
 		timeout int
 	}{
-		0:  {millis: 0, wait: true, timeout: 3000},
-		1:  {millis: 2998, wait: true, timeout: 2},
-		2:  {millis: 2999, wait: true, timeout: 1},
-		3:  {millis: 3000, wait: true, timeout: 1000},
-		4:  {millis: 3001, wait: true, timeout: 999},
-		5:  {millis: 3999, wait: true, timeout: 1},
-		6:  {millis: 4000, wait: true, timeout: 5000},
-		7:  {millis: 8950, wait: true, timeout: 50},
-		8:  {millis: 8999, wait: true, timeout: 1},
-		9:  {millis: 9000, wait: false, timeout: 0},
-		10: {millis: 9001, wait: false, timeout: 0},
-		11: {millis: 9999, wait: false, timeout: 0},
+		0:  {millis: 0, timeout: 9000},
+		1:  {millis: 2998, timeout: 6002},
+		2:  {millis: 2999, timeout: 6001},
+		3:  {millis: 3000, timeout: 6000},
+		4:  {millis: 3001, timeout: 5999},
+		5:  {millis: 3999, timeout: 5001},
+		6:  {millis: 4000, timeout: 5000},
+		7:  {millis: 8950, timeout: 50},
+		8:  {millis: 8999, timeout: 1},
+		9:  {millis: 9000, timeout: 0},
+		10: {millis: 9001, timeout: 0},
+		11: {millis: 9999, timeout: 0},
 	} {
 		// When/Then
 		now := begin.Add(time.Duration(tc.millis) * time.Millisecond)
-		wait, timeout := ot.shouldWait4Ack(now)
-		c.Assert(wait, Equals, tc.wait, Commentf("case #%d", i))
+		timeout := ot.shouldWait4Ack(now)
 		c.Assert(timeout, Equals, time.Duration(tc.timeout)*time.Millisecond, Commentf("case #%d", i))
 	}
 }

@@ -96,8 +96,8 @@ func New(addr string, proxySet *proxy.Set) (*T, error) {
 	router.HandleFunc(fmt.Sprintf("/clusters/{%s}/topics/{%s}/messages", prmCluster, prmTopic), hs.handleConsume).Methods("GET")
 	router.HandleFunc(fmt.Sprintf("/topics/{%s}/messages", prmTopic), hs.handleConsume).Methods("GET")
 
-	router.HandleFunc(fmt.Sprintf("/clusters/{%s}/topics/{%s}/acks", prmCluster, prmTopic), hs.handleConsume).Methods("POST")
-	router.HandleFunc(fmt.Sprintf("/topics/{%s}/acks", prmTopic), hs.handleConsume).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/clusters/{%s}/topics/{%s}/acks", prmCluster, prmTopic), hs.handleAck).Methods("POST")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}/acks", prmTopic), hs.handleAck).Methods("POST")
 
 	router.HandleFunc(fmt.Sprintf("/clusters/{%s}/topics/{%s}/offsets", prmCluster, prmTopic), hs.handleGetOffsets).Methods("GET")
 	router.HandleFunc(fmt.Sprintf("/topics/{%s}/offsets", prmTopic), hs.handleGetOffsets).Methods("GET")
@@ -176,6 +176,8 @@ func (s *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 		switch err {
 		case sarama.ErrUnknownTopicOrPartition:
 			status = http.StatusNotFound
+		case proxy.ErrUnavailable:
+			status = http.StatusServiceUnavailable
 		default:
 			status = http.StatusInternalServerError
 		}
@@ -250,6 +252,10 @@ func (s *T) handleConsume(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusRequestTimeout
 		case consumer.ErrTooManyRequests:
 			status = http.StatusTooManyRequests
+		case consumer.ErrUnavailable:
+			fallthrough
+		case proxy.ErrUnavailable:
+			status = http.StatusServiceUnavailable
 		default:
 			status = http.StatusInternalServerError
 		}
@@ -280,7 +286,7 @@ func (s *T) handleAck(w http.ResponseWriter, r *http.Request) {
 		s.respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
-	ack, err := parseAck(r, true)
+	ack, err := parseAck(r, false)
 	if err != nil {
 		s.respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
@@ -540,24 +546,25 @@ func parseAck(r *http.Request, isConsReq bool) (proxy.Ack, error) {
 		offsetPrmName = prmOffset
 	}
 
-	_, noAck := mux.Vars(r)[prmNoAck]
+	r.ParseForm()
+	_, noAck := r.Form[prmNoAck]
 	if noAck {
 		return proxy.NoAck(), nil
 	}
 	var err error
 	var partition int64
-	partitionStr, partitionOk := mux.Vars(r)[partitionPrmName]
+	partitionStr, partitionOk := r.Form[partitionPrmName]
 	if partitionOk {
-		partition, err = strconv.ParseInt(partitionStr, 10, 32)
-		if err == nil || partition < 0 {
+		partition, err = strconv.ParseInt(partitionStr[0], 10, 32)
+		if err != nil || partition < 0 {
 			return proxy.NoAck(), errors.Wrapf(err, "bad %s: %s", partitionPrmName, partitionStr)
 		}
 	}
 	var offset int64
-	offsetStr, offsetOk := mux.Vars(r)[offsetPrmName]
+	offsetStr, offsetOk := r.Form[offsetPrmName]
 	if offsetOk {
-		offset, err = strconv.ParseInt(offsetStr, 10, 64)
-		if err == nil || offset < 0 {
+		offset, err = strconv.ParseInt(offsetStr[0], 10, 64)
+		if err != nil || offset < 0 {
 			return proxy.NoAck(), errors.Wrapf(err, "bad %s: %s", offsetPrmName, offsetStr)
 		}
 	}

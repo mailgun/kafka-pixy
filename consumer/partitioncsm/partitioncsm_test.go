@@ -8,9 +8,9 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer"
-	"github.com/mailgun/kafka-pixy/consumer/groupmember"
 	"github.com/mailgun/kafka-pixy/consumer/msgfetcher"
 	"github.com/mailgun/kafka-pixy/consumer/offsettrk"
+	"github.com/mailgun/kafka-pixy/consumer/subscriber"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
@@ -28,7 +28,7 @@ const (
 type PartitionCsmSuite struct {
 	cfg          *config.Proxy
 	ns           *actor.Descriptor
-	groupMember  *groupmember.T
+	groupMember  *subscriber.T
 	msgFetcherF  msgfetcher.Factory
 	offsetMgrF   offsetmgr.Factory
 	kh           *kafkahelper.T
@@ -56,11 +56,8 @@ func (s *PartitionCsmSuite) SetUpTest(c *C) {
 	check4RetryInterval = 50 * time.Millisecond
 
 	s.ns = actor.Root().NewChild("T")
-	s.groupMember = groupmember.Spawn(s.ns, group, memberID, s.cfg, s.kh.KazooClt())
-	var err error
-	if s.msgFetcherF, err = msgfetcher.SpawnFactory(s.ns, s.cfg, s.kh.KafkaClt()); err != nil {
-		panic(err)
-	}
+	s.groupMember = subscriber.Spawn(s.ns, group, s.cfg, s.kh.KazooClt())
+	s.msgFetcherF = msgfetcher.SpawnFactory(s.ns, s.cfg, s.kh.KafkaClt())
 	s.offsetMgrF = offsetmgr.SpawnFactory(s.ns, s.cfg, s.kh.KafkaClt())
 
 	s.initOffsetCh = make(chan offsetmgr.Offset, 1)
@@ -485,8 +482,7 @@ func (s *PartitionCsmSuite) TestFetcherDeath(c *C) {
 
 	kafkaClt, _ := sarama.NewClient([]string{mockBroker.Addr()}, s.cfg.SaramaClientCfg())
 	defer kafkaClt.Close()
-	msgFetcherF, err := msgfetcher.SpawnFactory(s.ns, s.cfg, kafkaClt)
-	c.Assert(err, IsNil)
+	msgFetcherF := msgfetcher.SpawnFactory(s.ns, s.cfg, kafkaClt)
 	defer msgFetcherF.Stop()
 
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, msgFetcherF, s.offsetMgrF)
