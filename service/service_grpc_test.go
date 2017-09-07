@@ -16,10 +16,11 @@ import (
 )
 
 type ServiceGRPCSuite struct {
-	cfg     *config.App
-	kh      *kafkahelper.T
-	cltConn *grpc.ClientConn
-	clt     pb.KafkaPixyClient
+	cfg      *config.App
+	proxyCfg *config.Proxy
+	kh       *kafkahelper.T
+	cltConn  *grpc.ClientConn
+	clt      pb.KafkaPixyClient
 }
 
 var _ = Suite(&ServiceGRPCSuite{})
@@ -31,9 +32,9 @@ func (s *ServiceGRPCSuite) SetUpSuite(c *C) {
 func (s *ServiceGRPCSuite) SetUpTest(c *C) {
 	s.cfg = &config.App{Proxies: make(map[string]*config.Proxy)}
 	s.cfg.GRPCAddr = "127.0.0.1:19091"
-	proxyCfg := testhelpers.NewTestProxyCfg("test_svc")
-	proxyCfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
-	s.cfg.Proxies["pxyG"] = proxyCfg
+	s.proxyCfg = testhelpers.NewTestProxyCfg("pxyG_client_id")
+	s.proxyCfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
+	s.cfg.Proxies["pxyG"] = s.proxyCfg
 	s.cfg.DefaultCluster = "pxyG"
 
 	var err error
@@ -238,6 +239,37 @@ func (s *ServiceGRPCSuite) TestConsumeAutoAck(c *C) {
 	c.Assert(offsetsAfter[3].Val, Equals, offsetsBefore[3].Val+19)
 
 	assertMsgs(c, consumed, produced)
+}
+
+// If message is consumed with noAck but is not explicitly acknowledged, then
+// its offset is not committed.
+func (s *ServiceGRPCSuite) TestConsumeNoAck(c *C) {
+	s.proxyCfg.Consumer.AckTimeout = 500 * time.Millisecond
+	s.proxyCfg.Consumer.SubscriptionTimeout = 500 * time.Millisecond
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
+	s.waitSvcUp(c, 1*time.Second)
+
+	s.kh.ResetOffsets("foo", "test.1")
+	s.kh.PutMessages("no-ack", "test.1", map[string]int{"A": 1})
+	offsetsBefore := s.kh.GetCommittedOffsets("foo", "test.1")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	// When
+	req := pb.ConsNAckRq{
+		Topic: "test.1",
+		Group: "foo",
+		NoAck: true,
+	}
+	_, err = s.clt.ConsumeNAck(ctx, &req)
+	c.Assert(err, IsNil)
+	svc.Stop()
+
+	// Then
+	offsetsAfter := s.kh.GetCommittedOffsets("foo", "test.1")
+	c.Assert(offsetsAfter[0].Val, Equals, offsetsBefore[0].Val)
 }
 
 // Offsets of messages consumed in auto-ack mode are properly committed.

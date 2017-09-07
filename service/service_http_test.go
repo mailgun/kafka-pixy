@@ -30,6 +30,7 @@ import (
 type ServiceHTTPSuite struct {
 	ns         *actor.Descriptor
 	cfg        *config.App
+	proxyCfg   *config.Proxy
 	kh         *kafkahelper.T
 	unixClient *http.Client
 	tcpClient  *http.Client
@@ -46,10 +47,10 @@ func (s *ServiceHTTPSuite) SetUpTest(c *C) {
 	s.cfg = &config.App{Proxies: make(map[string]*config.Proxy)}
 	s.cfg.TCPAddr = "127.0.0.1:19092"
 	s.cfg.UnixAddr = path.Join(os.TempDir(), "kafka-pixy.sock")
-	proxyCfg := testhelpers.NewTestProxyCfg("test_svc")
-	proxyCfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
-	s.cfg.Proxies["pxyD"] = proxyCfg
-	s.cfg.DefaultCluster = "pxyD"
+	s.proxyCfg = testhelpers.NewTestProxyCfg("pxyH_client_id")
+	s.proxyCfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
+	s.cfg.Proxies["pxyH"] = s.proxyCfg
+	s.cfg.DefaultCluster = "pxyH"
 
 	os.Remove(s.cfg.UnixAddr)
 	s.kh = kafkahelper.New(c)
@@ -92,7 +93,7 @@ func (s *ServiceHTTPSuite) TestInvalidKafkaPeers(c *C) {
 	svc, err := Spawn(s.cfg)
 
 	// Then
-	c.Assert(err.Error(), Equals, "failed to spawn proxy, name=pxyD: "+
+	c.Assert(err.Error(), Equals, "failed to spawn proxy, name=pxyH: "+
 		"failed to create Kafka client: "+
 		"kafka: client has run out of available brokers to talk to (Is your cluster reachable?)")
 	c.Assert(svc, IsNil)
@@ -406,6 +407,28 @@ func (s *ServiceHTTPSuite) TestConsumeAutoAck(c *C) {
 	assertMsgs(c, consumed, produced)
 }
 
+// If message is consumed with noAck but is not explicitly acknowledged, then
+// its offset is not committed.
+func (s *ServiceHTTPSuite) TestConsumeNoAck(c *C) {
+	s.proxyCfg.Consumer.AckTimeout = 500 * time.Millisecond
+	s.proxyCfg.Consumer.SubscriptionTimeout = 500 * time.Millisecond
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
+
+	s.kh.ResetOffsets("foo", "test.1")
+	s.kh.PutMessages("no-ack", "test.1", map[string]int{"A": 1})
+	offsetsBefore := s.kh.GetCommittedOffsets("foo", "test.1")
+
+	// When
+	_, err = s.unixClient.Get("http://_/topics/test.1/messages?group=foo&noAck")
+	c.Assert(err, IsNil)
+	svc.Stop()
+
+	// Then
+	offsetsAfter := s.kh.GetCommittedOffsets("foo", "test.1")
+	c.Assert(offsetsAfter[0].Val, Equals, offsetsBefore[0].Val)
+}
+
 func (s *ServiceHTTPSuite) TestConsumeExplicitAck(c *C) {
 	svc, err := Spawn(s.cfg)
 	c.Assert(err, IsNil)
@@ -427,17 +450,21 @@ func (s *ServiceHTTPSuite) TestConsumeExplicitAck(c *C) {
 	for i := 1; i < 88; i++ {
 		url := fmt.Sprintf("http://_/topics/test.4/messages?group=foo&ackPartition=%d&ackOffset=%d",
 			consRes.Partition, consRes.Offset)
-		res, err := s.unixClient.Get(url)
-		consRes = ParseConsRes(c, res)
+		httpRs, err := s.unixClient.Get(url)
+		consRes = ParseConsRes(c, httpRs)
 		c.Assert(err, IsNil, Commentf("failed to consume message #%d", i))
+		c.Assert(httpRs.StatusCode, Equals, http.StatusOK)
 		key := string(consRes.KeyValue)
 		consumed[key] = append(consumed[key], consRes)
 	}
 	// Ack last message.
-	url := fmt.Sprintf("http://_/topics/test.4/messages?group=foo&partition=%d&offset=%d",
+	url := fmt.Sprintf("http://_/topics/test.4/acks?group=foo&partition=%d&offset=%d",
 		consRes.Partition, consRes.Offset)
-	_, err = s.unixClient.Post(url, "text/plain", nil)
+	httpRs, err := s.unixClient.Post(url, "text/plain", nil)
 	c.Assert(err, IsNil, Commentf("failed ack last message"))
+	ackRs := ParseJSONBody(c, httpRs).(map[string]interface{})
+	c.Assert(ackRs, DeepEquals, map[string]interface{}{})
+	c.Assert(httpRs.StatusCode, Equals, http.StatusOK)
 	svc.Stop()
 
 	// Then
@@ -656,7 +683,7 @@ func (s *ServiceHTTPSuite) TestGetTopicConsumersOne(c *C) {
 	consumers := ParseJSONBody(c, r).(map[string]interface{})
 	assertConsumedPartitions(c, consumers, map[string]map[string][]int32{
 		"foo": {
-			"test_svc": {0, 1, 2, 3}},
+			"pxyH_client_id": {0, 1, 2, 3}},
 	})
 }
 
@@ -784,14 +811,14 @@ func (s *ServiceHTTPSuite) TestExplicitProxyAPIEndpoints(c *C) {
 	defer svc.Stop()
 
 	// When/Then
-	r, err := s.unixClient.Post("http://_/clusters/pxyD/topics/test.1/messages?sync", "text/plain", strings.NewReader("Bazinga!"))
+	r, err := s.unixClient.Post("http://_/clusters/pxyH/topics/test.1/messages?sync", "text/plain", strings.NewReader("Bazinga!"))
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
 	body := ParseJSONBody(c, r).(map[string]interface{})
 	c.Assert(int(body["partition"].(float64)), Equals, 0)
 	prodOffset := int64(body["offset"].(float64))
 
-	r, err = s.unixClient.Get("http://_/clusters/pxyD/topics/test.1/messages?group=foo")
+	r, err = s.unixClient.Get("http://_/clusters/pxyH/topics/test.1/messages?group=foo")
 	c.Assert(err, IsNil)
 	c.Assert(r.StatusCode, Equals, http.StatusOK)
 	body = ParseJSONBody(c, r).(map[string]interface{})

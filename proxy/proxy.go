@@ -254,7 +254,7 @@ func (p *T) Ack(group, topic string, ack Ack) error {
 	eventsCh, ok := p.eventsChMap[eventsChID]
 	p.eventsChMapMu.RUnlock()
 	if !ok {
-		return errors.New("acks channel missing")
+		return errors.Errorf("acks channel missing for %v", eventsChID)
 	}
 	select {
 	case eventsCh <- consumer.Ack(ack.offset):

@@ -14,6 +14,8 @@ Implemented:
 * Support for Kafka version 0.10.2.0.
 
 Fixed:
+* Explicit acks were fixed for HTTP API. Turned out values of `noAck`,
+  `ackPartition`, and `ackOffset` parameters had been ignored.
 * A race was found in tests that if a request comes while a topic expiration
   is in progress consumption from the topic may never resume.
 * [#100](https://github.com/mailgun/kafka-pixy/issues/100) Consumption from a
