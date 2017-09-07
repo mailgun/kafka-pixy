@@ -309,3 +309,7 @@ func (p *T) GetAllTopicConsumers(topic string) (map[string]map[string][]int32, e
 	}
 	return p.admin.GetAllTopicConsumers(topic)
 }
+
+func (p *T) GetTopicsMetadata(withPartitions, withConfig bool) ([]admin.TopicMetadata, error) {
+	return p.admin.GetTopicsMetadata(withPartitions, withConfig)
+}

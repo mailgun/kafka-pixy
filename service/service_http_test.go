@@ -24,6 +24,7 @@ import (
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
 	"github.com/pkg/errors"
+	"github.com/wvanbergen/kazoo-go"
 	. "gopkg.in/check.v1"
 )
 
@@ -783,6 +784,183 @@ func (s *ServiceHTTPSuite) TestGetTopicConsumers(c *C) {
 			"C55501": {0, 1},
 			"C55502": {2, 3}},
 	})
+}
+
+func (s *ServiceHTTPSuite) TestGetTopics(c *C) {
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
+	defer svc.Stop()
+
+	// When
+	r, err := s.unixClient.Get("http://_/topics")
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(r.StatusCode, Equals, http.StatusOK)
+
+	topics := ParseJSONBody(c, r).([]interface{})
+
+	raw_topics, err := s.kh.KazooClt().Topics()
+	expected_topics := make(map[string]bool, len(raw_topics))
+	for _, s := range raw_topics {
+		expected_topics[s.Name] = true
+	}
+	c.Assert(len(topics), Equals, len(expected_topics))
+	for _, topic := range topics {
+		c.Assert(expected_topics[topic.(string)], Equals, true)
+	}
+}
+
+func (s *ServiceHTTPSuite) TestGetTopicsWithPartitions(c *C) {
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
+	defer svc.Stop()
+
+	// When
+	r, err := s.unixClient.Get("http://_/topics?withPartitions=true")
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(r.StatusCode, Equals, http.StatusOK)
+
+	topics := ParseJSONBody(c, r).(map[string]interface{})
+
+	raw_expected_topics, err := s.kh.KazooClt().Topics()
+	expected_topics := make(map[string]bool, len(raw_expected_topics))
+	for _, s := range raw_expected_topics {
+		expected_topics[s.Name] = true
+	}
+
+	for topic, raw_metadata := range topics {
+		c.Assert(expected_topics[topic], Equals, true)
+
+		metadata := raw_metadata.(map[string]interface{})
+		c.Assert(metadata["partitions"], NotNil)
+
+		partitions := metadata["partitions"].([]interface{})
+		raw_expected_partitions, err := s.kh.KazooClt().Topic(topic).Partitions()
+		if err != nil {
+			c.Error(fmt.Sprintf("Can't obtain config for %s error %v", topic, err))
+		}
+		expected_partitions := make(map[int32]*kazoo.Partition, len(raw_expected_partitions))
+		for _, p := range raw_expected_partitions {
+			expected_partitions[p.ID] = p
+		}
+		c.Assert(len(expected_partitions), Equals, len(partitions))
+
+		for _, v := range partitions {
+			partition := v.(map[string]interface{})
+
+			// check ID
+			id := int32(partition["partition"].(float64))
+			expected_partition := expected_partitions[id]
+			c.Assert(expected_partition, NotNil)
+
+			// check leader
+			leader := int32(partition["leader"].(float64))
+			expected_leader, _ := expected_partition.Leader()
+			c.Assert(leader, Equals, expected_leader)
+
+			// check replicas
+			raw_replicas := partition["replicas"].([]interface{})
+			replicas := make(map[int32]bool, len(raw_replicas))
+			for _, r := range raw_replicas {
+				replicas[int32(r.(float64))] = true
+			}
+			for _, r := range expected_partition.Replicas {
+				c.Assert(replicas[r], Equals, true)
+			}
+
+			// check ISR
+			raw_isr := partition["isr"].([]interface{})
+			isr := make(map[int32]bool, len(raw_isr))
+			for _, r := range raw_isr {
+				isr[int32(r.(float64))] = true
+			}
+			expected_isr, err := expected_partition.ISR()
+			if err != nil {
+				c.Error(fmt.Sprintf("Can't obtain ISR for %v error %v", expected_partition, err))
+			}
+			for _, r := range expected_isr {
+				c.Assert(isr[r], Equals, true)
+			}
+		}
+		c.Assert(metadata["topic_config"], IsNil)
+	}
+}
+
+func (s *ServiceHTTPSuite) TestGetTopicsWithConfig(c *C) {
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
+	defer svc.Stop()
+
+	// When
+	r, err := s.unixClient.Get("http://_/topics?withConfig")
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(r.StatusCode, Equals, http.StatusOK)
+
+	topics := ParseJSONBody(c, r).(map[string]interface{})
+
+	raw_expected_topics, err := s.kh.KazooClt().Topics()
+	expected_topics := make(map[string]bool, len(raw_expected_topics))
+	for _, s := range raw_expected_topics {
+		expected_topics[s.Name] = true
+	}
+
+	for topic, raw_metadata := range topics {
+		c.Assert(expected_topics[topic], Equals, true)
+
+		metadata := raw_metadata.(map[string]interface{})
+		c.Assert(metadata["partitions"], IsNil)
+
+		expected_params, err := s.kh.KazooClt().Topic(topic).Config()
+		if err != nil {
+			c.Error(fmt.Sprintf("Can't obtain config for %s error %v", topic, err))
+		}
+
+		cfg := metadata["topic_config"].(map[string]interface{})
+		version := int(cfg["version"].(float64))
+		c.Assert(version, Equals, 1)
+
+		params := cfg["config"].(map[string]interface{})
+		c.Assert(len(expected_params), Equals, len(params))
+		for k, v := range expected_params {
+			c.Assert(v, Equals, params[k].(string))
+		}
+	}
+}
+
+func (s *ServiceHTTPSuite) TestGetTopicsWithPartitionsAndWithConfig(c *C) {
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
+	defer svc.Stop()
+
+	// When
+	r, err := s.unixClient.Get("http://_/topics?withPartitions&withConfig")
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(r.StatusCode, Equals, http.StatusOK)
+
+	topics := ParseJSONBody(c, r).(map[string]interface{})
+
+	raw_expected_topics, err := s.kh.KazooClt().Topics()
+	expected_topics := make(map[string]bool, len(raw_expected_topics))
+	for _, s := range raw_expected_topics {
+		expected_topics[s.Name] = true
+	}
+
+	c.Assert(len(topics), Equals, len(expected_topics))
+
+	for topic, raw_metadata := range topics {
+		c.Assert(expected_topics[topic], Equals, true)
+
+		metadata := raw_metadata.(map[string]interface{})
+		c.Assert(metadata["partitions"], NotNil)
+		c.Assert(metadata["topic_config"], NotNil)
+	}
 }
 
 // Reported partition lags are correct, including those corresponding to -1 and
