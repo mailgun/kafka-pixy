@@ -25,7 +25,8 @@ errcheck: install_errcheck
 	errcheck github.com/mailgun/kafka-pixy
 
 fmt:
-	@if [ -n "$$(go fmt ./...)" ]; then echo 'Please run go fmt on your code.' && exit 1; fi
+	$(eval $@_GOFILES_NO_VENDOR := $(shell find . -type f -name '*.go' -not -path "./vendor/*"))
+	@if [ -n "$$(gofmt -l $($@_GOFILES_NO_VENDOR))" ]; then echo 'Please run go fmt on your code.' && exit 1; fi
 
 install_errcheck:
 	go get github.com/kisielk/errcheck
