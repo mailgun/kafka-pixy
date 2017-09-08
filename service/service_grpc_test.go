@@ -55,11 +55,11 @@ func (s *ServiceGRPCSuite) TearDownTest(c *C) {
 func (s *ServiceGRPCSuite) TestProduceWithKey(c *C) {
 	svc, err := Spawn(s.cfg)
 	c.Assert(err, IsNil)
-	s.waitSvcUp(c, 1*time.Second)
+	s.waitSvcUp(c, 5*time.Second)
 
 	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	// When
@@ -89,11 +89,11 @@ func (s *ServiceGRPCSuite) TestProduceWithKey(c *C) {
 func (s *ServiceGRPCSuite) TestProduceKeyUndefined(c *C) {
 	svc, err := Spawn(s.cfg)
 	c.Assert(err, IsNil)
-	s.waitSvcUp(c, 1*time.Second)
+	s.waitSvcUp(c, 5*time.Second)
 
 	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	// When
@@ -124,11 +124,11 @@ func (s *ServiceGRPCSuite) TestProduceKeyUndefined(c *C) {
 func (s *ServiceGRPCSuite) TestProduceDefaultKey(c *C) {
 	svc, err := Spawn(s.cfg)
 	c.Assert(err, IsNil)
-	s.waitSvcUp(c, 1*time.Second)
+	s.waitSvcUp(c, 5*time.Second)
 
 	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	// When
@@ -159,11 +159,11 @@ func (s *ServiceGRPCSuite) TestProduceSync(c *C) {
 	svc, err := Spawn(s.cfg)
 	c.Assert(err, IsNil)
 	defer svc.Stop()
-	s.waitSvcUp(c, 1*time.Second)
+	s.waitSvcUp(c, 5*time.Second)
 
 	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	// When
@@ -183,9 +183,9 @@ func (s *ServiceGRPCSuite) TestProduceInvalidProxy(c *C) {
 	svc, err := Spawn(s.cfg)
 	c.Assert(err, IsNil)
 	defer svc.Stop()
-	s.waitSvcUp(c, 1*time.Second)
+	s.waitSvcUp(c, 5*time.Second)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	// When
@@ -207,14 +207,14 @@ func (s *ServiceGRPCSuite) TestProduceInvalidProxy(c *C) {
 func (s *ServiceGRPCSuite) TestConsumeAutoAck(c *C) {
 	svc, err := Spawn(s.cfg)
 	c.Assert(err, IsNil)
-	s.waitSvcUp(c, 1*time.Second)
+	s.waitSvcUp(c, 5*time.Second)
 
 	s.kh.ResetOffsets("foo", "test.4")
 	produced := s.kh.PutMessages("auto-ack", "test.4", map[string]int{"A": 17, "B": 19, "C": 23, "D": 29})
 	consumed := make(map[string][]*pb.ConsRs)
 	offsetsBefore := s.kh.GetCommittedOffsets("foo", "test.4")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	// When
@@ -248,13 +248,13 @@ func (s *ServiceGRPCSuite) TestConsumeNoAck(c *C) {
 	s.proxyCfg.Consumer.SubscriptionTimeout = 500 * time.Millisecond
 	svc, err := Spawn(s.cfg)
 	c.Assert(err, IsNil)
-	s.waitSvcUp(c, 1*time.Second)
+	s.waitSvcUp(c, 5*time.Second)
 
 	s.kh.ResetOffsets("foo", "test.1")
 	s.kh.PutMessages("no-ack", "test.1", map[string]int{"A": 1})
 	offsetsBefore := s.kh.GetCommittedOffsets("foo", "test.1")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	// When
@@ -276,7 +276,7 @@ func (s *ServiceGRPCSuite) TestConsumeNoAck(c *C) {
 func (s *ServiceGRPCSuite) TestGetOffsets(c *C) {
 	svc, err := Spawn(s.cfg)
 	c.Assert(err, IsNil)
-	s.waitSvcUp(c, 1*time.Second)
+	s.waitSvcUp(c, 5*time.Second)
 
 	s.kh.ResetOffsets("foo", "test.4")
 	s.kh.PutMessages("auto-ack", "test.4", map[string]int{"A": 1})
@@ -316,14 +316,14 @@ func (s *ServiceGRPCSuite) TestGetOffsets(c *C) {
 func (s *ServiceGRPCSuite) TestConsumeExplicitAck(c *C) {
 	svc, err := Spawn(s.cfg)
 	c.Assert(err, IsNil)
-	s.waitSvcUp(c, 1*time.Second)
+	s.waitSvcUp(c, 5*time.Second)
 
 	s.kh.ResetOffsets("foo", "test.4")
 	produced := s.kh.PutMessages("explicit-ack", "test.4", map[string]int{"A": 17, "B": 19, "C": 23, "D": 29})
 	consumed := make(map[string][]*pb.ConsRs)
 	offsetsBefore := s.kh.GetCommittedOffsets("foo", "test.4")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	// When:
@@ -377,11 +377,11 @@ func (s *ServiceGRPCSuite) TestConsumeExplicitProxy(c *C) {
 	svc, err := Spawn(s.cfg)
 	c.Assert(err, IsNil)
 	defer svc.Stop()
-	s.waitSvcUp(c, 1*time.Second)
+	s.waitSvcUp(c, 5*time.Second)
 
 	s.kh.ResetOffsets("foo", "test.4")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	prodReq := pb.ProdRq{
@@ -412,11 +412,11 @@ func (s *ServiceGRPCSuite) TestConsumeKeyUndefined(c *C) {
 	svc, err := Spawn(s.cfg)
 	c.Assert(err, IsNil)
 	defer svc.Stop()
-	s.waitSvcUp(c, 1*time.Second)
+	s.waitSvcUp(c, 5*time.Second)
 
 	s.kh.ResetOffsets("foo", "test.4")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	prodReq := pb.ProdRq{
@@ -446,9 +446,9 @@ func (s *ServiceGRPCSuite) TestConsumeInvalidProxy(c *C) {
 	svc, err := Spawn(s.cfg)
 	c.Assert(err, IsNil)
 	defer svc.Stop()
-	s.waitSvcUp(c, 1*time.Second)
+	s.waitSvcUp(c, 5*time.Second)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	// When
@@ -474,5 +474,6 @@ func (s *ServiceGRPCSuite) waitSvcUp(c *C, timeout time.Duration) {
 			c.Errorf("Service is not up")
 			return
 		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }

@@ -920,7 +920,7 @@ func (s *ServiceHTTPSuite) TestGetTopicsWithConfig(c *C) {
 			c.Error(fmt.Sprintf("Can't obtain config for %s error %v", topic, err))
 		}
 
-		cfg := metadata["topic_config"].(map[string]interface{})
+		cfg := metadata["config"].(map[string]interface{})
 		version := int(cfg["version"].(float64))
 		c.Assert(version, Equals, 1)
 
@@ -959,7 +959,7 @@ func (s *ServiceHTTPSuite) TestGetTopicsWithPartitionsAndWithConfig(c *C) {
 
 		metadata := raw_metadata.(map[string]interface{})
 		c.Assert(metadata["partitions"], NotNil)
-		c.Assert(metadata["topic_config"], NotNil)
+		c.Assert(metadata["config"], NotNil)
 	}
 }
 

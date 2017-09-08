@@ -293,7 +293,7 @@ group inactivity on all Kafka-Pixy working with the Kafka cluster.
 
 ```
 GET /topics/<topic>/consumers
-GET /clusters/<topic>/topics/<topic>/consumers
+GET /clusters/<cluster>/topics/<topic>/consumers
 ```
 
 Returns a list of consumers that are subscribed to a topic.
@@ -343,6 +343,35 @@ yields:
   }
 }
 ```
+
+### List Topics
+
+```
+GET /topics
+GET /clusters/<cluster>/topics
+```
+
+Returns a list of topics optionally with detailed configuration and partitions.
+
+ Parameter      | Opt | Description
+----------------|-----|------------------------------------------------
+ cluster        | yes | The name of a cluster to operate on. By default the cluster mentioned first in the `proxies` section of the config file is used.
+ withPartitions | yes | Whether a list of partitions should be returned for every topic.
+ withConfig     | yes | Whether configuration should be returned for every topic.
+
+### Get Topic Config
+
+```
+GET /topics/<topic>
+GET /clusters/<cluster>/topics/<topic>
+```
+
+Returns topic configuration optionally with a list of partitions.
+
+ Parameter      | Opt | Description
+----------------|-----|------------------------------------------------
+ cluster        | yes | The name of a cluster to operate on. By default the cluster mentioned first in the `proxies` section of the config file is used.
+ withPartitions | yes | Whether a list of partitions should be returned.
 
 ## Configuration
 

@@ -310,6 +310,23 @@ func (p *T) GetAllTopicConsumers(topic string) (map[string]map[string][]int32, e
 	return p.admin.GetAllTopicConsumers(topic)
 }
 
-func (p *T) GetTopicsMetadata(withPartitions, withConfig bool) ([]admin.TopicMetadata, error) {
-	return p.admin.GetTopicsMetadata(withPartitions, withConfig)
+// ListTopics returns a list of all topics existing in the Kafka cluster.
+func (p *T) ListTopics(withPartitions, withConfig bool) ([]admin.TopicMetadata, error) {
+	p.adminMu.RLock()
+	defer p.adminMu.RUnlock()
+	if p.admin == nil {
+		return nil, ErrUnavailable
+	}
+	return p.admin.ListTopics(withPartitions, withConfig)
+}
+
+// GetTopicMetadata returns a topic metadata. An optional partition metadata
+// can be requested and/or detailed topic configuration can be requested.
+func (p *T) GetTopicMetadata(topic string, withPartitions, withConfig bool) (admin.TopicMetadata, error) {
+	p.adminMu.RLock()
+	defer p.adminMu.RUnlock()
+	if p.admin == nil {
+		return admin.TopicMetadata{}, ErrUnavailable
+	}
+	return p.admin.GetTopicMetadata(topic, withPartitions, withConfig)
 }

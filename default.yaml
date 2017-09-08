@@ -114,11 +114,14 @@ proxies:
       # the pending messages are acknowledged.
       max_pending_messages: 300
 
-      # The maximum number of times a message can be offered to a consumer.
-      # If a message had been offered that many times and no acknowledgment has
-      # been received, then it is forcefully acknowledged and will never be
-      # offered again. Such messages are lost from the Kafka-Pixy point of view.
-      max_retries: 3
+      # The maximum number of retries Kafka-Pixy will make to offer an
+      # unack message. Messages that exceeded the number of retries are
+      # discarded by Kafka-Pixy and acknowledged in Kafka. Zero retries
+      # means that messages will be offered just once.
+      #
+      # If you want Kafka-Pixy to retry indefinitely, then set this
+      # parameter to -1.
+      max_retries: -1
 
       # How frequently to commit offsets to Kafka.
       offsets_commit_interval: 500ms
