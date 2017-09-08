@@ -363,8 +363,7 @@ func (a *T) GetTopicsMetadata(withPartitions, withConfig bool) ([]TopicMetadata,
 
 		partitions, err := kafkaClt.Partitions(topic)
 		if err != nil {
-			// Ignore all errors, do our best to get available info
-			continue
+			return nil, errors.Wrap(err, "failed to get partitions")
 		}
 
 		tm.Partitions = make([]PartitionMetadata, len(partitions))
@@ -372,29 +371,32 @@ func (a *T) GetTopicsMetadata(withPartitions, withConfig bool) ([]TopicMetadata,
 			pm := &tm.Partitions[i]
 			pm.ID = partition
 
-			leader, _ := kafkaClt.Leader(topic, partition)
-			if leader != nil {
-				pm.Leader = leader.ID()
-			} else {
+			leader, err := kafkaClt.Leader(topic, partition)
+			if err == sarama.ErrLeaderNotAvailable {
 				pm.Leader = -1
+			} else if err != nil {
+				return nil, errors.Wrap(err, "failed to get leader")
 			}
+			pm.Leader = leader.ID()
 
-			isr, _ := kafkaClt.InSyncReplicas(topic, partition)
-			if isr != nil {
-				pm.Isr = isr
+			isr, err := kafkaClt.InSyncReplicas(topic, partition)
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to get ISR")
 			}
+			pm.Isr = isr
 
-			replicas, _ := kafkaClt.Replicas(topic, partition)
-			if replicas != nil {
-				pm.Replicas = replicas
+			replicas, err := kafkaClt.Replicas(topic, partition)
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to get replicas")
 			}
+			pm.Replicas = replicas
 		}
 	}
 
 	if withConfig {
 		kzConn, err := a.lazyZKConn()
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrap(err, "failed to connect to zookeeper")
 		}
 		for i := range topicsMetadata {
 			t := &topicsMetadata[i]
