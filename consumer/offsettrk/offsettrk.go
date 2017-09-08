@@ -127,8 +127,8 @@ func (ot *T) OnAcked(offset int64) (offsetmgr.Offset, int) {
 	offerRemoved := ot.removeOffer(offset)
 	ackedRangesUpdated := ot.updateAckedRanges(offset)
 	if !offerRemoved || !ackedRangesUpdated {
-		ot.actDesc.Log().Errorf("Bad ack: offerMissing=%t, duplicateAck=%t",
-			!offerRemoved, !ackedRangesUpdated)
+		ot.actDesc.Log().Errorf("Bad ack: offset=%d, offerMissing=%t, duplicateAck=%t",
+			offset, !offerRemoved, !ackedRangesUpdated)
 	}
 	if ackedRangesUpdated {
 		ot.offset.Meta = encodeAckedRanges(ot.offset.Val, ot.ackedRanges)

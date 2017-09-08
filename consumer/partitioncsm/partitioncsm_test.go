@@ -325,6 +325,72 @@ func (s *PartitionCsmSuite) TestSparseAckedAfterStop(c *C) {
 	c.Assert(offsettrk.SparseAcks2Str(offsetsAfter[partition]), Equals, "1-3,4-7")
 }
 
+// If the max retries limit set to 0, then messages are offered only once.
+func (s *PartitionCsmSuite) TestZeroRetries(c *C) {
+	offsetsBefore := s.kh.GetOldestOffsets(topic)
+	s.cfg.Consumer.AckTimeout = 100 * time.Millisecond
+	s.cfg.Consumer.MaxRetries = 0
+	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{Val: sarama.OffsetOldest}})
+
+	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgFetcherF, s.offsetMgrF)
+
+	msg0 := <-pc.Messages()
+	log.Infof("*** First: offset=%v", msg0.Offset)
+	sendEvOffered(msg0)
+
+	// Wait for the retry timeout to expire.
+	time.Sleep(200 * time.Millisecond)
+
+	// When/Then: maxRetries has been reached, only new messages are returned.
+	for i := 0; i < 5; i++ {
+		msg := <-pc.Messages()
+		log.Infof("*** Next: offset=%v", msg.Offset)
+		c.Assert(msg.Offset, Equals, msg0.Offset+int64(1+i), Commentf("i=%d", i))
+		sendEvOffered(msg)
+		sendEvAcked(msg)
+	}
+
+	pc.Stop()
+	offsetsAfter := s.kh.GetCommittedOffsets(group, topic)
+	c.Assert(offsetsAfter[partition].Val, Equals, offsetsBefore[partition]+6)
+	c.Assert(offsettrk.SparseAcks2Str(offsetsAfter[partition]), Equals, "")
+}
+
+// If the max retries limit is set to -1 then retries never stop.
+func (s *PartitionCsmSuite) TestIndefiniteRetries(c *C) {
+	offsetsBefore := s.kh.GetOldestOffsets(topic)
+	s.cfg.Consumer.AckTimeout = 100 * time.Millisecond
+	s.cfg.Consumer.MaxRetries = -1
+	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{Val: sarama.OffsetOldest}})
+
+	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgFetcherF, s.offsetMgrF)
+
+	msg0 := <-pc.Messages()
+	sendEvOffered(msg0)
+
+	// The logic is so that the even when an offer is expired, at first a
+	// freshly fetched message is offered, and then retries follow.
+	base := offsetsBefore[partition] + int64(1)
+	for i := 0; i < 5; i++ {
+		time.Sleep(100 * time.Millisecond)
+		// Newly fetched message is acknowledged...
+		msgI := <-pc.Messages()
+		c.Assert(msgI.Offset, Equals, base+int64(i))
+		sendEvOffered(msgI)
+		sendEvAcked(msgI)
+		// ...but retried messages are not.
+		msg0_i := <-pc.Messages()
+		c.Assert(msg0_i, DeepEquals, msg0, Commentf(
+			"got: %d, want: %d", msg0_i.Offset, msg0.Offset))
+		sendEvOffered(msg0)
+	}
+
+	pc.Stop()
+	offsetsAfter := s.kh.GetCommittedOffsets(group, topic)
+	c.Assert(offsetsAfter[partition].Val, Equals, offsetsBefore[partition])
+	c.Assert(offsettrk.SparseAcks2Str(offsetsAfter[partition]), Equals, "1-6")
+}
+
 // If the max retries limit is reached for a message that results in
 // termination of the partition consumer. Note that offset is properly
 // committed to reflect sparsely acknowledged regions.

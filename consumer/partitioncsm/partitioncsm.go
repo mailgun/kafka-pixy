@@ -247,7 +247,7 @@ func (pc *T) runFetchLoop() bool {
 // returned or there are no more messages to be retried.
 func (pc *T) nextRetry() (consumer.Message, bool) {
 	msg, retryNo, ok := pc.offsetTrk.NextRetry()
-	for ok && retryNo > pc.cfg.Consumer.MaxRetries {
+	for ok && pc.cfg.Consumer.MaxRetries >= 0 && retryNo > pc.cfg.Consumer.MaxRetries {
 		pc.actDesc.Log().Errorf("Too many retries: retryNo=%d, offset=%d, key=%s, msg=%s",
 			retryNo, msg.Offset, string(msg.Key), base64.StdEncoding.EncodeToString(msg.Value))
 		pc.submittedOffset, _ = pc.offsetTrk.OnAcked(msg.Offset)
