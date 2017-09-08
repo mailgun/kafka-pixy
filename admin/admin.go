@@ -179,7 +179,7 @@ func (a *T) getGroupOffsets(group, topic string) ([]PartitionOffset, error) {
 	// Fetch the last committed offsets for all partitions of the group/topic.
 	coordinator, err := kafkaClt.Coordinator(group)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get coordinator")
+		return nil, errors.Wrap(err, "failed to get coordinator")
 	}
 	req := sarama.OffsetFetchRequest{ConsumerGroup: group, Version: ProtocolVer1}
 	for _, p := range partitions {
@@ -187,7 +187,7 @@ func (a *T) getGroupOffsets(group, topic string) ([]PartitionOffset, error) {
 	}
 	res, err := coordinator.FetchOffset(&req)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to fetch offsets")
+		return nil, errors.Wrap(err, "failed to fetch offsets")
 	}
 	for i, p := range partitions {
 		block := res.GetBlock(topic, p)
@@ -218,7 +218,7 @@ func (a *T) setGroupOffsets(group, topic string, offsets []PartitionOffset) erro
 	}
 	coordinator, err := kafkaClt.Coordinator(group)
 	if err != nil {
-		return errors.Wrapf(err, "failed to get coordinator")
+		return errors.Wrap(err, "failed to get coordinator")
 	}
 
 	req := sarama.OffsetCommitRequest{
@@ -231,7 +231,7 @@ func (a *T) setGroupOffsets(group, topic string, offsets []PartitionOffset) erro
 	}
 	res, err := coordinator.CommitOffset(&req)
 	if err != nil {
-		return errors.Wrapf(err, "failed to commit offsets")
+		return errors.Wrap(err, "failed to commit offsets")
 	}
 	for p, err := range res.Errors[topic] {
 		if err != sarama.ErrNoError {
@@ -255,7 +255,7 @@ func (a *T) GetTopicConsumers(group, topic string) (map[string][]int32, error) {
 		if err == zk.ErrNoNode {
 			return nil, ErrInvalidParam(errors.New("either group or topic is incorrect"))
 		}
-		return nil, errors.Wrapf(err, "failed to fetch partition owners data")
+		return nil, errors.Wrap(err, "failed to fetch partition owners data")
 	}
 
 	consumers := make(map[string][]int32)
@@ -267,7 +267,7 @@ func (a *T) GetTopicConsumers(group, topic string) (map[string][]int32, error) {
 		partitionPath := fmt.Sprintf("%s/%s", consumedPartitionsPath, partitionNode)
 		partitionNodeData, _, err := zkConn.Get(partitionPath)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to fetch partition owner")
+			return nil, errors.Wrap(err, "failed to fetch partition owner")
 		}
 		clientID := string(partitionNodeData)
 		consumers[clientID] = append(consumers[clientID], int32(partition))
@@ -291,7 +291,7 @@ func (a *T) GetAllTopicConsumers(topic string) (map[string]map[string][]int32, e
 	groupsPath := fmt.Sprintf("%s/consumers", a.cfg.ZooKeeper.Chroot)
 	groups, _, err := kzConn.Children(groupsPath)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to fetch consumer groups")
+		return nil, errors.Wrap(err, "failed to fetch consumer groups")
 	}
 
 	consumers := make(map[string]map[string][]int32)
@@ -424,7 +424,7 @@ func (a *T) GetTopicMetadata(topic string, withPartitions, withConfig bool) (Top
 		}
 		topicConfig := TopicConfig{}
 		if err = json.Unmarshal(cfg, &topicConfig); err != nil {
-			return TopicMetadata{}, errors.Wrapf(err, "bad config")
+			return TopicMetadata{}, errors.Wrap(err, "bad config")
 		}
 		tm.Config = &topicConfig
 	}
