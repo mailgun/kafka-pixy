@@ -3,6 +3,8 @@
 #### Version 0.14.0 (TBD)
 
 Implemented:
+* Added HTTP API endpoints to list topics optionally with partitions and
+  configuration.
 * Ack timeout can now be greater then subscription timeout. So in absence of
   incoming consume requests for a topic, rebalancing may be delayed until
   ack timeout expires for all offered messages. If a new request comes while

@@ -110,8 +110,11 @@ func New(addr string, proxySet *proxy.Set) (*T, error) {
 	router.HandleFunc(fmt.Sprintf("/clusters/{%s}/topics/{%s}/consumers", prmCluster, prmTopic), hs.handleGetTopicConsumers).Methods("GET")
 	router.HandleFunc(fmt.Sprintf("/topics/{%s}/consumers", prmTopic), hs.handleGetTopicConsumers).Methods("GET")
 
-	router.HandleFunc(fmt.Sprintf("/clusters/{%s}/topics", prmCluster), hs.handleGetTopicsMetadata).Methods("GET")
-	router.HandleFunc("/topics", hs.handleGetTopicsMetadata).Methods("GET")
+	router.HandleFunc(fmt.Sprintf("/clusters/{%s}/topics", prmCluster), hs.handleListTopics).Methods("GET")
+	router.HandleFunc("/topics", hs.handleListTopics).Methods("GET")
+
+	router.HandleFunc(fmt.Sprintf("/clusters/{%s}/topics/{%s}", prmCluster, prmTopic), hs.handleGetTopicMetadata).Methods("GET")
+	router.HandleFunc(fmt.Sprintf("/topics/{%s}", prmTopic), hs.handleGetTopicMetadata).Methods("GET")
 
 	router.HandleFunc("/_ping", hs.handlePing).Methods("GET")
 	return hs, nil
@@ -458,8 +461,8 @@ func (s *T) handleGetTopicConsumers(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleGetTopics is an HTTP request handler for `GET /topics`
-func (s *T) handleGetTopicsMetadata(w http.ResponseWriter, r *http.Request) {
+// handleListTopics is an HTTP request handler for `GET /topics`
+func (s *T) handleListTopics(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	var err error
 
@@ -478,40 +481,19 @@ func (s *T) handleGetTopicsMetadata(w http.ResponseWriter, r *http.Request) {
 	_, withConfig := r.Form[prmTopicsWithConfig]
 	_, withPartitions := r.Form[prmTopicsWithPartitions]
 
-	topicsMetadata, err := pxy.GetTopicsMetadata(withPartitions, withConfig)
+	topicsMetadata, err := pxy.ListTopics(withPartitions, withConfig)
 	if err != nil {
 		s.respondWithJSON(w, http.StatusInternalServerError, errorRs{err.Error()})
 		return
 	}
 
 	if withPartitions || withConfig {
-		topicsMetadataView := make(map[string]*topicMetadata)
+		topicMetadataViews := make(map[string]*topicMetadata)
 		for _, tm := range topicsMetadata {
-			tm_view := new(topicMetadata)
-			if withPartitions {
-				for _, p := range tm.Partitions {
-					p_view := partitionMetadata{
-						ID:       p.ID,
-						Leader:   p.Leader,
-						Replicas: p.Replicas,
-						Isr:      p.Isr,
-					}
-					tm_view.Partitions = append(tm_view.Partitions, p_view)
-				}
-			}
-			if withConfig {
-				cfg := new(topicConfig)
-				err = json.Unmarshal(tm.Config, &cfg)
-				if err != nil {
-					s.respondWithJSON(w, http.StatusInternalServerError, errorRs{err.Error()})
-					return
-				}
-
-				tm_view.Config = cfg
-			}
-			topicsMetadataView[tm.Topic] = tm_view
+			topicMetadataView := newTopicMetadataView(withPartitions, withConfig, tm)
+			topicMetadataViews[tm.Topic] = &topicMetadataView
 		}
-		s.respondWithJSON(w, http.StatusOK, topicsMetadataView)
+		s.respondWithJSON(w, http.StatusOK, topicMetadataViews)
 		return
 	}
 
@@ -520,6 +502,37 @@ func (s *T) handleGetTopicsMetadata(w http.ResponseWriter, r *http.Request) {
 		topics = append(topics, tm.Topic)
 	}
 	s.respondWithJSON(w, http.StatusOK, topics)
+}
+
+// handleGetTopicMetadata is an HTTP request handler for `GET /topics/{topic}`
+func (s *T) handleGetTopicMetadata(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+	var err error
+
+	pxy, err := s.getProxy(r)
+	if err != nil {
+		s.respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
+		return
+	}
+	topic := mux.Vars(r)[prmTopic]
+
+	err = r.ParseForm()
+	if err != nil {
+		s.respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
+		return
+	}
+
+	withConfig := true
+	_, withPartitions := r.Form[prmTopicsWithPartitions]
+
+	tm, err := pxy.GetTopicMetadata(topic, withPartitions, withConfig)
+	if err != nil {
+		s.respondWithJSON(w, http.StatusInternalServerError, errorRs{err.Error()})
+		return
+	}
+
+	tm_view := newTopicMetadataView(withPartitions, withConfig, tm)
+	s.respondWithJSON(w, http.StatusOK, tm_view)
 }
 
 func (s *T) handlePing(w http.ResponseWriter, r *http.Request) {
@@ -556,19 +569,19 @@ type errorRs struct {
 }
 
 type topicConfig struct {
-	Version   int32             `json:"version"`
-	ConfigMap map[string]string `json:"config"`
+	Version int32             `json:"version"`
+	Config  map[string]string `json:"config"`
 }
 
 type partitionMetadata struct {
 	ID       int32   `json:"partition"`
 	Leader   int32   `json:"leader"`
 	Replicas []int32 `json:"replicas"`
-	Isr      []int32 `json:"isr"`
+	ISR      []int32 `json:"isr"`
 }
 
 type topicMetadata struct {
-	Config     *topicConfig        `json:"topic_config,omitempty"`
+	Config     *topicConfig        `json:"config,omitempty"`
 	Partitions []partitionMetadata `json:"partitions,omitempty"`
 }
 
@@ -661,4 +674,27 @@ func parseAck(r *http.Request, isConsReq bool) (proxy.Ack, error) {
 		return proxy.AutoAck(), nil
 	}
 	return proxy.NoAck(), errors.Errorf("%s and %s either both should be provided or neither", partitionPrmName, offsetPrmName)
+}
+
+func newTopicMetadataView(withPartitions, withConfig bool, tm admin.TopicMetadata) topicMetadata {
+	topicMetadataView := topicMetadata{}
+	if withPartitions {
+		for _, p := range tm.Partitions {
+			partitionView := partitionMetadata{
+				ID:       p.ID,
+				Leader:   p.Leader,
+				Replicas: p.Replicas,
+				ISR:      p.ISR,
+			}
+			topicMetadataView.Partitions = append(topicMetadataView.Partitions, partitionView)
+		}
+	}
+	if withConfig {
+		topicConfig := topicConfig{
+			Version: tm.Config.Version,
+			Config:  tm.Config.Config,
+		}
+		topicMetadataView.Config = &topicConfig
+	}
+	return topicMetadataView
 }
