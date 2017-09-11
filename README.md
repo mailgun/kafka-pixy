@@ -177,12 +177,12 @@ consumption (Read more about what the Kafka consumer groups
 [here](http://kafka.apache.org/documentation.html#intro_consumers)).
 
 If a Kafka-Pixy instance has not received consume requests for a topic for
-[registration timeout](https://github.com/mailgun/kafka-pixy/blob/master/default.yaml#L72),
+[subscription timeout](https://github.com/mailgun/kafka-pixy/blob/master/default.yaml#L139),
 then it unsubscribes from the topic, and the topic partitions are
 redistributed among Kafka-Pixy instances that are still consuming from it.
  
 If there are no unread messages in the topic the request will block
-waiting for [long polling timeout](https://github.com/mailgun/kafka-pixy/blob/master/default.yaml#L67).
+waiting for [long polling timeout](https://github.com/mailgun/kafka-pixy/blob/master/default.yaml#L109).
 If there are no messages produced during this long poll waiting then the request
 will return **408 Request Timeout** error, otherwise the response will
 be a JSON document of the following structure:

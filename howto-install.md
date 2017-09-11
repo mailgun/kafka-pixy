@@ -5,13 +5,13 @@ The easiest way to install Kafka-Pixy is to download and unpack a release
 archive:
 
 ```
-curl -L https://github.com/mailgun/kafka-pixy/releases/download/v0.13.0/kafka-pixy-v0.13.0-linux-amd64.tar.gz | tar xz
+curl -L https://github.com/mailgun/kafka-pixy/releases/download/v0.14.0/kafka-pixy-v0.14.0-linux-amd64.tar.gz | tar xz
 ```
 
 Create a configuration file using `default.yaml` as a template: 
 
 ```
-cd kafka-pixy-v0.13.0-linux-amd64
+cd kafka-pixy-v0.14.0-linux-amd64
 cp default.yaml config.yaml
 ```
 

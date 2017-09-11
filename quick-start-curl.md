@@ -16,7 +16,7 @@ curl -G localhost:19092/topics/foo/messages?group=bar
 ```
 
 The call is exected to fail after the configured configured
-[long polling timeout](https://github.com/mailgun/kafka-pixy/blob/master/default.yaml#L103)
+[long polling timeout](https://github.com/mailgun/kafka-pixy/blob/master/default.yaml#L109)
 elapses. But the important side effect is that initial offsets will be stored
 in the Kafka cluster for the used consumer group.
 
