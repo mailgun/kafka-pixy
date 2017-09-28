@@ -34,7 +34,7 @@ for details).
   produce/consume messages;
   - REST (JSON over HTTP) intended for for testing and operations
   purposes, although you can use it to produce/consume messages too;
-- **Muli-Cluster Support**: One Kafka-Pixy instance can proxy to
+- **Multi-Cluster Support**: One Kafka-Pixy instance can proxy to
   several Kafka clusters. You just need to define them in the [config
   file](https://github.com/mailgun/kafka-pixy/blob/master/default.yaml)
   and then address clusters by name given in the config file in your
