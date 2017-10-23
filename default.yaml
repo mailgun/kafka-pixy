@@ -86,8 +86,8 @@ proxies:
     consumer:
 
       # Period of time that Kafka-Pixy should wait for an acknowledgement
-      # before retrying. It must be less then registration_timeout.
-      ack_timeout: 15s
+      # before retrying.
+      ack_timeout: 5m
 
       # Size of all buffered channels created by the consumer module.
       channel_buffer_size: 64
@@ -136,4 +136,4 @@ proxies:
 
       # Period of time that Kafka-Pixy should keep a subscription for a
       # topic by a group in absence of requests to from the consumer group.
-      subscription_timeout: 20s
+      subscription_timeout: 15s

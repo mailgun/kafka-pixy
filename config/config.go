@@ -419,7 +419,7 @@ func defaultProxyWithClientID(clientID string) *Proxy {
 	c.Producer.RetryMax = 6
 	c.Producer.ShutdownTimeout = 30 * time.Second
 
-	c.Consumer.AckTimeout = 15 * time.Second
+	c.Consumer.AckTimeout = 300 * time.Second
 	c.Consumer.ChannelBufferSize = 64
 	c.Consumer.FetchMaxBytes = 1024 * 1024
 	c.Consumer.FetchMaxWait = 250 * time.Millisecond
@@ -429,7 +429,7 @@ func defaultProxyWithClientID(clientID string) *Proxy {
 	c.Consumer.OffsetsCommitInterval = 500 * time.Millisecond
 	c.Consumer.OffsetsCommitTimeout = 1500 * time.Millisecond
 	c.Consumer.RebalanceDelay = 250 * time.Millisecond
-	c.Consumer.SubscriptionTimeout = 20 * time.Second
+	c.Consumer.SubscriptionTimeout = 15 * time.Second
 	c.Consumer.RetryBackoff = 500 * time.Millisecond
 	return c
 }
