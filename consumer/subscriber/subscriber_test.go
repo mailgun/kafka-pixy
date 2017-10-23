@@ -54,23 +54,6 @@ func (s *GroupMemberSuite) TestTopicsEqual(c *C) {
 	c.Assert(topicsEqual([]string{"a", "b"}, []string{"b", "a"}), Equals, false)
 }
 
-func (s *GroupMemberSuite) TestSubscriptionsEqual(c *C) {
-	c.Assert(subscriptionsEqual(nil, nil), Equals, true)
-	c.Assert(subscriptionsEqual(map[string][]string{}, nil), Equals, true)
-	c.Assert(subscriptionsEqual(nil, map[string][]string{}), Equals, true)
-	c.Assert(subscriptionsEqual(map[string][]string{}, map[string][]string{}), Equals, true)
-
-	c.Assert(subscriptionsEqual(
-		map[string][]string{
-			"m1": {"a", "b"},
-			"m2": {"c", "d", "e"},
-		},
-		map[string][]string{
-			"m1": {"a", "b"},
-			"m2": {"c", "d", "e"},
-		}), Equals, true)
-}
-
 // When a list of topics is sent to the `topics()` channel, a membership change
 // is received with the same list of topics for the registrator name.
 func (s *GroupMemberSuite) TestSimpleSubscribe(c *C) {
@@ -238,10 +221,12 @@ func (s *GroupMemberSuite) TestMembershipChanges(c *C) {
 	c.Assert(<-ss3.Subscriptions(), DeepEquals, membership)
 }
 
-// When one of the group members generates a rapid sequence of subscription
-// changes so that at the end its subscription is the same as in the beginning
-// of the sequence then other members won't be notified of such changes.
-func (s *GroupMemberSuite) TestRedundantUpdateIgnored(c *C) {
+// Redundant updates used to be ignored, but that turned out to be wrong. Due
+// to the ZooKeeper single-fire watch semantic it is possible to miss
+// intermediate changes and only see the final subscription state, which make
+// look the same as the last a subscriber had seen and be ignored. But topic
+// consumers could have been changed and in need of rewiring.
+func (s *GroupMemberSuite) TestRedundantUpdateBug(c *C) {
 	cfg1 := newConfig("m1")
 	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
 	defer ss1.Stop()
@@ -262,11 +247,10 @@ func (s *GroupMemberSuite) TestRedundantUpdateIgnored(c *C) {
 	ss2.Topics() <- []string{"foo", "bazz", "blah"}
 
 	// Then
-	select {
-	case update := <-ss1.Subscriptions():
-		c.Errorf("Unexpected update: %v", update)
-	case <-time.After(300 * time.Millisecond):
-	}
+	c.Assert(<-ss1.Subscriptions(), DeepEquals,
+		map[string][]string{
+			"m1": {"bar", "foo"},
+			"m2": {"bazz", "blah", "foo"}})
 }
 
 // When a group registrator claims a topic partitions it becomes its owner.

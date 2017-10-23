@@ -30,7 +30,6 @@ type T struct {
 	groupZNode       *kazoo.Consumergroup
 	groupMemberZNode *kazoo.ConsumergroupInstance
 	topics           []string
-	subscriptions    map[string][]string
 	topicsCh         chan []string
 	subscriptionsCh  chan map[string][]string
 	stopCh           chan none.T
@@ -166,7 +165,6 @@ func (ss *T) run() {
 			shouldSubmitTopics = !topicsEqual(pendingTopics, ss.topics)
 		case nilOrSubscriptionsCh <- pendingSubscriptions:
 			nilOrSubscriptionsCh = nil
-			ss.subscriptions = pendingSubscriptions
 		case <-nilOrGroupUpdatedCh:
 			nilOrGroupUpdatedCh = nil
 			shouldFetchMembers = true
@@ -211,12 +209,6 @@ func (ss *T) run() {
 			}
 			shouldFetchSubscriptions = false
 			ss.actDesc.Log().Infof("Fetched subscriptions: %v", pendingSubscriptions)
-			if subscriptionsEqual(pendingSubscriptions, ss.subscriptions) {
-				nilOrSubscriptionsCh = nil
-				pendingSubscriptions = nil
-				ss.actDesc.Log().Infof("Redundant group update ignored: %v", ss.subscriptions)
-				continue
-			}
 			nilOrSubscriptionsCh = ss.subscriptionsCh
 		}
 	}
@@ -278,18 +270,6 @@ func topicsEqual(lhs, rhs []string) bool {
 	}
 	for i := range lhs {
 		if lhs[i] != rhs[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func subscriptionsEqual(lhs, rhs map[string][]string) bool {
-	if len(lhs) != len(rhs) {
-		return false
-	}
-	for member, lhsTopics := range lhs {
-		if !topicsEqual(lhsTopics, rhs[member]) {
 			return false
 		}
 	}
