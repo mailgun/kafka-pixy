@@ -376,8 +376,6 @@ func (p *Proxy) validate() error {
 		return errors.New("consumer.offsets_commit_interval must be > 0")
 	case p.Consumer.OffsetsCommitTimeout <= 0:
 		return errors.New("consumer.offsets_commit_timeout must be > 0")
-	case p.Consumer.RebalanceDelay <= 0:
-		return errors.New("consumer.rebalance_delay must be > 0")
 	case p.Consumer.SubscriptionTimeout <= 0:
 		return errors.New("consumer.subscription_timeout must be > 0")
 	case p.Consumer.RetryBackoff <= 0:
@@ -428,7 +426,6 @@ func defaultProxyWithClientID(clientID string) *Proxy {
 	c.Consumer.MaxRetries = -1
 	c.Consumer.OffsetsCommitInterval = 500 * time.Millisecond
 	c.Consumer.OffsetsCommitTimeout = 1500 * time.Millisecond
-	c.Consumer.RebalanceDelay = 250 * time.Millisecond
 	c.Consumer.SubscriptionTimeout = 15 * time.Second
 	c.Consumer.RetryBackoff = 500 * time.Millisecond
 	return c

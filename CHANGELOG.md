@@ -2,9 +2,14 @@
 
 #### Version 0.14.1 (TBD)
 
+Implemented:
+* Consumer.RebalanceTimeout was removed, so rebalancing is triggered as soon
+  as membership status of a consumer group or subscription of a consumer group
+  member changes.
+
 Fixed:
 * [#120](https://github.com/mailgun/kafka-pixy/pull/120) Consumption from a
-  topic stopped a group 
+  topic stopped for a group. 
 
 #### Version 0.14.0 (2017-09-11)
 

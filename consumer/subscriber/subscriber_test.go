@@ -1,6 +1,7 @@
 package subscriber
 
 import (
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -35,25 +36,6 @@ func (s *GroupMemberSuite) SetUpTest(c *C) {
 	s.ns = actor.Root().NewChild("T")
 }
 
-func (s *GroupMemberSuite) TestNormalizeTopics(c *C) {
-	c.Assert(normalizeTopics(nil), DeepEquals, []string(nil))
-	c.Assert(normalizeTopics([]string{}), DeepEquals, []string(nil))
-	c.Assert(normalizeTopics([]string{"c", "a", "b"}), DeepEquals, []string{"a", "b", "c"})
-
-	c.Assert(normalizeTopics([]string{"c", "a", "b"}), Not(DeepEquals), []string{"a", "b"})
-}
-
-func (s *GroupMemberSuite) TestTopicsEqual(c *C) {
-	c.Assert(topicsEqual([]string{}, nil), Equals, true)
-	c.Assert(topicsEqual(nil, []string{}), Equals, true)
-	c.Assert(topicsEqual([]string{}, []string{}), Equals, true)
-	c.Assert(topicsEqual([]string{"a"}, []string{"a"}), Equals, true)
-	c.Assert(topicsEqual([]string{"a", "b", "c"}, []string{"a", "b", "c"}), Equals, true)
-
-	c.Assert(topicsEqual([]string{"a", "b", "c"}, []string{"a", "b"}), Equals, false)
-	c.Assert(topicsEqual([]string{"a", "b"}, []string{"b", "a"}), Equals, false)
-}
-
 // When a list of topics is sent to the `topics()` channel, a membership change
 // is received with the same list of topics for the registrator name.
 func (s *GroupMemberSuite) TestSimpleSubscribe(c *C) {
@@ -86,8 +68,8 @@ func (s *GroupMemberSuite) TestSubscribeSequence(c *C) {
 		map[string][]string{"m1": {"bazz", "blah"}})
 }
 
-// If a group member resubscribes to the same list of topics, then nothing is
-// updated.
+// If a group member resubscribes to the same list of topics, then the same
+// member subscriptions are returned.
 func (s *GroupMemberSuite) TestReSubscribe(c *C) {
 	cfg1 := newConfig("m1")
 	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
@@ -103,20 +85,15 @@ func (s *GroupMemberSuite) TestReSubscribe(c *C) {
 		"m1": {"bar", "foo"},
 		"m2": {"bar", "bazz"},
 	}
-	c.Assert(<-ss1.Subscriptions(), DeepEquals, membership)
-	c.Assert(<-ss2.Subscriptions(), DeepEquals, membership)
+	wait4Subscription(c, ss1.Subscriptions(), membership, 3*time.Second)
+	wait4Subscription(c, ss2.Subscriptions(), membership, 3*time.Second)
 
 	// When
 	ss1.Topics() <- []string{"foo", "bar"}
 
 	// Then
-	select {
-	case update := <-ss1.Subscriptions():
-		c.Errorf("Unexpected update: %v", update)
-	case update := <-ss2.Subscriptions():
-		c.Errorf("Unexpected update: %v", update)
-	case <-time.After(300 * time.Millisecond):
-	}
+	wait4Subscription(c, ss1.Subscriptions(), membership, 3*time.Second)
+	wait4Subscription(c, ss2.Subscriptions(), membership, 3*time.Second)
 }
 
 // To unsubscribe from all topics an empty topic list can be sent.
@@ -177,11 +154,9 @@ func (s *GroupMemberSuite) TestSomethingAfterNothingBug(c *C) {
 	defer ss1.Stop()
 
 	ss1.Topics() <- []string{"foo"}
-	c.Assert(<-ss1.Subscriptions(), DeepEquals,
-		map[string][]string{"m1": {"foo"}})
+	c.Assert(<-ss1.Subscriptions(), DeepEquals, map[string][]string{"m1": {"foo"}})
 	ss1.Topics() <- []string{}
-	c.Assert(<-ss1.Subscriptions(), DeepEquals,
-		map[string][]string{})
+	c.Assert(<-ss1.Subscriptions(), DeepEquals, map[string][]string{})
 
 	// When
 	ss1.Topics() <- []string{"foo"}
@@ -237,20 +212,17 @@ func (s *GroupMemberSuite) TestRedundantUpdateBug(c *C) {
 	ss1.Topics() <- []string{"foo", "bar"}
 	ss2.Topics() <- []string{"foo", "bazz", "blah"}
 
-	c.Assert(<-ss1.Subscriptions(), DeepEquals,
-		map[string][]string{
-			"m1": {"bar", "foo"},
-			"m2": {"bazz", "blah", "foo"}})
+	membership := map[string][]string{
+		"m1": {"bar", "foo"},
+		"m2": {"bazz", "blah", "foo"}}
+	c.Assert(<-ss1.Subscriptions(), DeepEquals, membership)
 
 	// When
 	ss2.Topics() <- []string{"bar"}
 	ss2.Topics() <- []string{"foo", "bazz", "blah"}
 
 	// Then
-	c.Assert(<-ss1.Subscriptions(), DeepEquals,
-		map[string][]string{
-			"m1": {"bar", "foo"},
-			"m2": {"bazz", "blah", "foo"}})
+	wait4Subscription(c, ss1.Subscriptions(), membership, 3*time.Second)
 }
 
 // When a group registrator claims a topic partitions it becomes its owner.
@@ -426,6 +398,18 @@ func partitionOwner(gm *T, topic string, partition int32) (string, error) {
 func newConfig(clientId string) *config.Proxy {
 	cfg := config.DefaultProxy()
 	cfg.ClientID = clientId
-	cfg.Consumer.RebalanceDelay = 100 * time.Millisecond
 	return cfg
+}
+
+func wait4Subscription(c *C, ch <-chan map[string][]string, want map[string][]string, timeout time.Duration) {
+	for {
+		select {
+		case got := <-ch:
+			if reflect.DeepEqual(got, want) {
+				return
+			}
+		case <-time.After(timeout):
+			c.Error("Timeout waiting for %v")
+		}
+	}
 }

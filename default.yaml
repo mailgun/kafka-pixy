@@ -126,10 +126,6 @@ proxies:
       # How frequently to commit offsets to Kafka.
       offsets_commit_interval: 500ms
 
-      # Consumer should wait this long after it gets notification that a
-      # consumer joined/left its consumer group before starting rebalancing.
-      rebalance_delay: 250ms
-
       # If a request to a Kafka-Pixy fails for any reason, then it should wait this
       # long before retrying.
       retry_backoff: 500ms

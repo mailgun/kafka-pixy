@@ -1,6 +1,7 @@
 package subscriber
 
 import (
+	"context"
 	"sort"
 	"sync"
 	"time"
@@ -23,13 +24,16 @@ const safeClaimRetriesCount = 10
 // leave and update their subscriptions, and generates notifications of such
 // changes. It also provides an API to for a partition consumer to claim and
 // release a group-topic-partition.
+//
+// FIXME: It is assumed that all members of the group are registered with the
+// FIXME: `static` pattern. If a member that pattern is either `white_list` or
+// FIXME: `black_list` joins the group the result will be unpredictable.
 type T struct {
 	actDesc          *actor.Descriptor
 	cfg              *config.Proxy
 	group            string
 	groupZNode       *kazoo.Consumergroup
 	groupMemberZNode *kazoo.ConsumergroupInstance
-	topics           []string
 	topicsCh         chan []string
 	subscriptionsCh  chan map[string][]string
 	stopCh           chan none.T
@@ -149,133 +153,126 @@ func (ss *T) run() {
 
 	var (
 		nilOrSubscriptionsCh     chan<- map[string][]string
-		nilOrGroupUpdatedCh      <-chan zk.Event
+		nilOrWatchCh             <-chan none.T
 		nilOrTimeoutCh           <-chan time.Time
-		pendingTopics            []string
-		pendingSubscriptions     map[string][]string
+		cancelWatch              context.CancelFunc
 		shouldSubmitTopics       = false
-		shouldFetchMembers       = false
 		shouldFetchSubscriptions = false
-		members                  []*kazoo.ConsumergroupInstance
+		topics                   []string
+		subscriptions            map[string][]string
 	)
 	for {
 		select {
-		case topics := <-ss.topicsCh:
-			pendingTopics = normalizeTopics(topics)
-			shouldSubmitTopics = !topicsEqual(pendingTopics, ss.topics)
-		case nilOrSubscriptionsCh <- pendingSubscriptions:
+		case topics = <-ss.topicsCh:
+			sort.Strings(topics)
+			shouldSubmitTopics = true
+		case nilOrSubscriptionsCh <- subscriptions:
 			nilOrSubscriptionsCh = nil
-		case <-nilOrGroupUpdatedCh:
-			nilOrGroupUpdatedCh = nil
-			shouldFetchMembers = true
+		case <-nilOrWatchCh:
+			nilOrWatchCh = nil
+			cancelWatch()
+			shouldFetchSubscriptions = true
 		case <-nilOrTimeoutCh:
+			nilOrTimeoutCh = nil
 		case <-ss.stopCh:
+			if cancelWatch != nil {
+				cancelWatch()
+			}
 			return
 		}
 
 		if shouldSubmitTopics {
-			if err = ss.submitTopics(pendingTopics); err != nil {
+			if err = ss.submitTopics(topics); err != nil {
 				ss.actDesc.Log().WithError(err).Error("Failed to submit topics")
 				nilOrTimeoutCh = time.After(ss.cfg.Consumer.RetryBackoff)
 				continue
 			}
-			ss.actDesc.Log().Infof("Submitted: topics=%v", pendingTopics)
+			ss.actDesc.Log().Infof("Submitted: topics=%v", topics)
 			shouldSubmitTopics = false
-			shouldFetchMembers = true
-		}
-
-		if shouldFetchMembers {
-			members, nilOrGroupUpdatedCh, err = ss.groupZNode.WatchInstances()
-			if err != nil {
-				ss.actDesc.Log().WithError(err).Error("Failed to watch members")
-				nilOrTimeoutCh = time.After(ss.cfg.Consumer.RetryBackoff)
-				continue
+			if cancelWatch != nil {
+				cancelWatch()
 			}
-			shouldFetchMembers = false
 			shouldFetchSubscriptions = true
-			// To avoid unnecessary rebalancing in case of a deregister/register
-			// sequences that happen when a member updates its topic subscriptions,
-			// we delay subscription fetching.
-			nilOrTimeoutCh = time.After(ss.cfg.Consumer.RebalanceDelay)
-			continue
 		}
 
 		if shouldFetchSubscriptions {
-			pendingSubscriptions, err = ss.fetchSubscriptions(members)
+			subscriptions, nilOrWatchCh, cancelWatch, err = ss.fetchSubscriptions()
 			if err != nil {
 				ss.actDesc.Log().WithError(err).Error("Failed to fetch subscriptions")
 				nilOrTimeoutCh = time.After(ss.cfg.Consumer.RetryBackoff)
 				continue
 			}
 			shouldFetchSubscriptions = false
-			ss.actDesc.Log().Infof("Fetched subscriptions: %v", pendingSubscriptions)
+			ss.actDesc.Log().Infof("Fetched subscriptions: %v", subscriptions)
 			nilOrSubscriptionsCh = ss.subscriptionsCh
 		}
 	}
 }
 
-// fetchSubscriptions retrieves registration records for the specified members
-// from ZooKeeper.
-//
-// FIXME: It is assumed that all members of the group are registered with the
-// FIXME: `static` pattern. If a member that pattern is either `white_list` or
-// FIXME: `black_list` joins the group the result will be unpredictable.
-func (ss *T) fetchSubscriptions(members []*kazoo.ConsumergroupInstance) (map[string][]string, error) {
+// fetchSubscriptions retrieves subscription topics for all group members and
+// returns a channel that will be closed
+func (ss *T) fetchSubscriptions() (map[string][]string, <-chan none.T, context.CancelFunc, error) {
+	members, groupUpdateWatchCh, err := ss.groupZNode.WatchInstances()
+	if err != nil {
+		return nil, nil, nil, errors.Wrapf(err, "failed to watch members")
+	}
+
+	memberUpdateWatchChs := make([]<-chan zk.Event, len(members))
 	subscriptions := make(map[string][]string, len(members))
-	for _, member := range members {
+	for i, member := range members {
 		var registration *kazoo.Registration
-		registration, err := member.Registration()
+		registration, memberUpdateWatchCh, err := member.WatchRegistration()
 		for err != nil {
-			return nil, errors.Wrapf(err, "Failed to fetch registration, member=%s", member.ID)
+			return nil, nil, nil, errors.Wrapf(err, "failed to watch registration, member=%s", member.ID)
 		}
-		// Sort topics to ensure deterministic output.
+		memberUpdateWatchChs[i] = memberUpdateWatchCh
+
 		topics := make([]string, 0, len(registration.Subscription))
 		for topic := range registration.Subscription {
 			topics = append(topics, topic)
 		}
-		subscriptions[member.ID] = normalizeTopics(topics)
+		// Sort topics to ensure deterministic output.
+		sort.Strings(topics)
+		subscriptions[member.ID] = topics
 	}
-	return subscriptions, nil
+
+	aggregateWatchCh := make(chan none.T)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go forwardWatch(ctx, groupUpdateWatchCh, aggregateWatchCh)
+	for _, memberUpdateWatchCh := range memberUpdateWatchChs {
+		go forwardWatch(ctx, memberUpdateWatchCh, aggregateWatchCh)
+	}
+
+	return subscriptions, aggregateWatchCh, cancel, nil
 }
 
 func (ss *T) submitTopics(topics []string) error {
-	if len(ss.topics) != 0 {
+	if len(topics) == 0 {
 		err := ss.groupMemberZNode.Deregister()
 		if err != nil && err != kazoo.ErrInstanceNotRegistered {
-			return errors.Wrap(err, "Failed to deregister")
+			return errors.Wrap(err, "failed to deregister")
 		}
-	}
-	ss.topics = nil
-	if len(topics) != 0 {
-		err := ss.groupMemberZNode.Register(topics)
-		for err != nil {
-			return errors.Wrap(err, "Failed to register")
-		}
-	}
-	ss.topics = topics
-	return nil
-}
-
-func normalizeTopics(s []string) []string {
-	if len(s) == 0 {
 		return nil
 	}
-	sort.Strings(s)
-	return s
-}
-
-func topicsEqual(lhs, rhs []string) bool {
-	if len(lhs) != len(rhs) {
-		return false
+	err := ss.groupMemberZNode.Register(topics)
+	for err != nil {
+		return errors.Wrap(err, "failed to register")
 	}
-	for i := range lhs {
-		if lhs[i] != rhs[i] {
-			return false
-		}
-	}
-	return true
+	return nil
 }
 
 func millisSince(t time.Time) time.Duration {
 	return time.Now().Sub(t) / time.Millisecond * time.Millisecond
+}
+
+func forwardWatch(ctx context.Context, watchCh <-chan zk.Event, downstreamCh chan<- none.T) {
+	select {
+	case <-watchCh:
+		select {
+		case downstreamCh <- none.V:
+		case <-ctx.Done():
+		}
+	case <-ctx.Done():
+	}
 }
