@@ -9,7 +9,7 @@ import (
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/kafka-pixy/testhelpers"
-	"github.com/wvanbergen/kazoo-go"
+	"github.com/mailgun/kazoo-go"
 	. "gopkg.in/check.v1"
 )
 

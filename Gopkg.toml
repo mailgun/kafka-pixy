@@ -43,7 +43,7 @@
 
 [[constraint]]
   branch = "master"
-  name = "github.com/wvanbergen/kazoo-go"
+  name = "github.com/mailgun/kazoo-go"
 
 [[constraint]]
   name = "google.golang.org/grpc"

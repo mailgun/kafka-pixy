@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/Shopify/sarama"
+	"github.com/mailgun/kazoo-go"
 	"github.com/pkg/errors"
-	"github.com/wvanbergen/kazoo-go"
 	"gopkg.in/yaml.v2"
 )
 

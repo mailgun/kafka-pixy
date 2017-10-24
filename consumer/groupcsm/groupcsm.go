@@ -17,8 +17,8 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer/subscriber"
 	"github.com/mailgun/kafka-pixy/consumer/topiccsm"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
+	"github.com/mailgun/kazoo-go"
 	"github.com/pkg/errors"
-	"github.com/wvanbergen/kazoo-go"
 )
 
 // groupConsumer manages a fleet of topic consumers and disposes of those that
