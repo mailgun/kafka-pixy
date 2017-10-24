@@ -217,15 +217,15 @@ func (ss *T) fetchSubscriptions() (map[string][]string, <-chan none.T, context.C
 		return nil, nil, nil, errors.Wrapf(err, "failed to watch members")
 	}
 
-	memberUpdateWatchChs := make([]<-chan zk.Event, len(members))
+	memberUpdateWatchChs := make(map[string]<-chan zk.Event, len(members))
 	subscriptions := make(map[string][]string, len(members))
-	for i, member := range members {
+	for _, member := range members {
 		var registration *kazoo.Registration
 		registration, memberUpdateWatchCh, err := member.WatchRegistration()
 		for err != nil {
 			return nil, nil, nil, errors.Wrapf(err, "failed to watch registration, member=%s", member.ID)
 		}
-		memberUpdateWatchChs[i] = memberUpdateWatchCh
+		memberUpdateWatchChs[member.ID] = memberUpdateWatchCh
 
 		topics := make([]string, 0, len(registration.Subscription))
 		for topic := range registration.Subscription {
@@ -235,15 +235,13 @@ func (ss *T) fetchSubscriptions() (map[string][]string, <-chan none.T, context.C
 		sort.Strings(topics)
 		subscriptions[member.ID] = topics
 	}
-
 	aggregateWatchCh := make(chan none.T)
 	ctx, cancel := context.WithCancel(context.Background())
 
-	go forwardWatch(ctx, groupUpdateWatchCh, aggregateWatchCh)
-	for _, memberUpdateWatchCh := range memberUpdateWatchChs {
-		go forwardWatch(ctx, memberUpdateWatchCh, aggregateWatchCh)
+	go ss.forwardWatch(ctx, "members", groupUpdateWatchCh, aggregateWatchCh)
+	for memberID, memberUpdateWatchCh := range memberUpdateWatchChs {
+		go ss.forwardWatch(ctx, memberID, memberUpdateWatchCh, aggregateWatchCh)
 	}
-
 	return subscriptions, aggregateWatchCh, cancel, nil
 }
 
@@ -262,17 +260,18 @@ func (ss *T) submitTopics(topics []string) error {
 	return nil
 }
 
-func millisSince(t time.Time) time.Duration {
-	return time.Now().Sub(t) / time.Millisecond * time.Millisecond
-}
-
-func forwardWatch(ctx context.Context, watchCh <-chan zk.Event, downstreamCh chan<- none.T) {
+func (ss *T) forwardWatch(ctx context.Context, alias string, fromCh <-chan zk.Event, toCh chan<- none.T) {
 	select {
-	case <-watchCh:
+	case <-fromCh:
+		ss.actDesc.Log().Infof("Watch triggered: alias=%s", alias)
 		select {
-		case downstreamCh <- none.V:
+		case toCh <- none.V:
 		case <-ctx.Done():
 		}
 	case <-ctx.Done():
 	}
+}
+
+func millisSince(t time.Time) time.Duration {
+	return time.Now().Sub(t) / time.Millisecond * time.Millisecond
 }
