@@ -18,27 +18,27 @@ func Test(t *testing.T) {
 	TestingT(t)
 }
 
-type GroupMemberSuite struct {
+type SubscriberSuite struct {
 	ns       *actor.Descriptor
 	kazooClt *kazoo.Kazoo
 }
 
-var _ = Suite(&GroupMemberSuite{})
+var _ = Suite(&SubscriberSuite{})
 
-func (s *GroupMemberSuite) SetUpSuite(c *C) {
+func (s *SubscriberSuite) SetUpSuite(c *C) {
 	testhelpers.InitLogging()
 	var err error
 	s.kazooClt, err = kazoo.NewKazoo(testhelpers.ZookeeperPeers, kazoo.NewConfig())
 	c.Assert(err, IsNil)
 }
 
-func (s *GroupMemberSuite) SetUpTest(c *C) {
+func (s *SubscriberSuite) SetUpTest(c *C) {
 	s.ns = actor.Root().NewChild("T")
 }
 
 // When a list of topics is sent to the `topics()` channel, a membership change
 // is received with the same list of topics for the registrator name.
-func (s *GroupMemberSuite) TestSimpleSubscribe(c *C) {
+func (s *SubscriberSuite) TestSimpleSubscribe(c *C) {
 	cfg := newConfig("m1")
 	ss := Spawn(s.ns.NewChild("m1"), "g1", cfg, s.kazooClt)
 	defer ss.Stop()
@@ -54,7 +54,7 @@ func (s *GroupMemberSuite) TestSimpleSubscribe(c *C) {
 // When topic subscription changes occur in close succession only one
 // membership change notification is received back with the most recent topic
 // list for the registrator name.
-func (s *GroupMemberSuite) TestSubscribeSequence(c *C) {
+func (s *SubscriberSuite) TestSubscribeSequence(c *C) {
 	cfg := newConfig("m1")
 	ss := Spawn(s.ns.NewChild("m1"), "g1", cfg, s.kazooClt)
 	defer ss.Stop()
@@ -70,7 +70,7 @@ func (s *GroupMemberSuite) TestSubscribeSequence(c *C) {
 
 // If a group member resubscribes to the same list of topics, then the same
 // member subscriptions are returned.
-func (s *GroupMemberSuite) TestReSubscribe(c *C) {
+func (s *SubscriberSuite) TestReSubscribe(c *C) {
 	cfg1 := newConfig("m1")
 	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
 	defer ss1.Stop()
@@ -85,19 +85,19 @@ func (s *GroupMemberSuite) TestReSubscribe(c *C) {
 		"m1": {"bar", "foo"},
 		"m2": {"bar", "bazz"},
 	}
-	wait4Subscription(c, ss1.Subscriptions(), membership, 3*time.Second)
-	wait4Subscription(c, ss2.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
 
 	// When
 	ss1.Topics() <- []string{"foo", "bar"}
 
 	// Then
-	wait4Subscription(c, ss1.Subscriptions(), membership, 3*time.Second)
-	wait4Subscription(c, ss2.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
 }
 
 // To unsubscribe from all topics an empty topic list can be sent.
-func (s *GroupMemberSuite) TestSubscribeToNothing(c *C) {
+func (s *SubscriberSuite) TestSubscribeToNothing(c *C) {
 	cfg1 := newConfig("m1")
 	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
 	defer ss1.Stop()
@@ -122,7 +122,7 @@ func (s *GroupMemberSuite) TestSubscribeToNothing(c *C) {
 }
 
 // To unsubscribe from all topics nil value can be sent.
-func (s *GroupMemberSuite) TestSubscribeToNil(c *C) {
+func (s *SubscriberSuite) TestSubscribeToNil(c *C) {
 	cfg1 := newConfig("m1")
 	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
 	defer ss1.Stop()
@@ -148,7 +148,7 @@ func (s *GroupMemberSuite) TestSubscribeToNil(c *C) {
 
 // It is possible to subscribe to a non-empty list of topics after
 // unsubscribing from everything.
-func (s *GroupMemberSuite) TestSomethingAfterNothingBug(c *C) {
+func (s *SubscriberSuite) TestSomethingAfterNothingBug(c *C) {
 	cfg1 := newConfig("m1")
 	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
 	defer ss1.Stop()
@@ -169,7 +169,7 @@ func (s *GroupMemberSuite) TestSomethingAfterNothingBug(c *C) {
 // When several different registrator instances subscribe to the same group,
 // they all receive identical membership change notifications that include all
 // their subscription.
-func (s *GroupMemberSuite) TestMembershipChanges(c *C) {
+func (s *SubscriberSuite) TestMembershipChanges(c *C) {
 	cfg1 := newConfig("m1")
 	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
 	defer ss1.Stop()
@@ -191,9 +191,9 @@ func (s *GroupMemberSuite) TestMembershipChanges(c *C) {
 		"m2": {"foo"},
 		"m3": {"bazz", "blah", "foo"}}
 
-	c.Assert(<-ss1.Subscriptions(), DeepEquals, membership)
-	c.Assert(<-ss2.Subscriptions(), DeepEquals, membership)
-	c.Assert(<-ss3.Subscriptions(), DeepEquals, membership)
+	assertSubscription(c, ss1.Subscriptions(), membership, 5 * time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 5 * time.Second)
+	assertSubscription(c, ss3.Subscriptions(), membership, 5 * time.Second)
 }
 
 // Redundant updates used to be ignored, but that turned out to be wrong. Due
@@ -201,7 +201,7 @@ func (s *GroupMemberSuite) TestMembershipChanges(c *C) {
 // intermediate changes and only see the final subscription state, which make
 // look the same as the last a subscriber had seen and be ignored. But topic
 // consumers could have been changed and in need of rewiring.
-func (s *GroupMemberSuite) TestRedundantUpdateBug(c *C) {
+func (s *SubscriberSuite) TestRedundantUpdateBug(c *C) {
 	cfg1 := newConfig("m1")
 	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
 	defer ss1.Stop()
@@ -222,11 +222,11 @@ func (s *GroupMemberSuite) TestRedundantUpdateBug(c *C) {
 	ss2.Topics() <- []string{"foo", "bazz", "blah"}
 
 	// Then
-	wait4Subscription(c, ss1.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
 }
 
 // When a group registrator claims a topic partitions it becomes its owner.
-func (s *GroupMemberSuite) TestClaimPartition(c *C) {
+func (s *SubscriberSuite) TestClaimPartition(c *C) {
 	cfg := newConfig("m1")
 	ss := Spawn(s.ns.NewChild("m1"), "g1", cfg, s.kazooClt)
 	defer ss.Stop()
@@ -248,7 +248,7 @@ func (s *GroupMemberSuite) TestClaimPartition(c *C) {
 
 // If a consumer group member instance tries to acquire a partition that has
 // already been acquired by another member then it fails.
-func (s *GroupMemberSuite) TestClaimPartitionClaimed(c *C) {
+func (s *SubscriberSuite) TestClaimPartitionClaimed(c *C) {
 	cfg1 := newConfig("m1")
 	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
 	defer ss1.Stop()
@@ -274,7 +274,7 @@ func (s *GroupMemberSuite) TestClaimPartitionClaimed(c *C) {
 }
 
 // It is ok to claim the same partition twice by the same group member.
-func (s *GroupMemberSuite) TestClaimPartitionTwice(c *C) {
+func (s *SubscriberSuite) TestClaimPartitionTwice(c *C) {
 	cfg := newConfig("m1")
 	ss := Spawn(s.ns.NewChild("m1"), "g1", cfg, s.kazooClt)
 	defer ss.Stop()
@@ -294,7 +294,7 @@ func (s *GroupMemberSuite) TestClaimPartitionTwice(c *C) {
 
 // If a partition has been claimed more then once then it is release as soon as
 // any of the claims is revoked.
-func (s *GroupMemberSuite) TestReleasePartition(c *C) {
+func (s *SubscriberSuite) TestReleasePartition(c *C) {
 	cfg := newConfig("m1")
 	ss := Spawn(s.ns.NewChild("m1"), "g1", cfg, s.kazooClt)
 	defer ss.Stop()
@@ -315,7 +315,7 @@ func (s *GroupMemberSuite) TestReleasePartition(c *C) {
 
 // If a partition is claimed by another group member then `ClaimPartition` call
 // blocks until it is released.
-func (s *GroupMemberSuite) TestClaimPartitionParallel(c *C) {
+func (s *SubscriberSuite) TestClaimPartitionParallel(c *C) {
 	cfg1 := newConfig("m1")
 	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
 	defer ss1.Stop()
@@ -342,7 +342,7 @@ func (s *GroupMemberSuite) TestClaimPartitionParallel(c *C) {
 
 // If a partition is claimed by another group member then `ClaimPartition` call
 // blocks until it is released.
-func (s *GroupMemberSuite) TestClaimPartitionCanceled(c *C) {
+func (s *SubscriberSuite) TestClaimPartitionCanceled(c *C) {
 	cfg1 := newConfig("m1")
 	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
 	defer ss1.Stop()
@@ -401,7 +401,7 @@ func newConfig(clientId string) *config.Proxy {
 	return cfg
 }
 
-func wait4Subscription(c *C, ch <-chan map[string][]string, want map[string][]string, timeout time.Duration) {
+func assertSubscription(c *C, ch <-chan map[string][]string, want map[string][]string, timeout time.Duration) {
 	for {
 		select {
 		case got := <-ch:
