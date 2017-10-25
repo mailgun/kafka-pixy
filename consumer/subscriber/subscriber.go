@@ -34,6 +34,7 @@ type T struct {
 	group            string
 	groupZNode       *kazoo.Consumergroup
 	groupMemberZNode *kazoo.ConsumergroupInstance
+	registered       bool
 	topicsCh         chan []string
 	subscriptionsCh  chan map[string][]string
 	stopCh           chan none.T
@@ -251,12 +252,19 @@ func (ss *T) submitTopics(topics []string) error {
 		if err != nil && err != kazoo.ErrInstanceNotRegistered {
 			return errors.Wrap(err, "failed to deregister")
 		}
+		ss.registered = false
 		return nil
 	}
-	err := ss.groupMemberZNode.Register(topics)
+	var err error
+	if ss.registered {
+		err = ss.groupMemberZNode.UpdateRegistration(topics)
+	} else {
+		err = ss.groupMemberZNode.Register(topics)
+	}
 	for err != nil {
 		return errors.Wrap(err, "failed to register")
 	}
+	ss.registered = true
 	return nil
 }
 

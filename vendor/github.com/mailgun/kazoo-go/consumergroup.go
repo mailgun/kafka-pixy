@@ -237,28 +237,51 @@ func (cgi *ConsumergroupInstance) WatchRegistration() (*Registration, <-chan zk.
 
 // RegisterSubscription registers the consumer instance in Zookeeper, with its subscription.
 func (cgi *ConsumergroupInstance) RegisterWithSubscription(subscriptionJSON []byte) error {
-	node := fmt.Sprintf("%s/consumers/%s/ids/%s", cgi.cg.kz.conf.Chroot, cgi.cg.Name, cgi.ID)
-	_, stat, err := cgi.cg.kz.conn.Get(node)
-	switch err {
-	case zk.ErrNoNode: // Create a new ephemeral node.
-		return cgi.cg.kz.create(node, subscriptionJSON, true)
-
-	case nil: // Update the existing node.
-		_, err = cgi.cg.kz.conn.Set(node, subscriptionJSON, stat.Version)
+	if exists, err := cgi.Registered(); err != nil {
 		return err
-
-	default:
-		return err
+	} else if exists {
+		return ErrInstanceAlreadyRegistered
 	}
+
+	// Create an ephemeral node for the the consumergroup instance.
+	node := fmt.Sprintf("%s/consumers/%s/ids/%s", cgi.cg.kz.conf.Chroot, cgi.cg.Name, cgi.ID)
+	return cgi.cg.kz.create(node, subscriptionJSON, true)
 }
 
 // Register registers the consumergroup instance in Zookeeper.
 func (cgi *ConsumergroupInstance) Register(topics []string) error {
+	subscriptionJSON, err := cgi.marshalSubscription(topics)
+	if err != nil {
+		return err
+	}
+
+	return cgi.RegisterWithSubscription(subscriptionJSON)
+}
+
+// UpdateRegistration updates a consumer group member registration. If the
+// consumer group member has not been registered yet, then an error is returned.
+func (cgi *ConsumergroupInstance) UpdateRegistration(topics []string) error {
+	subscriptionJSON, err := cgi.marshalSubscription(topics)
+	if err != nil {
+		return err
+	}
+
+	node := fmt.Sprintf("%s/consumers/%s/ids/%s", cgi.cg.kz.conf.Chroot, cgi.cg.Name, cgi.ID)
+	_, stat, err := cgi.cg.kz.conn.Get(node)
+	if err != nil {
+		return err
+	}
+
+	_, err = cgi.cg.kz.conn.Set(node, subscriptionJSON, stat.Version)
+	return err
+}
+
+// Register registers the consumergroup instance in Zookeeper.
+func (cgi *ConsumergroupInstance) marshalSubscription(topics []string) ([]byte, error) {
 	subscription := make(map[string]int)
 	for _, topic := range topics {
 		subscription[topic] = 1
 	}
-
 	data, err := json.Marshal(&Registration{
 		Pattern:      RegPatternStatic,
 		Subscription: subscription,
@@ -266,10 +289,9 @@ func (cgi *ConsumergroupInstance) Register(topics []string) error {
 		Version:      RegDefaultVersion,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-
-	return cgi.RegisterWithSubscription(data)
+	return data, nil
 }
 
 // Deregister removes the registration of the instance from zookeeper.

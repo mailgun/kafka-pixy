@@ -59,7 +59,7 @@
   branch = "master"
   name = "github.com/mailgun/kazoo-go"
   packages = ["."]
-  revision = "3a61c5a127d574755150806b1438526a33b52d9d"
+  revision = "e4be66b7d5cc6b9281e8d7d75bd6558539f068a3"
 
 [[projects]]
   name = "github.com/mailgun/logrus-hooks"

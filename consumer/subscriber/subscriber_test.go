@@ -410,6 +410,7 @@ func assertSubscription(c *C, ch <-chan map[string][]string, want map[string][]s
 			}
 		case <-time.After(timeout):
 			c.Error("Timeout waiting for %v")
+			return
 		}
 	}
 }
