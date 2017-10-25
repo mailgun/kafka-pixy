@@ -86,8 +86,8 @@ proxies:
     consumer:
 
       # Period of time that Kafka-Pixy should wait for an acknowledgement
-      # before retrying. It must be less then registration_timeout.
-      ack_timeout: 15s
+      # before retrying.
+      ack_timeout: 5m
 
       # Size of all buffered channels created by the consumer module.
       channel_buffer_size: 64
@@ -126,14 +126,10 @@ proxies:
       # How frequently to commit offsets to Kafka.
       offsets_commit_interval: 500ms
 
-      # Consumer should wait this long after it gets notification that a
-      # consumer joined/left its consumer group before starting rebalancing.
-      rebalance_delay: 250ms
-
       # If a request to a Kafka-Pixy fails for any reason, then it should wait this
       # long before retrying.
       retry_backoff: 500ms
 
       # Period of time that Kafka-Pixy should keep a subscription for a
       # topic by a group in absence of requests to from the consumer group.
-      subscription_timeout: 20s
+      subscription_timeout: 15s

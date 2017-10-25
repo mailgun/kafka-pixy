@@ -56,6 +56,12 @@
   version = "v1.3.0"
 
 [[projects]]
+  branch = "master"
+  name = "github.com/mailgun/kazoo-go"
+  packages = ["."]
+  revision = "e4be66b7d5cc6b9281e8d7d75bd6558539f068a3"
+
+[[projects]]
   name = "github.com/mailgun/logrus-hooks"
   packages = ["common","kafkahook","levelfilter"]
   revision = "5ee121b6e962bf95caf2804f475bfcb9305ba6f6"
@@ -89,21 +95,16 @@
   revision = "1f30fe9094a513ce4c700b9a54458bbb0c96996c"
 
 [[projects]]
+  branch = "master"
   name = "github.com/samuel/go-zookeeper"
   packages = ["zk"]
-  revision = "1d7be4effb13d2d908342d349d71a284a7542693"
+  revision = "e6b59f6144beb8570562539c1898a0b1fea34b41"
 
 [[projects]]
   name = "github.com/sirupsen/logrus"
   packages = [".","hooks/syslog"]
   revision = "7f976d3a76720c4c27af2ba716b85d2e0a7e38b1"
   version = "v1.0.1"
-
-[[projects]]
-  branch = "master"
-  name = "github.com/wvanbergen/kazoo-go"
-  packages = ["."]
-  revision = "968957352185472eacb69215fa3dbfcfdbac1096"
 
 [[projects]]
   branch = "master"
@@ -148,6 +149,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "e12a605b744056b357f76c02d3621c701787c392b4ad3e64cf69912950837418"
+  inputs-digest = "ccbbb2ec39b2b03d71af8355e9d9616a6d49f9f131934135e1ba996ac6428f39"
   solver-name = "gps-cdcl"
   solver-version = 1

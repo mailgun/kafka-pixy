@@ -686,6 +686,7 @@ func (s *ConsumerSuite) TestTopicExpireOnAck(c *C) {
 	c.Assert(err, Equals, consumer.ErrRequestTimeout)
 
 	// When
+	log.Infof("*** Acking")
 	msg0.EventsCh <- consumer.Ack(msg0.Offset)
 
 	// Then

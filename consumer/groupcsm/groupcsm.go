@@ -17,8 +17,8 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer/subscriber"
 	"github.com/mailgun/kafka-pixy/consumer/topiccsm"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
+	"github.com/mailgun/kazoo-go"
 	"github.com/pkg/errors"
-	"github.com/wvanbergen/kazoo-go"
 )
 
 // groupConsumer manages a fleet of topic consumers and disposes of those that
@@ -108,17 +108,17 @@ func (gc *T) isSafe2Stop(topic string) bool {
 
 func (gc *T) run() {
 	var (
-		topicConsumers        = make(map[string]*topiccsm.T)
-		topics                []string
-		subscriptions         map[string][]string
-		ok                    = true
-		nilOrRetryCh          <-chan time.Time
-		nilOrRegistryTopicsCh chan<- []string
-		rebalancingRequired   = false
-		rebalancingInProgress = false
-		retryScheduled        = false
-		stopped               = false
-		rebalanceResultCh     = make(chan error, 1)
+		topicConsumers          = make(map[string]*topiccsm.T)
+		topics                  []string
+		subscriptions           map[string][]string
+		ok                      = true
+		nilOrRetryCh            <-chan time.Time
+		nilOrSubscriberTopicsCh chan<- []string
+		rebalancingRequired     = false
+		rebalancingInProgress   = false
+		retryScheduled          = false
+		stopped                 = false
+		rebalanceResultCh       = make(chan error, 1)
 	)
 	for {
 		select {
@@ -131,10 +131,10 @@ func (gc *T) run() {
 				topicConsumers[tc.Topic()] = tc
 			}
 			topics = listTopics(topicConsumers)
-			nilOrRegistryTopicsCh = gc.subscriber.Topics()
+			nilOrSubscriberTopicsCh = gc.subscriber.Topics()
 			continue
-		case nilOrRegistryTopicsCh <- topics:
-			nilOrRegistryTopicsCh = nil
+		case nilOrSubscriberTopicsCh <- topics:
+			nilOrSubscriberTopicsCh = nil
 			continue
 		case subscriptions, ok = <-gc.subscriber.Subscriptions():
 			nilOrRetryCh = nil
@@ -174,7 +174,7 @@ func (gc *T) run() {
 			}
 			subscriptions := subscriptions
 			actor.Spawn(rebalanceActDesc, nil, func() {
-				gc.runRebalancing(rebalanceActDesc, topicConsumersCopy, subscriptions, rebalanceResultCh)
+				gc.rebalance(rebalanceActDesc, topicConsumersCopy, subscriptions, rebalanceResultCh)
 			})
 			rebalancingInProgress = true
 			rebalancingRequired = false
@@ -194,7 +194,7 @@ done:
 	wg.Wait()
 }
 
-func (gc *T) runRebalancing(actDesc *actor.Descriptor, topicConsumers map[string]*topiccsm.T,
+func (gc *T) rebalance(actDesc *actor.Descriptor, topicConsumers map[string]*topiccsm.T,
 	subscriptions map[string][]string, rebalanceResultCh chan<- error,
 ) {
 	assignedPartitions, err := gc.resolvePartitions(subscriptions, gc.kafkaClt.Partitions)
