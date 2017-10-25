@@ -38,6 +38,7 @@ type T struct {
 	topicsCh         chan []string
 	subscriptionsCh  chan map[string][]string
 	stopCh           chan none.T
+	claimErrorsCh    chan none.T
 	wg               sync.WaitGroup
 }
 
@@ -56,6 +57,7 @@ func Spawn(parentActDesc *actor.Descriptor, group string, cfg *config.Proxy, kaz
 		topicsCh:         make(chan []string),
 		subscriptionsCh:  make(chan map[string][]string),
 		stopCh:           make(chan none.T),
+		claimErrorsCh:    make(chan none.T, 1),
 	}
 	actor.Spawn(ss.actDesc, &ss.wg, ss.run)
 	return ss
@@ -90,6 +92,13 @@ func (ss *T) ClaimPartition(claimerActDesc *actor.Descriptor, topic string, part
 		}
 		logFailureFn("Failed to claim partition: via=%s, retries=%d, took=%s",
 			ss.actDesc, retries, millisSince(beginAt))
+
+		// Let the subscriber actor know that a claim attempt failed.
+		select {
+		case ss.claimErrorsCh <- none.V:
+		default:
+		}
+		// Wait until either the retry timeout expires or the claim is canceled.
 		select {
 		case <-time.After(ss.cfg.Consumer.RetryBackoff):
 		case <-cancelCh:
@@ -129,7 +138,7 @@ func (ss *T) Stop() {
 func (ss *T) run() {
 	defer close(ss.subscriptionsCh)
 
-	// Ensure a group ZNode exist.
+	// Ensure a group ZNode exists.
 	err := ss.groupZNode.Create()
 	for err != nil {
 		ss.actDesc.Log().WithError(err).Error("Failed to create a group znode")
@@ -161,20 +170,31 @@ func (ss *T) run() {
 		shouldFetchSubscriptions = false
 		topics                   []string
 		subscriptions            map[string][]string
+		submittedAt              time.Time
 	)
 	for {
 		select {
 		case topics = <-ss.topicsCh:
 			sort.Strings(topics)
 			shouldSubmitTopics = true
+
 		case nilOrSubscriptionsCh <- subscriptions:
 			nilOrSubscriptionsCh = nil
+
 		case <-nilOrWatchCh:
 			nilOrWatchCh = nil
 			cancelWatch()
 			shouldFetchSubscriptions = true
+
+		case <-ss.claimErrorsCh:
+			sinceLastSubmit := time.Now().Sub(submittedAt)
+			if sinceLastSubmit > ss.cfg.Consumer.RetryBackoff {
+				ss.actDesc.Log().Infof("Resubmit triggered by claim failure: since=%v", sinceLastSubmit)
+				shouldSubmitTopics = true
+			}
 		case <-nilOrTimeoutCh:
 			nilOrTimeoutCh = nil
+
 		case <-ss.stopCh:
 			if cancelWatch != nil {
 				cancelWatch()
@@ -183,6 +203,7 @@ func (ss *T) run() {
 		}
 
 		if shouldSubmitTopics {
+			submittedAt = time.Now()
 			if err = ss.submitTopics(topics); err != nil {
 				ss.actDesc.Log().WithError(err).Error("Failed to submit topics")
 				nilOrTimeoutCh = time.After(ss.cfg.Consumer.RetryBackoff)

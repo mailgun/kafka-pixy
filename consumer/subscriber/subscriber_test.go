@@ -106,19 +106,17 @@ func (s *SubscriberSuite) TestSubscribeToNothing(c *C) {
 	defer ss2.Stop()
 	ss1.Topics() <- []string{"foo", "bar"}
 	ss2.Topics() <- []string{"foo"}
-	c.Assert(<-ss1.Subscriptions(), DeepEquals,
-		map[string][]string{"m1": {"bar", "foo"}, "m2": {"foo"}})
-	c.Assert(<-ss2.Subscriptions(), DeepEquals,
-		map[string][]string{"m1": {"bar", "foo"}, "m2": {"foo"}})
+	membership := map[string][]string{"m1": {"bar", "foo"}, "m2": {"foo"}}
+	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
 
 	// When
 	ss1.Topics() <- []string{}
 
 	// Then
-	c.Assert(<-ss1.Subscriptions(), DeepEquals,
-		map[string][]string{"m2": {"foo"}})
-	c.Assert(<-ss2.Subscriptions(), DeepEquals,
-		map[string][]string{"m2": {"foo"}})
+	membership = map[string][]string{"m2": {"foo"}}
+	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
 }
 
 // To unsubscribe from all topics nil value can be sent.
@@ -131,19 +129,17 @@ func (s *SubscriberSuite) TestSubscribeToNil(c *C) {
 	defer ss2.Stop()
 	ss1.Topics() <- []string{"foo", "bar"}
 	ss2.Topics() <- []string{"foo"}
-	c.Assert(<-ss1.Subscriptions(), DeepEquals,
-		map[string][]string{"m1": {"bar", "foo"}, "m2": {"foo"}})
-	c.Assert(<-ss2.Subscriptions(), DeepEquals,
-		map[string][]string{"m1": {"bar", "foo"}, "m2": {"foo"}})
+	membership := map[string][]string{"m1": {"bar", "foo"}, "m2": {"foo"}}
+	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
 
 	// When
 	ss1.Topics() <- nil
 
 	// Then
-	c.Assert(<-ss1.Subscriptions(), DeepEquals,
-		map[string][]string{"m2": {"foo"}})
-	c.Assert(<-ss2.Subscriptions(), DeepEquals,
-		map[string][]string{"m2": {"foo"}})
+	membership = map[string][]string{"m2": {"foo"}}
+	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
 }
 
 // It is possible to subscribe to a non-empty list of topics after
@@ -191,9 +187,9 @@ func (s *SubscriberSuite) TestMembershipChanges(c *C) {
 		"m2": {"foo"},
 		"m3": {"bazz", "blah", "foo"}}
 
-	assertSubscription(c, ss1.Subscriptions(), membership, 5 * time.Second)
-	assertSubscription(c, ss2.Subscriptions(), membership, 5 * time.Second)
-	assertSubscription(c, ss3.Subscriptions(), membership, 5 * time.Second)
+	assertSubscription(c, ss1.Subscriptions(), membership, 5*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 5*time.Second)
+	assertSubscription(c, ss3.Subscriptions(), membership, 5*time.Second)
 }
 
 // Redundant updates used to be ignored, but that turned out to be wrong. Due
@@ -382,6 +378,56 @@ func (s *SubscriberSuite) TestClaimPartitionCanceled(c *C) {
 	wg.Wait()
 }
 
+// If claiming a partition fails then the subscription is updated to make all
+// group members re-read the entire group subscription state.
+func (s *SubscriberSuite) TestClaimClaimed(c *C) {
+	cfg1 := newConfig("m1")
+	cfg1.Consumer.RetryBackoff = 150 * time.Millisecond
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
+	defer ss1.Stop()
+	cfg2 := newConfig("m2")
+	cfg2.Consumer.RetryBackoff = 150 * time.Millisecond
+	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.kazooClt)
+	defer ss2.Stop()
+	cfg3 := newConfig("m3")
+	cfg3.Consumer.RetryBackoff = 150 * time.Millisecond
+	ss3 := Spawn(s.ns.NewChild("m3"), "g1", cfg3, s.kazooClt)
+	defer ss3.Stop()
+	cancelCh := make(chan none.T)
+	wg := &sync.WaitGroup{}
+
+	ss1.Topics() <- []string{"foo", "bar"}
+	ss2.Topics() <- []string{"foo", "bazz", "blah"}
+	ss3.Topics() <- []string{"bazz"}
+
+	membership := map[string][]string{
+		"m1": {"bar", "foo"},
+		"m2": {"bazz", "blah", "foo"},
+		"m3": {"bazz"}}
+	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss3.Subscriptions(), membership, 3*time.Second)
+
+	claim1 := ss1.ClaimPartition(s.ns, "foo", 1, cancelCh)
+	defer claim1()
+
+	// When: try to claim a partition that is claimed by another member.
+	go func() {
+		ss2.ClaimPartition(s.ns, "foo", 1, cancelCh)()
+	}()
+
+	// Then until the retry backoff timeout is not elapsed we got nothing.
+	assertNoneReceived(c, ss3.Subscriptions(), 100*time.Millisecond)
+	// After the retry backoff timeout is elapsed all members get their
+	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss3.Subscriptions(), membership, 3*time.Second)
+
+	close(cancelCh)
+	// Wait for all test goroutines to stop.
+	wg.Wait()
+}
+
 // partitionOwner returns the id of the consumer group member that has claimed
 // the specified topic/partition.
 func partitionOwner(gm *T, topic string, partition int32) (string, error) {
@@ -409,8 +455,16 @@ func assertSubscription(c *C, ch <-chan map[string][]string, want map[string][]s
 				return
 			}
 		case <-time.After(timeout):
-			c.Error("Timeout waiting for %v")
+			c.Errorf("Timeout waiting for %v", want)
 			return
 		}
+	}
+}
+
+func assertNoneReceived(c *C, ch <-chan map[string][]string, timeout time.Duration) {
+	select {
+	case got := <-ch:
+		c.Errorf("Unexpected update %v", got)
+	case <-time.After(timeout):
 	}
 }
