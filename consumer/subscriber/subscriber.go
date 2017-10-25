@@ -170,7 +170,7 @@ func (ss *T) run() {
 		shouldFetchSubscriptions = false
 		topics                   []string
 		subscriptions            map[string][]string
-		submittedAt              time.Time
+		submittedAt              = time.Now()
 	)
 	for {
 		select {
@@ -203,12 +203,12 @@ func (ss *T) run() {
 		}
 
 		if shouldSubmitTopics {
-			submittedAt = time.Now()
 			if err = ss.submitTopics(topics); err != nil {
 				ss.actDesc.Log().WithError(err).Error("Failed to submit topics")
 				nilOrTimeoutCh = time.After(ss.cfg.Consumer.RetryBackoff)
 				continue
 			}
+			submittedAt = time.Now()
 			ss.actDesc.Log().Infof("Submitted: topics=%v", topics)
 			shouldSubmitTopics = false
 			if cancelWatch != nil {
