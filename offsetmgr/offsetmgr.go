@@ -71,6 +71,8 @@ type Offset struct {
 }
 
 var (
+	undefinedOffset = Offset{Val: math.MaxInt64}
+
 	// To be used in tests only! If true then offset manager will initialize
 	// their errors channel and will send internal errors.
 	testReportErrors bool
@@ -245,14 +247,13 @@ func (om *offsetMgr) run() {
 	defer om.f.onOffsetMgrStopped(om)
 
 	var (
-		lastCommittedOffset   = Offset{Val: math.MinInt64}
-		lastSubmitRequest     = submitReq{offset: lastCommittedOffset}
+		initialOffset         = undefinedOffset
+		lastSubmitRequest     = submitReq{offset: undefinedOffset}
 		nilOrSubmitRequestsCh = om.submitRequestsCh
 		submitResponseCh      = make(chan submitRes, 1)
-		initialOffsetFetched  = false
 		stopped               = false
-		lastSubmitTime        time.Time
 	)
+	// Retrieve the initial offset.
 	for {
 		select {
 		case bw := <-om.assignmentCh:
@@ -261,20 +262,58 @@ func (om *offsetMgr) run() {
 				om.triggerOrScheduleReassign(errors.New("broker not assigned"))
 				continue
 			}
-			om.nilOrReassignRetryTimerCh = nil
-
 			be := bw.(*brokerExecutor)
 			om.assignedBrokerRequestsCh = be.requestsCh
-
-			if !initialOffsetFetched {
-				initialOffset, err := om.fetchInitialOffset(be.conn)
-				if err != nil {
-					om.triggerOrScheduleReassign(errors.Wrap(err, "failed to fetch initial offset"))
-					continue
-				}
-				om.committedOffsetsCh <- initialOffset
-				initialOffsetFetched = true
+			om.nilOrReassignRetryTimerCh = nil
+			initialOffset, err := om.fetchInitialOffset(be.conn)
+			if err != nil {
+				om.triggerOrScheduleReassign(errors.Wrap(err, "failed to fetch initial offset"))
+				continue
 			}
+			om.committedOffsetsCh <- initialOffset
+			goto handleRequests
+
+		case submitReq, ok := <-nilOrSubmitRequestsCh:
+			if !ok {
+				// It was signalled to stop, but return only if there is no
+				// uncommitted offset, otherwise keep running.
+				if lastSubmitRequest.offset == initialOffset {
+					return
+				}
+				stopped = true
+				nilOrSubmitRequestsCh = nil
+				continue
+			}
+			lastSubmitRequest = submitReq
+			lastSubmitRequest.resultCh = submitResponseCh
+
+		case <-om.nilOrReassignRetryTimerCh:
+			om.f.mapper.TriggerReassign(om)
+			om.actDesc.Log().Info("reassign triggered by timeout")
+			om.nilOrReassignRetryTimerCh = time.After(om.f.cfg.Consumer.RetryBackoff)
+		}
+	}
+handleRequests:
+	lastCommittedOffset := initialOffset
+	if lastSubmitRequest.offset == undefinedOffset {
+		lastSubmitRequest.offset = lastCommittedOffset
+	}
+	if lastSubmitRequest.offset != lastCommittedOffset {
+		om.nilOrBrokerRequestsCh = om.assignedBrokerRequestsCh
+	}
+	var lastSubmitTime time.Time
+	for {
+		select {
+		case bw := <-om.assignmentCh:
+			om.actDesc.Log().Infof("assigned %s", bw)
+			if bw == nil {
+				om.triggerOrScheduleReassign(errors.New("broker not assigned"))
+				continue
+			}
+			be := bw.(*brokerExecutor)
+			om.assignedBrokerRequestsCh = be.requestsCh
+			om.nilOrReassignRetryTimerCh = nil
+
 			if lastSubmitRequest.offset != lastCommittedOffset {
 				om.nilOrBrokerRequestsCh = om.assignedBrokerRequestsCh
 			}
