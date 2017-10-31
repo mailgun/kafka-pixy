@@ -8,8 +8,10 @@ Implemented:
   member changes.
 
 Fixed:
-* [#120](https://github.com/mailgun/kafka-pixy/pull/120) Consumption from a
-  topic stopped for a group. 
+* [#120](https://github.com/mailgun/kafka-pixy/issues/120) Consumption from a
+  topic stopped for a group.
+* [#123](https://github.com/mailgun/kafka-pixy/issues/123) Inexplicable offset
+  manager timeouts
 
 #### Version 0.14.0 (2017-09-11)
 
