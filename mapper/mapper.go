@@ -6,7 +6,9 @@ import (
 	"sync/atomic"
 
 	"github.com/Shopify/sarama"
+	"github.com/mailgun/holster/clock"
 	"github.com/mailgun/kafka-pixy/actor"
+	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/none"
 )
 
@@ -29,6 +31,7 @@ import (
 // another to other executors.
 type T struct {
 	actDesc     *actor.Descriptor
+	cfg         *config.Proxy
 	resolver    Resolver
 	eventsCh    chan event
 	assignments map[Worker]Executor
@@ -82,8 +85,6 @@ const (
 	evWorkerSpawned eventType = iota
 	evWorkerStopped
 	evReassignNeeded
-
-	eventsChBufSize = 32
 )
 
 var (
@@ -98,11 +99,12 @@ func (et eventType) String() string {
 }
 
 // Spawn creates a mapper instance and starts its internal goroutines.
-func Spawn(parentActDesc *actor.Descriptor, resolver Resolver) *T {
+func Spawn(parentActDesc *actor.Descriptor, cfg *config.Proxy, resolver Resolver) *T {
 	m := &T{
 		actDesc:     parentActDesc.NewChild("mapper"),
+		cfg:         cfg,
 		resolver:    resolver,
-		eventsCh:    make(chan event, eventsChBufSize),
+		eventsCh:    make(chan event, cfg.Consumer.ChannelBufferSize),
 		assignments: make(map[Worker]Executor),
 		references:  make(map[Executor]int),
 		connections: make(map[*sarama.Broker]Executor),
@@ -133,22 +135,67 @@ func (m *T) Stop() {
 // triggers reassignments, making sure to run only one at a time. When signaled
 // to stop it only quits when all children have closed.
 func (m *T) run() {
-	changes := make(map[Worker]eventType)
-	reassignDoneCh := make(chan none.T, 1)
-	var nilOrRedispatchDoneCh <-chan none.T
-	stop := false
+	var (
+		changes             = make(map[Worker]eventType)
+		reassignDoneCh      = make(chan none.T, 1)
+		lastChangeTimes     = make(map[Worker]clock.Time)
+		deferredChanges     = make(map[Worker]clock.Time)
+		nilOrDeferredCh     <-chan clock.Time
+		nilOrReassignDoneCh <-chan none.T
+		stop                = false
+	)
 	for {
 		select {
 		case ev := <-m.eventsCh:
-			changes[ev.w] = ev.t
+			now := clock.Now().UTC()
+			switch ev.t {
+			case evWorkerSpawned:
+				changes[ev.w] = ev.t
+				lastChangeTimes[ev.w] = now
 
-		case <-nilOrRedispatchDoneCh:
-			nilOrRedispatchDoneCh = nil
+			case evReassignNeeded:
+				if now.Sub(lastChangeTimes[ev.w]) < m.cfg.Consumer.RetryBackoff {
+					if _, ok := deferredChanges[ev.w]; !ok {
+						deferredChanges[ev.w] = now.Add(m.cfg.Consumer.RetryBackoff)
+						if nilOrDeferredCh == nil {
+							nilOrDeferredCh = clock.After(m.cfg.Consumer.RetryBackoff)
+						}
+					}
+					break
+				}
+				changes[ev.w] = ev.t
+				lastChangeTimes[ev.w] = now
+				delete(deferredChanges, ev.w)
 
+			case evWorkerStopped:
+				changes[ev.w] = ev.t
+				delete(lastChangeTimes, ev.w)
+				delete(deferredChanges, ev.w)
+			}
+		case <-nilOrReassignDoneCh:
+			nilOrReassignDoneCh = nil
+
+		case <-nilOrDeferredCh:
+			now := clock.Now().UTC()
+			nilOrDeferredCh = nil
+			nextRetryAt := now.Add(m.cfg.Consumer.RetryBackoff)
+			for w, deadline := range deferredChanges {
+				if deadline.After(now) {
+					if deadline.Before(nextRetryAt) {
+						nextRetryAt = deadline
+					}
+					continue
+				}
+				changes[w] = evReassignNeeded
+				lastChangeTimes[w] = now
+				delete(deferredChanges, w)
+			}
+			if len(deferredChanges) >= 0 {
+				nilOrDeferredCh = clock.After(nextRetryAt.Sub(now))
+			}
 		case <-m.stopCh:
 			stop = true
 		}
-
 		// Allows control over what change should trigger reassignment in tests.
 		if testMode {
 			skip := atomic.AddInt32(&testSkipEvents, -1)
@@ -156,31 +203,30 @@ func (m *T) run() {
 				continue
 			}
 		}
-
 		// If there are changes to apply, and there is no reassign goroutine
 		// running at the moment then spawn one.
-		if len(changes) > 0 && nilOrRedispatchDoneCh == nil {
-			m.actDesc.Log().Infof("reassign: changes=%s", changes)
+		if len(changes) > 0 && nilOrReassignDoneCh == nil {
+			m.actDesc.Log().Infof("Reassign initiated: changes=%s", changes)
 			reassignActDesc := m.actDesc.NewChild("reassign")
 			frozenChanges := changes
 			actor.Spawn(reassignActDesc, nil, func() {
 				m.reassign(reassignActDesc, frozenChanges, reassignDoneCh)
 			})
 			changes = make(map[Worker]eventType)
-			nilOrRedispatchDoneCh = reassignDoneCh
+			nilOrReassignDoneCh = reassignDoneCh
 		}
 		// Do not leave this loop until all workers are closed.
-		if stop && nilOrRedispatchDoneCh == nil && len(m.assignments) == 0 {
+		if stop && nilOrReassignDoneCh == nil && len(m.assignments) == 0 {
 			return
 		}
 	}
 }
 
 // reassign updates partition-to-broker assignments using the external resolver.
-func (m *T) reassign(actDesc *actor.Descriptor, change map[Worker]eventType, doneCh chan none.T) {
+func (m *T) reassign(actDesc *actor.Descriptor, changes map[Worker]eventType, doneCh chan none.T) {
 	defer func() { doneCh <- none.V }()
 
-	for worker, event := range change {
+	for worker, event := range changes {
 		switch event {
 		case evWorkerStopped:
 			executor := m.assignments[worker]
@@ -189,7 +235,7 @@ func (m *T) reassign(actDesc *actor.Descriptor, change map[Worker]eventType, don
 			}
 			delete(m.assignments, worker)
 			m.references[executor] = m.references[executor] - 1
-			actDesc.Log().Infof("unassign %s -> %s (ref=%d)", worker, executor, m.references[executor])
+			actDesc.Log().Infof("Unassign: worker=%s, executor=%s(ref=%d)", worker, executor, m.references[executor])
 
 		case evWorkerSpawned:
 			executor := m.assignments[worker]
@@ -208,7 +254,7 @@ func (m *T) reassign(actDesc *actor.Descriptor, change map[Worker]eventType, don
 		if referenceCount != 0 {
 			continue
 		}
-		actDesc.Log().Infof("decomission %s", executor)
+		actDesc.Log().Infof("Executor stopped: %s", executor)
 		executor.Stop()
 		delete(m.references, executor)
 		if m.connections[executor.BrokerConn()] == executor {
@@ -220,40 +266,49 @@ func (m *T) reassign(actDesc *actor.Descriptor, change map[Worker]eventType, don
 // resolveBroker determines a broker connection for the worker and assigns
 // executor associated with the broker connection to the worker. If there is
 // no such executor then it is created.
-func (m *T) resolveBroker(actDesc *actor.Descriptor, worker Worker) {
-	var newExecutor Executor
-	brokerConn, err := m.resolver.ResolveBroker(worker)
+func (m *T) resolveBroker(actDesc *actor.Descriptor, w Worker) {
+	var newExec Executor
+	brokerConn, err := m.resolver.ResolveBroker(w)
 	if err != nil {
-		actDesc.Log().WithError(err).Errorf("Failed to resolve broker: worker=%s", worker)
+		actDesc.Log().WithError(err).Errorf("Failed to resolve broker: worker=%s", w)
 	} else if brokerConn == nil {
-		actDesc.Log().Errorf("Nil broker resolved: worker=%s", worker)
+		actDesc.Log().Errorf("Nil broker resolved: worker=%s", w)
 	} else {
-		newExecutor = m.connections[brokerConn]
-		if newExecutor == nil {
-			newExecutor = m.resolver.SpawnExecutor(brokerConn)
-			actDesc.Log().Infof("spawned %s", newExecutor)
-			m.connections[brokerConn] = newExecutor
+		newExec = m.connections[brokerConn]
+		if newExec == nil {
+			newExec = m.resolver.SpawnExecutor(brokerConn)
+			actDesc.Log().Infof("Executor spawned: %s", newExec)
+			m.connections[brokerConn] = newExec
 		}
 	}
-	// Assign the new executor, but only if it does not block.
-	select {
-	case worker.Assignment() <- newExecutor:
-	default:
-		newExecutor = nil
+	// Assign the new executor, but only if the operation does not block.
+	if newExec != nil {
+		select {
+		case w.Assignment() <- newExec:
+		default:
+			newExec = nil
+		}
 	}
-	// Update both old and new executor reference counts.
-	oldExecutorRepr := "nil"
-	oldExecutor := m.assignments[worker]
-	if oldExecutor != nil {
-		m.references[oldExecutor] -= 1
-		oldExecutorRepr = fmt.Sprintf("%s (ref=%d)", oldExecutor, m.references[oldExecutor])
+	// If we failed to resolve or assign an executor, make sure we retry later.
+	if newExec == nil {
+		m.TriggerReassign(w)
 	}
-	newExecutorRepr := "nil"
-	if newExecutor != nil {
-		m.assignments[worker] = newExecutor
-		m.references[newExecutor] += 1
-		newExecutorRepr = fmt.Sprintf("%s (ref=%d)", newExecutor, m.references[newExecutor])
+	// Update old executor references and assignment.
+	oldExecRepr := "<nil>"
+	oldExec := m.assignments[w]
+	if oldExec != nil {
+		delete(m.assignments, w)
+		m.references[oldExec] -= 1
+		oldExecRepr = fmt.Sprintf("%s(ref=%d)", oldExec, m.references[oldExec])
 	}
-	actDesc.Log().Infof("assigned: worker=%s, newExec=%s, oldExec=%s",
-		worker, oldExecutorRepr, newExecutorRepr)
+	// Update new executor references and assignment.
+	newExecRepr := "<nil>"
+	if newExec != nil {
+		m.assignments[w] = newExec
+		m.references[newExec] += 1
+		newExecRepr = fmt.Sprintf("%s(ref=%d)", newExec, m.references[newExec])
+	}
+
+	actDesc.Log().Infof("Assigned: worker=%s, executor=%s, old=%s",
+		w, newExecRepr, oldExecRepr)
 }

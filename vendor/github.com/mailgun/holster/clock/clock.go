@@ -42,6 +42,13 @@ func Advance(d time.Duration) time.Duration {
 	return Now().UTC().Sub(frozenAt)
 }
 
+// Wait4Scheduled blocks until either there are n or more scheduled events, or
+// the timeout elapses. It returns true if the wait condition has been met
+// before the timeout expired, false otherwise.
+func Wait4Scheduled(count int, timeout time.Duration) bool {
+	return provider.Wait4Scheduled(count, timeout)
+}
+
 // Now see time.Now.
 func Now() time.Time {
 	return provider.Now()
@@ -105,6 +112,7 @@ type clock interface {
 	AfterFunc(d time.Duration, f func()) Timer
 	NewTicker(d time.Duration) Ticker
 	Tick(d time.Duration) <-chan time.Time
+	Wait4Scheduled(n int, timeout time.Duration) bool
 }
 
 var provider clock = &systemTime{}

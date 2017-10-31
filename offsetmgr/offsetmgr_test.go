@@ -2,7 +2,6 @@ package offsetmgr
 
 import (
 	"net"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -96,11 +95,10 @@ func (s *OffsetMgrSuite) TestInitialNoCoordinator(c *C) {
 	// When
 	om, err := f.Spawn(s.ns.NewChild("g1", "t1", 8), "g1", "t1", 8)
 	c.Assert(err, IsNil)
-	defer om.Stop()
+	om.Stop()
 
 	// Then
-	err = <-om.(*offsetMgr).testErrorsCh
-	c.Assert(err.Error(), Equals, "broker not assigned")
+	// We are just checking that this test does not hangs.
 }
 
 // A partition offset manager can be closed even while it keeps trying to
@@ -155,7 +153,7 @@ func (s *OffsetMgrSuite) TestCommitError(c *C) {
 	})
 
 	cfg := testhelpers.NewTestProxyCfg("c1")
-	cfg.Consumer.RetryBackoff = 1000 * time.Millisecond
+	cfg.Consumer.RetryBackoff = 100 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, nil)
 	c.Assert(err, IsNil)
@@ -210,7 +208,7 @@ func (s *OffsetMgrSuite) TestCommitIncompleteResponse(c *C) {
 	})
 
 	cfg := testhelpers.NewTestProxyCfg("c1")
-	cfg.Consumer.RetryBackoff = 1000 * time.Millisecond
+	cfg.Consumer.RetryBackoff = 100 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
 	client, err := sarama.NewClient([]string{broker1.Addr()}, nil)
 	c.Assert(err, IsNil)
@@ -258,6 +256,10 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
+		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
+			SetCoordinator("g1", broker1),
+		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
+			SetOffset("g1", "t1", 7, 0, "", sarama.ErrNotLeaderForPartition),
 	})
 
 	cfg := testhelpers.NewTestProxyCfg("c1")
@@ -282,26 +284,11 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 
 	// STAGE 1: Requests for coordinator time out.
 	log.Infof("    STAGE 1")
-	err = <-om.(*offsetMgr).testErrorsCh
-	c.Assert(strings.HasPrefix(err.Error(), "broker not assigned"), Equals, true)
-
-	// STAGE 2: Requests for initial offset return errors
-	log.Infof("    STAGE 2")
-	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("g1", broker1),
-		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
-			SetOffset("g1", "t1", 7, 0, "", sarama.ErrNotLeaderForPartition),
-	})
-	for err = range om.(*offsetMgr).testErrorsCh {
-		if !strings.HasPrefix(err.Error(), "request timeout") {
-			break
-		}
-	}
+	err = <- om.(*offsetMgr).testErrorsCh
 	c.Assert(errors.Cause(err), Equals, sarama.ErrNotLeaderForPartition)
 
-	// STAGE 3: Val commit requests fail
-	log.Infof("    STAGE 3")
+	// STAGE 2: Val commit requests fail
+	log.Infof("    STAGE 2")
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
 			SetCoordinator("g1", broker1),
@@ -317,7 +304,7 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 	}
 	c.Assert(errors.Cause(err), DeepEquals, sarama.ErrOffsetMetadataTooLarge)
 
-	// STAGE 4: Finally everything is fine
+	// STAGE 3: Finally everything is fine
 	log.Infof("    STAGE 4")
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).

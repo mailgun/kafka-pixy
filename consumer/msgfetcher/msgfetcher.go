@@ -83,7 +83,7 @@ func SpawnFactory(parentActDesc *actor.Descriptor, cfg *config.Proxy, kafkaClt s
 		kafkaClt: kafkaClt,
 		children: make(map[instanceID]*msgFetcher),
 	}
-	f.mapper = mapper.Spawn(f.actDesc, f)
+	f.mapper = mapper.Spawn(f.actDesc, cfg, f)
 	return f
 }
 
@@ -111,7 +111,7 @@ func (f *factory) Spawn(parentActDesc *actor.Descriptor, topic string, partition
 		id:           id,
 		assignmentCh: make(chan mapper.Executor, 1),
 		messagesCh:   make(chan consumer.Message, f.cfg.Consumer.ChannelBufferSize),
-		closingCh:    make(chan none.T, 1),
+		stopCh:       make(chan none.T, 1),
 		offset:       realOffset,
 	}
 	if testReportErrors {
@@ -139,12 +139,12 @@ func (f *factory) ResolveBroker(worker mapper.Worker) (*sarama.Broker, error) {
 // implements `mapper.Resolver.Executor()`
 func (f *factory) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
 	be := &brokerExecutor{
-		aggrActDesc:     f.actDesc.NewChild("broker", brokerConn.ID(), "aggr"),
-		execActDesc:     f.actDesc.NewChild("broker", brokerConn.ID(), "exec"),
-		cfg:             f.cfg,
-		conn:            brokerConn,
-		requestsCh:      make(chan fetchReq),
-		batchRequestsCh: make(chan []fetchReq),
+		aggrActDesc:      f.actDesc.NewChild("broker", brokerConn.ID(), "aggr"),
+		execActDesc:      f.actDesc.NewChild("broker", brokerConn.ID(), "exec"),
+		cfg:              f.cfg,
+		conn:             brokerConn,
+		requestsCh:       make(chan fetchReq),
+		requestBatchesCh: make(chan []fetchReq),
 	}
 	actor.Spawn(be.aggrActDesc, &be.wg, be.runAggregator)
 	actor.Spawn(be.execActDesc, &be.wg, be.runExecutor)
@@ -196,20 +196,17 @@ func (f *factory) onMsgIStreamStopped(mf *msgFetcher) {
 
 // implements `mapper.Worker`.
 type msgFetcher struct {
-	actDesc      *actor.Descriptor
-	f            *factory
-	id           instanceID
-	offset       int64
-	assignmentCh chan mapper.Executor
-	messagesCh   chan consumer.Message
-	errorsCh     chan error
-	closingCh    chan none.T
-	wg           sync.WaitGroup
-
-	assignedBrokerRequestCh   chan<- fetchReq
-	nilOrBrokerRequestsCh     chan<- fetchReq
-	nilOrReassignRetryTimerCh <-chan time.Time
-	lastReassignTime          time.Time
+	actDesc               *actor.Descriptor
+	f                     *factory
+	id                    instanceID
+	offset                int64
+	assignmentCh          chan mapper.Executor
+	messagesCh            chan consumer.Message
+	errorsCh              chan error
+	brokerRequestCh       chan<- fetchReq
+	nilOrBrokerRequestsCh chan<- fetchReq
+	stopCh                chan none.T
+	wg                    sync.WaitGroup
 }
 
 // implements `Factory`.
@@ -219,7 +216,7 @@ func (mf *msgFetcher) Messages() <-chan consumer.Message {
 
 // implements `Factory`.
 func (mf *msgFetcher) Stop() {
-	close(mf.closingCh)
+	close(mf.stopCh)
 	mf.wg.Wait()
 }
 
@@ -253,20 +250,14 @@ func (mf *msgFetcher) run() {
 	for {
 		select {
 		case bw := <-mf.assignmentCh:
-			mf.actDesc.Log().Infof("assigned %s", bw)
-			if bw == nil {
-				mf.triggerOrScheduleReassign(errors.New("broker not assigned"))
-				continue
-			}
-			mf.nilOrReassignRetryTimerCh = nil
-
+			mf.actDesc.Log().Infof("Assigned executor: %s", bw)
 			be := bw.(*brokerExecutor)
-			mf.assignedBrokerRequestCh = be.requestsCh
+			mf.brokerRequestCh = be.requestsCh
 
 			// If there is a fetch request pending, then let it complete,
 			// otherwise trigger one.
 			if nilOrFetchResultsCh == nil && nilOrMessagesCh == nil {
-				mf.nilOrBrokerRequestsCh = mf.assignedBrokerRequestCh
+				mf.nilOrBrokerRequestsCh = mf.brokerRequestCh
 			}
 
 		case mf.nilOrBrokerRequestsCh <- fetchReq{mf.id.topic, mf.id.partition, mf.offset, fetchResultCh}:
@@ -276,19 +267,21 @@ func (mf *msgFetcher) run() {
 		case result := <-nilOrFetchResultsCh:
 			nilOrFetchResultsCh = nil
 			if fetchedMessages, err = mf.parseFetchResult(result); err != nil {
+				mf.reportError(err)
 				if err == sarama.ErrOffsetOutOfRange {
-					mf.actDesc.Log().WithError(err).Error("fatal error")
-					mf.reportError(err)
+					mf.actDesc.Log().WithError(err).Error("Fatal request failure")
 					// There's no point in retrying this it will just fail the
 					// same way, therefore is nothing to do but give up.
 					return
 				}
-				mf.triggerOrScheduleReassign(errors.Wrap(err, "request failed"))
+				mf.actDesc.Log().WithError(err).Error("Request failed")
+				mf.brokerRequestCh = nil
+				mf.f.mapper.TriggerReassign(mf)
 				continue
 			}
 			// If no messages has been fetched, then trigger another request.
 			if len(fetchedMessages) == 0 {
-				mf.nilOrBrokerRequestsCh = mf.assignedBrokerRequestCh
+				mf.nilOrBrokerRequestsCh = mf.brokerRequestCh
 				continue
 			}
 			// Some messages have been fetched, start pushing them to the user.
@@ -305,31 +298,12 @@ func (mf *msgFetcher) run() {
 			}
 			// All messages have been pushed, trigger a new fetch request.
 			nilOrMessagesCh = nil
-			mf.nilOrBrokerRequestsCh = mf.assignedBrokerRequestCh
+			mf.nilOrBrokerRequestsCh = mf.brokerRequestCh
 
-		case <-mf.nilOrReassignRetryTimerCh:
-			mf.f.mapper.TriggerReassign(mf)
-			mf.actDesc.Log().Info("reassign triggered by timeout")
-			mf.nilOrReassignRetryTimerCh = time.After(mf.f.cfg.Consumer.RetryBackoff)
-
-		case <-mf.closingCh:
+		case <-mf.stopCh:
 			return
 		}
 	}
-}
-
-func (mf *msgFetcher) triggerOrScheduleReassign(err error) {
-	mf.reportError(err)
-	mf.assignedBrokerRequestCh = nil
-	now := time.Now().UTC()
-	if now.Sub(mf.lastReassignTime) > mf.f.cfg.Consumer.RetryBackoff {
-		mf.actDesc.Log().WithError(err).Error("trigger reassign")
-		mf.lastReassignTime = now
-		mf.f.mapper.TriggerReassign(mf)
-	} else {
-		mf.actDesc.Log().WithError(err).Error("schedule reassign")
-	}
-	mf.nilOrReassignRetryTimerCh = time.After(mf.f.cfg.Consumer.RetryBackoff)
 }
 
 // parseFetchResult parses a fetch response received a broker.
@@ -355,7 +329,7 @@ func (mf *msgFetcher) parseFetchResult(fetchResult fetchRes) ([]consumer.Message
 	// We got no messages. If we got a trailing one, it means there is a
 	// producer that writes messages larger then Consumer.FetchMaxBytes in size.
 	if len(block.MsgSet.Messages) == 0 && block.MsgSet.PartialTrailingMessage {
-		mf.actDesc.Log().Errorf("oversized message skipped: offset=%d", mf.offset)
+		mf.actDesc.Log().Errorf("Oversize message skipped: offset=%d", mf.offset)
 		mf.reportError(errMessageTooLarge)
 		return nil, nil
 	}
@@ -414,13 +388,13 @@ func (mf *msgFetcher) String() string {
 //
 // implements `mapper.Executor`.
 type brokerExecutor struct {
-	aggrActDesc     *actor.Descriptor
-	execActDesc     *actor.Descriptor
-	cfg             *config.Proxy
-	conn            *sarama.Broker
-	requestsCh      chan fetchReq
-	batchRequestsCh chan []fetchReq
-	wg              sync.WaitGroup
+	aggrActDesc      *actor.Descriptor
+	execActDesc      *actor.Descriptor
+	cfg              *config.Proxy
+	conn             *sarama.Broker
+	requestsCh       chan fetchReq
+	requestBatchesCh chan []fetchReq
+	wg               sync.WaitGroup
 }
 
 type fetchReq struct {
@@ -450,22 +424,22 @@ func (be *brokerExecutor) Stop() {
 // while the request executor goroutine is busy processing the previous batch.
 // As soon as the executor is done, a new batch is handed over to it.
 func (be *brokerExecutor) runAggregator() {
-	defer close(be.batchRequestsCh)
+	defer close(be.requestBatchesCh)
 
-	var nilOrBatchRequestCh chan<- []fetchReq
-	var batchRequest []fetchReq
+	var nilOrRequestBatchesCh chan<- []fetchReq
+	var requestBatch []fetchReq
 	for {
 		select {
 		case fr, ok := <-be.requestsCh:
 			if !ok {
 				return
 			}
-			batchRequest = append(batchRequest, fr)
-			nilOrBatchRequestCh = be.batchRequestsCh
-		case nilOrBatchRequestCh <- batchRequest:
-			batchRequest = nil
-			// Disable batchRequestsCh until we have at least one fetch request.
-			nilOrBatchRequestCh = nil
+			requestBatch = append(requestBatch, fr)
+			nilOrRequestBatchesCh = be.requestBatchesCh
+		case nilOrRequestBatchesCh <- requestBatch:
+			requestBatch = nil
+			// Disable requestBatchesCh until we have at least one fetch request.
+			nilOrRequestBatchesCh = nil
 		}
 	}
 }
@@ -475,11 +449,11 @@ func (be *brokerExecutor) runAggregator() {
 func (be *brokerExecutor) runExecutor() {
 	var lastErr error
 	var lastErrTime time.Time
-	for fetchRequests := range be.batchRequestsCh {
+	for requestBatch := range be.requestBatchesCh {
 		// Reject consume requests for awhile after a connection failure to
 		// allow the Kafka cluster some time to recuperate.
 		if time.Now().UTC().Sub(lastErrTime) < be.cfg.Consumer.RetryBackoff {
-			for _, fr := range fetchRequests {
+			for _, fr := range requestBatch {
 				fr.ReplyToCh <- fetchRes{nil, lastErr}
 			}
 			continue
@@ -493,7 +467,7 @@ func (be *brokerExecutor) runExecutor() {
 			req.Version = 2
 		}
 
-		for _, fr := range fetchRequests {
+		for _, fr := range requestBatch {
 			req.AddBlock(fr.Topic, fr.Partition, fr.Offset, int32(be.cfg.Consumer.FetchMaxBytes))
 		}
 		var res *sarama.FetchResponse
@@ -501,10 +475,10 @@ func (be *brokerExecutor) runExecutor() {
 		if lastErr != nil {
 			lastErrTime = time.Now().UTC()
 			be.conn.Close()
-			be.execActDesc.Log().WithError(lastErr).Info("connection reset")
+			be.execActDesc.Log().WithError(lastErr).Info("Connection reset")
 		}
 		// Fan the response out to the message streams.
-		for _, fr := range fetchRequests {
+		for _, fr := range requestBatch {
 			fr.ReplyToCh <- fetchRes{res, lastErr}
 		}
 	}
