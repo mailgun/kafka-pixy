@@ -52,8 +52,8 @@
 [[projects]]
   name = "github.com/mailgun/holster"
   packages = ["clock","errors","stack"]
-  revision = "cdd4fc684bb017088463228d994f229ed95eb681"
-  version = "v1.3.0"
+  revision = "c9cf579936fb68a2d2f8d7d3171a8e337b0a9fd7"
+  version = "v1.4.0"
 
 [[projects]]
   branch = "master"
@@ -149,6 +149,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "ccbbb2ec39b2b03d71af8355e9d9616a6d49f9f131934135e1ba996ac6428f39"
+  inputs-digest = "6cd0d19a839b4e42528116dd8e048ea253383c74676e32fa40fa119d7aa6a386"
   solver-name = "gps-cdcl"
   solver-version = 1

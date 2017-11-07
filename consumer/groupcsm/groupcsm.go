@@ -58,7 +58,7 @@ func Spawn(parentActDesc *actor.Descriptor, childSpec dispatcher.ChildSpec,
 		kazooClt:     kazooClt,
 		offsetMgrF:   offsetMgrF,
 		multiplexers: make(map[string]*multiplexer.T),
-		topicCsmCh:   make(chan *topiccsm.T),
+		topicCsmCh:   make(chan *topiccsm.T, cfg.Consumer.ChannelBufferSize),
 	}
 
 	gc.subscriber = subscriber.Spawn(gc.actDesc, gc.group, gc.cfg, gc.kazooClt)
@@ -114,9 +114,9 @@ func (gc *T) run() {
 		ok                      = true
 		nilOrRetryCh            <-chan time.Time
 		nilOrSubscriberTopicsCh chan<- []string
-		rebalancingRequired     = false
-		rebalancingInProgress   = false
-		retryScheduled          = false
+		rebalanceRequired       = false
+		rebalancePending        = false
+		rebalanceScheduled      = false
 		stopped                 = false
 		rebalanceResultCh       = make(chan error, 1)
 	)
@@ -131,40 +131,43 @@ func (gc *T) run() {
 				topicConsumers[tc.Topic()] = tc
 			}
 			topics = listTopics(topicConsumers)
+			gc.actDesc.Log().Infof("Topics updated: %s", topics)
 			nilOrSubscriberTopicsCh = gc.subscriber.Topics()
 			continue
+
 		case nilOrSubscriberTopicsCh <- topics:
 			nilOrSubscriberTopicsCh = nil
 			continue
+
 		case subscriptions, ok = <-gc.subscriber.Subscriptions():
 			nilOrRetryCh = nil
 			if !ok {
-				if !rebalancingInProgress {
+				if !rebalancePending {
 					goto done
 				}
 				stopped = true
 				continue
 			}
-			rebalancingRequired = true
+			rebalanceRequired = true
+
 		case err := <-rebalanceResultCh:
-			rebalancingInProgress = false
+			rebalancePending = false
 			if err != nil {
 				gc.actDesc.Log().WithError(err).Error("rebalancing failed")
 				if stopped {
 					goto done
 				}
 				nilOrRetryCh = time.After(gc.cfg.Consumer.RetryBackoff)
-				retryScheduled = true
+				rebalanceScheduled = true
 			}
 			if stopped {
 				goto done
 			}
-
 		case <-nilOrRetryCh:
-			retryScheduled = false
+			rebalanceScheduled = false
 		}
 
-		if rebalancingRequired && !rebalancingInProgress && !retryScheduled {
+		if rebalanceRequired && !rebalancePending && !rebalanceScheduled {
 			rebalanceActDesc := gc.actDesc.NewChild("rebalance")
 			// Copy topicConsumers to make sure `rebalance` doesn't see any
 			// changes we make while it is running.
@@ -176,8 +179,8 @@ func (gc *T) run() {
 			actor.Spawn(rebalanceActDesc, nil, func() {
 				gc.rebalance(rebalanceActDesc, topicConsumersCopy, subscriptions, rebalanceResultCh)
 			})
-			rebalancingInProgress = true
-			rebalancingRequired = false
+			rebalancePending = true
+			rebalanceRequired = false
 		}
 	}
 done:

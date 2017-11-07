@@ -71,9 +71,13 @@ type Offset struct {
 }
 
 var (
+	undefinedOffset = Offset{Val: math.MaxInt64}
+
 	// To be used in tests only! If true then offset manager will initialize
 	// their errors channel and will send internal errors.
 	testReportErrors bool
+
+	errRequestTimeout = errors.New("request timeout")
 )
 
 // SpawnFactory creates a new offset manager factory from the given client.
@@ -84,7 +88,7 @@ func SpawnFactory(parentActDesc *actor.Descriptor, cfg *config.Proxy, kafkaClt s
 		cfg:      cfg,
 		children: make(map[instanceID]*offsetMgr),
 	}
-	f.mapper = mapper.Spawn(f.actDesc, f)
+	f.mapper = mapper.Spawn(f.actDesc, cfg, f)
 	return f
 }
 
@@ -123,7 +127,7 @@ func (f *factory) Spawn(namespace *actor.Descriptor, group, topic string, partit
 		actDesc:            actDesc,
 		f:                  f,
 		id:                 id,
-		submitRequestsCh:   make(chan submitReq),
+		submitRequestsCh:   make(chan submitRq),
 		assignmentCh:       make(chan mapper.Executor, 1),
 		committedOffsetsCh: make(chan Offset, f.cfg.Consumer.ChannelBufferSize),
 	}
@@ -156,12 +160,12 @@ func (f *factory) ResolveBroker(worker mapper.Worker) (*sarama.Broker, error) {
 // implements `mapper.Resolver`.
 func (f *factory) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
 	be := &brokerExecutor{
-		aggrActDesc:     f.actDesc.NewChild("broker", brokerConn.ID(), "aggr"),
-		execActDesc:     f.actDesc.NewChild("broker", brokerConn.ID(), "exec"),
-		cfg:             f.cfg,
-		conn:            brokerConn,
-		requestsCh:      make(chan submitReq),
-		batchRequestsCh: make(chan map[string]map[instanceID]submitReq),
+		aggrActDesc:      f.actDesc.NewChild("broker", brokerConn.ID(), "aggr"),
+		execActDesc:      f.actDesc.NewChild("broker", brokerConn.ID(), "exec"),
+		cfg:              f.cfg,
+		conn:             brokerConn,
+		requestsCh:       make(chan submitRq),
+		requestBatchesCh: make(chan map[string]map[instanceID]submitRq),
 	}
 	actor.Spawn(be.aggrActDesc, &be.wg, be.runAggregator)
 	actor.Spawn(be.execActDesc, &be.wg, be.runExecutor)
@@ -187,21 +191,17 @@ func (f *factory) onOffsetMgrStopped(om *offsetMgr) {
 // implements `T`
 // implements `mapper.Worker`
 type offsetMgr struct {
-	actDesc            *actor.Descriptor
-	f                  *factory
-	id                 instanceID
-	submitRequestsCh   chan submitReq
-	assignmentCh       chan mapper.Executor
-	committedOffsetsCh chan Offset
-	wg                 sync.WaitGroup
-
-	retryTimer        *time.Timer
-	nilOrRetryTimerCh <-chan time.Time
-
-	assignedBrokerRequestsCh  chan<- submitReq
-	nilOrBrokerRequestsCh     chan<- submitReq
-	nilOrReassignRetryTimerCh <-chan time.Time
-	lastReassignTime          time.Time
+	actDesc               *actor.Descriptor
+	f                     *factory
+	id                    instanceID
+	submitRequestsCh      chan submitRq
+	assignmentCh          chan mapper.Executor
+	committedOffsetsCh    chan Offset
+	brokerRequestsCh      chan<- submitRq
+	nilOrBrokerRequestsCh chan<- submitRq
+	retryTimer            *time.Timer
+	nilOrRetryTimerCh     <-chan time.Time
+	wg                    sync.WaitGroup
 
 	// To be used in tests only!
 	testErrorsCh chan error
@@ -209,7 +209,7 @@ type offsetMgr struct {
 
 // implements `T`.
 func (om *offsetMgr) SubmitOffset(offset Offset) {
-	om.submitRequestsCh <- submitReq{
+	om.submitRequestsCh <- submitRq{
 		id:     om.id,
 		offset: offset,
 	}
@@ -245,89 +245,111 @@ func (om *offsetMgr) run() {
 	defer om.f.onOffsetMgrStopped(om)
 
 	var (
-		lastCommittedOffset   = Offset{Val: math.MinInt64}
-		lastSubmitRequest     = submitReq{offset: lastCommittedOffset}
-		nilOrSubmitRequestsCh = om.submitRequestsCh
-		submitResponseCh      = make(chan submitRes, 1)
-		initialOffsetFetched  = false
-		stopped               = false
-		lastSubmitTime        time.Time
+		initialOffset   = undefinedOffset
+		receivedRq      = submitRq{offset: undefinedOffset}
+		nilOrRequestsCh = om.submitRequestsCh
+		responseCh      = make(chan submitRs, 1)
+		stopped         = false
 	)
+	// Retrieve the initial offset.
 	for {
 		select {
 		case bw := <-om.assignmentCh:
-			om.actDesc.Log().Infof("assigned %s", bw)
-			if bw == nil {
-				om.triggerOrScheduleReassign(errors.New("broker not assigned"))
+			om.actDesc.Log().Infof("Assigned executor: %s", bw)
+			be := bw.(*brokerExecutor)
+			om.brokerRequestsCh = be.requestsCh
+
+			initialOffset, err := om.fetchInitialOffset(be.conn)
+			if err != nil {
+				om.actDesc.Log().WithError(err).Error("Failed to fetch initial offset")
+				om.triggerReassign(err)
 				continue
 			}
-			om.nilOrReassignRetryTimerCh = nil
+			om.committedOffsetsCh <- initialOffset
+			goto handleRequests
 
-			be := bw.(*brokerExecutor)
-			om.assignedBrokerRequestsCh = be.requestsCh
-
-			if !initialOffsetFetched {
-				initialOffset, err := om.fetchInitialOffset(be.conn)
-				if err != nil {
-					om.triggerOrScheduleReassign(errors.Wrap(err, "failed to fetch initial offset"))
-					continue
-				}
-				om.committedOffsetsCh <- initialOffset
-				initialOffsetFetched = true
-			}
-			if lastSubmitRequest.offset != lastCommittedOffset {
-				om.nilOrBrokerRequestsCh = om.assignedBrokerRequestsCh
-			}
-		case submitReq, ok := <-nilOrSubmitRequestsCh:
+		case rq, ok := <-nilOrRequestsCh:
 			if !ok {
-				if lastSubmitRequest.offset == lastCommittedOffset {
+				// It was signalled to stop, but return only if there is no
+				// uncommitted offset, otherwise keep running.
+				if receivedRq.offset == initialOffset {
+					return
+				}
+				stopped = true
+				nilOrRequestsCh = nil
+				continue
+			}
+			receivedRq = rq
+			receivedRq.resultCh = responseCh
+		}
+	}
+handleRequests:
+	committedOffset := initialOffset
+	if receivedRq.offset == undefinedOffset {
+		receivedRq.offset = committedOffset
+	}
+	if receivedRq.offset != committedOffset {
+		om.nilOrBrokerRequestsCh = om.brokerRequestsCh
+	}
+	var handedOffRq submitRq
+	var handOffTime time.Time
+	for {
+		select {
+		case bw := <-om.assignmentCh:
+			om.actDesc.Log().Infof("Assigned executor: %s", bw)
+			be := bw.(*brokerExecutor)
+			om.brokerRequestsCh = be.requestsCh
+
+			if receivedRq.offset != committedOffset {
+				om.nilOrBrokerRequestsCh = om.brokerRequestsCh
+			}
+		case rq, ok := <-nilOrRequestsCh:
+			if !ok {
+				if receivedRq.offset == committedOffset {
 					return
 				}
 				// Keep running until the last submitter offset is committed.
 				stopped = true
-				nilOrSubmitRequestsCh = nil
+				nilOrRequestsCh = nil
 				continue
 			}
-			lastSubmitRequest = submitReq
-			lastSubmitRequest.resultCh = submitResponseCh
-			om.nilOrBrokerRequestsCh = om.assignedBrokerRequestsCh
+			receivedRq = rq
+			receivedRq.resultCh = responseCh
+			om.nilOrBrokerRequestsCh = om.brokerRequestsCh
 
-		case om.nilOrBrokerRequestsCh <- lastSubmitRequest:
+		case om.nilOrBrokerRequestsCh <- receivedRq:
 			om.nilOrBrokerRequestsCh = nil
-			lastSubmitTime = time.Now().UTC()
+			handedOffRq = receivedRq
+			handOffTime = time.Now().UTC()
 			if om.nilOrRetryTimerCh == nil {
 				om.retryTimer.Reset(om.f.cfg.Consumer.OffsetsCommitTimeout)
 				om.nilOrRetryTimerCh = om.retryTimer.C
 			}
-
-		case submitRes := <-submitResponseCh:
-			if err := om.getCommitError(submitRes.kafkaRes); err != nil {
-				om.triggerOrScheduleReassign(errors.Wrap(err, "request failed"))
+		case rs := <-responseCh:
+			if err := om.getCommitError(rs.kafkaRs); err != nil {
+				om.actDesc.Log().WithError(err).Error("Request failed")
+				om.triggerReassign(err)
 				continue
 			}
-			lastCommittedOffset = submitRes.req.offset
-			om.committedOffsetsCh <- lastCommittedOffset
-			if stopped && lastSubmitRequest.offset == lastCommittedOffset {
+			committedOffset = rs.rq.offset
+			om.committedOffsetsCh <- committedOffset
+			if stopped && receivedRq.offset == committedOffset {
 				return
 			}
 		case <-om.nilOrRetryTimerCh:
 			om.nilOrRetryTimerCh = nil
-			if lastSubmitRequest.offset == lastCommittedOffset {
+			sinceHandOff := time.Now().UTC().Sub(handOffTime)
+			if sinceHandOff >= om.f.cfg.Consumer.OffsetsCommitTimeout {
+				if handedOffRq.offset == committedOffset {
+					continue
+				}
+				om.actDesc.Log().Errorf("Request timeout %v", sinceHandOff)
+				om.triggerReassign(errRequestTimeout)
 				continue
 			}
-			sinceLastSubmit := time.Now().UTC().Sub(lastSubmitTime)
-			if sinceLastSubmit >= om.f.cfg.Consumer.OffsetsCommitTimeout {
-				om.triggerOrScheduleReassign(errors.Errorf("request timeout %v", sinceLastSubmit))
-				continue
-			}
-			timeoutLeft := om.f.cfg.Consumer.OffsetsCommitTimeout - sinceLastSubmit
+			timeoutLeft := om.f.cfg.Consumer.OffsetsCommitTimeout - sinceHandOff
 			om.retryTimer.Reset(timeoutLeft)
 			om.nilOrRetryTimerCh = om.retryTimer.C
-
-		case <-om.nilOrReassignRetryTimerCh:
-			om.f.mapper.TriggerReassign(om)
-			om.actDesc.Log().Info("reassign triggered by timeout")
-			om.nilOrReassignRetryTimerCh = time.After(om.f.cfg.Consumer.RetryBackoff)
 		}
 	}
 }
@@ -342,20 +364,14 @@ func (om *offsetMgr) stopRetryTimer() {
 	om.nilOrRetryTimerCh = nil
 }
 
-func (om *offsetMgr) triggerOrScheduleReassign(err error) {
+func (om *offsetMgr) triggerReassign(err error) {
 	om.stopRetryTimer()
-	om.reportError(err)
-	om.assignedBrokerRequestsCh = nil
-	om.nilOrBrokerRequestsCh = nil
-	now := time.Now().UTC()
-	if now.Sub(om.lastReassignTime) > om.f.cfg.Consumer.RetryBackoff {
-		om.actDesc.Log().WithError(err).Error("trigger reassign")
-		om.lastReassignTime = now
-		om.f.mapper.TriggerReassign(om)
-	} else {
-		om.actDesc.Log().WithError(err).Error("schedule reassign")
+	if om.testErrorsCh != nil {
+		om.testErrorsCh <- err
 	}
-	om.nilOrReassignRetryTimerCh = time.After(om.f.cfg.Consumer.RetryBackoff)
+	om.brokerRequestsCh = nil
+	om.nilOrBrokerRequestsCh = nil
+	om.f.mapper.TriggerReassign(om)
 }
 
 func (om *offsetMgr) fetchInitialOffset(conn *sarama.Broker) (Offset, error) {
@@ -383,16 +399,6 @@ func (om *offsetMgr) fetchInitialOffset(conn *sarama.Broker) (Offset, error) {
 	return fetchedOffset, nil
 }
 
-func (om *offsetMgr) reportError(err error) {
-	if om.testErrorsCh == nil {
-		return
-	}
-	select {
-	case om.testErrorsCh <- err:
-	default:
-	}
-}
-
 func (om *offsetMgr) getCommitError(res *sarama.OffsetCommitResponse) error {
 	if res.Errors[om.id.topic] == nil {
 		return sarama.ErrIncompleteResponse
@@ -407,15 +413,15 @@ func (om *offsetMgr) getCommitError(res *sarama.OffsetCommitResponse) error {
 	return nil
 }
 
-type submitReq struct {
+type submitRq struct {
 	id       instanceID
 	offset   Offset
-	resultCh chan<- submitRes
+	resultCh chan<- submitRs
 }
 
-type submitRes struct {
-	req      submitReq
-	kafkaRes *sarama.OffsetCommitResponse
+type submitRs struct {
+	rq      submitRq
+	kafkaRs *sarama.OffsetCommitResponse
 }
 
 // brokerExecutor aggregates submitted offsets from partition offset managers
@@ -423,13 +429,13 @@ type submitRes struct {
 //
 // implements `mapper.Executor`.
 type brokerExecutor struct {
-	aggrActDesc     *actor.Descriptor
-	execActDesc     *actor.Descriptor
-	cfg             *config.Proxy
-	conn            *sarama.Broker
-	requestsCh      chan submitReq
-	batchRequestsCh chan map[string]map[instanceID]submitReq
-	wg              sync.WaitGroup
+	aggrActDesc      *actor.Descriptor
+	execActDesc      *actor.Descriptor
+	cfg              *config.Proxy
+	conn             *sarama.Broker
+	requestsCh       chan submitRq
+	requestBatchesCh chan map[string]map[instanceID]submitRq
+	wg               sync.WaitGroup
 }
 
 // implements `mapper.Executor`.
@@ -444,32 +450,32 @@ func (be *brokerExecutor) Stop() {
 }
 
 func (be *brokerExecutor) runAggregator() {
-	defer close(be.batchRequestsCh)
+	defer close(be.requestBatchesCh)
 
-	batchRequests := make(map[string]map[instanceID]submitReq)
-	var nilOrOffsetBatchesCh chan map[string]map[instanceID]submitReq
+	requestBatch := make(map[string]map[instanceID]submitRq)
+	var nilOrOffsetBatchesCh chan map[string]map[instanceID]submitRq
 	for {
 		select {
-		case req, ok := <-be.requestsCh:
+		case rq, ok := <-be.requestsCh:
 			if !ok {
 				return
 			}
-			groupRequests := batchRequests[req.id.group]
+			groupRequests := requestBatch[rq.id.group]
 			if groupRequests == nil {
-				groupRequests = make(map[instanceID]submitReq)
-				batchRequests[req.id.group] = groupRequests
+				groupRequests = make(map[instanceID]submitRq)
+				requestBatch[rq.id.group] = groupRequests
 			}
-			groupRequests[req.id] = req
-			nilOrOffsetBatchesCh = be.batchRequestsCh
-		case nilOrOffsetBatchesCh <- batchRequests:
+			groupRequests[rq.id] = rq
+			nilOrOffsetBatchesCh = be.requestBatchesCh
+		case nilOrOffsetBatchesCh <- requestBatch:
 			nilOrOffsetBatchesCh = nil
-			batchRequests = make(map[string]map[instanceID]submitReq)
+			requestBatch = make(map[string]map[instanceID]submitRq)
 		}
 	}
 }
 
 func (be *brokerExecutor) runExecutor() {
-	var nilOrBatchRequestsCh chan map[string]map[instanceID]submitReq
+	var nilOrRequestBatchesCh chan map[string]map[instanceID]submitRq
 	var lastErr error
 	var lastErrTime time.Time
 	commitTicker := time.NewTicker(be.cfg.Consumer.OffsetsCommitInterval)
@@ -478,8 +484,8 @@ offsetCommitLoop:
 	for {
 		select {
 		case <-commitTicker.C:
-			nilOrBatchRequestsCh = be.batchRequestsCh
-		case batchRequest, ok := <-nilOrBatchRequestsCh:
+			nilOrRequestBatchesCh = be.requestBatchesCh
+		case requestBatch, ok := <-nilOrRequestBatchesCh:
 			if !ok {
 				return
 			}
@@ -489,27 +495,27 @@ offsetCommitLoop:
 			if time.Now().UTC().Sub(lastErrTime) < be.cfg.Consumer.RetryBackoff {
 				continue offsetCommitLoop
 			}
-			nilOrBatchRequestsCh = nil
-			for group, groupRequests := range batchRequest {
-				kafkaReq := &sarama.OffsetCommitRequest{
+			nilOrRequestBatchesCh = nil
+			for group, groupRequests := range requestBatch {
+				kafkaRq := &sarama.OffsetCommitRequest{
 					Version:                 1,
 					ConsumerGroup:           group,
 					ConsumerGroupGeneration: sarama.GroupGenerationUndefined,
 				}
-				for _, req := range groupRequests {
-					kafkaReq.AddBlock(req.id.topic, req.id.partition, req.offset.Val, sarama.ReceiveTime, req.offset.Meta)
+				for _, rq := range groupRequests {
+					kafkaRq.AddBlock(rq.id.topic, rq.id.partition, rq.offset.Val, sarama.ReceiveTime, rq.offset.Meta)
 				}
-				var kafkaRes *sarama.OffsetCommitResponse
-				kafkaRes, lastErr = be.conn.CommitOffset(kafkaReq)
+				var kafkaRs *sarama.OffsetCommitResponse
+				kafkaRs, lastErr = be.conn.CommitOffset(kafkaRq)
 				if lastErr != nil {
 					lastErrTime = time.Now().UTC()
 					be.conn.Close()
-					be.execActDesc.Log().WithError(lastErr).Info("connection reset")
+					be.execActDesc.Log().WithError(lastErr).Info("Connection reset")
 					continue offsetCommitLoop
 				}
 				// Fan the response out to the partition offset managers.
-				for _, req := range groupRequests {
-					req.resultCh <- submitRes{req, kafkaRes}
+				for _, rq := range groupRequests {
+					rq.resultCh <- submitRs{rq, kafkaRs}
 				}
 			}
 		}

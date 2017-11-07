@@ -62,3 +62,7 @@ func (st *systemTime) NewTicker(d time.Duration) Ticker {
 func (st *systemTime) Tick(d time.Duration) <-chan time.Time {
 	return time.Tick(d)
 }
+
+func (st *systemTime) Wait4Scheduled(count int, timeout time.Duration) bool {
+	panic("Not supported")
+}

@@ -206,7 +206,6 @@ func (s *MsgFetcherSuite) TestLeaderRefreshError(c *C) {
 	})
 
 	saramaCfg := s.cfg.SaramaClientCfg()
-	saramaCfg.Net.ReadTimeout = 100 * time.Millisecond
 	saramaCfg.Metadata.Retry.Max = 0
 	kafkaClt, _ := sarama.NewClient([]string{s.broker0.Addr()}, saramaCfg)
 	defer kafkaClt.Close()

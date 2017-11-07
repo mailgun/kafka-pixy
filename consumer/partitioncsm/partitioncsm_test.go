@@ -529,6 +529,7 @@ func (s *PartitionCsmSuite) TestFetcherDeath(c *C) {
 	fatalErrorRs.AddError(topic, partition, sarama.ErrOffsetOutOfRange)
 
 	mockBroker := sarama.NewMockBroker(c, 0)
+	mockBroker.SetLatency(100 * time.Millisecond)
 	defer mockBroker.Close()
 	mockBroker.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).

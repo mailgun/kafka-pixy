@@ -64,8 +64,8 @@ func (s *SubscriberSuite) TestSubscribeSequence(c *C) {
 	ss.Topics() <- []string{"blah", "bazz"}
 
 	// Then
-	c.Assert(<-ss.Subscriptions(), DeepEquals,
-		map[string][]string{"m1": {"bazz", "blah"}})
+	assertSubscription(c, ss.Subscriptions(),
+		map[string][]string{"m1": {"bazz", "blah"}}, 3*time.Second)
 }
 
 // If a group member resubscribes to the same list of topics, then the same
@@ -211,7 +211,7 @@ func (s *SubscriberSuite) TestRedundantUpdateBug(c *C) {
 	membership := map[string][]string{
 		"m1": {"bar", "foo"},
 		"m2": {"bazz", "blah", "foo"}}
-	c.Assert(<-ss1.Subscriptions(), DeepEquals, membership)
+	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
 
 	// When
 	ss2.Topics() <- []string{"bar"}
@@ -416,8 +416,6 @@ func (s *SubscriberSuite) TestClaimClaimed(c *C) {
 		ss2.ClaimPartition(s.ns, "foo", 1, cancelCh)()
 	}()
 
-	// Then until the retry backoff timeout is not elapsed we got nothing.
-	assertNoneReceived(c, ss3.Subscriptions(), 100*time.Millisecond)
 	// After the retry backoff timeout is elapsed all members get their
 	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
 	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)

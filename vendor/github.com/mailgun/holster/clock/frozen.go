@@ -11,6 +11,12 @@ type frozenTime struct {
 	mu     sync.Mutex
 	now    time.Time
 	timers []*frozenTimer
+	waiter *waiter
+}
+
+type waiter struct {
+	count int
+	signalCh chan struct{}
 }
 
 func (ft *frozenTime) Now() time.Time {
@@ -122,6 +128,13 @@ func (ft *frozenTime) startTimer(t *frozenTimer) {
 	defer ft.mu.Unlock()
 
 	ft.unlockedStartTimer(t)
+
+	if ft.waiter == nil {
+		return
+	}
+	if len(ft.timers) >= ft.waiter.count {
+		close(ft.waiter.signalCh)
+	}
 }
 
 func (ft *frozenTime) unlockedStartTimer(t *frozenTimer) {
@@ -192,4 +205,28 @@ func (ft *frozenTime) Tick(d time.Duration) <-chan time.Time {
 		return nil
 	}
 	return ft.NewTicker(d).C()
+}
+
+func (ft *frozenTime) Wait4Scheduled(count int, timeout time.Duration) bool {
+	ft.mu.Lock()
+	if len(ft.timers) >= count {
+		ft.mu.Unlock()
+		return true
+	}
+	if ft.waiter != nil {
+		panic("Concurrent call")
+	}
+	ft.waiter = &waiter{count, make(chan struct{})}
+	ft.mu.Unlock()
+
+	success := false
+	select {
+	case <-ft.waiter.signalCh:
+		success = true
+	case <-time.After(timeout):
+	}
+	ft.mu.Lock()
+	ft.waiter = nil
+	ft.mu.Unlock()
+	return success
 }
