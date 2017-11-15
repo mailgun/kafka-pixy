@@ -9,6 +9,7 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/none"
+	"github.com/mailgun/kafka-pixy/prettyfmt"
 	"github.com/mailgun/kazoo-go"
 	"github.com/pkg/errors"
 	"github.com/samuel/go-zookeeper/zk"
@@ -225,7 +226,7 @@ func (ss *T) run() {
 				continue
 			}
 			shouldFetchSubscriptions = false
-			ss.actDesc.Log().Infof("Fetched subscriptions: %v", subscriptions)
+			ss.actDesc.Log().Infof("Fetched subscriptions: %s", prettyfmt.Val(subscriptions))
 			nilOrSubscriptionsCh = ss.subscriptionsCh
 		}
 	}

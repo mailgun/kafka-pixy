@@ -10,6 +10,7 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/none"
+	"github.com/mailgun/kafka-pixy/prettyfmt"
 )
 
 // T maintains mapping of workers that generate requests to executors. An
@@ -206,7 +207,7 @@ func (m *T) run() {
 		// If there are changes to apply, and there is no reassign goroutine
 		// running at the moment then spawn one.
 		if len(changes) > 0 && nilOrReassignDoneCh == nil {
-			m.actDesc.Log().Infof("Reassign initiated: changes=%s", changes)
+			m.actDesc.Log().Infof("Reassign initiated: changes=%s", prettyfmt.Val(changes))
 			reassignActDesc := m.actDesc.NewChild("reassign")
 			frozenChanges := changes
 			actor.Spawn(reassignActDesc, nil, func() {
