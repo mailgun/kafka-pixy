@@ -15,8 +15,8 @@ import (
 
 var (
 	ErrRunningInstances          = errors.New("Cannot deregister a consumergroup with running instances")
-	ErrInstanceAlreadyRegistered = errors.New("Cannot register consumer instance because it already is registered")
-	ErrInstanceNotRegistered     = errors.New("Cannot deregister consumer instance because it not registered")
+	ErrInstanceAlreadyRegistered = errors.New("Consumer instance already registered")
+	ErrInstanceNotRegistered     = errors.New("Consumer instance not registered")
 	ErrPartitionClaimedByOther   = errors.New("Cannot claim partition: it is already claimed by another instance")
 	ErrPartitionNotClaimed       = errors.New("Cannot release partition: it is not claimed by this instance")
 )
@@ -209,6 +209,9 @@ func (cgi *ConsumergroupInstance) Registration() (*Registration, error) {
 	node := fmt.Sprintf("%s/consumers/%s/ids/%s", cgi.cg.kz.conf.Chroot, cgi.cg.Name, cgi.ID)
 	val, _, err := cgi.cg.kz.conn.Get(node)
 	if err != nil {
+		if err == zk.ErrNoNode {
+			return nil, ErrInstanceNotRegistered
+		}
 		return nil, err
 	}
 
@@ -225,6 +228,9 @@ func (cgi *ConsumergroupInstance) WatchRegistration() (*Registration, <-chan zk.
 	node := fmt.Sprintf("%s/consumers/%s/ids/%s", cgi.cg.kz.conf.Chroot, cgi.cg.Name, cgi.ID)
 	val, _, c, err := cgi.cg.kz.conn.GetW(node)
 	if err != nil {
+		if err == zk.ErrNoNode {
+			return nil, nil, ErrInstanceNotRegistered
+		}
 		return nil, nil, err
 	}
 
@@ -237,15 +243,12 @@ func (cgi *ConsumergroupInstance) WatchRegistration() (*Registration, <-chan zk.
 
 // RegisterSubscription registers the consumer instance in Zookeeper, with its subscription.
 func (cgi *ConsumergroupInstance) RegisterWithSubscription(subscriptionJSON []byte) error {
-	if exists, err := cgi.Registered(); err != nil {
-		return err
-	} else if exists {
+	node := fmt.Sprintf("%s/consumers/%s/ids/%s", cgi.cg.kz.conf.Chroot, cgi.cg.Name, cgi.ID)
+	err := cgi.cg.kz.create(node, subscriptionJSON, true)
+	if err == zk.ErrNodeExists {
 		return ErrInstanceAlreadyRegistered
 	}
-
-	// Create an ephemeral node for the the consumergroup instance.
-	node := fmt.Sprintf("%s/consumers/%s/ids/%s", cgi.cg.kz.conf.Chroot, cgi.cg.Name, cgi.ID)
-	return cgi.cg.kz.create(node, subscriptionJSON, true)
+	return err
 }
 
 // Register registers the consumergroup instance in Zookeeper.
@@ -269,10 +272,16 @@ func (cgi *ConsumergroupInstance) UpdateRegistration(topics []string) error {
 	node := fmt.Sprintf("%s/consumers/%s/ids/%s", cgi.cg.kz.conf.Chroot, cgi.cg.Name, cgi.ID)
 	_, stat, err := cgi.cg.kz.conn.Get(node)
 	if err != nil {
+		if err == zk.ErrNoNode {
+			return ErrInstanceNotRegistered
+		}
 		return err
 	}
 
 	_, err = cgi.cg.kz.conn.Set(node, subscriptionJSON, stat.Version)
+	if err == zk.ErrNoNode {
+		return ErrInstanceNotRegistered
+	}
 	return err
 }
 
@@ -304,7 +313,11 @@ func (cgi *ConsumergroupInstance) Deregister() error {
 		return ErrInstanceNotRegistered
 	}
 
-	return cgi.cg.kz.conn.Delete(node, stat.Version)
+	err = cgi.cg.kz.conn.Delete(node, stat.Version)
+	if err == zk.ErrNoNode {
+		return ErrInstanceNotRegistered
+	}
+	return err
 }
 
 // Claim claims a topic/partition ownership for a consumer ID within a group. If the

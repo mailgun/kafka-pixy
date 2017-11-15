@@ -11,7 +11,9 @@ Fixed:
 * [#120](https://github.com/mailgun/kafka-pixy/issues/120) Consumption from a
   topic stopped for a group.
 * [#123](https://github.com/mailgun/kafka-pixy/issues/123) Inexplicable offset
-  manager timeouts
+  manager timeouts.
+* [#124](https://github.com/mailgun/kafka-pixy/issues/124) Subscription to a 
+  topic fails indefinitely after ZooKeeper connection loss.
 
 #### Version 0.14.0 (2017-09-11)
 
