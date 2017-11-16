@@ -4,8 +4,8 @@
 [[projects]]
   name = "github.com/Shopify/sarama"
   packages = ["."]
-  revision = "c01858abb625b73a3af51d0798e4ad42c8147093"
-  version = "v1.12.0"
+  revision = "bbdbe644099b7fdc8327d5cc69c030945188b2e9"
+  version = "v1.13.0"
 
 [[projects]]
   name = "github.com/davecgh/go-spew"
@@ -149,6 +149,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "abf5dbd6c69d5d4f788fda30b1508ce2116a803f201c619c2076ada849f0ce12"
+  inputs-digest = "79b8415a9ded2052d0b722aa3c71d74acf2b3e1d142e62981091ca1f4aa52cd6"
   solver-name = "gps-cdcl"
   solver-version = 1
