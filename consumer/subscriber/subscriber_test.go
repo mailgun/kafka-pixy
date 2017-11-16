@@ -221,6 +221,40 @@ func (s *SubscriberSuite) TestRedundantUpdateBug(c *C) {
 	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
 }
 
+// If a subscriber registration in ZooKeeper disappears, that can happened
+// during a long failover, then it is restored.
+func (s *SubscriberSuite) TestMissingSubscriptionBug(c *C) {
+	cfg1 := newConfig("m1")
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
+	defer ss1.Stop()
+	cfg2 := newConfig("m2")
+	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.kazooClt)
+	defer ss2.Stop()
+
+	ss1.Topics() <- []string{"foo", "bar"}
+	ss2.Topics() <- []string{"foo", "bazz", "blah"}
+
+	membership := map[string][]string{
+		"m1": {"bar", "foo"},
+		"m2": {"bazz", "blah", "foo"}}
+	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
+
+	// Simulate subscription ephemeral node expiration by removing it manually.
+	gm := s.kazooClt.Consumergroup("g1").Instance("m1")
+	gm.Deregister()
+
+	// When
+	ss1.Topics() <- []string{"foo", "kaboom"}
+
+	// Then
+	membership = map[string][]string{
+		"m1": {"foo", "kaboom"},
+		"m2": {"bazz", "blah", "foo"}}
+	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
+}
+
 // When a group registrator claims a topic partitions it becomes its owner.
 func (s *SubscriberSuite) TestClaimPartition(c *C) {
 	cfg := newConfig("m1")

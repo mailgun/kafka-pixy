@@ -56,10 +56,10 @@
   version = "v1.4.0"
 
 [[projects]]
-  branch = "master"
+  branch = "maxim/develop"
   name = "github.com/mailgun/kazoo-go"
   packages = ["."]
-  revision = "e4be66b7d5cc6b9281e8d7d75bd6558539f068a3"
+  revision = "f4bef9a1200c39757507509560b885415b8ad558"
 
 [[projects]]
   name = "github.com/mailgun/logrus-hooks"
@@ -149,6 +149,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "6cd0d19a839b4e42528116dd8e048ea253383c74676e32fa40fa119d7aa6a386"
+  inputs-digest = "abf5dbd6c69d5d4f788fda30b1508ce2116a803f201c619c2076ada849f0ce12"
   solver-name = "gps-cdcl"
   solver-version = 1

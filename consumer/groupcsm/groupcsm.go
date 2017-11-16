@@ -17,6 +17,7 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer/subscriber"
 	"github.com/mailgun/kafka-pixy/consumer/topiccsm"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
+	"github.com/mailgun/kafka-pixy/prettyfmt"
 	"github.com/mailgun/kazoo-go"
 	"github.com/pkg/errors"
 )
@@ -205,7 +206,7 @@ func (gc *T) rebalance(actDesc *actor.Descriptor, topicConsumers map[string]*top
 		rebalanceResultCh <- err
 		return
 	}
-	actDesc.Log().Infof("assigned partitions: %v", assignedPartitions)
+	actDesc.Log().Infof("assigned partitions: %s", prettyfmt.Val(assignedPartitions))
 	var wg sync.WaitGroup
 	// Stop consuming partitions that are no longer assigned to this group
 	// and start consuming newly assigned partitions for topics that has been

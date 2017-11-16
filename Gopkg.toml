@@ -42,7 +42,7 @@
   version = "1.0.1"
 
 [[constraint]]
-  branch = "master"
+  branch = "maxim/develop"
   name = "github.com/mailgun/kazoo-go"
 
 [[constraint]]

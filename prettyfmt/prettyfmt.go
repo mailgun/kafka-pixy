@@ -1,7 +1,10 @@
 package prettyfmt
 
 import (
+	"bytes"
 	"fmt"
+	"reflect"
+	"sort"
 	"unicode"
 )
 
@@ -20,6 +23,111 @@ func Bytes(bytes int64) string {
 		return fmt.Sprintf("%dM", mega)
 	}
 	return fmt.Sprintf("%dG", giga)
+}
+
+func Val(some interface{}) string {
+	return fmtVal(reflect.ValueOf(some))
+}
+
+func fmtVal(someRV reflect.Value) string {
+	var buf bytes.Buffer
+	writeVal(&buf, someRV)
+	return buf.String()
+}
+
+func writeVal(buf *bytes.Buffer, someRV reflect.Value) {
+	// If the value has String method then use it.
+	stringMethodRV := someRV.MethodByName("String")
+	if stringMethodRV.IsValid() {
+		buf.WriteString(stringMethodRV.Call(nil)[0].String())
+		return
+	}
+	// If the value is not a pointer then check if it has a String method with
+	// a pointer receiver.
+	if someRV.Kind() != reflect.Ptr {
+		somePtrRV := reflect.New(someRV.Type())
+		somePtrRV.Elem().Set(someRV)
+		stringMethodRV = somePtrRV.MethodByName("String")
+		if stringMethodRV.IsValid() {
+			buf.WriteString(stringMethodRV.Call(nil)[0].String())
+			return
+		}
+	}
+
+	switch someRV.Kind() {
+	case reflect.String:
+		buf.WriteString(someRV.String())
+
+	case reflect.Map:
+		writeMap(buf, someRV)
+
+	case reflect.Slice:
+		writeSlice(buf, someRV)
+
+	case reflect.Int8:
+		fallthrough
+	case reflect.Int16:
+		fallthrough
+	case reflect.Int32:
+		fallthrough
+	case reflect.Int64:
+		fallthrough
+	case reflect.Int:
+		buf.WriteString(fmt.Sprintf("%d", someRV.Int()))
+
+	default:
+		buf.WriteString(fmt.Sprintf("%v", someRV.Interface()))
+	}
+}
+
+type valRepr struct {
+	rv  reflect.Value
+	str string
+}
+
+func writeMap(buf *bytes.Buffer, mapRV reflect.Value) {
+	mapKeyRVs := mapRV.MapKeys()
+	if len(mapKeyRVs) == 0 {
+		buf.WriteString("{}")
+	}
+
+	mapKeys := make([]valRepr, len(mapKeyRVs))
+	for i, mapKeyRV := range mapKeyRVs {
+		mapKeys[i] = valRepr{mapKeyRV, fmtVal(mapKeyRV)}
+	}
+	sort.Slice(mapKeys, func(i, j int) bool {
+		return mapKeys[i].str < mapKeys[j].str
+	})
+
+	buf.WriteString("{")
+	firstKey := true
+	for _, mapKey := range mapKeys {
+		if firstKey {
+			buf.WriteString("\n")
+			firstKey = false
+		}
+		buf.WriteString("    ")
+		buf.WriteString(mapKey.str)
+		buf.WriteString(": ")
+		writeVal(buf, mapRV.MapIndex(mapKey.rv))
+		buf.WriteString("\n")
+	}
+	buf.WriteString("}")
+}
+
+func writeSlice(buf *bytes.Buffer, sliceRV reflect.Value) {
+	buf.WriteString("[")
+	firstElem := true
+	for i := 0; i < sliceRV.Len(); i++ {
+		if firstElem {
+			firstElem = false
+		} else {
+			buf.WriteString(" ")
+		}
+		sliceElemRV := sliceRV.Index(i)
+		writeVal(buf, sliceElemRV)
+	}
+	buf.WriteString("]")
 }
 
 const (

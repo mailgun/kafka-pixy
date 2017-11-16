@@ -2,10 +2,22 @@ package kazoo
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math/rand"
 	"strconv"
 
 	"github.com/samuel/go-zookeeper/zk"
+)
+
+var (
+	ErrInvalidPartitionCount    = errors.New("Number of partitions must be larger than 0")
+	ErrInvalidReplicationFactor = errors.New("Replication factor must be between 1 and the number of brokers")
+	ErrInvalidReplicaCount      = errors.New("All partitions must have the same number of replicas")
+	ErrReplicaBrokerOverlap     = errors.New("All replicas for a partition must be on separate brokers")
+	ErrInvalidBroker            = errors.New("Replica assigned to invalid broker")
+	ErrMissingPartitionID       = errors.New("Partition ids must be sequential starting from 0")
+	ErrDuplicatePartitionID     = errors.New("Each partition must have a unique ID")
 )
 
 // Topic interacts with Kafka's topic metadata in Zookeeper.
@@ -65,13 +77,12 @@ func (kz *Kazoo) Topic(topic string) *Topic {
 
 // Exists returns true if the topic exists on the Kafka cluster.
 func (t *Topic) Exists() (bool, error) {
-	return t.kz.exists(fmt.Sprintf("%s/brokers/topics/%s", t.kz.conf.Chroot, t.Name))
+	return t.kz.exists(t.metadataPath())
 }
 
 // Partitions returns a list of all partitions for the topic.
 func (t *Topic) Partitions() (PartitionList, error) {
-	node := fmt.Sprintf("%s/brokers/topics/%s", t.kz.conf.Chroot, t.Name)
-	value, _, err := t.kz.conn.Get(node)
+	value, _, err := t.kz.conn.Get(t.metadataPath())
 	if err != nil {
 		return nil, err
 	}
@@ -81,8 +92,7 @@ func (t *Topic) Partitions() (PartitionList, error) {
 
 // WatchPartitions returns a list of all partitions for the topic, and watches the topic for changes.
 func (t *Topic) WatchPartitions() (PartitionList, <-chan zk.Event, error) {
-	node := fmt.Sprintf("%s/brokers/topics/%s", t.kz.conf.Chroot, t.Name)
-	value, _, c, err := t.kz.conn.GetW(node)
+	value, _, c, err := t.kz.conn.GetW(t.metadataPath())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -91,13 +101,28 @@ func (t *Topic) WatchPartitions() (PartitionList, <-chan zk.Event, error) {
 	return list, c, err
 }
 
-// parsePartitions pases the JSON representation of the partitions
-// that is stored as data on the topic node in Zookeeper.
-func (t *Topic) parsePartitions(value []byte) (PartitionList, error) {
-	type topicMetadata struct {
-		Partitions map[string][]int32 `json:"partitions"`
+// Watch watches the topic for changes.
+func (t *Topic) Watch() (<-chan zk.Event, error) {
+	_, _, c, err := t.kz.conn.GetW(t.metadataPath())
+	if err != nil {
+		return nil, err
 	}
 
+	return c, err
+}
+
+type topicMetadata struct {
+	Version    int                `json:"version"`
+	Partitions map[string][]int32 `json:"partitions"`
+}
+
+func (t *Topic) metadataPath() string {
+	return fmt.Sprintf("%s/brokers/topics/%s", t.kz.conf.Chroot, t.Name)
+}
+
+// parsePartitions parses the JSON representation of the partitions
+// that is stored as data on the topic node in Zookeeper.
+func (t *Topic) parsePartitions(value []byte) (PartitionList, error) {
 	var tm topicMetadata
 	if err := json.Unmarshal(value, &tm); err != nil {
 		return nil, err
@@ -120,27 +145,160 @@ func (t *Topic) parsePartitions(value []byte) (PartitionList, error) {
 	return result, nil
 }
 
+// marshalPartitions turns a PartitionList into the JSON representation
+// to be stored in Zookeeper.
+func (t *Topic) marshalPartitions(partitions PartitionList) ([]byte, error) {
+	tm := topicMetadata{Version: 1, Partitions: make(map[string][]int32, len(partitions))}
+	for _, part := range partitions {
+		tm.Partitions[fmt.Sprintf("%d", part.ID)] = part.Replicas
+	}
+	return json.Marshal(tm)
+}
+
+// generatePartitionAssignments creates a partition list for a topic. The primary replica for
+// each partition is assigned in a round-robin fashion starting at a random broker.
+// Additional replicas are assigned to subsequent brokers to ensure there is no overlap
+func (t *Topic) generatePartitionAssignments(brokers []int32, partitionCount int, replicationFactor int) (PartitionList, error) {
+	if partitionCount <= 0 {
+		return nil, ErrInvalidPartitionCount
+	}
+	if replicationFactor <= 0 || len(brokers) < replicationFactor {
+		return nil, ErrInvalidReplicationFactor
+	}
+
+	result := make(PartitionList, partitionCount)
+
+	brokerCount := len(brokers)
+	brokerIdx := rand.Intn(brokerCount)
+
+	for p := 0; p < partitionCount; p++ {
+		partition := &Partition{topic: t, ID: int32(p), Replicas: make([]int32, replicationFactor)}
+
+		brokerIndices := rand.Perm(len(brokers))[0:replicationFactor]
+
+		for r := 0; r < replicationFactor; r++ {
+			partition.Replicas[r] = brokers[brokerIndices[r]]
+		}
+
+		result[p] = partition
+		brokerIdx = (brokerIdx + 1) % brokerCount
+	}
+
+	return result, nil
+}
+
+// validatePartitionAssignments ensures that all partitions are assigned to valid brokers,
+// have the same number of replicas, and each replica is assigned to a unique broker
+func (t *Topic) validatePartitionAssignments(brokers []int32, assignment PartitionList) error {
+	if len(assignment) == 0 {
+		return ErrInvalidPartitionCount
+	}
+
+	// get the first replica count to compare against. Every partition should have the same.
+	var replicaCount int
+	for _, part := range assignment {
+		replicaCount = len(part.Replicas)
+		break
+	}
+	if replicaCount == 0 {
+		return ErrInvalidReplicationFactor
+	}
+
+	// ensure all ids are unique and sequential
+	maxPartitionID := int32(-1)
+	partitionIDmap := make(map[int32]struct{}, len(assignment))
+
+	for _, part := range assignment {
+		if part == nil {
+			continue
+		}
+		if maxPartitionID < part.ID {
+			maxPartitionID = part.ID
+		}
+		partitionIDmap[part.ID] = struct{}{}
+
+		// all partitions require the same replica count
+		if len(part.Replicas) != replicaCount {
+			return ErrInvalidReplicaCount
+		}
+
+		rset := make(map[int32]struct{}, replicaCount)
+		for _, r := range part.Replicas {
+			// replica must be assigned to a valid broker
+			found := false
+			for _, b := range brokers {
+				if r == b {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return ErrInvalidBroker
+			}
+			rset[r] = struct{}{}
+		}
+		// broker assignments for a partition must be unique
+		if len(rset) != replicaCount {
+			return ErrReplicaBrokerOverlap
+		}
+	}
+
+	// ensure all partitions accounted for
+	if int(maxPartitionID) != len(assignment)-1 {
+		return ErrMissingPartitionID
+	}
+
+	// ensure no duplicate ids
+	if len(partitionIDmap) != len(assignment) {
+		return ErrDuplicatePartitionID
+	}
+
+	return nil
+}
+
 // Partition returns a Partition instance for the topic.
 func (t *Topic) Partition(id int32, replicas []int32) *Partition {
 	return &Partition{ID: id, Replicas: replicas, topic: t}
 }
 
+type topicConfig struct {
+	Version   int               `json:"version"`
+	ConfigMap map[string]string `json:"config"`
+}
+
+// getConfigPath returns the zk node path for a topic's config
+func (t *Topic) configPath() string {
+	return fmt.Sprintf("%s/config/topics/%s", t.kz.conf.Chroot, t.Name)
+}
+
+// parseConfig parses the json representation of a topic config
+// and returns the configuration values
+func (t *Topic) parseConfig(data []byte) (map[string]string, error) {
+	var cfg topicConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+	return cfg.ConfigMap, nil
+}
+
+// marshalConfig turns a config map into the json representation
+// needed for Zookeeper
+func (t *Topic) marshalConfig(data map[string]string) ([]byte, error) {
+	cfg := topicConfig{Version: 1, ConfigMap: data}
+	if cfg.ConfigMap == nil {
+		cfg.ConfigMap = make(map[string]string)
+	}
+	return json.Marshal(&cfg)
+}
+
 // Config returns topic-level configuration settings as a map.
 func (t *Topic) Config() (map[string]string, error) {
-	value, _, err := t.kz.conn.Get(fmt.Sprintf("%s/config/topics/%s", t.kz.conf.Chroot, t.Name))
+	value, _, err := t.kz.conn.Get(t.configPath())
 	if err != nil {
 		return nil, err
 	}
 
-	var topicConfig struct {
-		ConfigMap map[string]string `json:"config"`
-	}
-
-	if err := json.Unmarshal(value, &topicConfig); err != nil {
-		return nil, err
-	}
-
-	return topicConfig.ConfigMap, nil
+	return t.parseConfig(value)
 }
 
 // Topic returns the Topic of this partition.
