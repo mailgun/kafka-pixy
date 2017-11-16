@@ -70,9 +70,9 @@ func Init(jsonCfg string, cfg *config.App) error {
 
 	saramaLogger := log.New()
 	saramaLogger.Formatter = &saramaFormatter{formatter}
-	sarama.Logger = saramaLogger
+	sarama.Logger = saramaLogger.WithField("category", "sarama")
 
-	zk.DefaultLogger = log.StandardLogger()
+	zk.DefaultLogger = log.StandardLogger().WithField("category", "zk")
 
 	if !stdoutEnabled || nonStdoutEnabled {
 		log.SetOutput(ioutil.Discard)
