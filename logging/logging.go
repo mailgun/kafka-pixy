@@ -26,6 +26,7 @@ func Init(jsonCfg string, cfg *config.App) error {
 	formatter := &textFormatter{}
 	log.SetFormatter(formatter)
 
+	var hooks []log.Hook
 	stdoutEnabled := false
 	nonStdoutEnabled := false
 	for _, loggerCfg := range loggingCfg {
@@ -37,7 +38,7 @@ func Init(jsonCfg string, cfg *config.App) error {
 			if err != nil {
 				continue
 			}
-			log.AddHook(levelfilter.New(h, loggerCfg.level()))
+			hooks = append(hooks, levelfilter.New(h, loggerCfg.level()))
 			nonStdoutEnabled = true
 		case "udplog":
 			if cfg == nil {
@@ -63,20 +64,26 @@ func Init(jsonCfg string, cfg *config.App) error {
 			if err != nil {
 				continue
 			}
-			log.AddHook(levelfilter.New(h, loggerCfg.level()))
+			hooks = append(hooks, levelfilter.New(h, loggerCfg.level()))
 			nonStdoutEnabled = true
 		}
 	}
 
+	// samuel/go-zookeeper/zk is using the standard logger.
+	zk.DefaultLogger = log.WithField("category", "zk")
+
+	// Shopify/sarama needs different formatter so it has a dedicated logger.
 	saramaLogger := log.New()
 	saramaLogger.Formatter = &saramaFormatter{formatter}
-	sarama.Logger = saramaLogger
+	sarama.Logger = saramaLogger.WithField("category", "sarama")
 
-	zk.DefaultLogger = log.StandardLogger()
-
-	if !stdoutEnabled || nonStdoutEnabled {
-		log.SetOutput(ioutil.Discard)
-		saramaLogger.Out = ioutil.Discard
+	for _, logger := range []*log.Logger{log.StandardLogger(), saramaLogger} {
+		if !stdoutEnabled || nonStdoutEnabled {
+			logger.Out = ioutil.Discard
+		}
+		for _, hook := range hooks {
+			logger.Hooks.Add(hook)
+		}
 	}
 	return nil
 }

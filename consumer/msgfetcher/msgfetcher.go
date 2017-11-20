@@ -466,6 +466,10 @@ func (be *brokerExecutor) runExecutor() {
 		if be.cfg.Kafka.Version.IsAtLeast(sarama.V0_10_0_0) {
 			req.Version = 2
 		}
+		if be.cfg.Kafka.Version.IsAtLeast(sarama.V0_10_1_0) {
+			req.Version = 3
+			req.MaxBytes = sarama.MaxResponseSize
+		}
 
 		for _, fr := range requestBatch {
 			req.AddBlock(fr.Topic, fr.Partition, fr.Offset, int32(be.cfg.Consumer.FetchMaxBytes))
