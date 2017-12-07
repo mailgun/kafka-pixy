@@ -4,7 +4,7 @@ set -ex
 
 mkdir -p ${INSTALL_ROOT}
 if [ ! -f ${INSTALL_ROOT}/kafka-${KAFKA_VERSION}.tgz ]; then
-    wget --quiet http://apache.mirror.gtcomm.net/kafka/${KAFKA_VERSION}/kafka_2.10-${KAFKA_VERSION}.tgz -O ${INSTALL_ROOT}/kafka-${KAFKA_VERSION}.tgz
+    wget --quiet https://archive.apache.org/dist/kafka/${KAFKA_VERSION}/kafka_2.11-${KAFKA_VERSION}.tgz -O ${INSTALL_ROOT}/kafka-${KAFKA_VERSION}.tgz
 fi
 
 if [ -n "${TOXIPROXY_VERSION}" ]; then
