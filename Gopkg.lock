@@ -64,8 +64,8 @@
 [[projects]]
   name = "github.com/mailgun/logrus-hooks"
   packages = ["common","kafkahook","levelfilter"]
-  revision = "5ee121b6e962bf95caf2804f475bfcb9305ba6f6"
-  version = "v1.1.0"
+  revision = "e1f5c6d5171b12fef02451779c85dd2ec322607b"
+  version = "v1.1.1"
 
 [[projects]]
   name = "github.com/mailru/easyjson"
@@ -149,6 +149,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "79b8415a9ded2052d0b722aa3c71d74acf2b3e1d142e62981091ca1f4aa52cd6"
+  inputs-digest = "3787b682c6a34fa4adfd91f53416e849c2478ee4ee641876d00f66d065407614"
   solver-name = "gps-cdcl"
   solver-version = 1
