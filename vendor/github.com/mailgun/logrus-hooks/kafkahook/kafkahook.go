@@ -41,7 +41,6 @@ func New(conf Config) (*KafkaHook, error) {
 	kafkaConfig.Producer.Flush.Frequency = 200 * time.Millisecond
 	kafkaConfig.Producer.Retry.Backoff = 10 * time.Second
 	kafkaConfig.Producer.Retry.Max = 6
-	kafkaConfig.Producer.Return.Errors = true
 
 	// If the user failed to provide a producer create one
 	if conf.Producer == nil {
@@ -111,8 +110,10 @@ func (h *KafkaHook) sendKafka(buf []byte) error {
 		Topic: h.topic,
 		Key:   nil,
 	}:
-	case err := <-h.producer.Errors():
-		return err
+	default:
+		// If the producer input channel buffer is full, then we better drop
+		// a log record than block program execution.
+		fmt.Fprintf(os.Stderr, "kafkahook buffer overflow: %s\n", string(buf))
 	}
 	return nil
 }
