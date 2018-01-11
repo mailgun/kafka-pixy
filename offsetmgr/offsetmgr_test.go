@@ -284,7 +284,7 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 
 	// STAGE 1: Requests for coordinator time out.
 	log.Infof("    STAGE 1")
-	err = <- om.(*offsetMgr).testErrorsCh
+	err = <-om.(*offsetMgr).testErrorsCh
 	c.Assert(errors.Cause(err), Equals, sarama.ErrNotLeaderForPartition)
 
 	// STAGE 2: Val commit requests fail
@@ -476,11 +476,11 @@ func (s *OffsetMgrSuite) TestCommittedChannel(c *C) {
 	om.Stop()
 
 	// Then
-	var committedOffsets []Offset
+	var lastCommittedOffset Offset
 	for committedOffset := range om.CommittedOffsets() {
-		committedOffsets = append(committedOffsets, committedOffset)
+		lastCommittedOffset = committedOffset
 	}
-	c.Assert(committedOffsets, DeepEquals, []Offset{{1005, "bar5"}})
+	c.Assert(lastCommittedOffset, Equals, Offset{1005, "bar5"})
 }
 
 // Test for issue https://github.com/mailgun/kafka-pixy/issues/29. The problem

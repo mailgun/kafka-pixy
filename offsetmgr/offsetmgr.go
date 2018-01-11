@@ -9,6 +9,7 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/mapper"
+	"github.com/mailgun/kafka-pixy/none"
 	"github.com/pkg/errors"
 )
 
@@ -166,6 +167,7 @@ func (f *factory) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
 		conn:             brokerConn,
 		requestsCh:       make(chan submitRq),
 		requestBatchesCh: make(chan map[string]map[instanceID]submitRq),
+		execStopCh:       make(chan none.T),
 	}
 	actor.Spawn(be.aggrActDesc, &be.wg, be.runAggregator)
 	actor.Spawn(be.execActDesc, &be.wg, be.runExecutor)
@@ -435,6 +437,7 @@ type brokerExecutor struct {
 	conn             *sarama.Broker
 	requestsCh       chan submitRq
 	requestBatchesCh chan map[string]map[instanceID]submitRq
+	execStopCh       chan none.T
 	wg               sync.WaitGroup
 }
 
@@ -450,7 +453,7 @@ func (be *brokerExecutor) Stop() {
 }
 
 func (be *brokerExecutor) runAggregator() {
-	defer close(be.requestBatchesCh)
+	defer close(be.execStopCh)
 
 	requestBatch := make(map[string]map[instanceID]submitRq)
 	var nilOrOffsetBatchesCh chan map[string]map[instanceID]submitRq
@@ -475,7 +478,7 @@ func (be *brokerExecutor) runAggregator() {
 }
 
 func (be *brokerExecutor) runExecutor() {
-	var nilOrRequestBatchesCh chan map[string]map[instanceID]submitRq
+	nilOrRequestBatchesCh := be.requestBatchesCh
 	var lastErr error
 	var lastErrTime time.Time
 	commitTicker := time.NewTicker(be.cfg.Consumer.OffsetsCommitInterval)
@@ -483,18 +486,7 @@ func (be *brokerExecutor) runExecutor() {
 offsetCommitLoop:
 	for {
 		select {
-		case <-commitTicker.C:
-			nilOrRequestBatchesCh = be.requestBatchesCh
-		case requestBatch, ok := <-nilOrRequestBatchesCh:
-			if !ok {
-				return
-			}
-			// Ignore submit requests for awhile after a connection failure to
-			// allow the Kafka cluster some time to recuperate. Ignored requests
-			// will be retried by originating partition offset managers.
-			if time.Now().UTC().Sub(lastErrTime) < be.cfg.Consumer.RetryBackoff {
-				continue offsetCommitLoop
-			}
+		case requestBatch := <-nilOrRequestBatchesCh:
 			nilOrRequestBatchesCh = nil
 			for group, groupRequests := range requestBatch {
 				kafkaRq := &sarama.OffsetCommitRequest{
@@ -509,8 +501,8 @@ offsetCommitLoop:
 				kafkaRs, lastErr = be.conn.CommitOffset(kafkaRq)
 				if lastErr != nil {
 					lastErrTime = time.Now().UTC()
+					be.execActDesc.Log().WithError(lastErr).Error("Connection error")
 					be.conn.Close()
-					be.execActDesc.Log().WithError(lastErr).Info("Connection reset")
 					continue offsetCommitLoop
 				}
 				// Fan the response out to the partition offset managers.
@@ -518,6 +510,18 @@ offsetCommitLoop:
 					rq.resultCh <- submitRs{rq, kafkaRs}
 				}
 			}
+		case <-commitTicker.C:
+			// Skip several circles after a connection failure to allow a Kafka
+			// cluster some time to recuperate. Some requests will timeout
+			// waiting in the channel, but that is ok, for they will be retried.
+			if time.Now().UTC().Sub(lastErrTime) < be.cfg.Consumer.RetryBackoff {
+				be.execActDesc.Log().Warn("Backing off after connection error")
+				continue offsetCommitLoop
+			}
+			nilOrRequestBatchesCh = be.requestBatchesCh
+
+		case <-be.execStopCh:
+			return
 		}
 	}
 }

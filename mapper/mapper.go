@@ -144,6 +144,7 @@ func (m *T) run() {
 		nilOrDeferredCh     <-chan clock.Time
 		nilOrReassignDoneCh <-chan none.T
 		stop                = false
+		nilOrStopCh         = m.stopCh
 	)
 	for {
 		select {
@@ -177,8 +178,8 @@ func (m *T) run() {
 			nilOrReassignDoneCh = nil
 
 		case <-nilOrDeferredCh:
-			now := clock.Now().UTC()
 			nilOrDeferredCh = nil
+			now := clock.Now().UTC()
 			nextRetryAt := now.Add(m.cfg.Consumer.RetryBackoff)
 			for w, deadline := range deferredChanges {
 				if deadline.After(now) {
@@ -194,7 +195,8 @@ func (m *T) run() {
 			if len(deferredChanges) >= 0 {
 				nilOrDeferredCh = clock.After(nextRetryAt.Sub(now))
 			}
-		case <-m.stopCh:
+		case <-nilOrStopCh:
+			nilOrStopCh = nil
 			stop = true
 		}
 		// Allows control over what change should trigger reassignment in tests.
@@ -255,7 +257,7 @@ func (m *T) reassign(actDesc *actor.Descriptor, changes map[Worker]eventType, do
 		if referenceCount != 0 {
 			continue
 		}
-		actDesc.Log().Infof("Executor stopped: %s", executor)
+		actDesc.Log().Infof("Stopping executor: %s", executor)
 		executor.Stop()
 		delete(m.references, executor)
 		if m.connections[executor.BrokerConn()] == executor {

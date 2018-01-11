@@ -107,7 +107,7 @@ func (tc *T) run() {
 		}
 		// Keep polling isSafe2StopFn until it returns true or the ack timeout
 		// expires and then terminate. If new request arrives while waiting,
-		// then then jump back to the request serving loop.
+		// then jump back to the request serving loop.
 	wait4SafeStop:
 		for {
 			if tc.isSafe2StopFn() {
