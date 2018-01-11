@@ -194,9 +194,9 @@ func (s *SubscriberSuite) TestMembershipChanges(c *C) {
 
 // Redundant updates used to be ignored, but that turned out to be wrong. Due
 // to the ZooKeeper single-fire watch semantic it is possible to miss
-// intermediate changes and only see the final subscription state, which make
-// look the same as the last a subscriber had seen and be ignored. But topic
-// consumers could have been changed and in need of rewiring.
+// intermediate changes and only see the final subscription state, which could
+// looked the same as the last a subscriber had seen and would be ignored. But
+// topic consumers could have been changed and in need of rewiring.
 func (s *SubscriberSuite) TestRedundantUpdateBug(c *C) {
 	cfg1 := newConfig("m1")
 	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
@@ -240,16 +240,59 @@ func (s *SubscriberSuite) TestMissingSubscriptionBug(c *C) {
 	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
 	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
 
-	// Simulate subscription ephemeral node expiration by removing it manually.
+	// When: brute-force remove g1/m1 subscription to simulate session
+	// expiration due to ZooKeeper connection loss.
 	gm := s.kazooClt.Consumergroup("g1").Instance("m1")
 	gm.Deregister()
 
-	// When
-	ss1.Topics() <- []string{"foo", "kaboom"}
+	// Then
+	// Both nodes see the group state without m1:
+	membership = map[string][]string{
+		"m2": {"bazz", "blah", "foo"}}
+	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
+	// But then m1 restores its subscriptions:
+	membership = map[string][]string{
+		"m1": {"bar", "foo"},
+		"m2": {"bazz", "blah", "foo"}}
+	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
+}
+
+// If a subscriber registration in ZooKeeper is different from the list of
+// subscribed topics, then correct registration is restored.
+func (s *SubscriberSuite) TestMissingOutdatedSubscription(c *C) {
+	cfg1 := newConfig("m1")
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
+	defer ss1.Stop()
+	cfg2 := newConfig("m2")
+	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.kazooClt)
+	defer ss2.Stop()
+
+	ss1.Topics() <- []string{"foo", "bar"}
+	ss2.Topics() <- []string{"foo", "bazz", "blah"}
+
+	membership := map[string][]string{
+		"m1": {"bar", "foo"},
+		"m2": {"bazz", "blah", "foo"}}
+	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
+
+	// When: Modify the m1 subscriptions to simulate stale data session
+	// expiration due to ZooKeeper connection loss.
+	gm := s.kazooClt.Consumergroup("g1").Instance("m1")
+	gm.UpdateRegistration([]string{"foo", "bazz"})
 
 	// Then
+	// Both nodes see the group state with the incorrect m1 subscription first:
 	membership = map[string][]string{
-		"m1": {"foo", "kaboom"},
+		"m1": {"bazz", "foo"},
+		"m2": {"bazz", "blah", "foo"}}
+	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
+	// But then m1 restores its subscriptions:
+	membership = map[string][]string{
+		"m1": {"bar", "foo"},
 		"m2": {"bazz", "blah", "foo"}}
 	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
 	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)

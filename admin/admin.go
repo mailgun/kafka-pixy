@@ -360,15 +360,16 @@ func (a *T) ListTopics(withPartitions, withConfig bool) ([]TopicMetadata, error)
 		return nil, errors.Wrap(err, "failed to get topics")
 	}
 
-	topicsMetadata := make([]TopicMetadata, len(topics))
+	topicMetadatas := make([]TopicMetadata, len(topics))
 	for i, topic := range topics {
 		tm, err := a.GetTopicMetadata(topic, withPartitions, withConfig)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get %s topic metadata", topic)
 		}
-		topicsMetadata[i] = tm
+		topicMetadatas[i] = tm
 	}
-	return topicsMetadata, nil
+	sort.Slice(topicMetadatas, func(i, j int) bool { return topicMetadatas[i].Topic < topicMetadatas[j].Topic })
+	return topicMetadatas, nil
 }
 
 // GetTopicMetadata returns a topic metadata. An optional partition metadata

@@ -2,6 +2,7 @@ package subscriber
 
 import (
 	"context"
+	"reflect"
 	"sort"
 	"sync"
 	"time"
@@ -228,6 +229,15 @@ func (ss *T) run() {
 			shouldFetchSubscriptions = false
 			ss.actDesc.Log().Infof("Fetched subscriptions: %s", prettyfmt.Val(subscriptions))
 			nilOrSubscriptionsCh = ss.subscriptionsCh
+
+			// If fetched topics are not the same as the current subscription
+			// then initiate topic submission.
+			fetchedTopics := subscriptions[ss.cfg.ClientID]
+			if reflect.DeepEqual(topics, fetchedTopics) {
+				continue
+			}
+			ss.actDesc.Log().Errorf("Outdated subscription: want=%v, got=%v", topics, fetchedTopics)
+			shouldSubmitTopics = true
 		}
 	}
 }

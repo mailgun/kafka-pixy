@@ -13,6 +13,7 @@ import (
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/producer"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -218,7 +219,11 @@ func (p *T) Consume(group, topic string, ack Ack) (consumer.Message, error) {
 				select {
 				case eventsCh <- consumer.Ack(ack.offset):
 				case <-time.After(p.cfg.Consumer.LongPollingTimeout):
-					p.actDesc.Log().Errorf("ack timeout: partition=%d, offset=%d", ack.partition, ack.offset)
+					p.actDesc.Log().WithFields(log.Fields{
+						"kafka.group":     group,
+						"kafka.topic":     topic,
+						"kafka.partition": ack.partition,
+					}).Errorf("ack timeout: offset=%d", ack.offset)
 				}
 			}()
 		}
