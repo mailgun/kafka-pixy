@@ -1,0 +1,15 @@
+language: go
+
+go:
+  - 1.8
+
+# Setting sudo access to false will let Travis CI use containers rather than
+# VMs to run the tests. For more details see:
+sudo: false
+
+# The default script is go test -v ./... which will test everything
+# in the vendor directory. We don't need to test all dependent packages.
+# Only testing this project.
+script:
+    - GO15VENDOREXPERIMENT=1 make travis-ci
+
