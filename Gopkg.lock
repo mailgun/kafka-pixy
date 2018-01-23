@@ -30,6 +30,18 @@
   revision = "d1df561eb6b9ffdac8dd98f943e9e9096c76c059"
 
 [[projects]]
+  name = "github.com/fatih/structs"
+  packages = ["."]
+  revision = "a720dfa8df582c51dee1b36feabb906bde1588bd"
+  version = "v1.0"
+
+[[projects]]
+  name = "github.com/go-ini/ini"
+  packages = ["."]
+  revision = "32e4c1e6bc4e7d0d8451aa6b75200d19e37a536a"
+  version = "v1.32.0"
+
+[[projects]]
   name = "github.com/golang/protobuf"
   packages = ["proto","ptypes","ptypes/any","ptypes/duration","ptypes/timestamp"]
   revision = "8ee79997227bf9b34611aee7946ae64735e6fd93"
@@ -89,6 +101,12 @@
   version = "v0.8.0"
 
 [[projects]]
+  name = "github.com/pmezard/go-difflib"
+  packages = ["difflib"]
+  revision = "792786c7400a136282c1664665ae0a8db921c6c2"
+  version = "v1.0.0"
+
+[[projects]]
   branch = "master"
   name = "github.com/rcrowley/go-metrics"
   packages = ["."]
@@ -105,6 +123,18 @@
   packages = [".","hooks/syslog"]
   revision = "7f976d3a76720c4c27af2ba716b85d2e0a7e38b1"
   version = "v1.0.1"
+
+[[projects]]
+  name = "github.com/spf13/cast"
+  packages = ["."]
+  revision = "acbeb36b902d72a7a4c18e8f3241075e7ab763e4"
+  version = "v1.1.0"
+
+[[projects]]
+  name = "github.com/thrawn01/args"
+  packages = ["."]
+  revision = "1cbcd84b8f3ef6e4e30b24aaf614aeb6776f227b"
+  version = "v0.2.0"
 
 [[projects]]
   branch = "master"
@@ -142,6 +172,12 @@
   revision = "20d25e2804050c1cd24a7eea1e7a6447dd0e74ec"
 
 [[projects]]
+  name = "gopkg.in/fsnotify.v1"
+  packages = ["."]
+  revision = "c2828203cd70a50dcccfb2761f8b1f8ceef9a8e9"
+  version = "v1.4.7"
+
+[[projects]]
   name = "gopkg.in/yaml.v2"
   packages = ["."]
   revision = "31c299268d302dd0aa9a0dcf765a3d58971ac83f"
@@ -149,6 +185,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "3787b682c6a34fa4adfd91f53416e849c2478ee4ee641876d00f66d065407614"
+  inputs-digest = "98d73c7f747088453b3a230c29c1caf7fdc1d15f3e6ed2e981f35916d339b87a"
   solver-name = "gps-cdcl"
   solver-version = 1

@@ -1,7 +1,4 @@
-# convenience command to update and re-vendor all dependencies
-godep:
-	godep update ...
-	godep save -r ./...
+VERSION=$(shell git describe --tags --abbrev=0)
 
 test:
 	go test -v -p 1 -race -timeout 5m ./... -check.v
@@ -12,6 +9,8 @@ rebuild:
 
 all:
 	go install github.com/mailgun/kafka-pixy
+	go build -v -ldflags "-X main.Version=$(VERSION)" -o $(GOPATH)/bin/kafka-pixy-cli \
+		github.com/mailgun/kafka-pixy/cmd/kafka-pixy-cli
 	go install github.com/mailgun/kafka-pixy/tools/testproducer
 	go install github.com/mailgun/kafka-pixy/tools/testconsumer
 
