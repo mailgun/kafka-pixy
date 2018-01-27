@@ -8,12 +8,14 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
+	"github.com/mailgun/kafka-pixy/admin"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/consumer/offsettrk"
-	pb "github.com/mailgun/kafka-pixy/gen/golang"
+	"github.com/mailgun/kafka-pixy/gen/golang"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/proxy"
 	"github.com/pkg/errors"
+	"github.com/samuel/go-zookeeper/zk"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -200,6 +202,149 @@ func (s *T) GetOffsets(ctx context.Context, req *pb.GetOffsetsRq) (*pb.GetOffset
 		result.Offsets = append(result.Offsets, &row)
 	}
 	return &result, nil
+}
+
+func (s *T) SetOffsets(ctx context.Context, req *pb.SetOffsetsRq) (*pb.SetOffsetsRs, error) {
+	pxy, err := s.proxySet.Get(req.Cluster)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, err.Error())
+	}
+
+	partitionOffsets := make([]admin.PartitionOffset, len(req.Offsets))
+	for i, pov := range req.Offsets {
+		partitionOffsets[i].Partition = pov.Partition
+		partitionOffsets[i].Offset = pov.Offset
+		partitionOffsets[i].Metadata = pov.Metadata
+	}
+
+	err = pxy.SetGroupOffsets(req.Group, req.Topic, partitionOffsets)
+	if err != nil {
+		if err = errors.Cause(err); err == sarama.ErrUnknownTopicOrPartition {
+			return nil, status.Errorf(codes.NotFound, err.Error())
+		}
+		return nil, status.Errorf(codes.Code(http.StatusInternalServerError), err.Error())
+	}
+
+	return &pb.SetOffsetsRs{}, nil
+}
+
+func (s *T) ListTopics(ctx context.Context, req *pb.ListTopicRq) (*pb.ListTopicRs, error) {
+	pxy, err := s.proxySet.Get(req.Cluster)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, err.Error())
+	}
+
+	tms, err := pxy.ListTopics(req.GetWithPartitions(), true)
+	if err != nil {
+		if errors.Cause(err) == zk.ErrNoNode {
+			return nil, status.Errorf(codes.NotFound, err.Error())
+		}
+		return nil, status.Errorf(codes.Code(http.StatusInternalServerError), err.Error())
+	}
+
+	var res pb.ListTopicRs
+
+	res.Topics = make(map[string]*pb.GetTopicMetadataRs)
+	for _, tm := range tms {
+		var t pb.GetTopicMetadataRs
+		t.Version = tm.Config.Version
+		t.Config = tm.Config.Config
+
+		if req.WithPartitions {
+			for _, p := range tm.Partitions {
+				entry := pb.PartitionMetadata{
+					Partition: p.ID,
+					Leader:    p.Leader,
+					Replicas:  p.Replicas,
+					Isr:       p.ISR,
+				}
+				t.Partitions = append(t.Partitions, &entry)
+			}
+		}
+		res.Topics[tm.Topic] = &t
+	}
+	return &res, nil
+}
+
+func (s *T) ListConsumers(ctx context.Context, req *pb.ListConsumersRq) (*pb.ListConsumersRs, error) {
+	pxy, err := s.proxySet.Get(req.Cluster)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, err.Error())
+	}
+
+	var groups map[string]map[string][]int32
+	if req.Group == "" {
+		groups, err = pxy.GetAllTopicConsumers(req.Topic)
+		if err != nil {
+			if errors.Cause(err) == zk.ErrNoNode {
+				return nil, status.Errorf(codes.NotFound, err.Error())
+			}
+			return nil, status.Errorf(codes.Code(http.StatusInternalServerError), err.Error())
+		}
+	} else {
+		groupConsumers, err := pxy.GetTopicConsumers(req.Group, req.Topic)
+		if err != nil {
+			if errors.Cause(err) == zk.ErrNoNode {
+				return nil, status.Errorf(codes.NotFound, err.Error())
+			}
+			if _, ok := err.(admin.ErrInvalidParam); ok {
+				return nil, status.Errorf(codes.NotFound, err.Error())
+			}
+		}
+		groups = make(map[string]map[string][]int32)
+		if len(groupConsumers) != 0 {
+			groups[req.Group] = groupConsumers
+		}
+	}
+
+	var res pb.ListConsumersRs
+	res.Groups = make(map[string]*pb.ConsumerGroups, len(groups))
+
+	for group, consumers := range groups {
+		consGroup := new(pb.ConsumerGroups)
+		consGroup.Consumers = make(map[string]*pb.ConsumerPartitions, len(consumers))
+		for consumer, partitions := range consumers {
+			consGroup.Consumers[consumer] = &pb.ConsumerPartitions{Partitions: partitions}
+		}
+		res.Groups[group] = consGroup
+	}
+	return &res, nil
+}
+
+func (s *T) GetTopicMetadata(ctx context.Context, req *pb.GetTopicMetadataRq) (*pb.GetTopicMetadataRs, error) {
+	pxy, err := s.proxySet.Get(req.Cluster)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, err.Error())
+	}
+
+	tm, err := pxy.GetTopicMetadata(req.Topic, req.WithPartitions, true)
+	if err != nil {
+		if errors.Cause(err) == zk.ErrNoNode {
+			return nil, status.Errorf(codes.NotFound, err.Error())
+		}
+		if errors.Cause(err) == sarama.ErrUnknownTopicOrPartition {
+			return nil, status.Errorf(codes.NotFound, err.Error())
+		}
+		return nil, status.Errorf(codes.Code(http.StatusInternalServerError), err.Error())
+	}
+
+	var res pb.GetTopicMetadataRs
+
+	res.Version = tm.Config.Version
+	res.Config = tm.Config.Config
+
+	if req.WithPartitions {
+		for _, p := range tm.Partitions {
+			entry := pb.PartitionMetadata{
+				Partition: p.ID,
+				Leader:    p.Leader,
+				Replicas:  p.Replicas,
+				Isr:       p.ISR,
+			}
+			res.Partitions = append(res.Partitions, &entry)
+		}
+	}
+	return &res, nil
 }
 
 func keyEncoderFor(prodReq *pb.ProdRq) sarama.Encoder {

@@ -19,9 +19,8 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   name='kafkapixy.proto',
   package='',
   syntax='proto3',
-  serialized_pb=_b('\n\x0fkafkapixy.proto\"w\n\x06ProdRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\x11\n\tkey_value\x18\x03 \x01(\x0c\x12\x15\n\rkey_undefined\x18\x04 \x01(\x08\x12\x0f\n\x07message\x18\x05 \x01(\x0c\x12\x12\n\nasync_mode\x18\x06 \x01(\x08\"+\n\x06ProdRs\x12\x11\n\tpartition\x18\x01 \x01(\x05\x12\x0e\n\x06offset\x18\x02 \x01(\x03\"\x88\x01\n\nConsNAckRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\r\n\x05group\x18\x03 \x01(\t\x12\x0e\n\x06no_ack\x18\x04 \x01(\x08\x12\x10\n\x08\x61uto_ack\x18\x05 \x01(\x08\x12\x15\n\rack_partition\x18\x06 \x01(\x05\x12\x12\n\nack_offset\x18\x07 \x01(\x03\"f\n\x06\x43onsRs\x12\x11\n\tpartition\x18\x01 \x01(\x05\x12\x0e\n\x06offset\x18\x02 \x01(\x03\x12\x11\n\tkey_value\x18\x03 \x01(\x0c\x12\x15\n\rkey_undefined\x18\x04 \x01(\x08\x12\x0f\n\x07message\x18\x05 \x01(\x0c\"Y\n\x05\x41\x63kRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\r\n\x05group\x18\x03 \x01(\t\x12\x11\n\tpartition\x18\x04 \x01(\x05\x12\x0e\n\x06offset\x18\x05 \x01(\x03\"\x07\n\x05\x41\x63kRs\"\x93\x01\n\x0fPartitionOffset\x12\x11\n\tpartition\x18\x01 \x01(\x05\x12\r\n\x05\x62\x65gin\x18\x02 \x01(\x03\x12\x0b\n\x03\x65nd\x18\x03 \x01(\x03\x12\r\n\x05\x63ount\x18\x04 \x01(\x03\x12\x0e\n\x06offset\x18\x05 \x01(\x03\x12\x0b\n\x03lag\x18\x06 \x01(\x03\x12\x10\n\x08metadata\x18\x07 \x01(\t\x12\x13\n\x0bsparse_acks\x18\x08 \x01(\t\"=\n\x0cGetOffsetsRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\r\n\x05group\x18\x03 \x01(\t\"1\n\x0cGetOffsetsRs\x12!\n\x07offsets\x18\x01 \x03(\x0b\x32\x10.PartitionOffset2\x98\x01\n\tKafkaPixy\x12\x1d\n\x07Produce\x12\x07.ProdRq\x1a\x07.ProdRs\"\x00\x12%\n\x0b\x43onsumeNAck\x12\x0b.ConsNAckRq\x1a\x07.ConsRs\"\x00\x12\x17\n\x03\x41\x63k\x12\x06.AckRq\x1a\x06.AckRs\"\x00\x12,\n\nGetOffsets\x12\r.GetOffsetsRq\x1a\r.GetOffsetsRs\"\x00\x42\x04Z\x02pbb\x06proto3')
+  serialized_pb=_b('\n\x0fkafkapixy.proto\"w\n\x06ProdRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\x11\n\tkey_value\x18\x03 \x01(\x0c\x12\x15\n\rkey_undefined\x18\x04 \x01(\x08\x12\x0f\n\x07message\x18\x05 \x01(\x0c\x12\x12\n\nasync_mode\x18\x06 \x01(\x08\"+\n\x06ProdRs\x12\x11\n\tpartition\x18\x01 \x01(\x05\x12\x0e\n\x06offset\x18\x02 \x01(\x03\"\x88\x01\n\nConsNAckRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\r\n\x05group\x18\x03 \x01(\t\x12\x0e\n\x06no_ack\x18\x04 \x01(\x08\x12\x10\n\x08\x61uto_ack\x18\x05 \x01(\x08\x12\x15\n\rack_partition\x18\x06 \x01(\x05\x12\x12\n\nack_offset\x18\x07 \x01(\x03\"f\n\x06\x43onsRs\x12\x11\n\tpartition\x18\x01 \x01(\x05\x12\x0e\n\x06offset\x18\x02 \x01(\x03\x12\x11\n\tkey_value\x18\x03 \x01(\x0c\x12\x15\n\rkey_undefined\x18\x04 \x01(\x08\x12\x0f\n\x07message\x18\x05 \x01(\x0c\"Y\n\x05\x41\x63kRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\r\n\x05group\x18\x03 \x01(\t\x12\x11\n\tpartition\x18\x04 \x01(\x05\x12\x0e\n\x06offset\x18\x05 \x01(\x03\"\x07\n\x05\x41\x63kRs\"\x93\x01\n\x0fPartitionOffset\x12\x11\n\tpartition\x18\x01 \x01(\x05\x12\r\n\x05\x62\x65gin\x18\x02 \x01(\x03\x12\x0b\n\x03\x65nd\x18\x03 \x01(\x03\x12\r\n\x05\x63ount\x18\x04 \x01(\x03\x12\x0e\n\x06offset\x18\x05 \x01(\x03\x12\x0b\n\x03lag\x18\x06 \x01(\x03\x12\x10\n\x08metadata\x18\x07 \x01(\t\x12\x13\n\x0bsparse_acks\x18\x08 \x01(\t\"=\n\x0cGetOffsetsRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\r\n\x05group\x18\x03 \x01(\t\"1\n\x0cGetOffsetsRs\x12!\n\x07offsets\x18\x01 \x03(\x0b\x32\x10.PartitionOffset\"U\n\x11PartitionMetadata\x12\x11\n\tpartition\x18\x01 \x01(\x05\x12\x0e\n\x06leader\x18\x02 \x01(\x05\x12\x10\n\x08replicas\x18\x03 \x03(\x05\x12\x0b\n\x03isr\x18\x04 \x03(\x05\"M\n\x12GetTopicMetadataRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\x17\n\x0fwith_partitions\x18\x03 \x01(\x08\"\xad\x01\n\x12GetTopicMetadataRs\x12\x0f\n\x07version\x18\x01 \x01(\x05\x12/\n\x06\x63onfig\x18\x02 \x03(\x0b\x32\x1f.GetTopicMetadataRs.ConfigEntry\x12&\n\npartitions\x18\x03 \x03(\x0b\x32\x12.PartitionMetadata\x1a-\n\x0b\x43onfigEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"{\n\x0bListTopicRs\x12(\n\x06topics\x18\x01 \x03(\x0b\x32\x18.ListTopicRs.TopicsEntry\x1a\x42\n\x0bTopicsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\"\n\x05value\x18\x02 \x01(\x0b\x32\x13.GetTopicMetadataRs:\x02\x38\x01\"7\n\x0bListTopicRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\x17\n\x0fwith_partitions\x18\x02 \x01(\x08\"@\n\x0fListConsumersRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\r\n\x05group\x18\x03 \x01(\t\"(\n\x12\x43onsumerPartitions\x12\x12\n\npartitions\x18\x01 \x03(\x05\"\x8a\x01\n\x0e\x43onsumerGroups\x12\x31\n\tconsumers\x18\x01 \x03(\x0b\x32\x1e.ConsumerGroups.ConsumersEntry\x1a\x45\n\x0e\x43onsumersEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\"\n\x05value\x18\x02 \x01(\x0b\x32\x13.ConsumerPartitions:\x02\x38\x01\"\x7f\n\x0fListConsumersRs\x12,\n\x06groups\x18\x01 \x03(\x0b\x32\x1c.ListConsumersRs.GroupsEntry\x1a>\n\x0bGroupsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\x1e\n\x05value\x18\x02 \x01(\x0b\x32\x0f.ConsumerGroups:\x02\x38\x01\"`\n\x0cSetOffsetsRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\r\n\x05group\x18\x03 \x01(\t\x12!\n\x07offsets\x18\x04 \x03(\x0b\x32\x10.PartitionOffset\"\x0e\n\x0cSetOffsetsRs2\xe9\x02\n\tKafkaPixy\x12\x1d\n\x07Produce\x12\x07.ProdRq\x1a\x07.ProdRs\"\x00\x12%\n\x0b\x43onsumeNAck\x12\x0b.ConsNAckRq\x1a\x07.ConsRs\"\x00\x12\x17\n\x03\x41\x63k\x12\x06.AckRq\x1a\x06.AckRs\"\x00\x12,\n\nGetOffsets\x12\r.GetOffsetsRq\x1a\r.GetOffsetsRs\"\x00\x12,\n\nSetOffsets\x12\r.SetOffsetsRq\x1a\r.SetOffsetsRs\"\x00\x12*\n\nListTopics\x12\x0c.ListTopicRq\x1a\x0c.ListTopicRs\"\x00\x12\x35\n\rListConsumers\x12\x10.ListConsumersRq\x1a\x10.ListConsumersRs\"\x00\x12>\n\x10GetTopicMetadata\x12\x13.GetTopicMetadataRq\x1a\x13.GetTopicMetadataRs\"\x00\x42\x04Z\x02pbb\x06proto3')
 )
-_sym_db.RegisterFileDescriptor(DESCRIPTOR)
 
 
 
@@ -39,42 +38,42 @@ _PRODRQ = _descriptor.Descriptor(
       has_default_value=False, default_value=_b("").decode('utf-8'),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='topic', full_name='ProdRq.topic', index=1,
       number=2, type=9, cpp_type=9, label=1,
       has_default_value=False, default_value=_b("").decode('utf-8'),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='key_value', full_name='ProdRq.key_value', index=2,
       number=3, type=12, cpp_type=9, label=1,
       has_default_value=False, default_value=_b(""),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='key_undefined', full_name='ProdRq.key_undefined', index=3,
       number=4, type=8, cpp_type=7, label=1,
       has_default_value=False, default_value=False,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='message', full_name='ProdRq.message', index=4,
       number=5, type=12, cpp_type=9, label=1,
       has_default_value=False, default_value=_b(""),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='async_mode', full_name='ProdRq.async_mode', index=5,
       number=6, type=8, cpp_type=7, label=1,
       has_default_value=False, default_value=False,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
   ],
   extensions=[
   ],
@@ -105,14 +104,14 @@ _PRODRS = _descriptor.Descriptor(
       has_default_value=False, default_value=0,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='offset', full_name='ProdRs.offset', index=1,
       number=2, type=3, cpp_type=2, label=1,
       has_default_value=False, default_value=0,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
   ],
   extensions=[
   ],
@@ -143,49 +142,49 @@ _CONSNACKRQ = _descriptor.Descriptor(
       has_default_value=False, default_value=_b("").decode('utf-8'),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='topic', full_name='ConsNAckRq.topic', index=1,
       number=2, type=9, cpp_type=9, label=1,
       has_default_value=False, default_value=_b("").decode('utf-8'),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='group', full_name='ConsNAckRq.group', index=2,
       number=3, type=9, cpp_type=9, label=1,
       has_default_value=False, default_value=_b("").decode('utf-8'),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='no_ack', full_name='ConsNAckRq.no_ack', index=3,
       number=4, type=8, cpp_type=7, label=1,
       has_default_value=False, default_value=False,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='auto_ack', full_name='ConsNAckRq.auto_ack', index=4,
       number=5, type=8, cpp_type=7, label=1,
       has_default_value=False, default_value=False,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='ack_partition', full_name='ConsNAckRq.ack_partition', index=5,
       number=6, type=5, cpp_type=1, label=1,
       has_default_value=False, default_value=0,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='ack_offset', full_name='ConsNAckRq.ack_offset', index=6,
       number=7, type=3, cpp_type=2, label=1,
       has_default_value=False, default_value=0,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
   ],
   extensions=[
   ],
@@ -216,35 +215,35 @@ _CONSRS = _descriptor.Descriptor(
       has_default_value=False, default_value=0,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='offset', full_name='ConsRs.offset', index=1,
       number=2, type=3, cpp_type=2, label=1,
       has_default_value=False, default_value=0,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='key_value', full_name='ConsRs.key_value', index=2,
       number=3, type=12, cpp_type=9, label=1,
       has_default_value=False, default_value=_b(""),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='key_undefined', full_name='ConsRs.key_undefined', index=3,
       number=4, type=8, cpp_type=7, label=1,
       has_default_value=False, default_value=False,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='message', full_name='ConsRs.message', index=4,
       number=5, type=12, cpp_type=9, label=1,
       has_default_value=False, default_value=_b(""),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
   ],
   extensions=[
   ],
@@ -275,35 +274,35 @@ _ACKRQ = _descriptor.Descriptor(
       has_default_value=False, default_value=_b("").decode('utf-8'),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='topic', full_name='AckRq.topic', index=1,
       number=2, type=9, cpp_type=9, label=1,
       has_default_value=False, default_value=_b("").decode('utf-8'),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='group', full_name='AckRq.group', index=2,
       number=3, type=9, cpp_type=9, label=1,
       has_default_value=False, default_value=_b("").decode('utf-8'),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='partition', full_name='AckRq.partition', index=3,
       number=4, type=5, cpp_type=1, label=1,
       has_default_value=False, default_value=0,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='offset', full_name='AckRq.offset', index=4,
       number=5, type=3, cpp_type=2, label=1,
       has_default_value=False, default_value=0,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
   ],
   extensions=[
   ],
@@ -358,56 +357,56 @@ _PARTITIONOFFSET = _descriptor.Descriptor(
       has_default_value=False, default_value=0,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='begin', full_name='PartitionOffset.begin', index=1,
       number=2, type=3, cpp_type=2, label=1,
       has_default_value=False, default_value=0,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='end', full_name='PartitionOffset.end', index=2,
       number=3, type=3, cpp_type=2, label=1,
       has_default_value=False, default_value=0,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='count', full_name='PartitionOffset.count', index=3,
       number=4, type=3, cpp_type=2, label=1,
       has_default_value=False, default_value=0,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='offset', full_name='PartitionOffset.offset', index=4,
       number=5, type=3, cpp_type=2, label=1,
       has_default_value=False, default_value=0,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='lag', full_name='PartitionOffset.lag', index=5,
       number=6, type=3, cpp_type=2, label=1,
       has_default_value=False, default_value=0,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='metadata', full_name='PartitionOffset.metadata', index=6,
       number=7, type=9, cpp_type=9, label=1,
       has_default_value=False, default_value=_b("").decode('utf-8'),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='sparse_acks', full_name='PartitionOffset.sparse_acks', index=7,
       number=8, type=9, cpp_type=9, label=1,
       has_default_value=False, default_value=_b("").decode('utf-8'),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
   ],
   extensions=[
   ],
@@ -438,21 +437,21 @@ _GETOFFSETSRQ = _descriptor.Descriptor(
       has_default_value=False, default_value=_b("").decode('utf-8'),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='topic', full_name='GetOffsetsRq.topic', index=1,
       number=2, type=9, cpp_type=9, label=1,
       has_default_value=False, default_value=_b("").decode('utf-8'),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='group', full_name='GetOffsetsRq.group', index=2,
       number=3, type=9, cpp_type=9, label=1,
       has_default_value=False, default_value=_b("").decode('utf-8'),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
   ],
   extensions=[
   ],
@@ -483,7 +482,7 @@ _GETOFFSETSRS = _descriptor.Descriptor(
       has_default_value=False, default_value=[],
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
-      options=None),
+      options=None, file=DESCRIPTOR),
   ],
   extensions=[
   ],
@@ -500,7 +499,593 @@ _GETOFFSETSRS = _descriptor.Descriptor(
   serialized_end=790,
 )
 
+
+_PARTITIONMETADATA = _descriptor.Descriptor(
+  name='PartitionMetadata',
+  full_name='PartitionMetadata',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='partition', full_name='PartitionMetadata.partition', index=0,
+      number=1, type=5, cpp_type=1, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='leader', full_name='PartitionMetadata.leader', index=1,
+      number=2, type=5, cpp_type=1, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='replicas', full_name='PartitionMetadata.replicas', index=2,
+      number=3, type=5, cpp_type=1, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='isr', full_name='PartitionMetadata.isr', index=3,
+      number=4, type=5, cpp_type=1, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=792,
+  serialized_end=877,
+)
+
+
+_GETTOPICMETADATARQ = _descriptor.Descriptor(
+  name='GetTopicMetadataRq',
+  full_name='GetTopicMetadataRq',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='cluster', full_name='GetTopicMetadataRq.cluster', index=0,
+      number=1, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='topic', full_name='GetTopicMetadataRq.topic', index=1,
+      number=2, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='with_partitions', full_name='GetTopicMetadataRq.with_partitions', index=2,
+      number=3, type=8, cpp_type=7, label=1,
+      has_default_value=False, default_value=False,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=879,
+  serialized_end=956,
+)
+
+
+_GETTOPICMETADATARS_CONFIGENTRY = _descriptor.Descriptor(
+  name='ConfigEntry',
+  full_name='GetTopicMetadataRs.ConfigEntry',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='key', full_name='GetTopicMetadataRs.ConfigEntry.key', index=0,
+      number=1, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='value', full_name='GetTopicMetadataRs.ConfigEntry.value', index=1,
+      number=2, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  options=_descriptor._ParseOptions(descriptor_pb2.MessageOptions(), _b('8\001')),
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1087,
+  serialized_end=1132,
+)
+
+_GETTOPICMETADATARS = _descriptor.Descriptor(
+  name='GetTopicMetadataRs',
+  full_name='GetTopicMetadataRs',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='version', full_name='GetTopicMetadataRs.version', index=0,
+      number=1, type=5, cpp_type=1, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='config', full_name='GetTopicMetadataRs.config', index=1,
+      number=2, type=11, cpp_type=10, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='partitions', full_name='GetTopicMetadataRs.partitions', index=2,
+      number=3, type=11, cpp_type=10, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[_GETTOPICMETADATARS_CONFIGENTRY, ],
+  enum_types=[
+  ],
+  options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=959,
+  serialized_end=1132,
+)
+
+
+_LISTTOPICRS_TOPICSENTRY = _descriptor.Descriptor(
+  name='TopicsEntry',
+  full_name='ListTopicRs.TopicsEntry',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='key', full_name='ListTopicRs.TopicsEntry.key', index=0,
+      number=1, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='value', full_name='ListTopicRs.TopicsEntry.value', index=1,
+      number=2, type=11, cpp_type=10, label=1,
+      has_default_value=False, default_value=None,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  options=_descriptor._ParseOptions(descriptor_pb2.MessageOptions(), _b('8\001')),
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1191,
+  serialized_end=1257,
+)
+
+_LISTTOPICRS = _descriptor.Descriptor(
+  name='ListTopicRs',
+  full_name='ListTopicRs',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='topics', full_name='ListTopicRs.topics', index=0,
+      number=1, type=11, cpp_type=10, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[_LISTTOPICRS_TOPICSENTRY, ],
+  enum_types=[
+  ],
+  options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1134,
+  serialized_end=1257,
+)
+
+
+_LISTTOPICRQ = _descriptor.Descriptor(
+  name='ListTopicRq',
+  full_name='ListTopicRq',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='cluster', full_name='ListTopicRq.cluster', index=0,
+      number=1, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='with_partitions', full_name='ListTopicRq.with_partitions', index=1,
+      number=2, type=8, cpp_type=7, label=1,
+      has_default_value=False, default_value=False,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1259,
+  serialized_end=1314,
+)
+
+
+_LISTCONSUMERSRQ = _descriptor.Descriptor(
+  name='ListConsumersRq',
+  full_name='ListConsumersRq',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='cluster', full_name='ListConsumersRq.cluster', index=0,
+      number=1, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='topic', full_name='ListConsumersRq.topic', index=1,
+      number=2, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='group', full_name='ListConsumersRq.group', index=2,
+      number=3, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1316,
+  serialized_end=1380,
+)
+
+
+_CONSUMERPARTITIONS = _descriptor.Descriptor(
+  name='ConsumerPartitions',
+  full_name='ConsumerPartitions',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='partitions', full_name='ConsumerPartitions.partitions', index=0,
+      number=1, type=5, cpp_type=1, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1382,
+  serialized_end=1422,
+)
+
+
+_CONSUMERGROUPS_CONSUMERSENTRY = _descriptor.Descriptor(
+  name='ConsumersEntry',
+  full_name='ConsumerGroups.ConsumersEntry',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='key', full_name='ConsumerGroups.ConsumersEntry.key', index=0,
+      number=1, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='value', full_name='ConsumerGroups.ConsumersEntry.value', index=1,
+      number=2, type=11, cpp_type=10, label=1,
+      has_default_value=False, default_value=None,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  options=_descriptor._ParseOptions(descriptor_pb2.MessageOptions(), _b('8\001')),
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1494,
+  serialized_end=1563,
+)
+
+_CONSUMERGROUPS = _descriptor.Descriptor(
+  name='ConsumerGroups',
+  full_name='ConsumerGroups',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='consumers', full_name='ConsumerGroups.consumers', index=0,
+      number=1, type=11, cpp_type=10, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[_CONSUMERGROUPS_CONSUMERSENTRY, ],
+  enum_types=[
+  ],
+  options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1425,
+  serialized_end=1563,
+)
+
+
+_LISTCONSUMERSRS_GROUPSENTRY = _descriptor.Descriptor(
+  name='GroupsEntry',
+  full_name='ListConsumersRs.GroupsEntry',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='key', full_name='ListConsumersRs.GroupsEntry.key', index=0,
+      number=1, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='value', full_name='ListConsumersRs.GroupsEntry.value', index=1,
+      number=2, type=11, cpp_type=10, label=1,
+      has_default_value=False, default_value=None,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  options=_descriptor._ParseOptions(descriptor_pb2.MessageOptions(), _b('8\001')),
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1630,
+  serialized_end=1692,
+)
+
+_LISTCONSUMERSRS = _descriptor.Descriptor(
+  name='ListConsumersRs',
+  full_name='ListConsumersRs',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='groups', full_name='ListConsumersRs.groups', index=0,
+      number=1, type=11, cpp_type=10, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[_LISTCONSUMERSRS_GROUPSENTRY, ],
+  enum_types=[
+  ],
+  options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1565,
+  serialized_end=1692,
+)
+
+
+_SETOFFSETSRQ = _descriptor.Descriptor(
+  name='SetOffsetsRq',
+  full_name='SetOffsetsRq',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='cluster', full_name='SetOffsetsRq.cluster', index=0,
+      number=1, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='topic', full_name='SetOffsetsRq.topic', index=1,
+      number=2, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='group', full_name='SetOffsetsRq.group', index=2,
+      number=3, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='offsets', full_name='SetOffsetsRq.offsets', index=3,
+      number=4, type=11, cpp_type=10, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1694,
+  serialized_end=1790,
+)
+
+
+_SETOFFSETSRS = _descriptor.Descriptor(
+  name='SetOffsetsRs',
+  full_name='SetOffsetsRs',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1792,
+  serialized_end=1806,
+)
+
 _GETOFFSETSRS.fields_by_name['offsets'].message_type = _PARTITIONOFFSET
+_GETTOPICMETADATARS_CONFIGENTRY.containing_type = _GETTOPICMETADATARS
+_GETTOPICMETADATARS.fields_by_name['config'].message_type = _GETTOPICMETADATARS_CONFIGENTRY
+_GETTOPICMETADATARS.fields_by_name['partitions'].message_type = _PARTITIONMETADATA
+_LISTTOPICRS_TOPICSENTRY.fields_by_name['value'].message_type = _GETTOPICMETADATARS
+_LISTTOPICRS_TOPICSENTRY.containing_type = _LISTTOPICRS
+_LISTTOPICRS.fields_by_name['topics'].message_type = _LISTTOPICRS_TOPICSENTRY
+_CONSUMERGROUPS_CONSUMERSENTRY.fields_by_name['value'].message_type = _CONSUMERPARTITIONS
+_CONSUMERGROUPS_CONSUMERSENTRY.containing_type = _CONSUMERGROUPS
+_CONSUMERGROUPS.fields_by_name['consumers'].message_type = _CONSUMERGROUPS_CONSUMERSENTRY
+_LISTCONSUMERSRS_GROUPSENTRY.fields_by_name['value'].message_type = _CONSUMERGROUPS
+_LISTCONSUMERSRS_GROUPSENTRY.containing_type = _LISTCONSUMERSRS
+_LISTCONSUMERSRS.fields_by_name['groups'].message_type = _LISTCONSUMERSRS_GROUPSENTRY
+_SETOFFSETSRQ.fields_by_name['offsets'].message_type = _PARTITIONOFFSET
 DESCRIPTOR.message_types_by_name['ProdRq'] = _PRODRQ
 DESCRIPTOR.message_types_by_name['ProdRs'] = _PRODRS
 DESCRIPTOR.message_types_by_name['ConsNAckRq'] = _CONSNACKRQ
@@ -510,6 +1095,18 @@ DESCRIPTOR.message_types_by_name['AckRs'] = _ACKRS
 DESCRIPTOR.message_types_by_name['PartitionOffset'] = _PARTITIONOFFSET
 DESCRIPTOR.message_types_by_name['GetOffsetsRq'] = _GETOFFSETSRQ
 DESCRIPTOR.message_types_by_name['GetOffsetsRs'] = _GETOFFSETSRS
+DESCRIPTOR.message_types_by_name['PartitionMetadata'] = _PARTITIONMETADATA
+DESCRIPTOR.message_types_by_name['GetTopicMetadataRq'] = _GETTOPICMETADATARQ
+DESCRIPTOR.message_types_by_name['GetTopicMetadataRs'] = _GETTOPICMETADATARS
+DESCRIPTOR.message_types_by_name['ListTopicRs'] = _LISTTOPICRS
+DESCRIPTOR.message_types_by_name['ListTopicRq'] = _LISTTOPICRQ
+DESCRIPTOR.message_types_by_name['ListConsumersRq'] = _LISTCONSUMERSRQ
+DESCRIPTOR.message_types_by_name['ConsumerPartitions'] = _CONSUMERPARTITIONS
+DESCRIPTOR.message_types_by_name['ConsumerGroups'] = _CONSUMERGROUPS
+DESCRIPTOR.message_types_by_name['ListConsumersRs'] = _LISTCONSUMERSRS
+DESCRIPTOR.message_types_by_name['SetOffsetsRq'] = _SETOFFSETSRQ
+DESCRIPTOR.message_types_by_name['SetOffsetsRs'] = _SETOFFSETSRS
+_sym_db.RegisterFileDescriptor(DESCRIPTOR)
 
 ProdRq = _reflection.GeneratedProtocolMessageType('ProdRq', (_message.Message,), dict(
   DESCRIPTOR = _PRODRQ,
@@ -574,418 +1171,211 @@ GetOffsetsRs = _reflection.GeneratedProtocolMessageType('GetOffsetsRs', (_messag
   ))
 _sym_db.RegisterMessage(GetOffsetsRs)
 
+PartitionMetadata = _reflection.GeneratedProtocolMessageType('PartitionMetadata', (_message.Message,), dict(
+  DESCRIPTOR = _PARTITIONMETADATA,
+  __module__ = 'kafkapixy_pb2'
+  # @@protoc_insertion_point(class_scope:PartitionMetadata)
+  ))
+_sym_db.RegisterMessage(PartitionMetadata)
+
+GetTopicMetadataRq = _reflection.GeneratedProtocolMessageType('GetTopicMetadataRq', (_message.Message,), dict(
+  DESCRIPTOR = _GETTOPICMETADATARQ,
+  __module__ = 'kafkapixy_pb2'
+  # @@protoc_insertion_point(class_scope:GetTopicMetadataRq)
+  ))
+_sym_db.RegisterMessage(GetTopicMetadataRq)
+
+GetTopicMetadataRs = _reflection.GeneratedProtocolMessageType('GetTopicMetadataRs', (_message.Message,), dict(
+
+  ConfigEntry = _reflection.GeneratedProtocolMessageType('ConfigEntry', (_message.Message,), dict(
+    DESCRIPTOR = _GETTOPICMETADATARS_CONFIGENTRY,
+    __module__ = 'kafkapixy_pb2'
+    # @@protoc_insertion_point(class_scope:GetTopicMetadataRs.ConfigEntry)
+    ))
+  ,
+  DESCRIPTOR = _GETTOPICMETADATARS,
+  __module__ = 'kafkapixy_pb2'
+  # @@protoc_insertion_point(class_scope:GetTopicMetadataRs)
+  ))
+_sym_db.RegisterMessage(GetTopicMetadataRs)
+_sym_db.RegisterMessage(GetTopicMetadataRs.ConfigEntry)
+
+ListTopicRs = _reflection.GeneratedProtocolMessageType('ListTopicRs', (_message.Message,), dict(
+
+  TopicsEntry = _reflection.GeneratedProtocolMessageType('TopicsEntry', (_message.Message,), dict(
+    DESCRIPTOR = _LISTTOPICRS_TOPICSENTRY,
+    __module__ = 'kafkapixy_pb2'
+    # @@protoc_insertion_point(class_scope:ListTopicRs.TopicsEntry)
+    ))
+  ,
+  DESCRIPTOR = _LISTTOPICRS,
+  __module__ = 'kafkapixy_pb2'
+  # @@protoc_insertion_point(class_scope:ListTopicRs)
+  ))
+_sym_db.RegisterMessage(ListTopicRs)
+_sym_db.RegisterMessage(ListTopicRs.TopicsEntry)
+
+ListTopicRq = _reflection.GeneratedProtocolMessageType('ListTopicRq', (_message.Message,), dict(
+  DESCRIPTOR = _LISTTOPICRQ,
+  __module__ = 'kafkapixy_pb2'
+  # @@protoc_insertion_point(class_scope:ListTopicRq)
+  ))
+_sym_db.RegisterMessage(ListTopicRq)
+
+ListConsumersRq = _reflection.GeneratedProtocolMessageType('ListConsumersRq', (_message.Message,), dict(
+  DESCRIPTOR = _LISTCONSUMERSRQ,
+  __module__ = 'kafkapixy_pb2'
+  # @@protoc_insertion_point(class_scope:ListConsumersRq)
+  ))
+_sym_db.RegisterMessage(ListConsumersRq)
+
+ConsumerPartitions = _reflection.GeneratedProtocolMessageType('ConsumerPartitions', (_message.Message,), dict(
+  DESCRIPTOR = _CONSUMERPARTITIONS,
+  __module__ = 'kafkapixy_pb2'
+  # @@protoc_insertion_point(class_scope:ConsumerPartitions)
+  ))
+_sym_db.RegisterMessage(ConsumerPartitions)
+
+ConsumerGroups = _reflection.GeneratedProtocolMessageType('ConsumerGroups', (_message.Message,), dict(
+
+  ConsumersEntry = _reflection.GeneratedProtocolMessageType('ConsumersEntry', (_message.Message,), dict(
+    DESCRIPTOR = _CONSUMERGROUPS_CONSUMERSENTRY,
+    __module__ = 'kafkapixy_pb2'
+    # @@protoc_insertion_point(class_scope:ConsumerGroups.ConsumersEntry)
+    ))
+  ,
+  DESCRIPTOR = _CONSUMERGROUPS,
+  __module__ = 'kafkapixy_pb2'
+  # @@protoc_insertion_point(class_scope:ConsumerGroups)
+  ))
+_sym_db.RegisterMessage(ConsumerGroups)
+_sym_db.RegisterMessage(ConsumerGroups.ConsumersEntry)
+
+ListConsumersRs = _reflection.GeneratedProtocolMessageType('ListConsumersRs', (_message.Message,), dict(
+
+  GroupsEntry = _reflection.GeneratedProtocolMessageType('GroupsEntry', (_message.Message,), dict(
+    DESCRIPTOR = _LISTCONSUMERSRS_GROUPSENTRY,
+    __module__ = 'kafkapixy_pb2'
+    # @@protoc_insertion_point(class_scope:ListConsumersRs.GroupsEntry)
+    ))
+  ,
+  DESCRIPTOR = _LISTCONSUMERSRS,
+  __module__ = 'kafkapixy_pb2'
+  # @@protoc_insertion_point(class_scope:ListConsumersRs)
+  ))
+_sym_db.RegisterMessage(ListConsumersRs)
+_sym_db.RegisterMessage(ListConsumersRs.GroupsEntry)
+
+SetOffsetsRq = _reflection.GeneratedProtocolMessageType('SetOffsetsRq', (_message.Message,), dict(
+  DESCRIPTOR = _SETOFFSETSRQ,
+  __module__ = 'kafkapixy_pb2'
+  # @@protoc_insertion_point(class_scope:SetOffsetsRq)
+  ))
+_sym_db.RegisterMessage(SetOffsetsRq)
+
+SetOffsetsRs = _reflection.GeneratedProtocolMessageType('SetOffsetsRs', (_message.Message,), dict(
+  DESCRIPTOR = _SETOFFSETSRS,
+  __module__ = 'kafkapixy_pb2'
+  # @@protoc_insertion_point(class_scope:SetOffsetsRs)
+  ))
+_sym_db.RegisterMessage(SetOffsetsRs)
+
 
 DESCRIPTOR.has_options = True
 DESCRIPTOR._options = _descriptor._ParseOptions(descriptor_pb2.FileOptions(), _b('Z\002pb'))
-try:
-  # THESE ELEMENTS WILL BE DEPRECATED.
-  # Please use the generated *_pb2_grpc.py files instead.
-  import grpc
-  from grpc.framework.common import cardinality
-  from grpc.framework.interfaces.face import utilities as face_utilities
-  from grpc.beta import implementations as beta_implementations
-  from grpc.beta import interfaces as beta_interfaces
+_GETTOPICMETADATARS_CONFIGENTRY.has_options = True
+_GETTOPICMETADATARS_CONFIGENTRY._options = _descriptor._ParseOptions(descriptor_pb2.MessageOptions(), _b('8\001'))
+_LISTTOPICRS_TOPICSENTRY.has_options = True
+_LISTTOPICRS_TOPICSENTRY._options = _descriptor._ParseOptions(descriptor_pb2.MessageOptions(), _b('8\001'))
+_CONSUMERGROUPS_CONSUMERSENTRY.has_options = True
+_CONSUMERGROUPS_CONSUMERSENTRY._options = _descriptor._ParseOptions(descriptor_pb2.MessageOptions(), _b('8\001'))
+_LISTCONSUMERSRS_GROUPSENTRY.has_options = True
+_LISTCONSUMERSRS_GROUPSENTRY._options = _descriptor._ParseOptions(descriptor_pb2.MessageOptions(), _b('8\001'))
 
+_KAFKAPIXY = _descriptor.ServiceDescriptor(
+  name='KafkaPixy',
+  full_name='KafkaPixy',
+  file=DESCRIPTOR,
+  index=0,
+  options=None,
+  serialized_start=1809,
+  serialized_end=2170,
+  methods=[
+  _descriptor.MethodDescriptor(
+    name='Produce',
+    full_name='KafkaPixy.Produce',
+    index=0,
+    containing_service=None,
+    input_type=_PRODRQ,
+    output_type=_PRODRS,
+    options=None,
+  ),
+  _descriptor.MethodDescriptor(
+    name='ConsumeNAck',
+    full_name='KafkaPixy.ConsumeNAck',
+    index=1,
+    containing_service=None,
+    input_type=_CONSNACKRQ,
+    output_type=_CONSRS,
+    options=None,
+  ),
+  _descriptor.MethodDescriptor(
+    name='Ack',
+    full_name='KafkaPixy.Ack',
+    index=2,
+    containing_service=None,
+    input_type=_ACKRQ,
+    output_type=_ACKRS,
+    options=None,
+  ),
+  _descriptor.MethodDescriptor(
+    name='GetOffsets',
+    full_name='KafkaPixy.GetOffsets',
+    index=3,
+    containing_service=None,
+    input_type=_GETOFFSETSRQ,
+    output_type=_GETOFFSETSRS,
+    options=None,
+  ),
+  _descriptor.MethodDescriptor(
+    name='SetOffsets',
+    full_name='KafkaPixy.SetOffsets',
+    index=4,
+    containing_service=None,
+    input_type=_SETOFFSETSRQ,
+    output_type=_SETOFFSETSRS,
+    options=None,
+  ),
+  _descriptor.MethodDescriptor(
+    name='ListTopics',
+    full_name='KafkaPixy.ListTopics',
+    index=5,
+    containing_service=None,
+    input_type=_LISTTOPICRQ,
+    output_type=_LISTTOPICRS,
+    options=None,
+  ),
+  _descriptor.MethodDescriptor(
+    name='ListConsumers',
+    full_name='KafkaPixy.ListConsumers',
+    index=6,
+    containing_service=None,
+    input_type=_LISTCONSUMERSRQ,
+    output_type=_LISTCONSUMERSRS,
+    options=None,
+  ),
+  _descriptor.MethodDescriptor(
+    name='GetTopicMetadata',
+    full_name='KafkaPixy.GetTopicMetadata',
+    index=7,
+    containing_service=None,
+    input_type=_GETTOPICMETADATARQ,
+    output_type=_GETTOPICMETADATARS,
+    options=None,
+  ),
+])
+_sym_db.RegisterServiceDescriptor(_KAFKAPIXY)
 
-  class KafkaPixyStub(object):
+DESCRIPTOR.services_by_name['KafkaPixy'] = _KAFKAPIXY
 
-    def __init__(self, channel):
-      """Constructor.
-
-      Args:
-        channel: A grpc.Channel.
-      """
-      self.Produce = channel.unary_unary(
-          '/KafkaPixy/Produce',
-          request_serializer=ProdRq.SerializeToString,
-          response_deserializer=ProdRs.FromString,
-          )
-      self.ConsumeNAck = channel.unary_unary(
-          '/KafkaPixy/ConsumeNAck',
-          request_serializer=ConsNAckRq.SerializeToString,
-          response_deserializer=ConsRs.FromString,
-          )
-      self.Ack = channel.unary_unary(
-          '/KafkaPixy/Ack',
-          request_serializer=AckRq.SerializeToString,
-          response_deserializer=AckRs.FromString,
-          )
-      self.GetOffsets = channel.unary_unary(
-          '/KafkaPixy/GetOffsets',
-          request_serializer=GetOffsetsRq.SerializeToString,
-          response_deserializer=GetOffsetsRs.FromString,
-          )
-
-
-  class KafkaPixyServicer(object):
-
-    def Produce(self, request, context):
-      """Produce writes a message to a Kafka topic.
-
-      If ProdReq.async_mode is false (default value) then the request will
-      block until the message is written to all ISR. In this case the respose
-      will contain the partition and offset of the message. This has to be
-      used to achive at-least-once deliverability guarantee.
-      If ProdReq.async_mode is true, then Kafka-Pixy returns immediately after
-      it gets the request and performs write on the backgroud. This mode
-      ensures highest throughput but messages can be lost, e.g. if the host
-      crashes before Kafka-Pixy has a chance to complete write.
-
-      Hash of ProdReq.key_value is used to determine a partition that the
-      message should be written to. If you want a message to go to an random
-      partition then set ProdReq.key_undefined to true. Note that if both
-      ProdReq.key_undefined and ProdReq.key_value are left default, which is
-      empty string and false respectively, then messages will be consitently
-      written to a partiticular partition selected by the hash of an empty
-      string.
-
-      gRPC error codes:
-      * Invalid Argument (3): see the status description for details;
-      * Internal (13): see the status description and logs for details;
-      * Unavailable (14): the service is shutting down.
-      """
-      context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-      context.set_details('Method not implemented!')
-      raise NotImplementedError('Method not implemented!')
-
-    def ConsumeNAck(self, request, context):
-      """Consume reads a message from a topic and optionally acknowledges a
-      message previously consumed from the same topic.
-
-      Requests are performed in long polling fation, that is if all available
-      messages have been consumed then the request will block for
-      config.yaml:proxies.<cluster>.consumer.long_polling_timeout waiting for
-      new messages. If no new messages is produced while waiting the request
-      will return gRPC error with 408 status code.
-
-      To consume the first message set ConsNAckReq.no_ack to true, since there
-      is no message to acknowledge at this point. In the second and all
-      subsequent calls of the method set ConsNAckReq.ack_partition and
-      ConsNAckReq.ack_offset to the respective values of ConsRes returned by
-      the previous method call. To acknowledge the last consumed message before
-      teminating the application call Ack method.
-
-      If a message is not acknowledged within
-      config.yaml:proxies.<cluster>.consumer.ack_timeout the it will be returned
-      by Kafka-Pixy in ConsRes again possibly to another application.
-
-      If at-least-once delivery guarantee and retries are not desirable, then
-      you can set ConsNAckReq.auto_ack to true and Kafka-Pixy will acknowledge
-      messages automatically before returning them in ConsRes.
-
-      gRPC error codes:
-      * Not Found (5): It just means that all message has been consumed and
-      the long polling timeout has elaspsed. Just keep calling this method
-      in a loop;
-      * Resource Exhausted (8): too many consume requests. Either reduce the
-      number of consuming threads or increase
-      config.yaml:proxies.<cluster>.consumer.channel_buffer_size;
-      * Invalid Argument (3): see the status description for details;
-      * Internal (13): see the status description and logs for details;
-      * Unavailable (14): the service is shutting down.
-      """
-      context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-      context.set_details('Method not implemented!')
-      raise NotImplementedError('Method not implemented!')
-
-    def Ack(self, request, context):
-      """Ack acknowledges a message earlier consumed from a topic.
-
-      This method is provided solely to acknowledge the last consumed message
-      before the application terminates. In all other cases ConsumeNAck should
-      be used.
-
-      gRPC error codes:
-      * Invalid Argument (3): see the status description for details;
-      * Internal (13): see the status description and logs for details;
-      """
-      context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-      context.set_details('Method not implemented!')
-      raise NotImplementedError('Method not implemented!')
-
-    def GetOffsets(self, request, context):
-      """Fetches partition offsets for the specified topic and group
-
-      gRPC error codes:
-      * Invalid Argument (3): If unable to find the cluster named in the request
-      * Internal (13): If Kafka returns an error on offset request
-      * NotFound (5): If the group and or topic does not exist
-      """
-      context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-      context.set_details('Method not implemented!')
-      raise NotImplementedError('Method not implemented!')
-
-
-  def add_KafkaPixyServicer_to_server(servicer, server):
-    rpc_method_handlers = {
-        'Produce': grpc.unary_unary_rpc_method_handler(
-            servicer.Produce,
-            request_deserializer=ProdRq.FromString,
-            response_serializer=ProdRs.SerializeToString,
-        ),
-        'ConsumeNAck': grpc.unary_unary_rpc_method_handler(
-            servicer.ConsumeNAck,
-            request_deserializer=ConsNAckRq.FromString,
-            response_serializer=ConsRs.SerializeToString,
-        ),
-        'Ack': grpc.unary_unary_rpc_method_handler(
-            servicer.Ack,
-            request_deserializer=AckRq.FromString,
-            response_serializer=AckRs.SerializeToString,
-        ),
-        'GetOffsets': grpc.unary_unary_rpc_method_handler(
-            servicer.GetOffsets,
-            request_deserializer=GetOffsetsRq.FromString,
-            response_serializer=GetOffsetsRs.SerializeToString,
-        ),
-    }
-    generic_handler = grpc.method_handlers_generic_handler(
-        'KafkaPixy', rpc_method_handlers)
-    server.add_generic_rpc_handlers((generic_handler,))
-
-
-  class BetaKafkaPixyServicer(object):
-    """The Beta API is deprecated for 0.15.0 and later.
-
-    It is recommended to use the GA API (classes and functions in this
-    file not marked beta) for all further purposes. This class was generated
-    only to ease transition from grpcio<0.15.0 to grpcio>=0.15.0."""
-    def Produce(self, request, context):
-      """Produce writes a message to a Kafka topic.
-
-      If ProdReq.async_mode is false (default value) then the request will
-      block until the message is written to all ISR. In this case the respose
-      will contain the partition and offset of the message. This has to be
-      used to achive at-least-once deliverability guarantee.
-      If ProdReq.async_mode is true, then Kafka-Pixy returns immediately after
-      it gets the request and performs write on the backgroud. This mode
-      ensures highest throughput but messages can be lost, e.g. if the host
-      crashes before Kafka-Pixy has a chance to complete write.
-
-      Hash of ProdReq.key_value is used to determine a partition that the
-      message should be written to. If you want a message to go to an random
-      partition then set ProdReq.key_undefined to true. Note that if both
-      ProdReq.key_undefined and ProdReq.key_value are left default, which is
-      empty string and false respectively, then messages will be consitently
-      written to a partiticular partition selected by the hash of an empty
-      string.
-
-      gRPC error codes:
-      * Invalid Argument (3): see the status description for details;
-      * Internal (13): see the status description and logs for details;
-      * Unavailable (14): the service is shutting down.
-      """
-      context.code(beta_interfaces.StatusCode.UNIMPLEMENTED)
-    def ConsumeNAck(self, request, context):
-      """Consume reads a message from a topic and optionally acknowledges a
-      message previously consumed from the same topic.
-
-      Requests are performed in long polling fation, that is if all available
-      messages have been consumed then the request will block for
-      config.yaml:proxies.<cluster>.consumer.long_polling_timeout waiting for
-      new messages. If no new messages is produced while waiting the request
-      will return gRPC error with 408 status code.
-
-      To consume the first message set ConsNAckReq.no_ack to true, since there
-      is no message to acknowledge at this point. In the second and all
-      subsequent calls of the method set ConsNAckReq.ack_partition and
-      ConsNAckReq.ack_offset to the respective values of ConsRes returned by
-      the previous method call. To acknowledge the last consumed message before
-      teminating the application call Ack method.
-
-      If a message is not acknowledged within
-      config.yaml:proxies.<cluster>.consumer.ack_timeout the it will be returned
-      by Kafka-Pixy in ConsRes again possibly to another application.
-
-      If at-least-once delivery guarantee and retries are not desirable, then
-      you can set ConsNAckReq.auto_ack to true and Kafka-Pixy will acknowledge
-      messages automatically before returning them in ConsRes.
-
-      gRPC error codes:
-      * Not Found (5): It just means that all message has been consumed and
-      the long polling timeout has elaspsed. Just keep calling this method
-      in a loop;
-      * Resource Exhausted (8): too many consume requests. Either reduce the
-      number of consuming threads or increase
-      config.yaml:proxies.<cluster>.consumer.channel_buffer_size;
-      * Invalid Argument (3): see the status description for details;
-      * Internal (13): see the status description and logs for details;
-      * Unavailable (14): the service is shutting down.
-      """
-      context.code(beta_interfaces.StatusCode.UNIMPLEMENTED)
-    def Ack(self, request, context):
-      """Ack acknowledges a message earlier consumed from a topic.
-
-      This method is provided solely to acknowledge the last consumed message
-      before the application terminates. In all other cases ConsumeNAck should
-      be used.
-
-      gRPC error codes:
-      * Invalid Argument (3): see the status description for details;
-      * Internal (13): see the status description and logs for details;
-      """
-      context.code(beta_interfaces.StatusCode.UNIMPLEMENTED)
-    def GetOffsets(self, request, context):
-      """Fetches partition offsets for the specified topic and group
-
-      gRPC error codes:
-      * Invalid Argument (3): If unable to find the cluster named in the request
-      * Internal (13): If Kafka returns an error on offset request
-      * NotFound (5): If the group and or topic does not exist
-      """
-      context.code(beta_interfaces.StatusCode.UNIMPLEMENTED)
-
-
-  class BetaKafkaPixyStub(object):
-    """The Beta API is deprecated for 0.15.0 and later.
-
-    It is recommended to use the GA API (classes and functions in this
-    file not marked beta) for all further purposes. This class was generated
-    only to ease transition from grpcio<0.15.0 to grpcio>=0.15.0."""
-    def Produce(self, request, timeout, metadata=None, with_call=False, protocol_options=None):
-      """Produce writes a message to a Kafka topic.
-
-      If ProdReq.async_mode is false (default value) then the request will
-      block until the message is written to all ISR. In this case the respose
-      will contain the partition and offset of the message. This has to be
-      used to achive at-least-once deliverability guarantee.
-      If ProdReq.async_mode is true, then Kafka-Pixy returns immediately after
-      it gets the request and performs write on the backgroud. This mode
-      ensures highest throughput but messages can be lost, e.g. if the host
-      crashes before Kafka-Pixy has a chance to complete write.
-
-      Hash of ProdReq.key_value is used to determine a partition that the
-      message should be written to. If you want a message to go to an random
-      partition then set ProdReq.key_undefined to true. Note that if both
-      ProdReq.key_undefined and ProdReq.key_value are left default, which is
-      empty string and false respectively, then messages will be consitently
-      written to a partiticular partition selected by the hash of an empty
-      string.
-
-      gRPC error codes:
-      * Invalid Argument (3): see the status description for details;
-      * Internal (13): see the status description and logs for details;
-      * Unavailable (14): the service is shutting down.
-      """
-      raise NotImplementedError()
-    Produce.future = None
-    def ConsumeNAck(self, request, timeout, metadata=None, with_call=False, protocol_options=None):
-      """Consume reads a message from a topic and optionally acknowledges a
-      message previously consumed from the same topic.
-
-      Requests are performed in long polling fation, that is if all available
-      messages have been consumed then the request will block for
-      config.yaml:proxies.<cluster>.consumer.long_polling_timeout waiting for
-      new messages. If no new messages is produced while waiting the request
-      will return gRPC error with 408 status code.
-
-      To consume the first message set ConsNAckReq.no_ack to true, since there
-      is no message to acknowledge at this point. In the second and all
-      subsequent calls of the method set ConsNAckReq.ack_partition and
-      ConsNAckReq.ack_offset to the respective values of ConsRes returned by
-      the previous method call. To acknowledge the last consumed message before
-      teminating the application call Ack method.
-
-      If a message is not acknowledged within
-      config.yaml:proxies.<cluster>.consumer.ack_timeout the it will be returned
-      by Kafka-Pixy in ConsRes again possibly to another application.
-
-      If at-least-once delivery guarantee and retries are not desirable, then
-      you can set ConsNAckReq.auto_ack to true and Kafka-Pixy will acknowledge
-      messages automatically before returning them in ConsRes.
-
-      gRPC error codes:
-      * Not Found (5): It just means that all message has been consumed and
-      the long polling timeout has elaspsed. Just keep calling this method
-      in a loop;
-      * Resource Exhausted (8): too many consume requests. Either reduce the
-      number of consuming threads or increase
-      config.yaml:proxies.<cluster>.consumer.channel_buffer_size;
-      * Invalid Argument (3): see the status description for details;
-      * Internal (13): see the status description and logs for details;
-      * Unavailable (14): the service is shutting down.
-      """
-      raise NotImplementedError()
-    ConsumeNAck.future = None
-    def Ack(self, request, timeout, metadata=None, with_call=False, protocol_options=None):
-      """Ack acknowledges a message earlier consumed from a topic.
-
-      This method is provided solely to acknowledge the last consumed message
-      before the application terminates. In all other cases ConsumeNAck should
-      be used.
-
-      gRPC error codes:
-      * Invalid Argument (3): see the status description for details;
-      * Internal (13): see the status description and logs for details;
-      """
-      raise NotImplementedError()
-    Ack.future = None
-    def GetOffsets(self, request, timeout, metadata=None, with_call=False, protocol_options=None):
-      """Fetches partition offsets for the specified topic and group
-
-      gRPC error codes:
-      * Invalid Argument (3): If unable to find the cluster named in the request
-      * Internal (13): If Kafka returns an error on offset request
-      * NotFound (5): If the group and or topic does not exist
-      """
-      raise NotImplementedError()
-    GetOffsets.future = None
-
-
-  def beta_create_KafkaPixy_server(servicer, pool=None, pool_size=None, default_timeout=None, maximum_timeout=None):
-    """The Beta API is deprecated for 0.15.0 and later.
-
-    It is recommended to use the GA API (classes and functions in this
-    file not marked beta) for all further purposes. This function was
-    generated only to ease transition from grpcio<0.15.0 to grpcio>=0.15.0"""
-    request_deserializers = {
-      ('KafkaPixy', 'Ack'): AckRq.FromString,
-      ('KafkaPixy', 'ConsumeNAck'): ConsNAckRq.FromString,
-      ('KafkaPixy', 'GetOffsets'): GetOffsetsRq.FromString,
-      ('KafkaPixy', 'Produce'): ProdRq.FromString,
-    }
-    response_serializers = {
-      ('KafkaPixy', 'Ack'): AckRs.SerializeToString,
-      ('KafkaPixy', 'ConsumeNAck'): ConsRs.SerializeToString,
-      ('KafkaPixy', 'GetOffsets'): GetOffsetsRs.SerializeToString,
-      ('KafkaPixy', 'Produce'): ProdRs.SerializeToString,
-    }
-    method_implementations = {
-      ('KafkaPixy', 'Ack'): face_utilities.unary_unary_inline(servicer.Ack),
-      ('KafkaPixy', 'ConsumeNAck'): face_utilities.unary_unary_inline(servicer.ConsumeNAck),
-      ('KafkaPixy', 'GetOffsets'): face_utilities.unary_unary_inline(servicer.GetOffsets),
-      ('KafkaPixy', 'Produce'): face_utilities.unary_unary_inline(servicer.Produce),
-    }
-    server_options = beta_implementations.server_options(request_deserializers=request_deserializers, response_serializers=response_serializers, thread_pool=pool, thread_pool_size=pool_size, default_timeout=default_timeout, maximum_timeout=maximum_timeout)
-    return beta_implementations.server(method_implementations, options=server_options)
-
-
-  def beta_create_KafkaPixy_stub(channel, host=None, metadata_transformer=None, pool=None, pool_size=None):
-    """The Beta API is deprecated for 0.15.0 and later.
-
-    It is recommended to use the GA API (classes and functions in this
-    file not marked beta) for all further purposes. This function was
-    generated only to ease transition from grpcio<0.15.0 to grpcio>=0.15.0"""
-    request_serializers = {
-      ('KafkaPixy', 'Ack'): AckRq.SerializeToString,
-      ('KafkaPixy', 'ConsumeNAck'): ConsNAckRq.SerializeToString,
-      ('KafkaPixy', 'GetOffsets'): GetOffsetsRq.SerializeToString,
-      ('KafkaPixy', 'Produce'): ProdRq.SerializeToString,
-    }
-    response_deserializers = {
-      ('KafkaPixy', 'Ack'): AckRs.FromString,
-      ('KafkaPixy', 'ConsumeNAck'): ConsRs.FromString,
-      ('KafkaPixy', 'GetOffsets'): GetOffsetsRs.FromString,
-      ('KafkaPixy', 'Produce'): ProdRs.FromString,
-    }
-    cardinalities = {
-      'Ack': cardinality.Cardinality.UNARY_UNARY,
-      'ConsumeNAck': cardinality.Cardinality.UNARY_UNARY,
-      'GetOffsets': cardinality.Cardinality.UNARY_UNARY,
-      'Produce': cardinality.Cardinality.UNARY_UNARY,
-    }
-    stub_options = beta_implementations.stub_options(host=host, metadata_transformer=metadata_transformer, request_serializers=request_serializers, response_deserializers=response_deserializers, thread_pool=pool, thread_pool_size=pool_size)
-    return beta_implementations.dynamic_stub(channel, 'KafkaPixy', cardinalities, options=stub_options)
-except ImportError:
-  pass
 # @@protoc_insertion_point(module_scope)

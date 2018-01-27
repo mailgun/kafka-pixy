@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"time"
 
@@ -27,15 +28,27 @@ func main() {
 	   Consume messages from a topic and write the message to stdout
 	   $ kafka-pixy-cli consume my-topic
 
+	   List available topics
+	   $ kafka-pixy-cli list-topics
+
+	   List consumers for a topic
+	   $ kafka-pixy-cli list-consumers
+
+	   Get topic metadata
+	   $ kafka-pixy-cli topic my-topic
+
+	   Get partition offsets
+	   $ kafka-pixy-cli offsets my-topic
+
+	   Set partition offsets
+	   $ echo -n "[{"partition": 1, "offset": 1}]" | kafka-pixy-cli offsets my-topic -g my-group
+
 	 Help:
 	   For detailed help on produce
 	   $ kafka-pixy-cli produce -h
 
 	   For detailed help on consume
-	   $ kafka-pixy-cli consume -h
-
-	   For detailed help on offsets
-	   $ kafka-pixy-cli offsets -h`)
+	   $ kafka-pixy-cli consume -h`)
 
 	parser := args.NewParser(args.EnvPrefix("KAFKA_PIXY_"), args.Desc(desc, args.IsFormated))
 	parser.AddOption("--endpoint").
@@ -52,6 +65,9 @@ func main() {
 	parser.AddCommand("produce", ProduceEvents)
 	parser.AddCommand("consume", ConsumeEvents)
 	parser.AddCommand("offsets", Offsets)
+	parser.AddCommand("list-topics", ListTopics)
+	parser.AddCommand("list-consumers", ListConsumers)
+	parser.AddCommand("topic", Topic)
 	parser.AddCommand("version", func(_ *args.ArgParser, _ interface{}) (int, error) {
 		fmt.Fprintf(os.Stdout, "Version: %s\n", Version)
 		return 1, nil
@@ -73,7 +89,6 @@ func main() {
 
 func Offsets(parser *args.ArgParser, cast interface{}) (int, error) {
 	client := cast.(pb.KafkaPixyClient)
-	var err error
 
 	desc := args.Dedent(`Calculates the lag and topic size by pulling offsets for a topic and group
 
@@ -103,6 +118,45 @@ func Offsets(parser *args.ArgParser, cast interface{}) (int, error) {
 		return 1, nil
 	}
 
+	// if stdin has an open pipe, then assume we want to set offsets
+	if args.IsCharDevice(os.Stdin) {
+		return setOffsets(opts, client)
+	}
+
+	return printOffsets(opts, client)
+}
+
+func setOffsets(opts *args.Options, client pb.KafkaPixyClient) (int, error) {
+
+	if !opts.IsSet("group") {
+		return 1, errors.Errorf("--group option is required when setting offsets")
+	}
+
+	raw, err := ioutil.ReadAll(os.Stdin)
+	if err != nil {
+		return 1, errors.Wrap(err, "while reading from stdin")
+	}
+
+	var offsets []*pb.PartitionOffset
+	err = json.Unmarshal(raw, &offsets)
+	if err != nil {
+		return 1, errors.Wrap(err, "while marshalling partition offsets from stdin")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+	_, err = client.SetOffsets(ctx, &pb.SetOffsetsRq{
+		Topic:   opts.String("topic"),
+		Group:   opts.String("group"),
+		Offsets: offsets,
+	})
+	cancel()
+	if err != nil {
+		return 1, errors.Wrapf(err, "while calling SetOffsets()")
+	}
+	return 0, nil
+}
+
+func printOffsets(opts *args.Options, client pb.KafkaPixyClient) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
 	resp, err := client.GetOffsets(ctx, &pb.GetOffsetsRq{
 		Topic: opts.String("topic"),
@@ -125,7 +179,7 @@ func Offsets(parser *args.ArgParser, cast interface{}) (int, error) {
 			Lag:   lag,
 		}
 
-		data, err := json.MarshalIndent(offset, "", "")
+		data, err := json.MarshalIndent(offset, "", "    ")
 		if err != nil {
 			return 1, errors.Wrap(err, "during JSON marshal")
 		}
@@ -133,13 +187,11 @@ func Offsets(parser *args.ArgParser, cast interface{}) (int, error) {
 		return 0, nil
 	}
 
-	for _, offset := range resp.Offsets {
-		data, err := json.MarshalIndent(offset, "", "")
-		if err != nil {
-			return 1, errors.Wrap(err, "during JSON marshal")
-		}
-		fmt.Println(string(data))
+	data, err := json.MarshalIndent(resp.Offsets, "", "    ")
+	if err != nil {
+		return 1, errors.Wrap(err, "during JSON marshal")
 	}
+	fmt.Println(string(data))
 
 	return 0, nil
 }
@@ -253,6 +305,112 @@ func sendEvents(client pb.KafkaPixyClient, opts *args.Options, source io.Reader)
 			}
 		}
 	}
+}
+
+func ListConsumers(parser *args.ArgParser, cast interface{}) (int, error) {
+	client := cast.(pb.KafkaPixyClient)
+
+	parser.SetDesc(`List all the consumers of a topic`)
+	parser.AddArgument("topic").
+		Required().
+		Env("TOPIC").
+		Help("topic to list consumers for")
+	parser.AddOption("--group").
+		Alias("-g").
+		Help("only retrieve consumer information for this group")
+
+	opts := parser.ParseSimple(nil)
+	if opts == nil {
+		return 1, nil
+	}
+
+	ctx, _ := context.WithTimeout(context.Background(), time.Second*10)
+	resp, err := client.ListConsumers(ctx, &pb.ListConsumersRq{
+		Group: opts.String("group"),
+		Topic: opts.String("topic"),
+	})
+	if err != nil {
+		return 1, errors.Wrap(err, "while listing consumers")
+	}
+
+	data, err := json.MarshalIndent(resp, "", "    ")
+	if err != nil {
+		return 1, errors.Wrap(err, "during JSON marshal")
+	}
+	fmt.Println(string(data))
+
+	return 0, nil
+}
+
+func ListTopics(parser *args.ArgParser, cast interface{}) (int, error) {
+	client := cast.(pb.KafkaPixyClient)
+
+	parser.SetDesc(`List all the topics kafka knows about`)
+	parser.AddOption("--with-partitions").
+		Alias("-p").
+		IsTrue().
+		Help("include partition metadata with the listing")
+
+	opts := parser.ParseSimple(nil)
+	if opts == nil {
+		return 1, nil
+	}
+
+	ctx, _ := context.WithTimeout(context.Background(), time.Second*10)
+	resp, err := client.ListTopics(ctx, &pb.ListTopicRq{WithPartitions: opts.Bool("with-partitions")})
+	if err != nil {
+		return 1, errors.Wrap(err, "while listing topics")
+	}
+
+	data, err := json.MarshalIndent(resp, "", "    ")
+	if err != nil {
+		return 1, errors.Wrap(err, "during JSON marshal")
+	}
+	fmt.Println(string(data))
+
+	return 0, nil
+}
+
+func Topic(parser *args.ArgParser, cast interface{}) (int, error) {
+	client := cast.(pb.KafkaPixyClient)
+
+	desc := args.Dedent(`Get metadata for a topic
+
+	Examples:
+	   Get metadata with partitions
+	   $ kafka-pixy-cli topic my-topic --with-partitions`)
+
+	parser.SetDesc(desc)
+	parser.AddArgument("topic").
+		Required().
+		Env("TOPIC").
+		Help("topic to get metadata for")
+	parser.AddOption("--with-partitions").
+		Alias("-p").
+		IsTrue().
+		Help("include partition metadata with the listing")
+
+	opts := parser.ParseSimple(nil)
+	if opts == nil {
+		return 1, nil
+	}
+
+	ctx, _ := context.WithTimeout(context.Background(), time.Second*10)
+	resp, err := client.GetTopicMetadata(ctx, &pb.GetTopicMetadataRq{
+		WithPartitions: opts.Bool("with-partitions"),
+		Topic:          opts.String("topic"),
+	})
+	if err != nil {
+		return 1, errors.Wrap(err, "while listing consumers")
+	}
+
+	data, err := json.MarshalIndent(resp, "", "    ")
+	if err != nil {
+		return 1, errors.Wrap(err, "during JSON marshal")
+	}
+	fmt.Println(string(data))
+
+	return 0, nil
 }
 
 func ConsumeEvents(parser *args.ArgParser, cast interface{}) (int, error) {

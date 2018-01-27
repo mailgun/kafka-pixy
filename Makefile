@@ -18,7 +18,7 @@ vet:
 	go vet `go list ./... | grep -v '/vendor/'`
 
 grpc:
-	protoc -I . kafkapixy.proto --go_out=plugins=grpc:gen/golang
+	protoc -I . kafkapixy.proto --go_out=plugins=grpc:gen/golang --python_out=grpc:gen/python
 
 errcheck: install_errcheck
 	errcheck github.com/mailgun/kafka-pixy

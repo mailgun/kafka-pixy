@@ -81,6 +81,38 @@ service KafkaPixy {
     //  * Internal (13): If Kafka returns an error on offset request
     //  * NotFound (5): If the group and or topic does not exist
     rpc GetOffsets (GetOffsetsRq) returns (GetOffsetsRs) {}
+
+    // Sets partition offsets for the specified topic and group.
+    // NOTE: Although the request accepts the PartitionOffset object i
+    // only 'Partition', 'Offset' and 'Metadata' are set by this method
+    //
+    // gRPC error codes:
+    //  * Invalid Argument (3): If unable to find the cluster named in the request
+    //  * Internal (13): If Kafka returns an error on offset request
+    //  * NotFound (5): If the group and or topic does not exist
+    rpc SetOffsets (SetOffsetsRq) returns (SetOffsetsRs) {}
+
+    // Lists all topics and metadata with optional metadata for the partitions of the topic
+    //
+    // gRPC error codes:
+    //  * Invalid Argument (3): If unable to find the cluster named in the request
+    //  * Internal (13): If Kafka returns an error on request
+    rpc ListTopics (ListTopicRq) returns (ListTopicRs) {}
+
+    // Lists all consumers of a topic
+    //
+    // gRPC error codes:
+    //  * Invalid Argument (3): If unable to find the cluster named in the request
+    //  * Internal (13): If Kafka returns an error on request
+    rpc ListConsumers (ListConsumersRq) returns (ListConsumersRs) {}
+
+    // Fetches topic metadata and optional metadata for the partitions of the topic
+    //
+    // gRPC error codes:
+    //  * Invalid Argument (3): If unable to find the cluster named in the request
+    //  * Internal (13): If Kafka returns an error on request
+    //  * NotFound (5): If the topic does not exist
+    rpc GetTopicMetadata (GetTopicMetadataRq) returns (GetTopicMetadataRs) {}
 }
 
 message ProdRq {
@@ -229,3 +261,90 @@ message GetOffsetsRs {
     repeated PartitionOffset offsets = 1;
 }
 
+// Partition metadata as retrieved from kafka
+message PartitionMetadata {
+    // The Partition this structure describes
+    int32 partition = 1;
+
+    // The node id for the kafka broker currently acting as leader for this partition.
+    // If no leader exists because we are in the middle of a leader election this id will be -1.
+    int32 leader = 2;
+
+    // The set of alive nodes that currently acts as slaves for the leader for this partition.
+    repeated int32 replicas = 3;
+
+    // The set subset of the replicas that are "caught up" to the leader
+    repeated int32 isr = 4;
+}
+
+message GetTopicMetadataRq {
+    // Name of a Kafka cluster
+    string cluster = 1;
+
+    // Name of a topic
+    string topic = 2;
+
+    // Should include partition metadata
+    bool with_partitions = 3;
+}
+
+message GetTopicMetadataRs {
+    // Version of this metadata
+    int32 version  = 1;
+
+    // Config values
+    map<string, string> config = 2;
+
+    // Optional list of metadata for the partitions of this topic
+    repeated PartitionMetadata partitions = 3;
+}
+
+message ListTopicRs {
+    map<string, GetTopicMetadataRs> topics = 1;
+}
+
+message ListTopicRq {
+    // Name of a Kafka cluster
+    string cluster = 1;
+
+    // Should include partition metadata
+    bool with_partitions = 2;
+}
+
+message ListConsumersRq {
+    // Name of a Kafka cluster
+    string cluster = 1;
+
+    // Name of a topic
+    string topic = 2;
+
+    // If non empty, return only the specified group in the result
+    string group = 3;
+}
+
+message ConsumerPartitions {
+    repeated int32 partitions = 1;
+}
+
+message ConsumerGroups {
+    map<string, ConsumerPartitions> consumers = 1;
+}
+
+message ListConsumersRs {
+    map<string, ConsumerGroups> groups = 1;
+}
+
+message SetOffsetsRq {
+    // Name of a Kafka cluster
+    string cluster = 1;
+
+    // Name of a topic
+    string topic = 2;
+
+    // Name of a consumer group.
+    string group = 3;
+
+    repeated PartitionOffset offsets = 4;
+}
+
+message SetOffsetsRs {}

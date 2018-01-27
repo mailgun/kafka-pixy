@@ -288,6 +288,7 @@ func (a *T) GetAllTopicConsumers(topic string) (map[string]map[string][]int32, e
 	if err != nil {
 		return nil, err
 	}
+
 	groupsPath := fmt.Sprintf("%s/consumers", a.cfg.ZooKeeper.Chroot)
 	groups, _, err := kzConn.Children(groupsPath)
 	if err != nil {
@@ -353,6 +354,12 @@ func (a *T) ListTopics(withPartitions, withConfig bool) ([]TopicMetadata, error)
 	kafkaClt, err := a.lazyKafkaClt()
 	if err != nil {
 		return nil, err
+	}
+
+	// Refresh metadata as topic metadata may have updated recently
+	err = kafkaClt.RefreshMetadata()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to refresh metadata")
 	}
 
 	topics, err := kafkaClt.Topics()
