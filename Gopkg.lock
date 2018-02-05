@@ -2,10 +2,11 @@
 
 
 [[projects]]
+  branch = "fork"
   name = "github.com/Shopify/sarama"
   packages = ["."]
-  revision = "bbdbe644099b7fdc8327d5cc69c030945188b2e9"
-  version = "v1.13.0"
+  revision = "fc0b112a90f3a322cbd6cd88054ba5cc02cc408f"
+  source = "github.com/mailgun/sarama"
 
 [[projects]]
   name = "github.com/davecgh/go-spew"
@@ -235,6 +236,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "87554e77a5136034ea139f15895331417d6b9bda42e36662e7cd14e3e654af43"
+  inputs-digest = "cc0f832d80039a2962e00812300a94aadff8e92c7bd4774da2d9c807a1c223ec"
   solver-name = "gps-cdcl"
   solver-version = 1
