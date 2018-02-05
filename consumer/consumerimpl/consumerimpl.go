@@ -8,8 +8,8 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer/dispatcher"
 	"github.com/mailgun/kafka-pixy/consumer/groupcsm"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
-	"github.com/mailgun/kazoo-go"
 	"github.com/pkg/errors"
+	"github.com/wvanbergen/kazoo-go"
 )
 
 // T is a Kafka consumer implementation that automatically maintains consumer

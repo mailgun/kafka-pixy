@@ -23,8 +23,8 @@ import (
 	"github.com/mailgun/kafka-pixy/server/httpsrv"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
-	"github.com/mailgun/kazoo-go"
 	"github.com/pkg/errors"
+	"github.com/wvanbergen/kazoo-go"
 	. "gopkg.in/check.v1"
 )
 
