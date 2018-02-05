@@ -56,3 +56,7 @@
 [[constraint]]
   name = "github.com/thrawn01/args"
   version = "0.2.0"
+
+[prune]
+  unused-packages = true
+  go-tests = true
