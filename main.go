@@ -89,17 +89,17 @@ func main() {
 
 func makeConfig() (*config.App, error) {
 	var cfg *config.App
-	// If a YAML configuration file is provided, then load it and ignore all
-	// parameters provided on the command line.
+	// If a YAML configuration file is provided, then load it and let
+	// parameters provided on the command line override values on it.
 	if cmdConfig != "" {
 		var err error
 		if cfg, err = config.FromYAMLFile(cmdConfig); err != nil {
 			return nil, err
 		}
-		return cfg, nil
+	} else {
+		cfg = config.DefaultApp(defaultCluster)
 	}
 
-	cfg = config.DefaultApp(defaultCluster)
 	if cmdGRPCAddr != "" {
 		cfg.GRPCAddr = cmdGRPCAddr
 	}
