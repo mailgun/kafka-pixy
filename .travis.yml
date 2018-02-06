@@ -9,7 +9,7 @@ env:
     - INSTALL_ROOT=/home/travis
     - KAFKA_HOSTNAME=localhost
     - ZK_NODE_COUNT=1
-    - KAFKA_NODE_COUNT=1
+    - KAFKA_NODE_COUNT=3
     - REPLICATION_FACTOR=1
   matrix:
     - KAFKA_VERSION=0.10.2.1
