@@ -51,7 +51,8 @@
     "ptypes/duration",
     "ptypes/timestamp"
   ]
-  revision = "8ee79997227bf9b34611aee7946ae64735e6fd93"
+  revision = "925541529c1fa6821df4e44ce2723319eb2be768"
+  version = "v1.0.0"
 
 [[projects]]
   name = "github.com/golang/snappy"
@@ -243,6 +244,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "f39b4c05652addca0de9ebc5c19581744919d1a2da36aaf5d0139ee8bce6c08c"
+  inputs-digest = "bb0241081ef6dee3d2713055e610904cd6fb63ee4f81ac5054ff81cd31031879"
   solver-name = "gps-cdcl"
   solver-version = 1

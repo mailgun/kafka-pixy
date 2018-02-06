@@ -58,6 +58,10 @@
   name = "github.com/thrawn01/args"
   version = "0.2.0"
 
+[[constraint]]
+  name = "github.com/golang/protobuf"
+  version = "1.0.0"
+
 [prune]
   unused-packages = true
   go-tests = true
