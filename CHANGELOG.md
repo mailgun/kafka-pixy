@@ -1,8 +1,9 @@
 # Changelog
 
-#### Version 0.14.1 (TBD)
+#### Version 0.15.0 (TBD)
 
 Implemented:
+* Added support for Kafka v0.11.0.0 - v1.0.0
 * Consumer.RebalanceTimeout was removed, so rebalancing is triggered as soon
   as membership status of a consumer group or subscription of a consumer group
   member changes.
