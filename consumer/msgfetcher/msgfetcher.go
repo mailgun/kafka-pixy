@@ -143,8 +143,8 @@ func (f *factory) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
 		execActDesc:      f.actDesc.NewChild("broker", brokerConn.ID(), "exec"),
 		cfg:              f.cfg,
 		conn:             brokerConn,
-		requestsCh:       make(chan fetchReq),
-		requestBatchesCh: make(chan []fetchReq),
+		requestsCh:       make(chan fetchRq),
+		requestBatchesCh: make(chan []fetchRq),
 	}
 	actor.Spawn(be.aggrActDesc, &be.wg, be.runAggregator)
 	actor.Spawn(be.execActDesc, &be.wg, be.runExecutor)
@@ -203,8 +203,8 @@ type msgFetcher struct {
 	assignmentCh          chan mapper.Executor
 	messagesCh            chan consumer.Message
 	errorsCh              chan error
-	brokerRequestCh       chan<- fetchReq
-	nilOrBrokerRequestsCh chan<- fetchReq
+	brokerRequestCh       chan<- fetchRq
+	nilOrBrokerRequestsCh chan<- fetchRq
 	stopCh                chan none.T
 	wg                    sync.WaitGroup
 }
@@ -239,8 +239,8 @@ func (mf *msgFetcher) run() {
 	defer mf.f.onMsgIStreamStopped(mf)
 
 	var (
-		fetchResultCh       = make(chan fetchRes, 1)
-		nilOrFetchResultsCh <-chan fetchRes
+		fetchResultCh       = make(chan fetchRs, 1)
+		nilOrFetchResultsCh <-chan fetchRs
 		nilOrMessagesCh     chan<- consumer.Message
 		fetchedMessages     []consumer.Message
 		err                 error
@@ -260,13 +260,13 @@ func (mf *msgFetcher) run() {
 				mf.nilOrBrokerRequestsCh = mf.brokerRequestCh
 			}
 
-		case mf.nilOrBrokerRequestsCh <- fetchReq{mf.id.topic, mf.id.partition, mf.offset, fetchResultCh}:
+		case mf.nilOrBrokerRequestsCh <- fetchRq{mf.id.topic, mf.id.partition, mf.offset, fetchResultCh}:
 			mf.nilOrBrokerRequestsCh = nil
 			nilOrFetchResultsCh = fetchResultCh
 
-		case result := <-nilOrFetchResultsCh:
+		case fetchRs := <-nilOrFetchResultsCh:
 			nilOrFetchResultsCh = nil
-			if fetchedMessages, err = mf.parseFetchResult(result); err != nil {
+			if fetchedMessages, err = mf.parseFetchResponse(fetchRs); err != nil {
 				mf.reportError(err)
 				if err == sarama.ErrOffsetOutOfRange {
 					mf.actDesc.Log().WithError(err).Error("Fatal request failure")
@@ -306,38 +306,34 @@ func (mf *msgFetcher) run() {
 	}
 }
 
-// parseFetchResult parses a fetch response received a broker.
-func (mf *msgFetcher) parseFetchResult(fetchResult fetchRes) ([]consumer.Message, error) {
-	if fetchResult.Err != nil {
-		return nil, fetchResult.Err
+// parseFetchResponse parses a fetch response received a broker.
+func (mf *msgFetcher) parseFetchResponse(fetchRs fetchRs) ([]consumer.Message, error) {
+	if fetchRs.Err != nil {
+		return nil, fetchRs.Err
 	}
-
-	response := fetchResult.Response
-	if response == nil {
+	kafkaFetchRs := fetchRs.kafkaRs
+	if kafkaFetchRs == nil {
 		return nil, errIncompleteResponse
 	}
-
-	block := response.GetBlock(mf.id.topic, mf.id.partition)
-	if block == nil {
+	kafkaFetchRsBlock := kafkaFetchRs.GetBlock(mf.id.topic, mf.id.partition)
+	if kafkaFetchRsBlock == nil {
 		return nil, errIncompleteResponse
 	}
-
-	if block.Err != sarama.ErrNoError {
-		return nil, block.Err
+	if kafkaFetchRsBlock.Err != sarama.ErrNoError {
+		return nil, kafkaFetchRsBlock.Err
 	}
-
-	if block.Records.MessageSet() != nil {
-		return mf.parseMessageSet(block.Records.MessageSet(), block.HighWaterMarkOffset)
+	if kafkaFetchRsBlock.MessageSet() != nil {
+		return mf.parseMessageSet(kafkaFetchRsBlock)
 	}
-
-	if block.Records.RecordBatch() != nil {
-		return mf.parseRecordBatch(block.Records.RecordBatch(), block.HighWaterMarkOffset)
+	if kafkaFetchRsBlock.RecordBatch() != nil {
+		return mf.parseRecordBatch(kafkaFetchRsBlock)
 	}
-
-	return nil, errors.New("Zero block")
+	// There are no messages available.
+	return nil, nil
 }
 
-func (mf *msgFetcher) parseMessageSet(messageSet *sarama.MessageSet, HighWaterMarkOffset int64) ([]consumer.Message, error) {
+func (mf *msgFetcher) parseMessageSet(kafkaFetchRsBlock *sarama.FetchResponseBlock) ([]consumer.Message, error) {
+	messageSet := kafkaFetchRsBlock.MessageSet()
 	// We got no messages. If we got a trailing one, it means there is a
 	// producer that writes messages larger then Consumer.FetchMaxBytes in size.
 	if len(messageSet.Messages) == 0 && messageSet.PartialTrailingMessage {
@@ -367,7 +363,7 @@ func (mf *msgFetcher) parseMessageSet(messageSet *sarama.MessageSet, HighWaterMa
 					Offset:    offset,
 					Timestamp: msg.Msg.Timestamp,
 				},
-				HighWaterMark: HighWaterMarkOffset,
+				HighWaterMark: kafkaFetchRsBlock.HighWaterMarkOffset,
 			}
 			fetchedMessages = append(fetchedMessages, consumerMsg)
 		}
@@ -378,7 +374,9 @@ func (mf *msgFetcher) parseMessageSet(messageSet *sarama.MessageSet, HighWaterMa
 	return fetchedMessages, nil
 }
 
-func (mf *msgFetcher) parseRecordBatch(recordBatch *sarama.RecordBatch, HighWaterMarkOffset int64) ([]consumer.Message, error) {
+func (mf *msgFetcher) parseRecordBatch(kafkaFetchRsBlock *sarama.FetchResponseBlock) ([]consumer.Message, error) {
+	recordBatch := kafkaFetchRsBlock.RecordBatch()
+
 	if recordBatch.Control {
 		mf.actDesc.Log().Warn("Control message ignored")
 		return nil, nil
@@ -407,7 +405,7 @@ func (mf *msgFetcher) parseRecordBatch(recordBatch *sarama.RecordBatch, HighWate
 				Offset:    offset,
 				Timestamp: recordBatch.FirstTimestamp.Add(record.TimestampDelta),
 			},
-			HighWaterMark: HighWaterMarkOffset,
+			HighWaterMark: kafkaFetchRsBlock.HighWaterMarkOffset,
 		}
 		fetchedMessages = append(fetchedMessages, consumerMsg)
 	}
@@ -445,21 +443,21 @@ type brokerExecutor struct {
 	execActDesc      *actor.Descriptor
 	cfg              *config.Proxy
 	conn             *sarama.Broker
-	requestsCh       chan fetchReq
-	requestBatchesCh chan []fetchReq
+	requestsCh       chan fetchRq
+	requestBatchesCh chan []fetchRq
 	wg               sync.WaitGroup
 }
 
-type fetchReq struct {
+type fetchRq struct {
 	Topic     string
 	Partition int32
 	Offset    int64
-	ReplyToCh chan<- fetchRes
+	ReplyToCh chan<- fetchRs
 }
 
-type fetchRes struct {
-	Response *sarama.FetchResponse
-	Err      error
+type fetchRs struct {
+	kafkaRs *sarama.FetchResponse
+	Err     error
 }
 
 // implements `mapper.Executor`.
@@ -479,8 +477,8 @@ func (be *brokerExecutor) Stop() {
 func (be *brokerExecutor) runAggregator() {
 	defer close(be.requestBatchesCh)
 
-	var nilOrRequestBatchesCh chan<- []fetchReq
-	var requestBatch []fetchReq
+	var nilOrRequestBatchesCh chan<- []fetchRq
+	var requestBatch []fetchRq
 	for {
 		select {
 		case fr, ok := <-be.requestsCh:
@@ -507,32 +505,32 @@ func (be *brokerExecutor) runExecutor() {
 		// allow the Kafka cluster some time to recuperate.
 		if time.Now().UTC().Sub(lastErrTime) < be.cfg.Consumer.RetryBackoff {
 			for _, fr := range requestBatch {
-				fr.ReplyToCh <- fetchRes{nil, lastErr}
+				fr.ReplyToCh <- fetchRs{nil, lastErr}
 			}
 			continue
 		}
 		// Make a batch fetch request for all hungry message streams.
-		kafkaRq := &sarama.FetchRequest{
+		kafkaFetchRq := &sarama.FetchRequest{
 			MinBytes:    1,
 			MaxWaitTime: int32(be.cfg.Consumer.FetchMaxWait / time.Millisecond),
 		}
 		if be.cfg.Kafka.Version.IsAtLeast(sarama.V0_10_0_0) {
-			kafkaRq.Version = 2
+			kafkaFetchRq.Version = 2
 		}
 		if be.cfg.Kafka.Version.IsAtLeast(sarama.V0_10_1_0) {
-			kafkaRq.Version = 3
-			kafkaRq.MaxBytes = sarama.MaxResponseSize
+			kafkaFetchRq.Version = 3
+			kafkaFetchRq.MaxBytes = sarama.MaxResponseSize
 		}
 		if be.cfg.Kafka.Version.IsAtLeast(sarama.V0_11_0_0) {
-			kafkaRq.Version = 4
-			kafkaRq.Isolation = sarama.ReadUncommitted // We don't support yet transactions.
+			kafkaFetchRq.Version = 4
+			kafkaFetchRq.Isolation = sarama.ReadUncommitted // We don't support yet transactions.
 		}
 
 		for _, fr := range requestBatch {
-			kafkaRq.AddBlock(fr.Topic, fr.Partition, fr.Offset, int32(be.cfg.Consumer.FetchMaxBytes))
+			kafkaFetchRq.AddBlock(fr.Topic, fr.Partition, fr.Offset, int32(be.cfg.Consumer.FetchMaxBytes))
 		}
-		var kafkaRs *sarama.FetchResponse
-		kafkaRs, lastErr = be.conn.Fetch(kafkaRq)
+		var kafkaFetchRs *sarama.FetchResponse
+		kafkaFetchRs, lastErr = be.conn.Fetch(kafkaFetchRq)
 		if lastErr != nil {
 			lastErrTime = time.Now().UTC()
 			be.conn.Close()
@@ -540,7 +538,7 @@ func (be *brokerExecutor) runExecutor() {
 		}
 		// Fan the response out to the message streams.
 		for _, fr := range requestBatch {
-			fr.ReplyToCh <- fetchRes{kafkaRs, lastErr}
+			fr.ReplyToCh <- fetchRs{kafkaFetchRs, lastErr}
 		}
 	}
 }

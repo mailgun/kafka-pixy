@@ -17,5 +17,5 @@ func (r *OffsetCommitRequest) Offset(topic string, partitionID int32) (int64, st
 }
 
 
-func (r *Records) RecordBatch() *RecordBatch { return r.recordBatch }
-func (r *Records) MessageSet() *MessageSet { return r.msgSet }
+func (b *FetchResponseBlock) RecordBatch() *RecordBatch { return b.Records.recordBatch }
+func (b *FetchResponseBlock) MessageSet() *MessageSet { return b.Records.msgSet }
