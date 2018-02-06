@@ -85,8 +85,8 @@
     "kafkahook",
     "levelfilter"
   ]
-  revision = "e1f5c6d5171b12fef02451779c85dd2ec322607b"
-  version = "v1.1.1"
+  revision = "901b4e66581c5031b05ec3e7686c4b4eb52aa5d2"
+  version = "v1.1.2"
 
 [[projects]]
   name = "github.com/mailru/easyjson"
@@ -236,6 +236,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "cc0f832d80039a2962e00812300a94aadff8e92c7bd4774da2d9c807a1c223ec"
+  inputs-digest = "4fc344612375994591ad23c98f2ac7426d08fa03b2ba09be4fed7edfe042a72f"
   solver-name = "gps-cdcl"
   solver-version = 1
