@@ -315,31 +315,37 @@ func (mf *msgFetcher) parseFetchResponse(fetchRs fetchRs) ([]consumer.Message, e
 	if kafkaFetchRs == nil {
 		return nil, errIncompleteResponse
 	}
-	kafkaFetchRsBlock := kafkaFetchRs.GetBlock(mf.id.topic, mf.id.partition)
-	if kafkaFetchRsBlock == nil {
+	fetchRsBlock := kafkaFetchRs.GetBlock(mf.id.topic, mf.id.partition)
+	if fetchRsBlock == nil {
 		return nil, errIncompleteResponse
 	}
-	if kafkaFetchRsBlock.Err != sarama.ErrNoError {
-		return nil, kafkaFetchRsBlock.Err
+	if fetchRsBlock.Err != sarama.ErrNoError {
+		return nil, fetchRsBlock.Err
 	}
-	if kafkaFetchRsBlock.MessageSet() != nil {
-		return mf.parseMessageSet(kafkaFetchRsBlock)
+
+	highWaterMarkOffset := fetchRsBlock.HighWaterMarkOffset
+	var fetchedMessages []consumer.Message
+	for _, recordsSet := range fetchRsBlock.RecordsSet {
+		recordBatch := recordsSet.RecordBatch()
+		if recordBatch != nil {
+			fetchedMessages = append(fetchedMessages, mf.parseRecordBatch(recordBatch, highWaterMarkOffset)...)
+			continue
+		}
+		messageSet := recordsSet.MessageSet()
+		if messageSet != nil {
+			fetchedMessages = append(fetchedMessages, mf.parseMessageSet(messageSet, highWaterMarkOffset)...)
+		}
 	}
-	if kafkaFetchRsBlock.RecordBatch() != nil {
-		return mf.parseRecordBatch(kafkaFetchRsBlock)
-	}
-	// There are no messages available.
-	return nil, nil
+	return fetchedMessages, nil
 }
 
-func (mf *msgFetcher) parseMessageSet(kafkaFetchRsBlock *sarama.FetchResponseBlock) ([]consumer.Message, error) {
-	messageSet := kafkaFetchRsBlock.MessageSet()
+func (mf *msgFetcher) parseMessageSet(messageSet *sarama.MessageSet, highWaterMarkOffset int64) []consumer.Message {
 	// We got no messages. If we got a trailing one, it means there is a
 	// producer that writes messages larger then Consumer.FetchMaxBytes in size.
 	if len(messageSet.Messages) == 0 && messageSet.PartialTrailingMessage {
-		mf.actDesc.Log().Errorf("Oversize message skipped: offset=%d", mf.offset)
+		mf.actDesc.Log().Errorf("Skipped partial trailing message in set: offset=%d", mf.offset)
 		mf.reportError(errMessageTooLarge)
-		return nil, nil
+		return nil
 	}
 
 	var fetchedMessages []consumer.Message
@@ -363,39 +369,46 @@ func (mf *msgFetcher) parseMessageSet(kafkaFetchRsBlock *sarama.FetchResponseBlo
 					Offset:    offset,
 					Timestamp: msg.Msg.Timestamp,
 				},
-				HighWaterMark: kafkaFetchRsBlock.HighWaterMarkOffset,
+				HighWaterMark: highWaterMarkOffset,
 			}
 			fetchedMessages = append(fetchedMessages, consumerMsg)
 		}
 	}
-	if len(fetchedMessages) == 0 {
-		return nil, nil
-	}
-	return fetchedMessages, nil
+	return fetchedMessages
 }
 
-func (mf *msgFetcher) parseRecordBatch(kafkaFetchRsBlock *sarama.FetchResponseBlock) ([]consumer.Message, error) {
-	recordBatch := kafkaFetchRsBlock.RecordBatch()
-
+func (mf *msgFetcher) parseRecordBatch(recordBatch *sarama.RecordBatch, highWaterMarkOffset int64) []consumer.Message {
 	if recordBatch.Control {
-		mf.actDesc.Log().Warn("Control message ignored")
-		return nil, nil
+		mf.actDesc.Log().Warn("Control record batch ignored")
+		return nil
 	}
 
 	// We got no messages. If we got a trailing one, it means there is a
 	// producer that writes messages larger then Consumer.FetchMaxBytes in size.
 	if len(recordBatch.Records) == 0 && recordBatch.PartialTrailingRecord {
-		mf.actDesc.Log().Errorf("Oversize message skipped: offset=%d", mf.offset)
+		mf.actDesc.Log().Errorf("Skipped partial trailing record in batch: offset=%d", mf.offset)
 		mf.reportError(errMessageTooLarge)
-		return nil, nil
+		return nil
+	}
+
+	// Compacted records can lie about their offset delta, but that can be
+	// detected comparing the last offset delta from the record batch with
+	// actual offset delta of the last record. The difference (skew) should be
+	// applied to all records in the batch.
+	var offsetSkew int64
+	recordCount := len(recordBatch.Records)
+	if recordCount > 0 {
+		lastRecordOffsetDelta := recordBatch.Records[recordCount-1].OffsetDelta
+		offsetSkew = int64(recordBatch.LastOffsetDelta) - lastRecordOffsetDelta
 	}
 
 	var fetchedMessages []consumer.Message
 	for _, record := range recordBatch.Records {
-		offset := recordBatch.FirstOffset + record.OffsetDelta
+		offset := recordBatch.FirstOffset + record.OffsetDelta + offsetSkew
 		if offset < mf.offset {
 			continue
 		}
+
 		consumerMsg := consumer.Message{
 			ConsumerMessage: sarama.ConsumerMessage{
 				Topic:     mf.id.topic,
@@ -405,14 +418,11 @@ func (mf *msgFetcher) parseRecordBatch(kafkaFetchRsBlock *sarama.FetchResponseBl
 				Offset:    offset,
 				Timestamp: recordBatch.FirstTimestamp.Add(record.TimestampDelta),
 			},
-			HighWaterMark: kafkaFetchRsBlock.HighWaterMarkOffset,
+			HighWaterMark: highWaterMarkOffset,
 		}
 		fetchedMessages = append(fetchedMessages, consumerMsg)
 	}
-	if len(fetchedMessages) == 0 {
-		return nil, nil
-	}
-	return fetchedMessages, nil
+	return fetchedMessages
 }
 
 // reportError sends message fetch errors to the error channel if the user
@@ -523,7 +533,7 @@ func (be *brokerExecutor) runExecutor() {
 		}
 		if be.cfg.Kafka.Version.IsAtLeast(sarama.V0_11_0_0) {
 			kafkaFetchRq.Version = 4
-			kafkaFetchRq.Isolation = sarama.ReadUncommitted // We don't support yet transactions.
+			kafkaFetchRq.Isolation = sarama.ReadUncommitted
 		}
 
 		for _, fr := range requestBatch {

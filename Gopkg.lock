@@ -5,7 +5,7 @@
   branch = "fork"
   name = "github.com/Shopify/sarama"
   packages = ["."]
-  revision = "33f60798a4e91984d3d0ba7efb1415d7436479df"
+  revision = "f74e4a1b4894963e4c35934259ce3237d7ef6b95"
   source = "github.com/mailgun/sarama"
 
 [[projects]]
