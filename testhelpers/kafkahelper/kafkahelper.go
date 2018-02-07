@@ -180,6 +180,14 @@ func (kh *T) ResetOffsets(group, topic string) {
 	wg.Wait()
 }
 
+func (kh *T) SetOffsetValues(group, topic string, offsetValues []int64) {
+	offsets := make([]offsetmgr.Offset, len(offsetValues))
+	for i, offsetVal := range offsetValues {
+		offsets[i] = offsetmgr.Offset{Val: offsetVal}
+	}
+	kh.SetOffsets(group, topic, offsets)
+}
+
 func (kh *T) SetOffsets(group, topic string, offsets []offsetmgr.Offset) {
 	cfg := config.DefaultProxy()
 	cfg.Consumer.OffsetsCommitInterval = 1 * time.Millisecond

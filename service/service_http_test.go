@@ -230,6 +230,9 @@ func (s *ServiceHTTPSuite) TestBothAPI(c *C) {
 	c.Assert(err1, IsNil)
 	c.Assert(err2, IsNil)
 	offsetsAfter := s.kh.GetNewestOffsets("test.4")
+
+	fmt.Printf("*** Before=%v, After=%v\n", offsetsBefore, offsetsAfter)
+
 	msgs := s.kh.GetMessages("test.4", offsetsBefore, offsetsAfter)
 	c.Assert(msgs, DeepEquals,
 		[][]string{[]string(nil), {"Превед", "Kitty"}, []string(nil), []string(nil)})
@@ -256,7 +259,22 @@ func (s *ServiceHTTPSuite) TestStoppedServerCall(c *C) {
 // assume that the broker's limit is the same as the producer's one or higher.
 func (s *ServiceHTTPSuite) TestLargestMessage(c *C) {
 	offsetsBefore := s.kh.GetNewestOffsets("test.4")
-	maxMsgSize := sarama.NewConfig().Producer.MaxMessageBytes - ProdMsgMetadataSize([]byte("foo"))
+	saramaCfg := s.proxyCfg.SaramaProducerCfg()
+	maxMsgSize := saramaCfg.Producer.MaxMessageBytes
+
+	// Since v0.11.0.0 the broker configuration max.message.bytes now applies
+	// to the total size of a batch of messages. Previously the setting applied
+	// to batches of compressed messages, or to non-compressed messages
+	// individually. A message batch may consist of only a single message, so
+	// in most cases, the limitation on the size of individual messages is only
+	// reduced by the overhead of the batch format.
+	fmt.Printf("*** %v", saramaCfg.Version)
+	if saramaCfg.Version.IsAtLeast(sarama.V0_11_0_0) {
+		maxMsgSize -= 39
+	} else {
+		maxMsgSize -= ProdMsgMetadataSize([]byte("foo"))
+	}
+
 	msg := GenMessage(maxMsgSize)
 	s.cfg.TCPAddr = "127.0.0.1:55501"
 	svc, err := Spawn(s.cfg)
