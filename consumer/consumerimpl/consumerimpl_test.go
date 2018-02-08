@@ -617,8 +617,6 @@ func (s *ConsumerSuite) TestTopicAndAckTimeouts(c *C) {
 	defer cons.Stop()
 
 	cfg1 := testhelpers.NewTestProxyCfg("c2")
-	cfg1.Consumer.LongPollingTimeout = 1000 * time.Millisecond
-	cfg1.Consumer.SubscriptionTimeout = 5000 * time.Millisecond
 	omf1 := offsetmgr.SpawnFactory(s.ns, cfg1, s.kh.KafkaClt())
 	defer omf1.Stop()
 	cons1, err := Spawn(s.ns, cfg1, omf1)
@@ -630,29 +628,15 @@ func (s *ConsumerSuite) TestTopicAndAckTimeouts(c *C) {
 	c.Assert(err, IsNil)
 	assertMsg(c, msg0, produced["A"][0])
 
-	log.Infof("*** cons.1 consume try #1")
-	_, err = cons1.Consume("g1", "test.1")
-	c.Assert(err, Equals, consumer.ErrRequestTimeout)
-	log.Infof("*** cons.1 consume try #2")
-	_, err = cons1.Consume("g1", "test.1")
-	c.Assert(err, Equals, consumer.ErrRequestTimeout)
-	log.Infof("*** cons.1 consume try #3")
-	_, err = cons1.Consume("g1", "test.1")
-	c.Assert(err, Equals, consumer.ErrRequestTimeout)
-	log.Infof("*** cons.1 consume try #4")
-	_, err = cons1.Consume("g1", "test.1")
-	c.Assert(err, Equals, consumer.ErrRequestTimeout)
-	log.Infof("*** cons.1 consume try #5")
-	_, err = cons1.Consume("g1", "test.1")
-	c.Assert(err, Equals, consumer.ErrRequestTimeout)
-
-	log.Infof("*** Pause for cons.0 subscription to expire")
-	time.Sleep(1000 * time.Millisecond)
-
-	log.Infof("*** cons.1 consumes 1 message")
-	msg1, err := cons1.Consume("g1", "test.1")
-	c.Assert(err, IsNil)
-	assertMsg(c, msg1, produced["A"][0])
+	for i := 0; i < 3; i++ {
+		log.Infof("*** cons.1 consume try #%d", i)
+		msg1, err := cons1.Consume("g1", "test.1")
+		if err == nil {
+			assertMsg(c, msg1, produced["A"][0])
+			return
+		}
+	}
+	c.Error("cons.1 should have got message unacked by cons.0")
 }
 
 // After subscription timeout when the last message is acked then the consumer
