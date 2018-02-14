@@ -46,8 +46,8 @@ func (s *OffsetMgrSuite) TestInitialOffset(c *C) {
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("g1", broker1),
+		"FindCoordinatorRequest": sarama.NewMockFindCoordinatorResponse(c).
+			SetCoordinator(sarama.CoordinatorGroup, "g1", broker1),
 		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
 			SetOffset("g1", "t1", 7, 1000, "foo", sarama.ErrNoError).
 			SetOffset("g1", "t1", 8, 2000, "bar", sarama.ErrNoError).
@@ -80,8 +80,8 @@ func (s *OffsetMgrSuite) TestInitialNoCoordinator(c *C) {
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetError("g1", sarama.ErrOffsetsLoadInProgress),
+		"FindCoordinatorRequest": sarama.NewMockFindCoordinatorResponse(c).
+			SetError(sarama.CoordinatorGroup, "g1", sarama.ErrOffsetsLoadInProgress),
 	})
 
 	cfg := testhelpers.NewTestProxyCfg("c1")
@@ -110,8 +110,8 @@ func (s *OffsetMgrSuite) TestInitialFetchError(c *C) {
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("g1", broker1),
+		"FindCoordinatorRequest": sarama.NewMockFindCoordinatorResponse(c).
+			SetCoordinator(sarama.CoordinatorGroup, "g1", broker1),
 		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
 			SetOffset("g1", "t1", 7, 0, "", sarama.ErrNotLeaderForPartition),
 	})
@@ -144,8 +144,8 @@ func (s *OffsetMgrSuite) TestCommitError(c *C) {
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("g1", broker1),
+		"FindCoordinatorRequest": sarama.NewMockFindCoordinatorResponse(c).
+			SetCoordinator(sarama.CoordinatorGroup, "g1", broker1),
 		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
 			SetOffset("g1", "t1", 7, 1234, "foo", sarama.ErrNoError),
 		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
@@ -174,8 +174,8 @@ func (s *OffsetMgrSuite) TestCommitError(c *C) {
 	c.Assert(errors.Cause(err), Equals, sarama.ErrNotLeaderForPartition)
 
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("g1", broker1),
+		"FindCoordinatorRequest": sarama.NewMockFindCoordinatorResponse(c).
+			SetCoordinator(sarama.CoordinatorGroup, "g1", broker1),
 		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
 			SetError("g1", "t1", 7, sarama.ErrNoError),
 	})
@@ -199,8 +199,8 @@ func (s *OffsetMgrSuite) TestCommitIncompleteResponse(c *C) {
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("g1", broker1),
+		"FindCoordinatorRequest": sarama.NewMockFindCoordinatorResponse(c).
+			SetCoordinator(sarama.CoordinatorGroup, "g1", broker1),
 		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
 			SetOffset("g1", "t1", 1, 1000, "foo", sarama.ErrNoError).
 			SetOffset("g1", "t1", 2, 2000, "bar", sarama.ErrNoError),
@@ -236,8 +236,8 @@ func (s *OffsetMgrSuite) TestCommitIncompleteResponse(c *C) {
 	c.Assert(<-om2.CommittedOffsets(), Equals, Offset{2001, "bar2"})
 
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("g1", broker1),
+		"FindCoordinatorRequest": sarama.NewMockFindCoordinatorResponse(c).
+			SetCoordinator(sarama.CoordinatorGroup, "g1", broker1),
 		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
 			SetError("g1", "t1", 1, sarama.ErrNoError),
 	})
@@ -256,8 +256,8 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("g1", broker1),
+		"FindCoordinatorRequest": sarama.NewMockFindCoordinatorResponse(c).
+			SetCoordinator(sarama.CoordinatorGroup, "g1", broker1),
 		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
 			SetOffset("g1", "t1", 7, 0, "", sarama.ErrNotLeaderForPartition),
 	})
@@ -290,8 +290,8 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 	// STAGE 2: Val commit requests fail
 	log.Infof("    STAGE 2")
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("g1", broker1),
+		"FindCoordinatorRequest": sarama.NewMockFindCoordinatorResponse(c).
+			SetCoordinator(sarama.CoordinatorGroup, "g1", broker1),
 		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
 			SetOffset("g1", "t1", 7, 1234, "foo", sarama.ErrNoError),
 		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
@@ -307,8 +307,8 @@ func (s *OffsetMgrSuite) TestCommitBeforeClose(c *C) {
 	// STAGE 3: Finally everything is fine
 	log.Infof("    STAGE 4")
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("g1", broker1),
+		"FindCoordinatorRequest": sarama.NewMockFindCoordinatorResponse(c).
+			SetCoordinator(sarama.CoordinatorGroup, "g1", broker1),
 		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
 			SetOffset("g1", "t1", 7, 0, "", sarama.ErrNoError),
 		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
@@ -334,9 +334,9 @@ func (s *OffsetMgrSuite) TestCommitDifferentGroups(c *C) {
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("g1", broker1).
-			SetCoordinator("g2", broker1),
+		"FindCoordinatorRequest": sarama.NewMockFindCoordinatorResponse(c).
+			SetCoordinator(sarama.CoordinatorGroup, "g1", broker1).
+			SetCoordinator(sarama.CoordinatorGroup, "g2", broker1),
 		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
 			SetOffset("g1", "t1", 7, 1000, "foo", sarama.ErrNoError).
 			SetOffset("g2", "t1", 7, 2000, "bar", sarama.ErrNoError),
@@ -381,9 +381,9 @@ func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("g1", broker1).
-			SetCoordinator("g2", broker1),
+		"FindCoordinatorRequest": sarama.NewMockFindCoordinatorResponse(c).
+			SetCoordinator(sarama.CoordinatorGroup, "g1", broker1).
+			SetCoordinator(sarama.CoordinatorGroup, "g2", broker1),
 		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
 			SetOffset("g1", "t1", 7, 1000, "foo1", sarama.ErrNoError).
 			SetOffset("g1", "t1", 8, 2000, "foo2", sarama.ErrNoError).
@@ -420,9 +420,9 @@ func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 	time.Sleep(cfg.Consumer.RetryBackoff * 2)
 	log.Infof("*** Network recovering...")
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("g1", broker1).
-			SetCoordinator("g2", broker1),
+		"FindCoordinatorRequest": sarama.NewMockFindCoordinatorResponse(c).
+			SetCoordinator(sarama.CoordinatorGroup, "g1", broker1).
+			SetCoordinator(sarama.CoordinatorGroup, "g2", broker1),
 		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
 			SetError("g1", "t1", 7, sarama.ErrNoError).
 			SetError("g1", "t1", 8, sarama.ErrNoError).
@@ -449,8 +449,8 @@ func (s *OffsetMgrSuite) TestCommittedChannel(c *C) {
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("g1", broker1),
+		"FindCoordinatorRequest": sarama.NewMockFindCoordinatorResponse(c).
+			SetCoordinator(sarama.CoordinatorGroup, "g1", broker1),
 		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
 			SetOffset("g1", "t1", 7, 1000, "foo1", sarama.ErrNoError),
 		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
@@ -497,8 +497,8 @@ func (s *OffsetMgrSuite) TestBugConnectionRestored(c *C) {
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()).
 			SetBroker(broker2.Addr(), broker2.BrokerID()),
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("g1", broker2),
+		"FindCoordinatorRequest": sarama.NewMockFindCoordinatorResponse(c).
+			SetCoordinator(sarama.CoordinatorGroup, "g1", broker2),
 	})
 
 	cfg := testhelpers.NewTestProxyCfg("c1")
@@ -574,8 +574,8 @@ func (s *OffsetMgrSuite) TestBugOffsetDroppedOnStop(c *C) {
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
 			SetBroker(broker1.Addr(), broker1.BrokerID()),
-		"ConsumerMetadataRequest": sarama.NewMockConsumerMetadataResponse(c).
-			SetCoordinator("g1", broker1),
+		"FindCoordinatorRequest": sarama.NewMockFindCoordinatorResponse(c).
+			SetCoordinator(sarama.CoordinatorGroup, "g1", broker1),
 		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
 			SetOffset("g1", "t1", 1, 1000, "", sarama.ErrNoError),
 		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).

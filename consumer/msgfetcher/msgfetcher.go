@@ -326,12 +326,12 @@ func (mf *msgFetcher) parseFetchResponse(fetchRs fetchRs) ([]consumer.Message, e
 	highWaterMarkOffset := fetchRsBlock.HighWaterMarkOffset
 	var fetchedMessages []consumer.Message
 	for _, recordsSet := range fetchRsBlock.RecordsSet {
-		recordBatch := recordsSet.RecordBatch()
+		recordBatch := recordsSet.RecordBatch
 		if recordBatch != nil {
 			fetchedMessages = append(fetchedMessages, mf.parseRecordBatch(recordBatch, highWaterMarkOffset)...)
 			continue
 		}
-		messageSet := recordsSet.MessageSet()
+		messageSet := recordsSet.MsgSet
 		if messageSet != nil {
 			fetchedMessages = append(fetchedMessages, mf.parseMessageSet(messageSet, highWaterMarkOffset)...)
 		}
@@ -391,20 +391,9 @@ func (mf *msgFetcher) parseRecordBatch(recordBatch *sarama.RecordBatch, highWate
 		return nil
 	}
 
-	// Compacted records can lie about their offset delta, but that can be
-	// detected comparing the last offset delta from the record batch with
-	// actual offset delta of the last record. The difference (skew) should be
-	// applied to all records in the batch.
-	var offsetSkew int64
-	recordCount := len(recordBatch.Records)
-	if recordCount > 0 {
-		lastRecordOffsetDelta := recordBatch.Records[recordCount-1].OffsetDelta
-		offsetSkew = int64(recordBatch.LastOffsetDelta) - lastRecordOffsetDelta
-	}
-
 	var fetchedMessages []consumer.Message
 	for _, record := range recordBatch.Records {
-		offset := recordBatch.FirstOffset + record.OffsetDelta + offsetSkew
+		offset := recordBatch.FirstOffset + record.OffsetDelta
 		if offset < mf.offset {
 			continue
 		}

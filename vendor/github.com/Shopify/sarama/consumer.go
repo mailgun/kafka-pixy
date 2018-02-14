@@ -441,20 +441,20 @@ func (child *partitionConsumer) HighWaterMarkOffset() int64 {
 
 func (child *partitionConsumer) responseFeeder() {
 	var msgs []*ConsumerMessage
-	msgSent := false
+	expiryTicker := time.NewTicker(child.conf.Consumer.MaxProcessingTime)
+	firstAttempt := true
 
 feederLoop:
 	for response := range child.feeder {
 		msgs, child.responseResult = child.parseResponse(response)
-		expiryTicker := time.NewTicker(child.conf.Consumer.MaxProcessingTime)
 
 		for i, msg := range msgs {
 		messageSelect:
 			select {
 			case child.messages <- msg:
-				msgSent = true
+				firstAttempt = true
 			case <-expiryTicker.C:
-				if !msgSent {
+				if !firstAttempt {
 					child.responseResult = errTimedOut
 					child.broker.acks.Done()
 					for _, msg = range msgs[i:] {
@@ -466,25 +466,22 @@ feederLoop:
 				} else {
 					// current message has not been sent, return to select
 					// statement
-					msgSent = false
+					firstAttempt = false
 					goto messageSelect
 				}
 			}
 		}
 
-		expiryTicker.Stop()
 		child.broker.acks.Done()
 	}
 
+	expiryTicker.Stop()
 	close(child.messages)
 	close(child.errors)
 }
 
 func (child *partitionConsumer) parseMessages(msgSet *MessageSet) ([]*ConsumerMessage, error) {
 	var messages []*ConsumerMessage
-	var incomplete bool
-	prelude := true
-
 	for _, msgBlock := range msgSet.Messages {
 		for _, msg := range msgBlock.Messages() {
 			offset := msg.Offset
@@ -492,29 +489,22 @@ func (child *partitionConsumer) parseMessages(msgSet *MessageSet) ([]*ConsumerMe
 				baseOffset := msgBlock.Offset - msgBlock.Messages()[len(msgBlock.Messages())-1].Offset
 				offset += baseOffset
 			}
-			if prelude && offset < child.offset {
+			if offset < child.offset {
 				continue
 			}
-			prelude = false
-
-			if offset >= child.offset {
-				messages = append(messages, &ConsumerMessage{
-					Topic:          child.topic,
-					Partition:      child.partition,
-					Key:            msg.Msg.Key,
-					Value:          msg.Msg.Value,
-					Offset:         offset,
-					Timestamp:      msg.Msg.Timestamp,
-					BlockTimestamp: msgBlock.Msg.Timestamp,
-				})
-				child.offset = offset + 1
-			} else {
-				incomplete = true
-			}
+			messages = append(messages, &ConsumerMessage{
+				Topic:          child.topic,
+				Partition:      child.partition,
+				Key:            msg.Msg.Key,
+				Value:          msg.Msg.Value,
+				Offset:         offset,
+				Timestamp:      msg.Msg.Timestamp,
+				BlockTimestamp: msgBlock.Msg.Timestamp,
+			})
+			child.offset = offset + 1
 		}
 	}
-
-	if incomplete || len(messages) == 0 {
+	if len(messages) == 0 {
 		return nil, ErrIncompleteResponse
 	}
 	return messages, nil
@@ -522,44 +512,23 @@ func (child *partitionConsumer) parseMessages(msgSet *MessageSet) ([]*ConsumerMe
 
 func (child *partitionConsumer) parseRecords(batch *RecordBatch) ([]*ConsumerMessage, error) {
 	var messages []*ConsumerMessage
-	var incomplete bool
-	prelude := true
-
-	// Compacted records can lie about their offset delta, but that can be
-	// detected comparing the last offset delta from the record batch with
-	// actual offset delta of the last record. The difference (skew) should be
-	// applied to all records in the batch.
-	var offsetSkew int64
-	recordCount := len(batch.Records)
-	if recordCount > 0 {
-		lastRecordOffsetDelta := batch.Records[recordCount-1].OffsetDelta
-		offsetSkew = int64(batch.LastOffsetDelta) - lastRecordOffsetDelta
-	}
-
 	for _, rec := range batch.Records {
-		offset := batch.FirstOffset + rec.OffsetDelta + offsetSkew
-		if prelude && offset < child.offset {
+		offset := batch.FirstOffset + rec.OffsetDelta
+		if offset < child.offset {
 			continue
 		}
-		prelude = false
-
-		if offset >= child.offset {
-			messages = append(messages, &ConsumerMessage{
-				Topic:     child.topic,
-				Partition: child.partition,
-				Key:       rec.Key,
-				Value:     rec.Value,
-				Offset:    offset,
-				Timestamp: batch.FirstTimestamp.Add(rec.TimestampDelta),
-				Headers:   rec.Headers,
-			})
-			child.offset = offset + 1
-		} else {
-			incomplete = true
-		}
+		messages = append(messages, &ConsumerMessage{
+			Topic:     child.topic,
+			Partition: child.partition,
+			Key:       rec.Key,
+			Value:     rec.Value,
+			Offset:    offset,
+			Timestamp: batch.FirstTimestamp.Add(rec.TimestampDelta),
+			Headers:   rec.Headers,
+		})
+		child.offset = offset + 1
 	}
-
-	if incomplete {
+	if len(messages) == 0 {
 		return nil, ErrIncompleteResponse
 	}
 	return messages, nil
@@ -614,14 +583,14 @@ func (child *partitionConsumer) parseResponse(response *FetchResponse) ([]*Consu
 
 		switch records.recordsType {
 		case legacyRecords:
-			messageSetMessages, err := child.parseMessages(records.msgSet)
+			messageSetMessages, err := child.parseMessages(records.MsgSet)
 			if err != nil {
 				return nil, err
 			}
 
 			messages = append(messages, messageSetMessages...)
 		case defaultRecords:
-			recordBatchMessages, err := child.parseRecords(records.recordBatch)
+			recordBatchMessages, err := child.parseRecords(records.RecordBatch)
 			if err != nil {
 				return nil, err
 			}

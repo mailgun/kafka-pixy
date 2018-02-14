@@ -22,9 +22,8 @@
 
 
 [[constraint]]
-  branch = "fork"
+  branch = "master"
   name = "github.com/Shopify/sarama"
-  source = "github.com/mailgun/sarama"
 
 [[constraint]]
   name = "github.com/mailgun/holster"
