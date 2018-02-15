@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/Shopify/sarama"
-	"github.com/mailgun/kazoo-go"
 	"github.com/pkg/errors"
+	"github.com/wvanbergen/kazoo-go"
 	"gopkg.in/yaml.v2"
 )
 
@@ -52,7 +52,7 @@ type Proxy struct {
 		// the Kafka cluster topology.
 		SeedPeers []string `yaml:"seed_peers"`
 
-		// Version of the Kafka cluster. Supported versions are 0.8.2.2 - 0.10.1.0
+		// Version of the Kafka cluster. Supported versions are 0.8.2.2 - 1.0.0
 		Version KafkaVersion
 	} `yaml:"kafka"`
 
@@ -171,6 +171,11 @@ func (kv *KafkaVersion) UnmarshalText(text []byte) error {
 		"0.10.0.1": sarama.V0_10_0_1,
 		"0.10.1.0": sarama.V0_10_1_0,
 		"0.10.2.0": sarama.V0_10_2_0,
+		"0.10.2.1": sarama.V0_10_2_0, // sarama does not define V0_10_2_1
+		"0.11.0.0": sarama.V0_11_0_0,
+		"0.11.0.1": sarama.V0_11_0_0, // sarama does not define V0_11_0_1
+		"0.11.0.2": sarama.V0_11_0_0, // sarama does not define V0_11_0_2
+		"1.0.0":    sarama.V1_0_0_0,
 	}[str]
 	if !ok {
 		return errors.Errorf("bad kafka version, %s", str)

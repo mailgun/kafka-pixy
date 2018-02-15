@@ -11,8 +11,8 @@ import (
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/testhelpers"
-	"github.com/mailgun/kazoo-go"
 	log "github.com/sirupsen/logrus"
+	"github.com/wvanbergen/kazoo-go"
 	. "gopkg.in/check.v1"
 )
 
@@ -178,6 +178,14 @@ func (kh *T) ResetOffsets(group, topic string) {
 		}(p)
 	}
 	wg.Wait()
+}
+
+func (kh *T) SetOffsetValues(group, topic string, offsetValues []int64) {
+	offsets := make([]offsetmgr.Offset, len(offsetValues))
+	for i, offsetVal := range offsetValues {
+		offsets[i] = offsetmgr.Offset{Val: offsetVal}
+	}
+	kh.SetOffsets(group, topic, offsets)
 }
 
 func (kh *T) SetOffsets(group, topic string, offsets []offsetmgr.Offset) {

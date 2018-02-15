@@ -11,9 +11,9 @@ import (
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/kafka-pixy/prettyfmt"
-	"github.com/mailgun/kazoo-go"
 	"github.com/pkg/errors"
 	"github.com/samuel/go-zookeeper/zk"
+	"github.com/wvanbergen/kazoo-go"
 )
 
 // It is ok for an attempt to claim a partition to fail, for it might take

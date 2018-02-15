@@ -1,6 +1,6 @@
 language: go
 go:
-  - 1.9.1
+  - 1.9.3
 
 env:
   global:
@@ -9,12 +9,12 @@ env:
     - INSTALL_ROOT=/home/travis
     - KAFKA_HOSTNAME=localhost
     - ZK_NODE_COUNT=1
-    - KAFKA_NODE_COUNT=1
+    - KAFKA_NODE_COUNT=3
     - REPLICATION_FACTOR=1
   matrix:
-    - KAFKA_VERSION=0.8.2.2
-    - KAFKA_VERSION=0.9.0.1
-    - KAFKA_VERSION=0.10.2.0
+    - KAFKA_VERSION=0.10.2.1
+    - KAFKA_VERSION=0.11.0.2
+    - KAFKA_VERSION=1.0.0
 
 before_install:
   - export REPOSITORY_ROOT=${TRAVIS_BUILD_DIR}

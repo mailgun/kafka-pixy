@@ -305,11 +305,10 @@ func newRequest() consumer.Request {
 
 func newMessage(idx int) (consumer.Message, chan consumer.Event) {
 	eventsCh := make(chan consumer.Event, 1)
-	msg := consumer.Message{
-		Value:    []byte{byte(idx)},
-		Offset:   int64(1000 + idx),
-		EventsCh: eventsCh,
-	}
+	var msg consumer.Message
+	msg.Value = []byte{byte(idx)}
+	msg.Offset = int64(1000 + idx)
+	msg.EventsCh = eventsCh
 	return msg, eventsCh
 }
 

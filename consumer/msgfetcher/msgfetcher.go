@@ -143,8 +143,8 @@ func (f *factory) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
 		execActDesc:      f.actDesc.NewChild("broker", brokerConn.ID(), "exec"),
 		cfg:              f.cfg,
 		conn:             brokerConn,
-		requestsCh:       make(chan fetchReq),
-		requestBatchesCh: make(chan []fetchReq),
+		requestsCh:       make(chan fetchRq),
+		requestBatchesCh: make(chan []fetchRq),
 	}
 	actor.Spawn(be.aggrActDesc, &be.wg, be.runAggregator)
 	actor.Spawn(be.execActDesc, &be.wg, be.runExecutor)
@@ -203,8 +203,8 @@ type msgFetcher struct {
 	assignmentCh          chan mapper.Executor
 	messagesCh            chan consumer.Message
 	errorsCh              chan error
-	brokerRequestCh       chan<- fetchReq
-	nilOrBrokerRequestsCh chan<- fetchReq
+	brokerRequestCh       chan<- fetchRq
+	nilOrBrokerRequestsCh chan<- fetchRq
 	stopCh                chan none.T
 	wg                    sync.WaitGroup
 }
@@ -239,8 +239,8 @@ func (mf *msgFetcher) run() {
 	defer mf.f.onMsgIStreamStopped(mf)
 
 	var (
-		fetchResultCh       = make(chan fetchRes, 1)
-		nilOrFetchResultsCh <-chan fetchRes
+		fetchResultCh       = make(chan fetchRs, 1)
+		nilOrFetchResultsCh <-chan fetchRs
 		nilOrMessagesCh     chan<- consumer.Message
 		fetchedMessages     []consumer.Message
 		err                 error
@@ -260,13 +260,13 @@ func (mf *msgFetcher) run() {
 				mf.nilOrBrokerRequestsCh = mf.brokerRequestCh
 			}
 
-		case mf.nilOrBrokerRequestsCh <- fetchReq{mf.id.topic, mf.id.partition, mf.offset, fetchResultCh}:
+		case mf.nilOrBrokerRequestsCh <- fetchRq{mf.id.topic, mf.id.partition, mf.offset, fetchResultCh}:
 			mf.nilOrBrokerRequestsCh = nil
 			nilOrFetchResultsCh = fetchResultCh
 
-		case result := <-nilOrFetchResultsCh:
+		case fetchRs := <-nilOrFetchResultsCh:
 			nilOrFetchResultsCh = nil
-			if fetchedMessages, err = mf.parseFetchResult(result); err != nil {
+			if fetchedMessages, err = mf.parseFetchResponse(fetchRs); err != nil {
 				mf.reportError(err)
 				if err == sarama.ErrOffsetOutOfRange {
 					mf.actDesc.Log().WithError(err).Error("Fatal request failure")
@@ -306,36 +306,50 @@ func (mf *msgFetcher) run() {
 	}
 }
 
-// parseFetchResult parses a fetch response received a broker.
-func (mf *msgFetcher) parseFetchResult(fetchResult fetchRes) ([]consumer.Message, error) {
-	if fetchResult.Err != nil {
-		return nil, fetchResult.Err
+// parseFetchResponse parses a fetch response received a broker.
+func (mf *msgFetcher) parseFetchResponse(fetchRs fetchRs) ([]consumer.Message, error) {
+	if fetchRs.Err != nil {
+		return nil, fetchRs.Err
 	}
-
-	response := fetchResult.Response
-	if response == nil {
+	kafkaFetchRs := fetchRs.kafkaRs
+	if kafkaFetchRs == nil {
 		return nil, errIncompleteResponse
 	}
-
-	block := response.GetBlock(mf.id.topic, mf.id.partition)
-	if block == nil {
+	fetchRsBlock := kafkaFetchRs.GetBlock(mf.id.topic, mf.id.partition)
+	if fetchRsBlock == nil {
 		return nil, errIncompleteResponse
 	}
-
-	if block.Err != sarama.ErrNoError {
-		return nil, block.Err
+	if fetchRsBlock.Err != sarama.ErrNoError {
+		return nil, fetchRsBlock.Err
 	}
 
+	highWaterMarkOffset := fetchRsBlock.HighWaterMarkOffset
+	var fetchedMessages []consumer.Message
+	for _, recordsSet := range fetchRsBlock.RecordsSet {
+		recordBatch := recordsSet.RecordBatch
+		if recordBatch != nil {
+			fetchedMessages = append(fetchedMessages, mf.parseRecordBatch(recordBatch, highWaterMarkOffset)...)
+			continue
+		}
+		messageSet := recordsSet.MsgSet
+		if messageSet != nil {
+			fetchedMessages = append(fetchedMessages, mf.parseMessageSet(messageSet, highWaterMarkOffset)...)
+		}
+	}
+	return fetchedMessages, nil
+}
+
+func (mf *msgFetcher) parseMessageSet(messageSet *sarama.MessageSet, highWaterMarkOffset int64) []consumer.Message {
 	// We got no messages. If we got a trailing one, it means there is a
 	// producer that writes messages larger then Consumer.FetchMaxBytes in size.
-	if len(block.MsgSet.Messages) == 0 && block.MsgSet.PartialTrailingMessage {
-		mf.actDesc.Log().Errorf("Oversize message skipped: offset=%d", mf.offset)
+	if len(messageSet.Messages) == 0 && messageSet.PartialTrailingMessage {
+		mf.actDesc.Log().Errorf("Skipped partial trailing message in set: offset=%d", mf.offset)
 		mf.reportError(errMessageTooLarge)
-		return nil, nil
+		return nil
 	}
 
 	var fetchedMessages []consumer.Message
-	for _, msgBlock := range block.MsgSet.Messages {
+	for _, msgBlock := range messageSet.Messages {
 		lastMsgIdx := len(msgBlock.Messages()) - 1
 		baseOffset := msgBlock.Offset - msgBlock.Messages()[lastMsgIdx].Offset
 		for _, msg := range msgBlock.Messages() {
@@ -346,22 +360,58 @@ func (mf *msgFetcher) parseFetchResult(fetchResult fetchRes) ([]consumer.Message
 			if offset < mf.offset {
 				continue
 			}
-			consumerMessage := consumer.Message{
-				Topic:         mf.id.topic,
-				Partition:     mf.id.partition,
-				Key:           msg.Msg.Key,
-				Value:         msg.Msg.Value,
-				Offset:        offset,
-				Timestamp:     msg.Msg.Timestamp,
-				HighWaterMark: block.HighWaterMarkOffset,
+			consumerMsg := consumer.Message{
+				ConsumerMessage: sarama.ConsumerMessage{
+					Topic:     mf.id.topic,
+					Partition: mf.id.partition,
+					Key:       msg.Msg.Key,
+					Value:     msg.Msg.Value,
+					Offset:    offset,
+					Timestamp: msg.Msg.Timestamp,
+				},
+				HighWaterMark: highWaterMarkOffset,
 			}
-			fetchedMessages = append(fetchedMessages, consumerMessage)
+			fetchedMessages = append(fetchedMessages, consumerMsg)
 		}
 	}
-	if len(fetchedMessages) == 0 {
-		return nil, nil
+	return fetchedMessages
+}
+
+func (mf *msgFetcher) parseRecordBatch(recordBatch *sarama.RecordBatch, highWaterMarkOffset int64) []consumer.Message {
+	if recordBatch.Control {
+		mf.actDesc.Log().Warn("Control record batch ignored")
+		return nil
 	}
-	return fetchedMessages, nil
+
+	// We got no messages. If we got a trailing one, it means there is a
+	// producer that writes messages larger then Consumer.FetchMaxBytes in size.
+	if len(recordBatch.Records) == 0 && recordBatch.PartialTrailingRecord {
+		mf.actDesc.Log().Errorf("Skipped partial trailing record in batch: offset=%d", mf.offset)
+		mf.reportError(errMessageTooLarge)
+		return nil
+	}
+
+	var fetchedMessages []consumer.Message
+	for _, record := range recordBatch.Records {
+		offset := recordBatch.FirstOffset + record.OffsetDelta
+		if offset < mf.offset {
+			continue
+		}
+
+		consumerMsg := consumer.Message{
+			ConsumerMessage: sarama.ConsumerMessage{
+				Topic:     mf.id.topic,
+				Partition: mf.id.partition,
+				Key:       record.Key,
+				Value:     record.Value,
+				Offset:    offset,
+				Timestamp: recordBatch.FirstTimestamp.Add(record.TimestampDelta),
+			},
+			HighWaterMark: highWaterMarkOffset,
+		}
+		fetchedMessages = append(fetchedMessages, consumerMsg)
+	}
+	return fetchedMessages
 }
 
 // reportError sends message fetch errors to the error channel if the user
@@ -392,21 +442,21 @@ type brokerExecutor struct {
 	execActDesc      *actor.Descriptor
 	cfg              *config.Proxy
 	conn             *sarama.Broker
-	requestsCh       chan fetchReq
-	requestBatchesCh chan []fetchReq
+	requestsCh       chan fetchRq
+	requestBatchesCh chan []fetchRq
 	wg               sync.WaitGroup
 }
 
-type fetchReq struct {
+type fetchRq struct {
 	Topic     string
 	Partition int32
 	Offset    int64
-	ReplyToCh chan<- fetchRes
+	ReplyToCh chan<- fetchRs
 }
 
-type fetchRes struct {
-	Response *sarama.FetchResponse
-	Err      error
+type fetchRs struct {
+	kafkaRs *sarama.FetchResponse
+	Err     error
 }
 
 // implements `mapper.Executor`.
@@ -426,8 +476,8 @@ func (be *brokerExecutor) Stop() {
 func (be *brokerExecutor) runAggregator() {
 	defer close(be.requestBatchesCh)
 
-	var nilOrRequestBatchesCh chan<- []fetchReq
-	var requestBatch []fetchReq
+	var nilOrRequestBatchesCh chan<- []fetchRq
+	var requestBatch []fetchRq
 	for {
 		select {
 		case fr, ok := <-be.requestsCh:
@@ -454,28 +504,32 @@ func (be *brokerExecutor) runExecutor() {
 		// allow the Kafka cluster some time to recuperate.
 		if time.Now().UTC().Sub(lastErrTime) < be.cfg.Consumer.RetryBackoff {
 			for _, fr := range requestBatch {
-				fr.ReplyToCh <- fetchRes{nil, lastErr}
+				fr.ReplyToCh <- fetchRs{nil, lastErr}
 			}
 			continue
 		}
 		// Make a batch fetch request for all hungry message streams.
-		req := &sarama.FetchRequest{
+		kafkaFetchRq := &sarama.FetchRequest{
 			MinBytes:    1,
 			MaxWaitTime: int32(be.cfg.Consumer.FetchMaxWait / time.Millisecond),
 		}
 		if be.cfg.Kafka.Version.IsAtLeast(sarama.V0_10_0_0) {
-			req.Version = 2
+			kafkaFetchRq.Version = 2
 		}
 		if be.cfg.Kafka.Version.IsAtLeast(sarama.V0_10_1_0) {
-			req.Version = 3
-			req.MaxBytes = sarama.MaxResponseSize
+			kafkaFetchRq.Version = 3
+			kafkaFetchRq.MaxBytes = sarama.MaxResponseSize
+		}
+		if be.cfg.Kafka.Version.IsAtLeast(sarama.V0_11_0_0) {
+			kafkaFetchRq.Version = 4
+			kafkaFetchRq.Isolation = sarama.ReadUncommitted
 		}
 
 		for _, fr := range requestBatch {
-			req.AddBlock(fr.Topic, fr.Partition, fr.Offset, int32(be.cfg.Consumer.FetchMaxBytes))
+			kafkaFetchRq.AddBlock(fr.Topic, fr.Partition, fr.Offset, int32(be.cfg.Consumer.FetchMaxBytes))
 		}
-		var res *sarama.FetchResponse
-		res, lastErr = be.conn.Fetch(req)
+		var kafkaFetchRs *sarama.FetchResponse
+		kafkaFetchRs, lastErr = be.conn.Fetch(kafkaFetchRq)
 		if lastErr != nil {
 			lastErrTime = time.Now().UTC()
 			be.conn.Close()
@@ -483,7 +537,7 @@ func (be *brokerExecutor) runExecutor() {
 		}
 		// Fan the response out to the message streams.
 		for _, fr := range requestBatch {
-			fr.ReplyToCh <- fetchRes{res, lastErr}
+			fr.ReplyToCh <- fetchRs{kafkaFetchRs, lastErr}
 		}
 	}
 }

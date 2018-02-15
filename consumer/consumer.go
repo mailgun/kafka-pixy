@@ -3,6 +3,7 @@ package consumer
 import (
 	"time"
 
+	"github.com/Shopify/sarama"
 	"github.com/pkg/errors"
 )
 
@@ -63,11 +64,7 @@ type Response struct {
 
 // Message encapsulates a Kafka message returned by the consumer.
 type Message struct {
-	Key, Value    []byte
-	Topic         string
-	Partition     int32
-	Offset        int64
-	Timestamp     time.Time // only set if Kafka is version 0.10+
+	sarama.ConsumerMessage
 	HighWaterMark int64
 	EventsCh      chan<- Event
 }

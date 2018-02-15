@@ -6,6 +6,7 @@ import (
 
 	"fmt"
 
+	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/testhelpers"
@@ -632,15 +633,15 @@ func (mo *mockOut) Messages() chan<- consumer.Message {
 
 func msg(offset, lag int64) consumer.Message {
 	return consumer.Message{
-		Offset:        offset,
-		HighWaterMark: offset + lag,
+		ConsumerMessage: sarama.ConsumerMessage{Offset: offset},
+		HighWaterMark:   offset + lag,
 	}
 }
 
 func lag(lag int64) consumer.Message {
 	return consumer.Message{
-		Offset:        0,
-		HighWaterMark: lag,
+		ConsumerMessage: sarama.ConsumerMessage{Offset: 0},
+		HighWaterMark:   lag,
 	}
 }
 

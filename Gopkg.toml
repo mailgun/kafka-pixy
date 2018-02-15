@@ -22,8 +22,8 @@
 
 
 [[constraint]]
+  branch = "master"
   name = "github.com/Shopify/sarama"
-  version = "=1.13.0"
 
 [[constraint]]
   name = "github.com/mailgun/holster"
@@ -31,7 +31,7 @@
 
 [[constraint]]
   name = "github.com/mailgun/logrus-hooks"
-  version = "1.1.1"
+  version = "1.1.2"
 
 [[constraint]]
   name = "github.com/pkg/errors"
@@ -42,12 +42,12 @@
   version = "1.0.1"
 
 [[constraint]]
-  branch = "maxim/develop"
-  name = "github.com/mailgun/kazoo-go"
+  branch = "master"
+  name = "github.com/wvanbergen/kazoo-go"
 
 [[constraint]]
   name = "google.golang.org/grpc"
-  version = "1.6.0"
+  version = "1.9.2"
 
 [[constraint]]
   branch = "v1"
@@ -56,3 +56,11 @@
 [[constraint]]
   name = "github.com/thrawn01/args"
   version = "0.2.0"
+
+[[constraint]]
+  name = "github.com/golang/protobuf"
+  version = "1.0.0"
+
+[prune]
+  unused-packages = true
+  go-tests = true

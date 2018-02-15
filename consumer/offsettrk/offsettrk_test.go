@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
@@ -113,7 +114,7 @@ func (s *OffsetTrkSuite) TestAdjust(c *C) {
 		ot := New(s.ns, offsetmgr.Offset{Val: initialOffset}, -1)
 		for j, acked := range []int{0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 1, 1, 0} {
 			offset := initialOffset + int64(j)
-			ot.OnOffered(consumer.Message{Offset: offset})
+			ot.OnOffered(msg(offset))
 			if acked == 1 {
 				ot.OnAcked(offset)
 			}
@@ -292,7 +293,7 @@ func (s *OffsetTrkSuite) TestOfferAckLoop(c *C) {
 		// When
 		switch tc.act {
 		case doOfr:
-			count = ot.OnOffered(consumer.Message{Offset: tc.offset})
+			count = ot.OnOffered(msg(tc.offset))
 		case doAck:
 			var offset offsetmgr.Offset
 			offset, count = ot.OnAcked(tc.offset)
@@ -307,9 +308,9 @@ func (s *OffsetTrkSuite) TestOfferAckLoop(c *C) {
 func (s *OffsetTrkSuite) TestNextRetry(c *C) {
 	ot := New(s.ns, offsetmgr.Offset{Val: 300}, 5*time.Second)
 	msgs := []consumer.Message{
-		{Offset: 300},
-		{Offset: 301},
-		{Offset: 302},
+		msg(300),
+		msg(301),
+		msg(302),
 	}
 	begin := time.Now()
 	for _, msg := range msgs {
@@ -363,10 +364,10 @@ func (s *OffsetTrkSuite) TestNextRetry(c *C) {
 func (s *OffsetTrkSuite) TestMaxOfferTimeout(c *C) {
 	ot := New(s.ns, offsetmgr.Offset{Val: 300}, -1)
 	msgs := []consumer.Message{
-		{Offset: 300},
-		{Offset: 301},
-		{Offset: 302},
-		{Offset: 303},
+		msg(300),
+		msg(301),
+		msg(302),
+		msg(303),
 	}
 	begin := time.Now()
 	for _, msg := range msgs {
@@ -399,4 +400,8 @@ func (s *OffsetTrkSuite) TestMaxOfferTimeout(c *C) {
 		timeout := ot.shouldWait4Ack(now)
 		c.Assert(timeout, Equals, time.Duration(tc.timeout)*time.Millisecond, Commentf("case #%d", i))
 	}
+}
+
+func msg(offset int64) consumer.Message {
+	return consumer.Message{ConsumerMessage: sarama.ConsumerMessage{Offset: offset}}
 }

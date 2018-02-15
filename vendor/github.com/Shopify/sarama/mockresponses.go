@@ -122,6 +122,7 @@ func (mmr *MockMetadataResponse) For(reqBody versionedDecoder) encoder {
 type MockOffsetResponse struct {
 	offsets map[string]map[int32]map[int64]int64
 	t       TestReporter
+	version int16
 }
 
 func NewMockOffsetResponse(t TestReporter) *MockOffsetResponse {
@@ -129,6 +130,11 @@ func NewMockOffsetResponse(t TestReporter) *MockOffsetResponse {
 		offsets: make(map[string]map[int32]map[int64]int64),
 		t:       t,
 	}
+}
+
+func (mor *MockOffsetResponse) SetVersion(version int16) *MockOffsetResponse {
+	mor.version = version
+	return mor
 }
 
 func (mor *MockOffsetResponse) SetOffset(topic string, partition int32, time, offset int64) *MockOffsetResponse {
@@ -148,7 +154,7 @@ func (mor *MockOffsetResponse) SetOffset(topic string, partition int32, time, of
 
 func (mor *MockOffsetResponse) For(reqBody versionedDecoder) encoder {
 	offsetRequest := reqBody.(*OffsetRequest)
-	offsetResponse := &OffsetResponse{}
+	offsetResponse := &OffsetResponse{Version: mor.version}
 	for topic, partitions := range offsetRequest.blocks {
 		for partition, block := range partitions {
 			offset := mor.getOffset(topic, partition, block.time)
@@ -320,6 +326,60 @@ func (mr *MockConsumerMetadataResponse) For(reqBody versionedDecoder) encoder {
 	return res
 }
 
+// MockFindCoordinatorResponse is a `FindCoordinatorResponse` builder.
+type MockFindCoordinatorResponse struct {
+	groupCoordinators map[string]interface{}
+	transCoordinators map[string]interface{}
+	t                 TestReporter
+}
+
+func NewMockFindCoordinatorResponse(t TestReporter) *MockFindCoordinatorResponse {
+	return &MockFindCoordinatorResponse{
+		groupCoordinators: make(map[string]interface{}),
+		transCoordinators: make(map[string]interface{}),
+		t:                 t,
+	}
+}
+
+func (mr *MockFindCoordinatorResponse) SetCoordinator(coordinatorType CoordinatorType, group string, broker *MockBroker) *MockFindCoordinatorResponse {
+	switch coordinatorType {
+	case CoordinatorGroup:
+		mr.groupCoordinators[group] = broker
+	case CoordinatorTransaction:
+		mr.transCoordinators[group] = broker
+	}
+	return mr
+}
+
+func (mr *MockFindCoordinatorResponse) SetError(coordinatorType CoordinatorType, group string, kerror KError) *MockFindCoordinatorResponse {
+	switch coordinatorType {
+	case CoordinatorGroup:
+		mr.groupCoordinators[group] = kerror
+	case CoordinatorTransaction:
+		mr.transCoordinators[group] = kerror
+	}
+	return mr
+}
+
+func (mr *MockFindCoordinatorResponse) For(reqBody versionedDecoder) encoder {
+	req := reqBody.(*FindCoordinatorRequest)
+	res := &FindCoordinatorResponse{}
+	var v interface{}
+	switch req.CoordinatorType {
+	case CoordinatorGroup:
+		v = mr.groupCoordinators[req.CoordinatorKey]
+	case CoordinatorTransaction:
+		v = mr.transCoordinators[req.CoordinatorKey]
+	}
+	switch v := v.(type) {
+	case *MockBroker:
+		res.Coordinator = &Broker{id: v.BrokerID(), addr: v.Addr()}
+	case KError:
+		res.Err = v
+	}
+	return res
+}
+
 // MockOffsetCommitResponse is a `OffsetCommitResponse` builder.
 type MockOffsetCommitResponse struct {
 	errors map[string]map[string]map[int32]KError
@@ -378,12 +438,18 @@ func (mr *MockOffsetCommitResponse) getError(group, topic string, partition int3
 
 // MockProduceResponse is a `ProduceResponse` builder.
 type MockProduceResponse struct {
-	errors map[string]map[int32]KError
-	t      TestReporter
+	version int16
+	errors  map[string]map[int32]KError
+	t       TestReporter
 }
 
 func NewMockProduceResponse(t TestReporter) *MockProduceResponse {
 	return &MockProduceResponse{t: t}
+}
+
+func (mr *MockProduceResponse) SetVersion(version int16) *MockProduceResponse {
+	mr.version = version
+	return mr
 }
 
 func (mr *MockProduceResponse) SetError(topic string, partition int32, kerror KError) *MockProduceResponse {
@@ -401,8 +467,10 @@ func (mr *MockProduceResponse) SetError(topic string, partition int32, kerror KE
 
 func (mr *MockProduceResponse) For(reqBody versionedDecoder) encoder {
 	req := reqBody.(*ProduceRequest)
-	res := &ProduceResponse{}
-	for topic, partitions := range req.msgSets {
+	res := &ProduceResponse{
+		Version: mr.version,
+	}
+	for topic, partitions := range req.records {
 		for partition := range partitions {
 			res.AddTopicPartition(topic, partition, mr.getError(topic, partition))
 		}

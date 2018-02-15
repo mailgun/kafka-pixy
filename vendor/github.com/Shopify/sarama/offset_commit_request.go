@@ -1,8 +1,6 @@
 package sarama
 
-import (
-	"github.com/pkg/errors"
-)
+import "errors"
 
 // ReceiveTime is a special value for the timestamp field of Offset Commit Requests which
 // tells the broker to set the timestamp to the time at which the request was received.
@@ -177,7 +175,7 @@ func (r *OffsetCommitRequest) requiredVersion() KafkaVersion {
 	case 2:
 		return V0_9_0_0
 	default:
-		return minVersion
+		return MinVersion
 	}
 }
 

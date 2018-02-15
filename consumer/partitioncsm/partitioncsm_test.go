@@ -93,7 +93,7 @@ func (s *PartitionCsmSuite) TestInitialOffsetTooLarge(c *C) {
 	oldestOffsets := s.kh.GetOldestOffsets(topic)
 	newestOffsets := s.kh.GetNewestOffsets(topic)
 	log.Infof("*** test.1 offsets: oldest=%v, newest=%v", oldestOffsets, newestOffsets)
-	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{newestOffsets[partition] + 3, ""}})
+	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{Val: newestOffsets[partition] + 3}})
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgFetcherF, s.offsetMgrF)
 	defer pc.Stop()
 	// Wait for the partition consumer to initialize.
@@ -115,7 +115,7 @@ func (s *PartitionCsmSuite) TestInitialOffsetTooLarge(c *C) {
 // A new message becomes available in the Messages() channel only after the
 // previous one is reported as offered.
 func (s *PartitionCsmSuite) TestMustBeOfferedToProceed(c *C) {
-	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{sarama.OffsetOldest, ""}})
+	s.kh.SetOffsetValues(group, topic, s.kh.GetOldestOffsets(topic))
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgFetcherF, s.offsetMgrF)
 	defer pc.Stop()
 
@@ -180,7 +180,7 @@ func (s *PartitionCsmSuite) TestSparseAckedNotRead(c *C) {
 // An attempt to confirm an offer of any message but the one recently read from
 // Messages() channel is ignored.
 func (s *PartitionCsmSuite) TestOfferInvalid(c *C) {
-	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{sarama.OffsetOldest, ""}})
+	s.kh.SetOffsetValues(group, topic, s.kh.GetOldestOffsets(topic))
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgFetcherF, s.offsetMgrF)
 	defer pc.Stop()
 
@@ -204,7 +204,7 @@ func (s *PartitionCsmSuite) TestOfferInvalid(c *C) {
 func (s *PartitionCsmSuite) TestOfferedTooMany(c *C) {
 	s.cfg.Consumer.AckTimeout = 500 * time.Millisecond
 	s.cfg.Consumer.MaxPendingMessages = 3
-	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{sarama.OffsetOldest, ""}})
+	s.kh.SetOffsetValues(group, topic, s.kh.GetOldestOffsets(topic))
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgFetcherF, s.offsetMgrF)
 	defer pc.Stop()
 	var msg consumer.Message
@@ -258,7 +258,7 @@ func (s *PartitionCsmSuite) TestSparseAckedCommitted(c *C) {
 		/* 8 */ true,
 		/* 9 */ false,
 	}
-	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{Val: sarama.OffsetOldest}})
+	s.kh.SetOffsetValues(group, topic, offsetsBefore)
 
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgFetcherF, s.offsetMgrF)
 
@@ -284,7 +284,7 @@ func (s *PartitionCsmSuite) TestSparseAckedCommitted(c *C) {
 func (s *PartitionCsmSuite) TestSparseAckedAfterStop(c *C) {
 	offsetsBefore := s.kh.GetOldestOffsets(topic)
 	s.cfg.Consumer.AckTimeout = 300 * time.Millisecond
-	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{Val: sarama.OffsetOldest}})
+	s.kh.SetOffsetValues(group, topic, offsetsBefore)
 
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgFetcherF, s.offsetMgrF)
 
@@ -330,7 +330,7 @@ func (s *PartitionCsmSuite) TestZeroRetries(c *C) {
 	offsetsBefore := s.kh.GetOldestOffsets(topic)
 	s.cfg.Consumer.AckTimeout = 100 * time.Millisecond
 	s.cfg.Consumer.MaxRetries = 0
-	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{Val: sarama.OffsetOldest}})
+	s.kh.SetOffsetValues(group, topic, offsetsBefore)
 
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgFetcherF, s.offsetMgrF)
 
@@ -361,7 +361,7 @@ func (s *PartitionCsmSuite) TestIndefiniteRetries(c *C) {
 	offsetsBefore := s.kh.GetOldestOffsets(topic)
 	s.cfg.Consumer.AckTimeout = 100 * time.Millisecond
 	s.cfg.Consumer.MaxRetries = -1
-	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{Val: sarama.OffsetOldest}})
+	s.kh.SetOffsetValues(group, topic, offsetsBefore)
 
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgFetcherF, s.offsetMgrF)
 
@@ -398,7 +398,7 @@ func (s *PartitionCsmSuite) TestMaxRetriesReached(c *C) {
 	offsetsBefore := s.kh.GetOldestOffsets(topic)
 	s.cfg.Consumer.AckTimeout = 100 * time.Millisecond
 	s.cfg.Consumer.MaxRetries = 3
-	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{Val: sarama.OffsetOldest}})
+	s.kh.SetOffsetValues(group, topic, offsetsBefore)
 
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgFetcherF, s.offsetMgrF)
 
@@ -455,7 +455,7 @@ func (s *PartitionCsmSuite) TestMaxRetriesReached(c *C) {
 func (s *PartitionCsmSuite) TestSeveralMessageReties(c *C) {
 	offsetsBefore := s.kh.GetOldestOffsets(topic)
 	s.cfg.Consumer.AckTimeout = 100 * time.Millisecond
-	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{Val: sarama.OffsetOldest}})
+	s.kh.SetOffsetValues(group, topic, offsetsBefore)
 
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgFetcherF, s.offsetMgrF)
 	defer pc.Stop()

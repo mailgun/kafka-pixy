@@ -12,6 +12,7 @@ import (
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	. "gopkg.in/check.v1"
 )
 
@@ -71,18 +72,18 @@ func (s *ServiceGRPCSuite) TestProduceWithKey(c *C) {
 			AsyncMode: true,
 		}
 		res, err := s.clt.Produce(ctx, &req, grpc.FailFast(false))
-		c.Assert(err, IsNil)
-		c.Assert(*res, Equals, pb.ProdRs{Partition: -1, Offset: -1})
+		c.Check(err, IsNil)
+		c.Check(*res, Equals, pb.ProdRs{Partition: -1, Offset: -1})
 	}
 	// Stop service to make it commit asynchronously produced messages to Kafka.
 	svc.Stop()
 	offsetsAfter := s.kh.GetNewestOffsets("test.4")
 
 	// Then
-	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0]+3)
-	c.Assert(offsetsAfter[1], Equals, offsetsBefore[1]+2)
-	c.Assert(offsetsAfter[2], Equals, offsetsBefore[2]+2)
-	c.Assert(offsetsAfter[3], Equals, offsetsBefore[3]+3)
+	c.Check(offsetsAfter[0], Equals, offsetsBefore[0]+3)
+	c.Check(offsetsAfter[1], Equals, offsetsBefore[1]+2)
+	c.Check(offsetsAfter[2], Equals, offsetsBefore[2]+2)
+	c.Check(offsetsAfter[3], Equals, offsetsBefore[3]+3)
 }
 
 // If `key` is undefined then a message is submitted to a random partition.
@@ -105,18 +106,18 @@ func (s *ServiceGRPCSuite) TestProduceKeyUndefined(c *C) {
 			AsyncMode:    true,
 		}
 		res, err := s.clt.Produce(ctx, &req, grpc.FailFast(false))
-		c.Assert(err, IsNil)
-		c.Assert(*res, Equals, pb.ProdRs{Partition: -1, Offset: -1})
+		c.Check(err, IsNil)
+		c.Check(*res, Equals, pb.ProdRs{Partition: -1, Offset: -1})
 	}
 	// Stop service to make it commit asynchronously produced messages to Kafka.
 	svc.Stop()
 	offsetsAfter := s.kh.GetNewestOffsets("test.4")
 
 	// Then: each partition gets something
-	c.Assert(offsetsAfter[0]-offsetsBefore[0], Not(Equals), 0)
-	c.Assert(offsetsAfter[1]-offsetsBefore[1], Not(Equals), 0)
-	c.Assert(offsetsAfter[2]-offsetsBefore[2], Not(Equals), 0)
-	c.Assert(offsetsAfter[3]-offsetsBefore[3], Not(Equals), 0)
+	c.Check(offsetsAfter[0]-offsetsBefore[0], Not(Equals), 0)
+	c.Check(offsetsAfter[1]-offsetsBefore[1], Not(Equals), 0)
+	c.Check(offsetsAfter[2]-offsetsBefore[2], Not(Equals), 0)
+	c.Check(offsetsAfter[3]-offsetsBefore[3], Not(Equals), 0)
 }
 
 // If `key` is explicitly specified produced messages are deterministically
@@ -139,18 +140,18 @@ func (s *ServiceGRPCSuite) TestProduceDefaultKey(c *C) {
 			AsyncMode: true,
 		}
 		res, err := s.clt.Produce(ctx, &req, grpc.FailFast(false))
-		c.Assert(err, IsNil)
-		c.Assert(*res, Equals, pb.ProdRs{Partition: -1, Offset: -1})
+		c.Check(err, IsNil)
+		c.Check(*res, Equals, pb.ProdRs{Partition: -1, Offset: -1})
 	}
 	// Stop service to make it commit asynchronously produced messages to Kafka.
 	svc.Stop()
 	offsetsAfter := s.kh.GetNewestOffsets("test.4")
 
 	// Then
-	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0])
-	c.Assert(offsetsAfter[1], Equals, offsetsBefore[1])
-	c.Assert(offsetsAfter[2], Equals, offsetsBefore[2])
-	c.Assert(offsetsAfter[3], Equals, offsetsBefore[3]+10)
+	c.Check(offsetsAfter[0], Equals, offsetsBefore[0])
+	c.Check(offsetsAfter[1], Equals, offsetsBefore[1])
+	c.Check(offsetsAfter[2], Equals, offsetsBefore[2])
+	c.Check(offsetsAfter[3], Equals, offsetsBefore[3]+10)
 }
 
 // If a message is produced in synchronous mode then partition and offset
@@ -175,8 +176,8 @@ func (s *ServiceGRPCSuite) TestProduceSync(c *C) {
 	res, err := s.clt.Produce(ctx, &req, grpc.FailFast(false))
 
 	// Then
-	c.Assert(err, IsNil)
-	c.Assert(*res, Equals, pb.ProdRs{Partition: 2, Offset: offsetsBefore[2]})
+	c.Check(err, IsNil)
+	c.Check(*res, Equals, pb.ProdRs{Partition: 2, Offset: offsetsBefore[2]})
 }
 
 func (s *ServiceGRPCSuite) TestProduceInvalidProxy(c *C) {
@@ -198,9 +199,11 @@ func (s *ServiceGRPCSuite) TestProduceInvalidProxy(c *C) {
 	res, err := s.clt.Produce(ctx, &req, grpc.FailFast(false))
 
 	// Then
-	c.Assert(grpc.ErrorDesc(err), Equals, "proxy `invalid` does not exist")
-	c.Assert(grpc.Code(err), Equals, codes.InvalidArgument)
-	c.Assert(res, IsNil)
+	grpcStatus, ok := status.FromError(err)
+	c.Check(ok, Equals, true)
+	c.Check(grpcStatus.Message(), Equals, "proxy `invalid` does not exist")
+	c.Check(grpcStatus.Code(), Equals, codes.InvalidArgument)
+	c.Check(res, IsNil)
 }
 
 // Offsets of messages consumed in auto-ack mode are properly committed.
@@ -225,7 +228,7 @@ func (s *ServiceGRPCSuite) TestConsumeAutoAck(c *C) {
 			AutoAck: true,
 		}
 		res, err := s.clt.ConsumeNAck(ctx, &req)
-		c.Assert(err, IsNil, Commentf("failed to consume message #%d", i))
+		c.Check(err, IsNil, Commentf("failed to consume message #%d", i))
 		key := string(res.KeyValue)
 		consumed[key] = append(consumed[key], res)
 	}
@@ -233,10 +236,10 @@ func (s *ServiceGRPCSuite) TestConsumeAutoAck(c *C) {
 
 	// Then
 	offsetsAfter := s.kh.GetCommittedOffsets("foo", "test.4")
-	c.Assert(offsetsAfter[0].Val, Equals, offsetsBefore[0].Val+17)
-	c.Assert(offsetsAfter[1].Val, Equals, offsetsBefore[1].Val+29)
-	c.Assert(offsetsAfter[2].Val, Equals, offsetsBefore[2].Val+23)
-	c.Assert(offsetsAfter[3].Val, Equals, offsetsBefore[3].Val+19)
+	c.Check(offsetsAfter[0].Val, Equals, offsetsBefore[0].Val+17)
+	c.Check(offsetsAfter[1].Val, Equals, offsetsBefore[1].Val+29)
+	c.Check(offsetsAfter[2].Val, Equals, offsetsBefore[2].Val+23)
+	c.Check(offsetsAfter[3].Val, Equals, offsetsBefore[3].Val+19)
 
 	assertMsgs(c, consumed, produced)
 }
@@ -264,12 +267,12 @@ func (s *ServiceGRPCSuite) TestConsumeNoAck(c *C) {
 		NoAck: true,
 	}
 	_, err = s.clt.ConsumeNAck(ctx, &req)
-	c.Assert(err, IsNil)
+	c.Check(err, IsNil)
 	svc.Stop()
 
 	// Then
 	offsetsAfter := s.kh.GetCommittedOffsets("foo", "test.1")
-	c.Assert(offsetsAfter[0].Val, Equals, offsetsBefore[0].Val)
+	c.Check(offsetsAfter[0].Val, Equals, offsetsBefore[0].Val)
 }
 
 // Offsets of messages consumed in auto-ack mode are properly committed.
@@ -286,18 +289,18 @@ func (s *ServiceGRPCSuite) TestGetOffsets(c *C) {
 
 	// Get the offsets with a single message in topic
 	res, err := s.clt.GetOffsets(ctx, &pb.GetOffsetsRq{Topic: "test.4", Group: "foo"})
-	c.Assert(err, IsNil, Commentf("failed to get offsets"))
-	c.Assert(res.Offsets[0].Lag, Equals, int64(1))
-	c.Assert(res.Offsets[0].Count > 0, Equals, true)
+	c.Check(err, IsNil, Commentf("failed to get offsets"))
+	c.Check(res.Offsets[0].Lag, Equals, int64(1))
+	c.Check(res.Offsets[0].Count > 0, Equals, true)
 
 	// Consume the message
 	_, err = s.clt.ConsumeNAck(ctx, &pb.ConsNAckRq{Topic: "test.4", Group: "foo", AutoAck: true})
-	c.Assert(err, IsNil, Commentf("failed to consume message"))
+	c.Check(err, IsNil, Commentf("failed to consume message"))
 
 	// fetch offsets until the offset is committed
 	for i := 0; i < 5; i++ {
 		res, err = s.clt.GetOffsets(ctx, &pb.GetOffsetsRq{Topic: "test.4", Group: "foo"})
-		c.Assert(err, IsNil, Commentf("failed to get offsets"))
+		c.Check(err, IsNil, Commentf("failed to get offsets"))
 		if res.Offsets[0].Lag == int64(0) {
 			break
 		}
@@ -305,8 +308,8 @@ func (s *ServiceGRPCSuite) TestGetOffsets(c *C) {
 	}
 
 	// Verify the lag is zero
-	c.Assert(res.Offsets[0].Lag, Equals, int64(0))
-	c.Assert(res.Offsets[0].Count > 0, Equals, true)
+	c.Check(res.Offsets[0].Lag, Equals, int64(0))
+	c.Check(res.Offsets[0].Count > 0, Equals, true)
 
 	svc.Stop()
 }
@@ -335,7 +338,7 @@ func (s *ServiceGRPCSuite) TestConsumeExplicitAck(c *C) {
 		NoAck: true,
 	}
 	res, err := s.clt.ConsumeNAck(ctx, &req)
-	c.Assert(err, IsNil, Commentf("failed to consume first message"))
+	c.Check(err, IsNil, Commentf("failed to consume first message"))
 	key := string(res.KeyValue)
 	consumed[key] = append(consumed[key], res)
 	// Whenever a message is consumed previous one is acked.
@@ -347,7 +350,7 @@ func (s *ServiceGRPCSuite) TestConsumeExplicitAck(c *C) {
 			AckOffset:    res.Offset,
 		}
 		res, err = s.clt.ConsumeNAck(ctx, &req)
-		c.Assert(err, IsNil, Commentf("failed to consume message #%d", i))
+		c.Check(err, IsNil, Commentf("failed to consume message #%d", i))
 		key := string(res.KeyValue)
 		consumed[key] = append(consumed[key], res)
 	}
@@ -359,16 +362,16 @@ func (s *ServiceGRPCSuite) TestConsumeExplicitAck(c *C) {
 		Offset:    res.Offset,
 	}
 	_, err = s.clt.Ack(ctx, &ackReq)
-	c.Assert(err, IsNil, Commentf("failed ack last message"))
+	c.Check(err, IsNil, Commentf("failed ack last message"))
 
 	svc.Stop()
 
 	// Then
 	offsetsAfter := s.kh.GetCommittedOffsets("foo", "test.4")
-	c.Assert(offsetsAfter[0].Val, Equals, offsetsBefore[0].Val+17)
-	c.Assert(offsetsAfter[1].Val, Equals, offsetsBefore[1].Val+29)
-	c.Assert(offsetsAfter[2].Val, Equals, offsetsBefore[2].Val+23)
-	c.Assert(offsetsAfter[3].Val, Equals, offsetsBefore[3].Val+19)
+	c.Check(offsetsAfter[0].Val, Equals, offsetsBefore[0].Val+17)
+	c.Check(offsetsAfter[1].Val, Equals, offsetsBefore[1].Val+29)
+	c.Check(offsetsAfter[2].Val, Equals, offsetsBefore[2].Val+23)
+	c.Check(offsetsAfter[3].Val, Equals, offsetsBefore[3].Val+19)
 
 	assertMsgs(c, consumed, produced)
 }
@@ -390,15 +393,15 @@ func (s *ServiceGRPCSuite) TestConsumeExplicitProxy(c *C) {
 		Message:  []byte(fmt.Sprintf("msg%d", rand.Int())),
 	}
 	prodRes, err := s.clt.Produce(ctx, &prodReq, grpc.FailFast(false))
-	c.Assert(err, IsNil)
+	c.Check(err, IsNil)
 
 	// When
 	consReq := pb.ConsNAckRq{Cluster: "pxyG", Topic: "test.4", Group: "foo"}
 	consRes, err := s.clt.ConsumeNAck(ctx, &consReq)
 
 	// Then
-	c.Assert(err, IsNil)
-	c.Assert(*consRes, DeepEquals, pb.ConsRs{
+	c.Check(err, IsNil)
+	c.Check(*consRes, DeepEquals, pb.ConsRs{
 		Partition: prodRes.Partition,
 		Offset:    prodRes.Offset,
 		KeyValue:  prodReq.KeyValue,
@@ -425,15 +428,15 @@ func (s *ServiceGRPCSuite) TestConsumeKeyUndefined(c *C) {
 		Message:      []byte(fmt.Sprintf("msg-%d", rand.Int())),
 	}
 	prodRes, err := s.clt.Produce(ctx, &prodReq, grpc.FailFast(false))
-	c.Assert(err, IsNil)
+	c.Check(err, IsNil)
 
 	// When
 	consReq := pb.ConsNAckRq{Topic: "test.4", Group: "foo"}
 	consRes, err := s.clt.ConsumeNAck(ctx, &consReq)
 
 	// Then
-	c.Assert(err, IsNil)
-	c.Assert(*consRes, DeepEquals, pb.ConsRs{
+	c.Check(err, IsNil)
+	c.Check(*consRes, DeepEquals, pb.ConsRs{
 		Partition:    prodRes.Partition,
 		Offset:       prodRes.Offset,
 		KeyUndefined: true,
@@ -459,9 +462,11 @@ func (s *ServiceGRPCSuite) TestConsumeInvalidProxy(c *C) {
 	consRes, err := s.clt.ConsumeNAck(ctx, &consReq, grpc.FailFast(false))
 
 	// Then
-	c.Assert(grpc.ErrorDesc(err), Equals, "proxy `invalid` does not exist")
-	c.Assert(grpc.Code(err), Equals, codes.InvalidArgument)
-	c.Assert(consRes, IsNil)
+	grpcStatus, ok := status.FromError(err)
+	c.Check(ok, Equals, true)
+	c.Check(grpcStatus.Message(), Equals, "proxy `invalid` does not exist")
+	c.Check(grpcStatus.Code(), Equals, codes.InvalidArgument)
+	c.Check(consRes, IsNil)
 }
 
 func (s *ServiceGRPCSuite) waitSvcUp(c *C, timeout time.Duration) {
