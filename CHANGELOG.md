@@ -3,10 +3,15 @@
 #### Version 0.15.0 (TBD)
 
 Implemented:
-* Added support for Kafka v0.11.0.0 - v1.0.0
+* [#135](https://github.com/mailgun/kafka-pixy/issues/135) Added support for
+  Kafka v0.11.0.0 - v1.0.0
 * Consumer.RebalanceTimeout was removed, so rebalancing is triggered as soon
   as membership status of a consumer group or subscription of a consumer group
   member changes.
+* [#138](https://github.com/mailgun/kafka-pixy/issues/138) Pending offsets are
+  committed to Kafka faster on rebalancing. That could take upto
+  `consumer.offsets_commit_interval` before, but now it happens as soon as
+  possible.
 
 Fixed:
 * [#120](https://github.com/mailgun/kafka-pixy/issues/120) Consumption from a
