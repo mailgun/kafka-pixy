@@ -297,6 +297,7 @@ handleRequests:
 	var handedOffRq submitRq
 	var handOffTime time.Time
 	var be *brokerExecutor
+	offsetCommitTimeout := om.f.cfg.Consumer.OffsetsCommitInterval * 2
 	for {
 		select {
 		case bw := <-om.assignmentCh:
@@ -330,7 +331,7 @@ handleRequests:
 			handedOffRq = receivedRq
 			handOffTime = time.Now().UTC()
 			if om.nilOrRetryTimerCh == nil {
-				om.retryTimer.Reset(om.f.cfg.Consumer.OffsetsCommitTimeout)
+				om.retryTimer.Reset(offsetCommitTimeout)
 				om.nilOrRetryTimerCh = om.retryTimer.C
 			}
 		case rs := <-responseCh:
@@ -346,14 +347,14 @@ handleRequests:
 		case <-om.nilOrRetryTimerCh:
 			om.nilOrRetryTimerCh = nil
 			sinceHandOff := time.Now().UTC().Sub(handOffTime)
-			if sinceHandOff >= om.f.cfg.Consumer.OffsetsCommitTimeout {
+			if sinceHandOff >= offsetCommitTimeout {
 				if handedOffRq.offset == committedOffset {
 					continue
 				}
 				om.triggerReassign(errRequestTimeout, "Request timeout %v", sinceHandOff)
 				continue
 			}
-			timeoutLeft := om.f.cfg.Consumer.OffsetsCommitTimeout - sinceHandOff
+			timeoutLeft := offsetCommitTimeout - sinceHandOff
 			om.retryTimer.Reset(timeoutLeft)
 			om.nilOrRetryTimerCh = om.retryTimer.C
 		}
