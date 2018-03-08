@@ -161,13 +161,15 @@ func (f *factory) ResolveBroker(worker mapper.Worker) (*sarama.Broker, error) {
 // implements `mapper.Resolver`.
 func (f *factory) SpawnExecutor(brokerConn *sarama.Broker) mapper.Executor {
 	be := &brokerExecutor{
-		aggrActDesc:      f.actDesc.NewChild("broker", brokerConn.ID(), "aggr"),
-		execActDesc:      f.actDesc.NewChild("broker", brokerConn.ID(), "exec"),
-		cfg:              f.cfg,
-		conn:             brokerConn,
-		requestsCh:       make(chan submitRq),
-		requestBatchesCh: make(chan map[string]map[instanceID]submitRq),
-		execStopCh:       make(chan none.T),
+		aggrActDesc:       f.actDesc.NewChild("broker", brokerConn.ID(), "aggr"),
+		execActDesc:       f.actDesc.NewChild("broker", brokerConn.ID(), "exec"),
+		cfg:               f.cfg,
+		conn:              brokerConn,
+		requestsCh:        make(chan submitRq),
+		requestBatchesCh:  make(chan map[string]map[instanceID]submitRq),
+		flushAggregatorCh: make(chan none.T, 1),
+		flushExecutorCh:   make(chan none.T, 1),
+		execStopCh:        make(chan none.T),
 	}
 	actor.Spawn(be.aggrActDesc, &be.wg, be.runAggregator)
 	actor.Spawn(be.execActDesc, &be.wg, be.runExecutor)
@@ -263,8 +265,7 @@ func (om *offsetMgr) run() {
 
 			initialOffset, err := om.fetchInitialOffset(be.conn)
 			if err != nil {
-				om.actDesc.Log().WithError(err).Error("Failed to fetch initial offset")
-				om.triggerReassign(err)
+				om.triggerReassign(err, "Failed to fetch initial offset")
 				continue
 			}
 			om.committedOffsetsCh <- initialOffset
@@ -295,11 +296,13 @@ handleRequests:
 	}
 	var handedOffRq submitRq
 	var handOffTime time.Time
+	var be *brokerExecutor
+	offsetCommitTimeout := om.f.cfg.Consumer.OffsetsCommitInterval * 2
 	for {
 		select {
 		case bw := <-om.assignmentCh:
 			om.actDesc.Log().Infof("Assigned executor: %s", bw)
-			be := bw.(*brokerExecutor)
+			be = bw.(*brokerExecutor)
 			om.brokerRequestsCh = be.requestsCh
 
 			if receivedRq.offset != committedOffset {
@@ -312,6 +315,10 @@ handleRequests:
 				}
 				// Keep running until the last submitter offset is committed.
 				stopped = true
+				// Signal broker executor to flush offsets to Kafka.
+				if be != nil {
+					be.flushAggregatorCh <- none.V
+				}
 				nilOrRequestsCh = nil
 				continue
 			}
@@ -324,13 +331,12 @@ handleRequests:
 			handedOffRq = receivedRq
 			handOffTime = time.Now().UTC()
 			if om.nilOrRetryTimerCh == nil {
-				om.retryTimer.Reset(om.f.cfg.Consumer.OffsetsCommitTimeout)
+				om.retryTimer.Reset(offsetCommitTimeout)
 				om.nilOrRetryTimerCh = om.retryTimer.C
 			}
 		case rs := <-responseCh:
 			if err := om.getCommitError(rs.kafkaRs); err != nil {
-				om.actDesc.Log().WithError(err).Error("Request failed")
-				om.triggerReassign(err)
+				om.triggerReassign(err, "Request failed")
 				continue
 			}
 			committedOffset = rs.rq.offset
@@ -341,15 +347,14 @@ handleRequests:
 		case <-om.nilOrRetryTimerCh:
 			om.nilOrRetryTimerCh = nil
 			sinceHandOff := time.Now().UTC().Sub(handOffTime)
-			if sinceHandOff >= om.f.cfg.Consumer.OffsetsCommitTimeout {
+			if sinceHandOff >= offsetCommitTimeout {
 				if handedOffRq.offset == committedOffset {
 					continue
 				}
-				om.actDesc.Log().Errorf("Request timeout %v", sinceHandOff)
-				om.triggerReassign(errRequestTimeout)
+				om.triggerReassign(errRequestTimeout, "Request timeout %v", sinceHandOff)
 				continue
 			}
-			timeoutLeft := om.f.cfg.Consumer.OffsetsCommitTimeout - sinceHandOff
+			timeoutLeft := offsetCommitTimeout - sinceHandOff
 			om.retryTimer.Reset(timeoutLeft)
 			om.nilOrRetryTimerCh = om.retryTimer.C
 		}
@@ -366,7 +371,8 @@ func (om *offsetMgr) stopRetryTimer() {
 	om.nilOrRetryTimerCh = nil
 }
 
-func (om *offsetMgr) triggerReassign(err error) {
+func (om *offsetMgr) triggerReassign(err error, format string, args ...interface{}) {
+	om.actDesc.Log().WithError(err).Errorf(format, args...)
 	om.stopRetryTimer()
 	if om.testErrorsCh != nil {
 		om.testErrorsCh <- err
@@ -431,14 +437,16 @@ type submitRs struct {
 //
 // implements `mapper.Executor`.
 type brokerExecutor struct {
-	aggrActDesc      *actor.Descriptor
-	execActDesc      *actor.Descriptor
-	cfg              *config.Proxy
-	conn             *sarama.Broker
-	requestsCh       chan submitRq
-	requestBatchesCh chan map[string]map[instanceID]submitRq
-	execStopCh       chan none.T
-	wg               sync.WaitGroup
+	aggrActDesc       *actor.Descriptor
+	execActDesc       *actor.Descriptor
+	cfg               *config.Proxy
+	conn              *sarama.Broker
+	requestsCh        chan submitRq
+	requestBatchesCh  chan map[string]map[instanceID]submitRq
+	flushAggregatorCh chan none.T
+	flushExecutorCh   chan none.T
+	execStopCh        chan none.T
+	wg                sync.WaitGroup
 }
 
 // implements `mapper.Executor`.
@@ -470,6 +478,10 @@ func (be *brokerExecutor) runAggregator() {
 			}
 			groupRequests[rq.id] = rq
 			nilOrOffsetBatchesCh = be.requestBatchesCh
+
+		case <-be.flushAggregatorCh:
+			be.flushExecutorCh <- none.V
+
 		case nilOrOffsetBatchesCh <- requestBatch:
 			nilOrOffsetBatchesCh = nil
 			requestBatch = make(map[string]map[instanceID]submitRq)
@@ -510,6 +522,9 @@ offsetCommitLoop:
 					rq.resultCh <- submitRs{rq, kafkaRs}
 				}
 			}
+		case <-be.flushExecutorCh:
+			nilOrRequestBatchesCh = be.requestBatchesCh
+
 		case <-commitTicker.C:
 			// Skip several circles after a connection failure to allow a Kafka
 			// cluster some time to recuperate. Some requests will timeout
