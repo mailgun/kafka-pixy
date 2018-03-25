@@ -329,24 +329,24 @@ handleRequests:
 		case om.nilOrBrokerRequestsCh <- receivedRq:
 			om.nilOrBrokerRequestsCh = nil
 			handedOffRq = receivedRq
-			handOffTime = time.Now().UTC()
+			handOffTime = time.Now()
 			if om.nilOrRetryTimerCh == nil {
 				om.retryTimer.Reset(offsetCommitTimeout)
 				om.nilOrRetryTimerCh = om.retryTimer.C
 			}
 		case rs := <-responseCh:
-			if err := om.getCommitError(rs.kafkaRs); err != nil {
+			if err := om.getCommitError(rs); err != nil {
 				om.triggerReassign(err, "Request failed")
 				continue
 			}
-			committedOffset = rs.rq.offset
+			committedOffset = rs.offset
 			om.committedOffsetsCh <- committedOffset
 			if stopped && receivedRq.offset == committedOffset {
 				return
 			}
 		case <-om.nilOrRetryTimerCh:
 			om.nilOrRetryTimerCh = nil
-			sinceHandOff := time.Now().UTC().Sub(handOffTime)
+			sinceHandOff := time.Since(handOffTime)
 			if sinceHandOff >= offsetCommitTimeout {
 				if handedOffRq.offset == committedOffset {
 					continue
@@ -407,11 +407,14 @@ func (om *offsetMgr) fetchInitialOffset(conn *sarama.Broker) (Offset, error) {
 	return fetchedOffset, nil
 }
 
-func (om *offsetMgr) getCommitError(res *sarama.OffsetCommitResponse) error {
-	if res.Errors[om.id.topic] == nil {
+func (om *offsetMgr) getCommitError(rs submitRs) error {
+	if rs.connErr != nil {
+		return rs.connErr
+	}
+	if rs.kafkaRs.Errors[om.id.topic] == nil {
 		return sarama.ErrIncompleteResponse
 	}
-	err, ok := res.Errors[om.id.topic][om.id.partition]
+	err, ok := rs.kafkaRs.Errors[om.id.topic][om.id.partition]
 	if !ok {
 		return sarama.ErrIncompleteResponse
 	}
@@ -428,8 +431,9 @@ type submitRq struct {
 }
 
 type submitRs struct {
-	rq      submitRq
+	offset  Offset
 	kafkaRs *sarama.OffsetCommitResponse
+	connErr error
 }
 
 // brokerExecutor aggregates submitted offsets from partition offset managers
@@ -491,7 +495,6 @@ func (be *brokerExecutor) runAggregator() {
 
 func (be *brokerExecutor) runExecutor() {
 	nilOrRequestBatchesCh := be.requestBatchesCh
-	var lastErr error
 	var lastErrTime time.Time
 	commitTicker := time.NewTicker(be.cfg.Consumer.OffsetsCommitInterval)
 	defer commitTicker.Stop()
@@ -509,17 +512,15 @@ offsetCommitLoop:
 				for _, rq := range groupRequests {
 					kafkaRq.AddBlock(rq.id.topic, rq.id.partition, rq.offset.Val, sarama.ReceiveTime, rq.offset.Meta)
 				}
-				var kafkaRs *sarama.OffsetCommitResponse
-				kafkaRs, lastErr = be.conn.CommitOffset(kafkaRq)
-				if lastErr != nil {
-					lastErrTime = time.Now().UTC()
-					be.execActDesc.Log().WithError(lastErr).Error("Connection error")
+				kafkaRs, err := be.conn.CommitOffset(kafkaRq)
+				if err != nil {
+					lastErrTime = time.Now()
+					be.execActDesc.Log().WithError(err).Error("Connection reset")
 					be.conn.Close()
-					continue offsetCommitLoop
 				}
 				// Fan the response out to the partition offset managers.
 				for _, rq := range groupRequests {
-					rq.resultCh <- submitRs{rq, kafkaRs}
+					rq.resultCh <- submitRs{rq.offset, kafkaRs, err}
 				}
 			}
 		case <-be.flushExecutorCh:
@@ -529,7 +530,7 @@ offsetCommitLoop:
 			// Skip several circles after a connection failure to allow a Kafka
 			// cluster some time to recuperate. Some requests will timeout
 			// waiting in the channel, but that is ok, for they will be retried.
-			if time.Now().UTC().Sub(lastErrTime) < be.cfg.Consumer.RetryBackoff {
+			if time.Since(lastErrTime) < be.cfg.Consumer.RetryBackoff {
 				be.execActDesc.Log().Warn("Backing off after connection error")
 				continue offsetCommitLoop
 			}

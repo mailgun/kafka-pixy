@@ -308,8 +308,8 @@ func (mf *msgFetcher) run() {
 
 // parseFetchResponse parses a fetch response received a broker.
 func (mf *msgFetcher) parseFetchResponse(fetchRs fetchRs) ([]consumer.Message, error) {
-	if fetchRs.Err != nil {
-		return nil, fetchRs.Err
+	if fetchRs.connErr != nil {
+		return nil, fetchRs.connErr
 	}
 	kafkaFetchRs := fetchRs.kafkaRs
 	if kafkaFetchRs == nil {
@@ -456,7 +456,7 @@ type fetchRq struct {
 
 type fetchRs struct {
 	kafkaRs *sarama.FetchResponse
-	Err     error
+	connErr error
 }
 
 // implements `mapper.Executor`.
@@ -502,7 +502,7 @@ func (be *brokerExecutor) runExecutor() {
 	for requestBatch := range be.requestBatchesCh {
 		// Reject consume requests for awhile after a connection failure to
 		// allow the Kafka cluster some time to recuperate.
-		if time.Now().UTC().Sub(lastErrTime) < be.cfg.Consumer.RetryBackoff {
+		if time.Since(lastErrTime) < be.cfg.Consumer.RetryBackoff {
 			for _, fr := range requestBatch {
 				fr.ReplyToCh <- fetchRs{nil, lastErr}
 			}
@@ -531,7 +531,7 @@ func (be *brokerExecutor) runExecutor() {
 		var kafkaFetchRs *sarama.FetchResponse
 		kafkaFetchRs, lastErr = be.conn.Fetch(kafkaFetchRq)
 		if lastErr != nil {
-			lastErrTime = time.Now().UTC()
+			lastErrTime = time.Now()
 			be.conn.Close()
 			be.execActDesc.Log().WithError(lastErr).Info("Connection reset")
 		}
