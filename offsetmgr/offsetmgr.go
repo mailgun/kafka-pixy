@@ -250,7 +250,7 @@ func (om *offsetMgr) run() {
 
 	var (
 		initialOffset   = undefinedOffset
-		receivedRq      = submitRq{offset: undefinedOffset}
+		latestRq        = submitRq{offset: undefinedOffset}
 		nilOrRequestsCh = om.submitRequestsCh
 		responseCh      = make(chan submitRs, 1)
 		stopped         = false
@@ -275,27 +275,27 @@ func (om *offsetMgr) run() {
 			if !ok {
 				// It was signalled to stop, but return only if there is no
 				// uncommitted offset, otherwise keep running.
-				if receivedRq.offset == initialOffset {
+				if latestRq.offset == initialOffset {
 					return
 				}
 				stopped = true
 				nilOrRequestsCh = nil
 				continue
 			}
-			receivedRq = rq
-			receivedRq.resultCh = responseCh
+			latestRq = rq
+			latestRq.resultCh = responseCh
 		}
 	}
 handleRequests:
 	committedOffset := initialOffset
-	if receivedRq.offset == undefinedOffset {
-		receivedRq.offset = committedOffset
+	if latestRq.offset == undefinedOffset {
+		latestRq.offset = committedOffset
 	}
-	if receivedRq.offset != committedOffset {
+	if latestRq.offset != committedOffset {
 		om.nilOrBrokerRequestsCh = om.brokerRequestsCh
 	}
-	var handedOffRq submitRq
-	var handOffTime time.Time
+	var submittedRq submitRq
+	var submittedAt time.Time
 	var be *brokerExecutor
 	offsetCommitTimeout := om.f.cfg.Consumer.OffsetsCommitInterval * 2
 	for {
@@ -305,12 +305,12 @@ handleRequests:
 			be = bw.(*brokerExecutor)
 			om.brokerRequestsCh = be.requestsCh
 
-			if receivedRq.offset != committedOffset {
+			if latestRq.offset != committedOffset {
 				om.nilOrBrokerRequestsCh = om.brokerRequestsCh
 			}
 		case rq, ok := <-nilOrRequestsCh:
 			if !ok {
-				if receivedRq.offset == committedOffset {
+				if latestRq.offset == committedOffset {
 					return
 				}
 				// Keep running until the last submitter offset is committed.
@@ -322,14 +322,14 @@ handleRequests:
 				nilOrRequestsCh = nil
 				continue
 			}
-			receivedRq = rq
-			receivedRq.resultCh = responseCh
+			latestRq = rq
+			latestRq.resultCh = responseCh
 			om.nilOrBrokerRequestsCh = om.brokerRequestsCh
 
-		case om.nilOrBrokerRequestsCh <- receivedRq:
+		case om.nilOrBrokerRequestsCh <- latestRq:
 			om.nilOrBrokerRequestsCh = nil
-			handedOffRq = receivedRq
-			handOffTime = time.Now()
+			submittedRq = latestRq
+			submittedAt = time.Now()
 			if om.nilOrRetryTimerCh == nil {
 				om.retryTimer.Reset(offsetCommitTimeout)
 				om.nilOrRetryTimerCh = om.retryTimer.C
@@ -341,20 +341,20 @@ handleRequests:
 			}
 			committedOffset = rs.offset
 			om.committedOffsetsCh <- committedOffset
-			if stopped && receivedRq.offset == committedOffset {
+			if stopped && latestRq.offset == committedOffset {
 				return
 			}
 		case <-om.nilOrRetryTimerCh:
 			om.nilOrRetryTimerCh = nil
-			sinceHandOff := time.Since(handOffTime)
-			if sinceHandOff >= offsetCommitTimeout {
-				if handedOffRq.offset == committedOffset {
+			sinceSubmitted := time.Since(submittedAt)
+			if sinceSubmitted >= offsetCommitTimeout {
+				if submittedRq.offset == committedOffset {
 					continue
 				}
-				om.triggerReassign(errRequestTimeout, "Request timeout %v", sinceHandOff)
+				om.triggerReassign(errRequestTimeout, "Request timeout %v", sinceSubmitted)
 				continue
 			}
-			timeoutLeft := offsetCommitTimeout - sinceHandOff
+			timeoutLeft := offsetCommitTimeout - sinceSubmitted
 			om.retryTimer.Reset(timeoutLeft)
 			om.nilOrRetryTimerCh = om.retryTimer.C
 		}
