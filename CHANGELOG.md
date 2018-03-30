@@ -1,6 +1,6 @@
 # Changelog
 
-#### Version 0.15.0 (TBD)
+#### Version 0.15.0 (2018-03-30)
 
 Implemented:
 * [#135](https://github.com/mailgun/kafka-pixy/issues/135) Added support for
@@ -20,6 +20,8 @@ Fixed:
   manager timeouts.
 * [#124](https://github.com/mailgun/kafka-pixy/issues/124) Subscription to a 
   topic fails indefinitely after ZooKeeper connection loss.
+* [#140](https://github.com/mailgun/kafka-pixy/issues/140) Offset manager keeps
+  loosing connection with a broker.
 
 #### Version 0.14.0 (2017-09-11)
 
