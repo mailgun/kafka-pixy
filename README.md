@@ -3,7 +3,6 @@
 [![Build Status](https://travis-ci.org/mailgun/kafka-pixy.svg?branch=master)](https://travis-ci.org/mailgun/kafka-pixy)
 [![Go Report Card](https://goreportcard.com/badge/github.com/mailgun/kafka-pixy)](https://goreportcard.com/report/github.com/mailgun/kafka-pixy)
 [![Coverage Status](https://coveralls.io/repos/mailgun/kafka-pixy/badge.svg?branch=master&service=github)](https://coveralls.io/github/mailgun/kafka-pixy?branch=master)
-[![ImageLayers Size](https://img.shields.io/imagelayers/image-size/_/ubuntu/latest.svg)]
 [![Docker Pulls](https://img.shields.io/docker/pulls/mailgun/kafka-pixy.svg)](https://hub.docker.com/r/mailgun/kafka-pixy/)
 
 Kafka-Pixy is a dual API (gRPC and HTTP+JSON) proxy for [Kafka](http://kafka.apache.org/documentation.html)
