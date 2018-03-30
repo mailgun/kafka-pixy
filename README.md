@@ -1,8 +1,12 @@
-# Kafka-Pixy (gRPC/REST Proxy for Kafka)
+# Kafka-Pixy (gRPC/HTTP+JSON Proxy for Kafka)
 
-[![Build Status](https://travis-ci.org/mailgun/kafka-pixy.svg?branch=master)](https://travis-ci.org/mailgun/kafka-pixy) [![Go Report Card](https://goreportcard.com/badge/github.com/mailgun/kafka-pixy)](https://goreportcard.com/report/github.com/mailgun/kafka-pixy) [![Coverage Status](https://coveralls.io/repos/mailgun/kafka-pixy/badge.svg?branch=master&service=github)](https://coveralls.io/github/mailgun/kafka-pixy?branch=master)
+[![Build Status](https://travis-ci.org/mailgun/kafka-pixy.svg?branch=master)](https://travis-ci.org/mailgun/kafka-pixy)
+[![Go Report Card](https://goreportcard.com/badge/github.com/mailgun/kafka-pixy)](https://goreportcard.com/report/github.com/mailgun/kafka-pixy)
+[![Coverage Status](https://coveralls.io/repos/mailgun/kafka-pixy/badge.svg?branch=master&service=github)](https://coveralls.io/github/mailgun/kafka-pixy?branch=master)
+[![ImageLayers Size](https://img.shields.io/imagelayers/image-size/_/ubuntu/latest.svg)]
+[![Docker Pulls](https://img.shields.io/docker/pulls/mailgun/kafka-pixy.svg)](https://hub.docker.com/r/mailgun/kafka-pixy/)
 
-Kafka-Pixy is a dual API (gRPC and REST) proxy for [Kafka](http://kafka.apache.org/documentation.html)
+Kafka-Pixy is a dual API (gRPC and HTTP+JSON) proxy for [Kafka](http://kafka.apache.org/documentation.html)
 with automatic consumer group control. It is designed to hide the
 complexity of the Kafka client protocol and provide a stupid simple
 API that is trivial to implement in any language.
@@ -29,11 +33,11 @@ for details).
   acknowledgement of consumed messages;
 - **Dual API**: Kafka-Pixy provides two types of API:
   - [gRPC](http://www.grpc.io/docs/guides/)
-  ([Protocol Buffers](https://developers.google.com/protocol-buffers/docs/overview)
-  over [HTTP/2](https://http2.github.io/faq/)) recommended to
-  produce/consume messages;
-  - REST (JSON over HTTP) intended for for testing and operations
-  purposes, although you can use it to produce/consume messages too;
+    ([Protocol Buffers](https://developers.google.com/protocol-buffers/docs/overview)
+    over [HTTP/2](https://http2.github.io/faq/)) recommended to
+    produce/consume messages;
+  - HTTP+JSON intended for for testing and operations purposes, although you
+    can use it to produce/consume messages too;
 - **Multi-Cluster Support**: One Kafka-Pixy instance can proxy to
   several Kafka clusters. You just need to define them in the [config
   file](https://github.com/mailgun/kafka-pixy/blob/master/default.yaml)
@@ -62,7 +66,7 @@ generate stubs for a bunch of other languages. Please refer to the gRPC
 [documentation](http://www.grpc.io/docs/) for information on the
 language of your choice.
 
-## HTTP API
+## HTTP+JSON API
 
 **It is highly recommended to use gRPC API for production/consumption.
 The HTTP API is only provided for quick tests and operational purposes.**
