@@ -71,6 +71,9 @@ type Proxy struct {
 		// Size of all buffered channels created by the producer module.
 		ChannelBufferSize int `yaml:"channel_buffer_size"`
 
+		// Size of maximum message in bytes
+		MaxMessageBytes int `yaml:"max_message_bytes"`
+
 		// The type of compression to use on messages.
 		Compression Compression `yaml:"compression"`
 
@@ -240,6 +243,7 @@ func (p *Proxy) SaramaProducerCfg() *sarama.Config {
 	saramaCfg.ClientID = p.ClientID
 	saramaCfg.Version = p.Kafka.Version.v
 
+	saramaCfg.Producer.MaxMessageBytes = p.Producer.MaxMessageBytes
 	saramaCfg.Producer.Compression = sarama.CompressionCodec(p.Producer.Compression)
 	saramaCfg.Producer.Flush.Frequency = p.Producer.FlushFrequency
 	saramaCfg.Producer.Flush.Bytes = p.Producer.FlushBytes
@@ -408,6 +412,7 @@ func defaultProxyWithClientID(clientID string) *Proxy {
 	}
 
 	c.Producer.ChannelBufferSize = 4096
+	c.Producer.MaxMessageBytes = 1000000
 	c.Producer.Compression = Compression(sarama.CompressionSnappy)
 	c.Producer.FlushFrequency = 500 * time.Millisecond
 	c.Producer.FlushBytes = 1024 * 1024
