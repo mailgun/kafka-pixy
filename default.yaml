@@ -50,6 +50,10 @@ proxies:
 
       # Size of all buffered channels created by the producer module.
       channel_buffer_size: 4096
+      
+      # The maximum permitted size of a message (defaults to 1000000). Should be
+      # set equal to or smaller than the broker's `message.max.bytes`.
+      max_message_bytes: 1000000
 
       # The type of compression to use on messages. Allowed values are:
       # none, gzip, snappy, and lz4.
