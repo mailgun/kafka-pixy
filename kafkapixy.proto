@@ -115,6 +115,14 @@ service KafkaPixy {
     rpc GetTopicMetadata (GetTopicMetadataRq) returns (GetTopicMetadataRs) {}
 }
 
+message RecordHeader {
+    // Key in the header key-value pair
+    string key = 1;
+
+    // Value in the header key-value pair
+    bytes value = 2;
+}
+
 message ProdRq {
     // Name of a Kafka cluster to operate on.
     string cluster = 1;
@@ -146,6 +154,9 @@ message ProdRq {
     //  * wait_for_all:   the response is returned after all in-sync replicas
     //                    have data committed to disk.
     bool async_mode = 6;
+
+    // Headers to include with the published message
+    repeated RecordHeader headers = 7;
 }
 
 message ProdRs {
@@ -198,6 +209,9 @@ message ConsRs {
 
     // Message body
     bytes message = 5;
+
+    // Headers associated with the message
+    repeated RecordHeader headers = 6;
 }
 
 message AckRq {

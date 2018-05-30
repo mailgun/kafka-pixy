@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/config"
 	pb "github.com/mailgun/kafka-pixy/gen/golang"
 	"github.com/mailgun/kafka-pixy/testhelpers"
@@ -202,6 +203,38 @@ func (s *ServiceGRPCSuite) TestProduceInvalidProxy(c *C) {
 	grpcStatus, ok := status.FromError(err)
 	c.Check(ok, Equals, true)
 	c.Check(grpcStatus.Message(), Equals, "proxy `invalid` does not exist")
+	c.Check(grpcStatus.Code(), Equals, codes.InvalidArgument)
+	c.Check(res, IsNil)
+}
+
+func (s *ServiceGRPCSuite) TestProduceHeadersUnsupported(c *C) {
+	if s.proxyCfg.Kafka.Version.IsAtLeast(sarama.V0_11_0_0) {
+		c.Skip("Headers are supported on new Kafka")
+	}
+
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
+	defer svc.Stop()
+	s.waitSvcUp(c, 5*time.Second)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// When
+	req := pb.ProdRq{
+		Topic:    "test.4",
+		KeyValue: []byte("bar"),
+		Message:  []byte("msg"),
+		Headers: []*pb.RecordHeader{
+			{Key: "foo", Value: []byte("bar")},
+		},
+	}
+	res, err := s.clt.Produce(ctx, &req, grpc.FailFast(false))
+
+	// Then
+	grpcStatus, ok := status.FromError(err)
+	c.Check(ok, Equals, true)
+	c.Check(grpcStatus.Message(), Matches, "headers are not supported with this version of Kafka.*")
 	c.Check(grpcStatus.Code(), Equals, codes.InvalidArgument)
 	c.Check(res, IsNil)
 }
@@ -441,6 +474,49 @@ func (s *ServiceGRPCSuite) TestConsumeKeyUndefined(c *C) {
 		Offset:       prodRes.Offset,
 		KeyUndefined: true,
 		Message:      prodReq.Message,
+	})
+}
+
+// When a message that was produced with headers is conusmed, the headers should
+// be present
+func (s *ServiceGRPCSuite) TestConsumeHeaders(c *C) {
+	if !s.proxyCfg.Kafka.Version.IsAtLeast(sarama.V0_11_0_0) {
+		c.Skip("Headers not supported before Kafka v0.11")
+	}
+
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
+	defer svc.Stop()
+	s.waitSvcUp(c, 5*time.Second)
+
+	s.kh.ResetOffsets("foo", "test.4")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	prodReq := pb.ProdRq{
+		Topic:        "test.4",
+		KeyUndefined: true,
+		Message:      []byte(fmt.Sprintf("msg-%d", rand.Int())),
+		Headers: []*pb.RecordHeader{
+			{Key: "foo", Value: []byte("bar")},
+		},
+	}
+	prodRes, err := s.clt.Produce(ctx, &prodReq, grpc.FailFast(false))
+	c.Check(err, IsNil)
+
+	// When
+	consReq := pb.ConsNAckRq{Topic: "test.4", Group: "foo"}
+	consRes, err := s.clt.ConsumeNAck(ctx, &consReq)
+
+	// Then
+	c.Check(err, IsNil)
+	c.Check(*consRes, DeepEquals, pb.ConsRs{
+		Partition:    prodRes.Partition,
+		Offset:       prodRes.Offset,
+		KeyUndefined: true,
+		Message:      prodReq.Message,
+		Headers:      prodReq.Headers,
 	})
 }
 

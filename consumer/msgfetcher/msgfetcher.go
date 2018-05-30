@@ -404,6 +404,7 @@ func (mf *msgFetcher) parseRecordBatch(recordBatch *sarama.RecordBatch, highWate
 				Partition: mf.id.partition,
 				Key:       record.Key,
 				Value:     record.Value,
+				Headers:   record.Headers,
 				Offset:    offset,
 				Timestamp: recordBatch.FirstTimestamp.Add(record.TimestampDelta),
 			},

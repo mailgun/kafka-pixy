@@ -196,6 +196,87 @@ func (s *ServiceHTTPSuite) TestUtf8Message(c *C) {
 		[][]string{[]string(nil), {"Превед Медвед"}, []string(nil), []string(nil)})
 }
 
+// Headers are submitted without a problem
+func (s *ServiceHTTPSuite) TestProduceHeaders(c *C) {
+	if !s.proxyCfg.Kafka.Version.IsAtLeast(sarama.V0_11_0_0) {
+		c.Skip("Headers not supported before Kafka v0.11")
+	}
+
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
+	offsetsBefore := s.kh.GetNewestOffsets("test.1")
+
+	// When
+	req, err := http.NewRequest("POST", "http://_/topics/test.1/messages?key=foo&sync",
+		strings.NewReader("test"))
+	c.Assert(err, IsNil)
+	req.Header.Add("Content-Type", "text/plain")
+	req.Header.Add("X-Kafka-Foo", base64.StdEncoding.EncodeToString([]byte("bar")))
+	rs, err := s.unixClient.Do(req)
+
+	// Then
+	c.Check(err, IsNil)
+	c.Check(rs.StatusCode, Equals, http.StatusOK)
+
+	svc.Stop() // Stop before getting offsets
+	offsetsAfter := s.kh.GetNewestOffsets("test.1")
+	c.Check(offsetsAfter[0], Equals, offsetsBefore[0]+1)
+}
+
+// Invalid base64-encoded headers should produce an error
+func (s *ServiceHTTPSuite) TestProduceInvalidHeaders(c *C) {
+	if !s.proxyCfg.Kafka.Version.IsAtLeast(sarama.V0_11_0_0) {
+		c.Skip("Headers not supported before Kafka v0.11")
+	}
+
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
+	defer svc.Stop()
+
+	// When
+	req, err := http.NewRequest("POST", "http://_/topics/test.1/messages?key=foo&sync",
+		strings.NewReader("test"))
+	c.Assert(err, IsNil)
+	req.Header.Add("Content-Type", "text/plain")
+	req.Header.Add("X-Kafka-Foo", "invalid!")
+	rs, err := s.unixClient.Do(req)
+
+	// Then
+	c.Check(err, IsNil)
+	c.Check(rs.StatusCode, Equals, http.StatusBadRequest)
+
+	body := ParseJSONBody(c, rs).(map[string]interface{})
+	c.Check(body["error"], Equals, "Invalid base64 encoding for header: X-Kafka-Foo")
+}
+
+// Submitting headers when they're not supported by the Kafka version setting
+// should produce an error
+func (s *ServiceHTTPSuite) TestProduceHeadersUnsupported(c *C) {
+	if s.proxyCfg.Kafka.Version.IsAtLeast(sarama.V0_11_0_0) {
+		c.Skip("Headers are supported after Kafka v0.11")
+	}
+
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
+	defer svc.Stop()
+
+	// When
+	req, err := http.NewRequest("POST", "http://_/topics/test.1/messages?key=foo&sync",
+		strings.NewReader("test"))
+	c.Assert(err, IsNil)
+	req.Header.Add("Content-Type", "text/plain")
+	req.Header.Add("X-Kafka-Foo", base64.StdEncoding.EncodeToString([]byte("bar")))
+	rs, err := s.unixClient.Do(req)
+
+	// Then
+	c.Check(err, IsNil)
+	c.Check(rs.StatusCode, Equals, http.StatusBadRequest)
+
+	body := ParseJSONBody(c, rs).(map[string]interface{})
+	c.Check(body["error"], Matches, "headers are not supported with this version of Kafka.*")
+
+}
+
 func (s *ServiceHTTPSuite) TestProduceXWWWFormUrlencoded(c *C) {
 	svc, err := Spawn(s.cfg)
 	c.Assert(err, IsNil)
@@ -512,6 +593,37 @@ func (s *ServiceHTTPSuite) TestConsumeDisabled(c *C) {
 	c.Check(r.StatusCode, Equals, http.StatusServiceUnavailable)
 	body := ParseJSONBody(c, r).(map[string]interface{})
 	c.Check(body["error"], Equals, "service is disabled by configuration")
+}
+
+// When a message that was produced with headers is conusmed, the headers should
+// be present
+func (s *ServiceHTTPSuite) TestConsumeHeaders(c *C) {
+	if !s.proxyCfg.Kafka.Version.IsAtLeast(sarama.V0_11_0_0) {
+		c.Skip("Headers not supported before Kafka v0.11")
+	}
+
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
+
+	s.kh.ResetOffsets("foo", "test.4")
+	req, err := http.NewRequest("POST", "http://_/topics/test.4/messages?key=foo&sync",
+		strings.NewReader("test"))
+	c.Assert(err, IsNil)
+	req.Header.Add("Content-Type", "text/plain")
+	req.Header.Add("X-Kafka-Foo", base64.StdEncoding.EncodeToString([]byte("bar")))
+	rs, err := s.unixClient.Do(req)
+	c.Assert(err, IsNil)
+	c.Assert(rs.StatusCode, Equals, http.StatusOK)
+
+	// When
+	res, err := s.unixClient.Get("http://_/topics/test.4/messages?group=foo")
+	c.Check(err, IsNil)
+	consRes := ParseConsRes(c, res)
+	svc.Stop()
+
+	// Then
+	c.Check(consRes.Headers, Not(HasLen), 0)
+	c.Check(consRes.Headers[0], DeepEquals, &pb.RecordHeader{Key: "Foo", Value: []byte("bar")})
 }
 
 // If offsets for a group that does not exist are requested then -1 is returned
@@ -1159,11 +1271,26 @@ func ParseJSONBody(c *C, res *http.Response) interface{} {
 
 func ParseConsRes(c *C, res *http.Response) *pb.ConsRs {
 	body := ParseJSONBody(c, res).(map[string]interface{})
+	var headers []*pb.RecordHeader
+	for _, raw := range body["headers"].([]interface{}) {
+		h := raw.(map[string]interface{})
+		value, err := base64.StdEncoding.DecodeString(h["value"].(string))
+		if err != nil {
+			c.Error(err)
+			return nil
+		}
+		headers = append(headers, &pb.RecordHeader{
+			Key:   h["key"].(string),
+			Value: value,
+		})
+	}
+
 	return &pb.ConsRs{
 		KeyValue:  []byte(ParseBase64(c, body["key"].(string))),
 		Message:   []byte(ParseBase64(c, body["value"].(string))),
 		Partition: int32(body["partition"].(float64)),
 		Offset:    int64(body["offset"].(float64)),
+		Headers:   headers,
 	}
 }
 

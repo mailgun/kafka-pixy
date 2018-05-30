@@ -95,6 +95,15 @@ type either `text/plain` or `application/json` then a message should be send as
 the body of a request. If content type is `x-www-form-urlencoded` then a
 message should be pass as the `msg` form parameter.
 
+If Kafka-Pixy is configured to use a version of the Kafka protocol (via the
+`kafka.version` proxy setting) that is 0.11.0.0 or later, it is also possible to
+add [record
+headers](https://cwiki.apache.org/confluence/display/KAFKA/KIP-82+-+Add+Record+Headers)
+to a message by adding HTTP headers to your message. Any HTTP header with the
+prefix "X-Kafka-" will have that prefix stripped and the header will be used as
+a record header. Since the values of Kafka headers can be arbitrary byte
+strings, the value of the HTTP header must be Base 64-encoded.
+
  Parameter | Opt | Description
 -----------|-----|------------------------------------------------------
  cluster   | yes | The name of a cluster to operate on. By default the cluster mentioned first in the `proxies` section of the config file is used.
@@ -202,7 +211,13 @@ be a JSON document of the following structure:
   "key": <base64 encoded key>,
   "value": <base64 encoded message body>,
   "partition": <partition number>,
-  "offset": <message offset>
+  "offset": <message offset>,
+  "headers": [
+    {
+      "key": <string header key>,
+      "value": <base64-encoded header value>
+    }
+  ]
 }
 ```
 e.g.:
@@ -211,9 +226,18 @@ e.g.:
   "key": "0JzQsNGA0YPRgdGP",
   "value": "0JzQvtGPINC70Y7QsdC40LzQsNGPINC00L7Rh9C10L3RjNC60LA=",
   "partition": 0,
-  "offset": 13
+  "offset": 13,
+  "headers": [
+    {
+      "key": "foo",
+      "value": "YmFy"
+    }
+  ]
 }
 ```
+
+Note that headers are only supported if the Kafka protocol version (set via the
+`kafka.version` configuration flag) is set to 0.11.0.0 or later.
 
 ### Acknowledge
 

@@ -57,7 +57,29 @@ func (s *ProducerSuite) TestProduce(c *C) {
 	offsetsBefore := s.kh.GetNewestOffsets("test.4")
 
 	// When
-	_, err := p.Produce("test.4", sarama.StringEncoder("1"), sarama.StringEncoder("Foo"))
+	_, err := p.Produce("test.4", sarama.StringEncoder("1"), sarama.StringEncoder("Foo"), nil)
+
+	// Then
+	c.Assert(err, IsNil)
+	offsetsAfter := s.kh.GetNewestOffsets("test.4")
+	c.Assert(offsetsAfter[0], Equals, offsetsBefore[0]+1)
+
+	// Cleanup
+	p.Stop()
+}
+
+func (s *ProducerSuite) TestProduceHeaders(c *C) {
+	if !s.cfg.Kafka.Version.IsAtLeast(sarama.V0_11_0_0) {
+		c.Skip("headers not supported before Kafka 0.11")
+	}
+
+	p, _ := Spawn(s.ns, s.cfg)
+	offsetsBefore := s.kh.GetNewestOffsets("test.4")
+
+	// When
+	_, err := p.Produce("test.4", sarama.StringEncoder("1"), sarama.StringEncoder("Foo"), []sarama.RecordHeader{
+		{Key: []byte("foo"), Value: []byte("var")},
+	})
 
 	// Then
 	c.Assert(err, IsNil)
@@ -72,7 +94,7 @@ func (s *ProducerSuite) TestProduceInvalidTopic(c *C) {
 	p, _ := Spawn(s.ns, s.cfg)
 
 	// When
-	_, err := p.Produce("no-such-topic", sarama.StringEncoder("1"), sarama.StringEncoder("Foo"))
+	_, err := p.Produce("no-such-topic", sarama.StringEncoder("1"), sarama.StringEncoder("Foo"), nil)
 
 	// Then
 	c.Assert(err, Equals, sarama.ErrUnknownTopicOrPartition)
@@ -90,11 +112,11 @@ func (s *ProducerSuite) TestAsyncProduce(c *C) {
 
 	// When
 	for i := 0; i < 10; i++ {
-		p.AsyncProduce("test.4", sarama.StringEncoder("1"), sarama.StringEncoder(strconv.Itoa(i)))
-		p.AsyncProduce("test.4", sarama.StringEncoder("2"), sarama.StringEncoder(strconv.Itoa(i)))
-		p.AsyncProduce("test.4", sarama.StringEncoder("3"), sarama.StringEncoder(strconv.Itoa(i)))
-		p.AsyncProduce("test.4", sarama.StringEncoder("4"), sarama.StringEncoder(strconv.Itoa(i)))
-		p.AsyncProduce("test.4", sarama.StringEncoder("5"), sarama.StringEncoder(strconv.Itoa(i)))
+		p.AsyncProduce("test.4", sarama.StringEncoder("1"), sarama.StringEncoder(strconv.Itoa(i)), nil)
+		p.AsyncProduce("test.4", sarama.StringEncoder("2"), sarama.StringEncoder(strconv.Itoa(i)), nil)
+		p.AsyncProduce("test.4", sarama.StringEncoder("3"), sarama.StringEncoder(strconv.Itoa(i)), nil)
+		p.AsyncProduce("test.4", sarama.StringEncoder("4"), sarama.StringEncoder(strconv.Itoa(i)), nil)
+		p.AsyncProduce("test.4", sarama.StringEncoder("5"), sarama.StringEncoder(strconv.Itoa(i)), nil)
 	}
 	p.Stop()
 	offsetsAfter := s.kh.GetNewestOffsets("test.4")
@@ -117,7 +139,7 @@ func (s *ProducerSuite) TestAsyncProduceNilKey(c *C) {
 
 	// When
 	for i := 0; i < 100; i++ {
-		p.AsyncProduce("test.4", nil, sarama.StringEncoder(strconv.Itoa(i)))
+		p.AsyncProduce("test.4", nil, sarama.StringEncoder(strconv.Itoa(i)), nil)
 	}
 	p.Stop()
 	offsetsAfter := s.kh.GetNewestOffsets("test.4")
@@ -143,7 +165,7 @@ func (s *ProducerSuite) TestTooSmallShutdownTimeout(c *C) {
 	// When
 	for i := 0; i < 100; i++ {
 		v := sarama.StringEncoder(strconv.Itoa(i))
-		p.AsyncProduce("test.4", v, v)
+		p.AsyncProduce("test.4", v, v, nil)
 	}
 	p.Stop()
 	offsetsAfter := s.kh.GetNewestOffsets("test.4")
@@ -166,7 +188,7 @@ func (s *ProducerSuite) TestAsyncProduceEmptyKey(c *C) {
 
 	// When
 	for i := 0; i < 10; i++ {
-		p.AsyncProduce("test.4", sarama.StringEncoder(""), sarama.StringEncoder(strconv.Itoa(i)))
+		p.AsyncProduce("test.4", sarama.StringEncoder(""), sarama.StringEncoder(strconv.Itoa(i)), nil)
 	}
 	p.Stop()
 	offsetsAfter := s.kh.GetNewestOffsets("test.4")
