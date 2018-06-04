@@ -96,6 +96,11 @@ proxies:
       #  * roundrobin: iterate over partitions sequentially
       partitioner: hash
 
+      # The timeout to specify on individual produce requests to the broker. The
+      # broker will wait for replication to complete up to this duration before
+      # returning an error.
+      timeout: 10s
+
     # Consumer parameters section.
     consumer:
 
