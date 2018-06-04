@@ -89,6 +89,10 @@ proxies:
     # Consumer parameters section.
     consumer:
 
+      # If set, Kafka-Pixy will not configure a consumer, and any attempts to
+      # call the consumer APIs will return an error.
+      disabled: false
+
       # Period of time that Kafka-Pixy should wait for an acknowledgement
       # before retrying.
       ack_timeout: 5m

@@ -469,6 +469,32 @@ func (s *ServiceGRPCSuite) TestConsumeInvalidProxy(c *C) {
 	c.Check(consRes, IsNil)
 }
 
+func (s *ServiceGRPCSuite) TestConsumeDisabled(c *C) {
+	s.proxyCfg.Consumer.Disabled = true
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
+	defer svc.Stop()
+	s.waitSvcUp(c, 5*time.Second)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// When
+	req := pb.ConsNAckRq{
+		Topic:   "test.4",
+		Group:   "foo",
+		AutoAck: true,
+	}
+	res, err := s.clt.ConsumeNAck(ctx, &req, grpc.FailFast(false))
+
+	// Then
+	grpcStatus, ok := status.FromError(err)
+	c.Check(ok, Equals, true)
+	c.Check(grpcStatus.Message(), Equals, "service is disabled by configuration")
+	c.Check(grpcStatus.Code(), Equals, codes.Unavailable)
+	c.Check(res, IsNil)
+}
+
 func (s *ServiceGRPCSuite) waitSvcUp(c *C, timeout time.Duration) {
 	start := time.Now()
 	for {

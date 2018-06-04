@@ -498,6 +498,22 @@ func (s *ServiceHTTPSuite) TestConsumeExplicitAck(c *C) {
 	assertMsgs(c, consumed, produced)
 }
 
+func (s *ServiceHTTPSuite) TestConsumeDisabled(c *C) {
+	s.proxyCfg.Consumer.Disabled = true
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
+	defer svc.Stop()
+
+	// When
+	r, err := s.unixClient.Get("http://_/topics/test.4/messages?group=foo")
+
+	// Then
+	c.Check(err, IsNil)
+	c.Check(r.StatusCode, Equals, http.StatusServiceUnavailable)
+	body := ParseJSONBody(c, r).(map[string]interface{})
+	c.Check(body["error"], Equals, "service is disabled by configuration")
+}
+
 // If offsets for a group that does not exist are requested then -1 is returned
 // as the next offset to be consumed for all topic partitions.
 func (s *ServiceHTTPSuite) TestGetOffsetsNoSuchGroup(c *C) {

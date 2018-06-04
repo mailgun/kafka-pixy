@@ -22,6 +22,7 @@ const (
 
 var (
 	ErrUnavailable = errors.New("service is shutting down")
+	ErrDisabled    = errors.New("service is disabled by configuration")
 
 	noAck   = Ack{partition: -1}
 	autoAck = Ack{partition: -2}
@@ -102,8 +103,10 @@ func Spawn(parentActDesc *actor.Descriptor, name string, cfg *config.Proxy) (*T,
 	if p.producer, err = producer.Spawn(p.actDesc, cfg); err != nil {
 		return nil, errors.Wrap(err, "failed to spawn producer")
 	}
-	if p.consumer, err = consumerimpl.Spawn(p.actDesc, cfg, p.offsetMgrF); err != nil {
-		return nil, errors.Wrap(err, "failed to spawn consumer")
+	if !cfg.Consumer.Disabled {
+		if p.consumer, err = consumerimpl.Spawn(p.actDesc, cfg, p.offsetMgrF); err != nil {
+			return nil, errors.Wrap(err, "failed to spawn consumer")
+		}
 	}
 	if p.admin, err = admin.Spawn(p.actDesc, cfg); err != nil {
 		return nil, errors.Wrap(err, "failed to spawn admin")
@@ -147,7 +150,9 @@ func (p *T) stopConsumer() {
 	cons := p.consumer
 	p.consumer = nil
 	p.consumerMu.Unlock()
-	cons.Stop()
+	if cons != nil {
+		cons.Stop()
+	}
 }
 
 func (p *T) stopProducer() {
@@ -209,6 +214,10 @@ func (p *T) AsyncProduce(topic string, key, message sarama.Encoder) {
 // available for consumption. In that case the user should back off a bit
 // and then repeat the request.
 func (p *T) Consume(group, topic string, ack Ack) (consumer.Message, error) {
+	if p.cfg.Consumer.Disabled {
+		return consumer.Message{}, ErrDisabled
+	}
+
 	if ack != noAck && ack != autoAck {
 		p.eventsChMapMu.RLock()
 		eventsChID := eventsChID{group, topic, ack.partition}

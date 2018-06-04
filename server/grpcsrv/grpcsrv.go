@@ -96,6 +96,8 @@ func (s *T) Produce(ctx context.Context, req *pb.ProdRq) (*pb.ProdRs, error) {
 		switch err {
 		case sarama.ErrUnknownTopicOrPartition:
 			return nil, status.Errorf(codes.InvalidArgument, err.Error())
+		case proxy.ErrDisabled:
+			fallthrough
 		case proxy.ErrUnavailable:
 			return nil, status.Errorf(codes.Unavailable, err.Error())
 		default:
@@ -131,6 +133,8 @@ func (s *T) ConsumeNAck(ctx context.Context, req *pb.ConsNAckRq) (*pb.ConsRs, er
 		case consumer.ErrTooManyRequests:
 			return nil, status.Errorf(codes.ResourceExhausted, err.Error())
 		case consumer.ErrUnavailable:
+			fallthrough
+		case proxy.ErrDisabled:
 			fallthrough
 		case proxy.ErrUnavailable:
 			return nil, status.Errorf(codes.Unavailable, err.Error())
