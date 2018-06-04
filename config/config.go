@@ -66,6 +66,19 @@ type Proxy struct {
 		Chroot string `yaml:"chroot"`
 	} `yaml:"zoo_keeper"`
 
+	// Networking timeouts. These all pass through to sarama's `config.Net`
+	// field.
+	Net struct {
+		// How long to wait for the initial connection.
+		DialTimeout time.Duration `yaml:"dial_timeout"`
+
+		// How long to wait for a response.
+		ReadTimeout time.Duration `yaml:"read_timeout"`
+
+		// How long to wait for a transmit.
+		WriteTimeout time.Duration `yaml:"write_timeout"`
+	} `yaml:"net"`
+
 	Producer struct {
 
 		// Size of all buffered channels created by the producer module.
@@ -270,6 +283,10 @@ func (p *Proxy) SaramaProducerCfg() *sarama.Config {
 	saramaCfg.ClientID = p.ClientID
 	saramaCfg.Version = p.Kafka.Version.v
 
+	saramaCfg.Net.DialTimeout = p.Net.DialTimeout
+	saramaCfg.Net.ReadTimeout = p.Net.ReadTimeout
+	saramaCfg.Net.WriteTimeout = p.Net.WriteTimeout
+
 	saramaCfg.Producer.MaxMessageBytes = p.Producer.MaxMessageBytes
 	saramaCfg.Producer.Compression = sarama.CompressionCodec(p.Producer.Compression)
 	saramaCfg.Producer.Flush.Frequency = p.Producer.FlushFrequency
@@ -287,6 +304,11 @@ func (p *Proxy) SaramaClientCfg() *sarama.Config {
 	saramaCfg.ChannelBufferSize = p.Consumer.ChannelBufferSize
 	saramaCfg.ClientID = p.ClientID
 	saramaCfg.Version = p.Kafka.Version.v
+
+	saramaCfg.Net.DialTimeout = p.Net.DialTimeout
+	saramaCfg.Net.ReadTimeout = p.Net.ReadTimeout
+	saramaCfg.Net.WriteTimeout = p.Net.WriteTimeout
+
 	return saramaCfg
 }
 
@@ -444,6 +466,10 @@ func defaultProxyWithClientID(clientID string) *Proxy {
 	if err := kv.UnmarshalText([]byte(envKafkaVersion)); err == nil {
 		c.Kafka.Version = kv
 	}
+
+	c.Net.DialTimeout = 30 * time.Second
+	c.Net.ReadTimeout = 30 * time.Second
+	c.Net.WriteTimeout = 30 * time.Second
 
 	c.Producer.ChannelBufferSize = 4096
 	c.Producer.MaxMessageBytes = 1000000

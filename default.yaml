@@ -34,6 +34,19 @@ proxies:
       # Version of the Kafka cluster. Supported versions are 0.8.2.2 - 1.0.0
       version: 0.8.2.2
 
+    # Networking parameters section. These all pass through to sarama's
+    # `config.Net` field.
+    net:
+
+      # How long to wait for the initial connection.
+      dial_timeout: 30s
+
+      # How long to wait for a response.
+      read_timeout: 30s
+
+      # How long to wait for a transmit.
+      write_timeout: 30s
+
     # ZooKeeper parameters section.
     zoo_keeper:
 
