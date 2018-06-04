@@ -86,6 +86,16 @@ proxies:
       # a ZooKeeper leader election in your setup.
       shutdown_timeout: 30s
 
+      # How to assign incoming messages to a Kafka partition. Defaults to using
+      # a hash of the specified message key, or random if the key is
+      # unspecified. Allowed values are:
+      #  * hash:       for messages with a key, take the FNV-1a hash of the
+      #                bytes, modulus the number of partitions; otherwise use a
+      #                random partition.
+      #  * random:     all messages are published to a random partition.
+      #  * roundrobin: iterate over partitions sequentially
+      partitioner: hash
+
     # Consumer parameters section.
     consumer:
 

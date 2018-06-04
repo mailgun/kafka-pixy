@@ -96,6 +96,11 @@ type Proxy struct {
 		// messages to Kafka. It is recommended to make it large enough to survive
 		// a ZooKeeper leader election in your setup.
 		ShutdownTimeout time.Duration `yaml:"shutdown_timeout"`
+
+		// How to assign incoming messages to a Kafka partition. Defaults to
+		// using a hash of the specified message key, or random if the key is
+		// unspecified.
+		Partitioner PartitionerConstructor `yaml:"partitioner"`
 	} `yaml:"producer"`
 
 	Consumer struct {
@@ -227,6 +232,20 @@ func (ra *RequiredAcks) UnmarshalText(text []byte) error {
 	return nil
 }
 
+type PartitionerConstructor string
+
+func (pc PartitionerConstructor) ToPartitionerConstructor() (sarama.PartitionerConstructor, error) {
+	v, ok := map[string]sarama.PartitionerConstructor{
+		"hash":       sarama.NewHashPartitioner,
+		"random":     sarama.NewRandomPartitioner,
+		"roundrobin": sarama.NewRoundRobinPartitioner,
+	}[string(pc)]
+	if !ok {
+		return nil, errors.Errorf("bad partitioner: %s", pc)
+	}
+	return v, nil
+}
+
 func (p *Proxy) KazooCfg() *kazoo.Config {
 	kazooCfg := kazoo.NewConfig()
 	kazooCfg.Chroot = p.ZooKeeper.Chroot
@@ -253,6 +272,7 @@ func (p *Proxy) SaramaProducerCfg() *sarama.Config {
 	saramaCfg.Producer.Retry.Backoff = p.Producer.RetryBackoff
 	saramaCfg.Producer.Retry.Max = p.Producer.RetryMax
 	saramaCfg.Producer.RequiredAcks = sarama.RequiredAcks(p.Producer.RequiredAcks)
+	saramaCfg.Producer.Partitioner, _ = p.Producer.Partitioner.ToPartitionerConstructor()
 	return saramaCfg
 }
 
@@ -366,6 +386,9 @@ func (p *Proxy) validate() error {
 	case p.Producer.ShutdownTimeout < 0:
 		return errors.New("producer.shutdown_timeout must be >= 0")
 	}
+	if _, err := p.Producer.Partitioner.ToPartitionerConstructor(); err != nil {
+		return fmt.Errorf("producer.partitioner is invalid: %q", err)
+	}
 	// Validate the Consumer parameters.
 	switch {
 	case p.Consumer.AckTimeout <= 0:
@@ -423,6 +446,7 @@ func defaultProxyWithClientID(clientID string) *Proxy {
 	c.Producer.RetryBackoff = 10 * time.Second
 	c.Producer.RetryMax = 6
 	c.Producer.ShutdownTimeout = 30 * time.Second
+	c.Producer.Partitioner = PartitionerConstructor("hash")
 
 	c.Consumer.AckTimeout = 300 * time.Second
 	c.Consumer.ChannelBufferSize = 64
