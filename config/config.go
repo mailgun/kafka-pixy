@@ -99,6 +99,9 @@ type Proxy struct {
 	} `yaml:"producer"`
 
 	Consumer struct {
+		// If set, Kafka-Pixy will not configure a consumer, and any attempts to
+		// call the consumer APIs will return an error.
+		Disabled bool `yaml:"disabled"`
 
 		// Period of time that Kafka-Pixy should wait for an acknowledgement
 		// before retrying.
