@@ -2,6 +2,7 @@ package httpsrv
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -31,6 +32,7 @@ const (
 	// HTTP headers used by the API.
 	hdrContentLength = "Content-Length"
 	hdrContentType   = "Content-Type"
+	hdrKafkaPrefix   = "X-Kafka-"
 
 	// HTTP request parameters.
 	prmCluster              = "cluster"
@@ -171,14 +173,36 @@ func (s *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Look for headers with the "X-Kafka" prefix
+	var headers []sarama.RecordHeader
+	for header, values := range r.Header {
+		if !strings.HasPrefix(header, hdrKafkaPrefix) {
+			continue
+		}
+
+		headerBytes := []byte(header[len(hdrKafkaPrefix):])
+		for _, v := range values {
+			decoded, err := base64.StdEncoding.DecodeString(v)
+			if err != nil {
+				errorText := fmt.Sprintf("Invalid base64 encoding for header: %s", header)
+				s.respondWithJSON(w, http.StatusBadRequest, errorRs{errorText})
+				return
+			}
+			headers = append(headers, sarama.RecordHeader{
+				Key:   headerBytes,
+				Value: decoded,
+			})
+		}
+	}
+
 	// Asynchronously submit the message to the Kafka cluster.
 	if !isSync {
-		pxy.AsyncProduce(topic, toEncoderPreservingNil(key), msg)
+		pxy.AsyncProduce(topic, toEncoderPreservingNil(key), msg, headers)
 		s.respondWithJSON(w, http.StatusOK, EmptyResponse)
 		return
 	}
 
-	prodMsg, err := pxy.Produce(topic, toEncoderPreservingNil(key), msg)
+	prodMsg, err := pxy.Produce(topic, toEncoderPreservingNil(key), msg, headers)
 	if err != nil {
 		var status int
 		switch err {
@@ -188,6 +212,8 @@ func (s *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 			fallthrough
 		case proxy.ErrUnavailable:
 			status = http.StatusServiceUnavailable
+		case proxy.ErrHeadersUnsupported:
+			status = http.StatusBadRequest
 		default:
 			status = http.StatusInternalServerError
 		}
@@ -275,11 +301,20 @@ func (s *T) handleConsume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	headers := make([]consumeHeader, 0, len(consMsg.Headers))
+	for _, h := range consMsg.Headers {
+		headers = append(headers, consumeHeader{
+			Key:   string(h.Key),
+			Value: h.Value,
+		})
+	}
+
 	s.respondWithJSON(w, http.StatusOK, consumeRs{
 		Key:       consMsg.Key,
 		Value:     consMsg.Value,
 		Partition: consMsg.Partition,
 		Offset:    consMsg.Offset,
+		Headers:   headers,
 	})
 }
 
@@ -550,11 +585,17 @@ type produceRs struct {
 	Offset    int64 `json:"offset"`
 }
 
+type consumeHeader struct {
+	Key   string `json:"key"`
+	Value []byte `json:"value"`
+}
+
 type consumeRs struct {
-	Key       []byte `json:"key"`
-	Value     []byte `json:"value"`
-	Partition int32  `json:"partition"`
-	Offset    int64  `json:"offset"`
+	Key       []byte          `json:"key"`
+	Value     []byte          `json:"value"`
+	Partition int32           `json:"partition"`
+	Offset    int64           `json:"offset"`
+	Headers   []consumeHeader `json:"headers"`
 }
 
 type partitionInfo struct {

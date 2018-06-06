@@ -86,12 +86,23 @@ func (s *T) Produce(ctx context.Context, req *pb.ProdRq) (*pb.ProdRs, error) {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
 
+	headers := make([]sarama.RecordHeader, 0, len(req.Headers))
+	for _, h := range req.Headers {
+		if h == nil {
+			continue
+		}
+		headers = append(headers, sarama.RecordHeader{
+			Key:   []byte(h.Key),
+			Value: h.Value,
+		})
+	}
+
 	if req.AsyncMode {
-		pxy.AsyncProduce(req.Topic, keyEncoderFor(req), sarama.StringEncoder(req.Message))
+		pxy.AsyncProduce(req.Topic, keyEncoderFor(req), sarama.StringEncoder(req.Message), headers)
 		return &pb.ProdRs{Partition: -1, Offset: -1}, nil
 	}
 
-	prodMsg, err := pxy.Produce(req.Topic, keyEncoderFor(req), sarama.StringEncoder(req.Message))
+	prodMsg, err := pxy.Produce(req.Topic, keyEncoderFor(req), sarama.StringEncoder(req.Message), headers)
 	if err != nil {
 		switch err {
 		case sarama.ErrUnknownTopicOrPartition:
@@ -100,6 +111,8 @@ func (s *T) Produce(ctx context.Context, req *pb.ProdRq) (*pb.ProdRs, error) {
 			fallthrough
 		case proxy.ErrUnavailable:
 			return nil, status.Errorf(codes.Unavailable, err.Error())
+		case proxy.ErrHeadersUnsupported:
+			return nil, status.Errorf(codes.InvalidArgument, err.Error())
 		default:
 			return nil, status.Errorf(codes.Internal, err.Error())
 		}
@@ -146,6 +159,12 @@ func (s *T) ConsumeNAck(ctx context.Context, req *pb.ConsNAckRq) (*pb.ConsRs, er
 		Partition: consMsg.Partition,
 		Offset:    consMsg.Offset,
 		Message:   consMsg.Value,
+	}
+	for _, h := range consMsg.Headers {
+		res.Headers = append(res.Headers, &pb.RecordHeader{
+			Key:   string(h.Key),
+			Value: h.Value,
+		})
 	}
 	if consMsg.Key == nil {
 		res.KeyUndefined = true

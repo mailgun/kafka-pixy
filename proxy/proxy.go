@@ -21,8 +21,9 @@ const (
 )
 
 var (
-	ErrUnavailable = errors.New("service is shutting down")
-	ErrDisabled    = errors.New("service is disabled by configuration")
+	ErrUnavailable        = errors.New("service is shutting down")
+	ErrDisabled           = errors.New("service is disabled by configuration")
+	ErrHeadersUnsupported = errors.New("headers are not supported with this version of Kafka. Consider changing `kafka.version` (https://github.com/mailgun/kafka-pixy/blob/master/default.yaml#L35)")
 
 	noAck   = Ack{partition: -1}
 	autoAck = Ack{partition: -2}
@@ -177,13 +178,17 @@ func (p *T) stopAdmin() {
 //
 // Errors usually indicate a catastrophic failure of the Kafka cluster, or
 // missing topic if there cluster is not configured to auto create topics.
-func (p *T) Produce(topic string, key, message sarama.Encoder) (*sarama.ProducerMessage, error) {
+func (p *T) Produce(topic string, key, message sarama.Encoder, headers []sarama.RecordHeader) (*sarama.ProducerMessage, error) {
+	if len(headers) > 0 && !p.cfg.Kafka.Version.IsAtLeast(sarama.V0_11_0_0) {
+		return nil, ErrHeadersUnsupported
+	}
+
 	p.producerMu.RLock()
 	if p.producer == nil {
 		p.producerMu.RUnlock()
 		return nil, ErrUnavailable
 	}
-	responseCh := p.producer.AsyncProduce(topic, key, message)
+	responseCh := p.producer.AsyncProduce(topic, key, message, headers)
 	p.producerMu.RUnlock()
 
 	rs := <-responseCh
@@ -192,13 +197,17 @@ func (p *T) Produce(topic string, key, message sarama.Encoder) (*sarama.Producer
 
 // AsyncProduce is an asynchronously counterpart of the `Produce` function.
 // Errors are silently ignored.
-func (p *T) AsyncProduce(topic string, key, message sarama.Encoder) {
+func (p *T) AsyncProduce(topic string, key, message sarama.Encoder, headers []sarama.RecordHeader) {
+	if len(headers) > 0 && !p.cfg.Kafka.Version.IsAtLeast(sarama.V0_11_0_0) {
+		return
+	}
+
 	p.producerMu.RLock()
 	if p.producer == nil {
 		p.producerMu.RUnlock()
 		return
 	}
-	p.producer.AsyncProduce(topic, key, message)
+	p.producer.AsyncProduce(topic, key, message, headers)
 	p.producerMu.RUnlock()
 }
 

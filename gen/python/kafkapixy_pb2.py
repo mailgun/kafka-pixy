@@ -19,10 +19,48 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   name='kafkapixy.proto',
   package='',
   syntax='proto3',
-  serialized_pb=_b('\n\x0fkafkapixy.proto\"w\n\x06ProdRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\x11\n\tkey_value\x18\x03 \x01(\x0c\x12\x15\n\rkey_undefined\x18\x04 \x01(\x08\x12\x0f\n\x07message\x18\x05 \x01(\x0c\x12\x12\n\nasync_mode\x18\x06 \x01(\x08\"+\n\x06ProdRs\x12\x11\n\tpartition\x18\x01 \x01(\x05\x12\x0e\n\x06offset\x18\x02 \x01(\x03\"\x88\x01\n\nConsNAckRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\r\n\x05group\x18\x03 \x01(\t\x12\x0e\n\x06no_ack\x18\x04 \x01(\x08\x12\x10\n\x08\x61uto_ack\x18\x05 \x01(\x08\x12\x15\n\rack_partition\x18\x06 \x01(\x05\x12\x12\n\nack_offset\x18\x07 \x01(\x03\"f\n\x06\x43onsRs\x12\x11\n\tpartition\x18\x01 \x01(\x05\x12\x0e\n\x06offset\x18\x02 \x01(\x03\x12\x11\n\tkey_value\x18\x03 \x01(\x0c\x12\x15\n\rkey_undefined\x18\x04 \x01(\x08\x12\x0f\n\x07message\x18\x05 \x01(\x0c\"Y\n\x05\x41\x63kRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\r\n\x05group\x18\x03 \x01(\t\x12\x11\n\tpartition\x18\x04 \x01(\x05\x12\x0e\n\x06offset\x18\x05 \x01(\x03\"\x07\n\x05\x41\x63kRs\"\x93\x01\n\x0fPartitionOffset\x12\x11\n\tpartition\x18\x01 \x01(\x05\x12\r\n\x05\x62\x65gin\x18\x02 \x01(\x03\x12\x0b\n\x03\x65nd\x18\x03 \x01(\x03\x12\r\n\x05\x63ount\x18\x04 \x01(\x03\x12\x0e\n\x06offset\x18\x05 \x01(\x03\x12\x0b\n\x03lag\x18\x06 \x01(\x03\x12\x10\n\x08metadata\x18\x07 \x01(\t\x12\x13\n\x0bsparse_acks\x18\x08 \x01(\t\"=\n\x0cGetOffsetsRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\r\n\x05group\x18\x03 \x01(\t\"1\n\x0cGetOffsetsRs\x12!\n\x07offsets\x18\x01 \x03(\x0b\x32\x10.PartitionOffset\"U\n\x11PartitionMetadata\x12\x11\n\tpartition\x18\x01 \x01(\x05\x12\x0e\n\x06leader\x18\x02 \x01(\x05\x12\x10\n\x08replicas\x18\x03 \x03(\x05\x12\x0b\n\x03isr\x18\x04 \x03(\x05\"M\n\x12GetTopicMetadataRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\x17\n\x0fwith_partitions\x18\x03 \x01(\x08\"\xad\x01\n\x12GetTopicMetadataRs\x12\x0f\n\x07version\x18\x01 \x01(\x05\x12/\n\x06\x63onfig\x18\x02 \x03(\x0b\x32\x1f.GetTopicMetadataRs.ConfigEntry\x12&\n\npartitions\x18\x03 \x03(\x0b\x32\x12.PartitionMetadata\x1a-\n\x0b\x43onfigEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"{\n\x0bListTopicRs\x12(\n\x06topics\x18\x01 \x03(\x0b\x32\x18.ListTopicRs.TopicsEntry\x1a\x42\n\x0bTopicsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\"\n\x05value\x18\x02 \x01(\x0b\x32\x13.GetTopicMetadataRs:\x02\x38\x01\"7\n\x0bListTopicRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\x17\n\x0fwith_partitions\x18\x02 \x01(\x08\"@\n\x0fListConsumersRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\r\n\x05group\x18\x03 \x01(\t\"(\n\x12\x43onsumerPartitions\x12\x12\n\npartitions\x18\x01 \x03(\x05\"\x8a\x01\n\x0e\x43onsumerGroups\x12\x31\n\tconsumers\x18\x01 \x03(\x0b\x32\x1e.ConsumerGroups.ConsumersEntry\x1a\x45\n\x0e\x43onsumersEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\"\n\x05value\x18\x02 \x01(\x0b\x32\x13.ConsumerPartitions:\x02\x38\x01\"\x7f\n\x0fListConsumersRs\x12,\n\x06groups\x18\x01 \x03(\x0b\x32\x1c.ListConsumersRs.GroupsEntry\x1a>\n\x0bGroupsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\x1e\n\x05value\x18\x02 \x01(\x0b\x32\x0f.ConsumerGroups:\x02\x38\x01\"`\n\x0cSetOffsetsRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\r\n\x05group\x18\x03 \x01(\t\x12!\n\x07offsets\x18\x04 \x03(\x0b\x32\x10.PartitionOffset\"\x0e\n\x0cSetOffsetsRs2\xe9\x02\n\tKafkaPixy\x12\x1d\n\x07Produce\x12\x07.ProdRq\x1a\x07.ProdRs\"\x00\x12%\n\x0b\x43onsumeNAck\x12\x0b.ConsNAckRq\x1a\x07.ConsRs\"\x00\x12\x17\n\x03\x41\x63k\x12\x06.AckRq\x1a\x06.AckRs\"\x00\x12,\n\nGetOffsets\x12\r.GetOffsetsRq\x1a\r.GetOffsetsRs\"\x00\x12,\n\nSetOffsets\x12\r.SetOffsetsRq\x1a\r.SetOffsetsRs\"\x00\x12*\n\nListTopics\x12\x0c.ListTopicRq\x1a\x0c.ListTopicRs\"\x00\x12\x35\n\rListConsumers\x12\x10.ListConsumersRq\x1a\x10.ListConsumersRs\"\x00\x12>\n\x10GetTopicMetadata\x12\x13.GetTopicMetadataRq\x1a\x13.GetTopicMetadataRs\"\x00\x42\x04Z\x02pbb\x06proto3')
+  serialized_pb=_b('\n\x0fkafkapixy.proto\"*\n\x0cRecordHeader\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x0c\"\x97\x01\n\x06ProdRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\x11\n\tkey_value\x18\x03 \x01(\x0c\x12\x15\n\rkey_undefined\x18\x04 \x01(\x08\x12\x0f\n\x07message\x18\x05 \x01(\x0c\x12\x12\n\nasync_mode\x18\x06 \x01(\x08\x12\x1e\n\x07headers\x18\x07 \x03(\x0b\x32\r.RecordHeader\"+\n\x06ProdRs\x12\x11\n\tpartition\x18\x01 \x01(\x05\x12\x0e\n\x06offset\x18\x02 \x01(\x03\"\x88\x01\n\nConsNAckRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\r\n\x05group\x18\x03 \x01(\t\x12\x0e\n\x06no_ack\x18\x04 \x01(\x08\x12\x10\n\x08\x61uto_ack\x18\x05 \x01(\x08\x12\x15\n\rack_partition\x18\x06 \x01(\x05\x12\x12\n\nack_offset\x18\x07 \x01(\x03\"\x86\x01\n\x06\x43onsRs\x12\x11\n\tpartition\x18\x01 \x01(\x05\x12\x0e\n\x06offset\x18\x02 \x01(\x03\x12\x11\n\tkey_value\x18\x03 \x01(\x0c\x12\x15\n\rkey_undefined\x18\x04 \x01(\x08\x12\x0f\n\x07message\x18\x05 \x01(\x0c\x12\x1e\n\x07headers\x18\x06 \x03(\x0b\x32\r.RecordHeader\"Y\n\x05\x41\x63kRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\r\n\x05group\x18\x03 \x01(\t\x12\x11\n\tpartition\x18\x04 \x01(\x05\x12\x0e\n\x06offset\x18\x05 \x01(\x03\"\x07\n\x05\x41\x63kRs\"\x93\x01\n\x0fPartitionOffset\x12\x11\n\tpartition\x18\x01 \x01(\x05\x12\r\n\x05\x62\x65gin\x18\x02 \x01(\x03\x12\x0b\n\x03\x65nd\x18\x03 \x01(\x03\x12\r\n\x05\x63ount\x18\x04 \x01(\x03\x12\x0e\n\x06offset\x18\x05 \x01(\x03\x12\x0b\n\x03lag\x18\x06 \x01(\x03\x12\x10\n\x08metadata\x18\x07 \x01(\t\x12\x13\n\x0bsparse_acks\x18\x08 \x01(\t\"=\n\x0cGetOffsetsRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\r\n\x05group\x18\x03 \x01(\t\"1\n\x0cGetOffsetsRs\x12!\n\x07offsets\x18\x01 \x03(\x0b\x32\x10.PartitionOffset\"U\n\x11PartitionMetadata\x12\x11\n\tpartition\x18\x01 \x01(\x05\x12\x0e\n\x06leader\x18\x02 \x01(\x05\x12\x10\n\x08replicas\x18\x03 \x03(\x05\x12\x0b\n\x03isr\x18\x04 \x03(\x05\"M\n\x12GetTopicMetadataRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\x17\n\x0fwith_partitions\x18\x03 \x01(\x08\"\xad\x01\n\x12GetTopicMetadataRs\x12\x0f\n\x07version\x18\x01 \x01(\x05\x12/\n\x06\x63onfig\x18\x02 \x03(\x0b\x32\x1f.GetTopicMetadataRs.ConfigEntry\x12&\n\npartitions\x18\x03 \x03(\x0b\x32\x12.PartitionMetadata\x1a-\n\x0b\x43onfigEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"{\n\x0bListTopicRs\x12(\n\x06topics\x18\x01 \x03(\x0b\x32\x18.ListTopicRs.TopicsEntry\x1a\x42\n\x0bTopicsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\"\n\x05value\x18\x02 \x01(\x0b\x32\x13.GetTopicMetadataRs:\x02\x38\x01\"7\n\x0bListTopicRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\x17\n\x0fwith_partitions\x18\x02 \x01(\x08\"@\n\x0fListConsumersRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\r\n\x05group\x18\x03 \x01(\t\"(\n\x12\x43onsumerPartitions\x12\x12\n\npartitions\x18\x01 \x03(\x05\"\x8a\x01\n\x0e\x43onsumerGroups\x12\x31\n\tconsumers\x18\x01 \x03(\x0b\x32\x1e.ConsumerGroups.ConsumersEntry\x1a\x45\n\x0e\x43onsumersEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\"\n\x05value\x18\x02 \x01(\x0b\x32\x13.ConsumerPartitions:\x02\x38\x01\"\x7f\n\x0fListConsumersRs\x12,\n\x06groups\x18\x01 \x03(\x0b\x32\x1c.ListConsumersRs.GroupsEntry\x1a>\n\x0bGroupsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\x1e\n\x05value\x18\x02 \x01(\x0b\x32\x0f.ConsumerGroups:\x02\x38\x01\"`\n\x0cSetOffsetsRq\x12\x0f\n\x07\x63luster\x18\x01 \x01(\t\x12\r\n\x05topic\x18\x02 \x01(\t\x12\r\n\x05group\x18\x03 \x01(\t\x12!\n\x07offsets\x18\x04 \x03(\x0b\x32\x10.PartitionOffset\"\x0e\n\x0cSetOffsetsRs2\xe9\x02\n\tKafkaPixy\x12\x1d\n\x07Produce\x12\x07.ProdRq\x1a\x07.ProdRs\"\x00\x12%\n\x0b\x43onsumeNAck\x12\x0b.ConsNAckRq\x1a\x07.ConsRs\"\x00\x12\x17\n\x03\x41\x63k\x12\x06.AckRq\x1a\x06.AckRs\"\x00\x12,\n\nGetOffsets\x12\r.GetOffsetsRq\x1a\r.GetOffsetsRs\"\x00\x12,\n\nSetOffsets\x12\r.SetOffsetsRq\x1a\r.SetOffsetsRs\"\x00\x12*\n\nListTopics\x12\x0c.ListTopicRq\x1a\x0c.ListTopicRs\"\x00\x12\x35\n\rListConsumers\x12\x10.ListConsumersRq\x1a\x10.ListConsumersRs\"\x00\x12>\n\x10GetTopicMetadata\x12\x13.GetTopicMetadataRq\x1a\x13.GetTopicMetadataRs\"\x00\x42\x04Z\x02pbb\x06proto3')
 )
 
 
+
+
+_RECORDHEADER = _descriptor.Descriptor(
+  name='RecordHeader',
+  full_name='RecordHeader',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='key', full_name='RecordHeader.key', index=0,
+      number=1, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='value', full_name='RecordHeader.value', index=1,
+      number=2, type=12, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b(""),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=19,
+  serialized_end=61,
+)
 
 
 _PRODRQ = _descriptor.Descriptor(
@@ -74,6 +112,13 @@ _PRODRQ = _descriptor.Descriptor(
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='headers', full_name='ProdRq.headers', index=6,
+      number=7, type=11, cpp_type=10, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
   ],
   extensions=[
   ],
@@ -86,8 +131,8 @@ _PRODRQ = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=19,
-  serialized_end=138,
+  serialized_start=64,
+  serialized_end=215,
 )
 
 
@@ -124,8 +169,8 @@ _PRODRS = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=140,
-  serialized_end=183,
+  serialized_start=217,
+  serialized_end=260,
 )
 
 
@@ -197,8 +242,8 @@ _CONSNACKRQ = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=186,
-  serialized_end=322,
+  serialized_start=263,
+  serialized_end=399,
 )
 
 
@@ -244,6 +289,13 @@ _CONSRS = _descriptor.Descriptor(
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='headers', full_name='ConsRs.headers', index=5,
+      number=6, type=11, cpp_type=10, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None, file=DESCRIPTOR),
   ],
   extensions=[
   ],
@@ -256,8 +308,8 @@ _CONSRS = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=324,
-  serialized_end=426,
+  serialized_start=402,
+  serialized_end=536,
 )
 
 
@@ -315,8 +367,8 @@ _ACKRQ = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=428,
-  serialized_end=517,
+  serialized_start=538,
+  serialized_end=627,
 )
 
 
@@ -339,8 +391,8 @@ _ACKRS = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=519,
-  serialized_end=526,
+  serialized_start=629,
+  serialized_end=636,
 )
 
 
@@ -419,8 +471,8 @@ _PARTITIONOFFSET = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=529,
-  serialized_end=676,
+  serialized_start=639,
+  serialized_end=786,
 )
 
 
@@ -464,8 +516,8 @@ _GETOFFSETSRQ = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=678,
-  serialized_end=739,
+  serialized_start=788,
+  serialized_end=849,
 )
 
 
@@ -495,8 +547,8 @@ _GETOFFSETSRS = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=741,
-  serialized_end=790,
+  serialized_start=851,
+  serialized_end=900,
 )
 
 
@@ -547,8 +599,8 @@ _PARTITIONMETADATA = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=792,
-  serialized_end=877,
+  serialized_start=902,
+  serialized_end=987,
 )
 
 
@@ -592,8 +644,8 @@ _GETTOPICMETADATARQ = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=879,
-  serialized_end=956,
+  serialized_start=989,
+  serialized_end=1066,
 )
 
 
@@ -630,8 +682,8 @@ _GETTOPICMETADATARS_CONFIGENTRY = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1087,
-  serialized_end=1132,
+  serialized_start=1197,
+  serialized_end=1242,
 )
 
 _GETTOPICMETADATARS = _descriptor.Descriptor(
@@ -674,8 +726,8 @@ _GETTOPICMETADATARS = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=959,
-  serialized_end=1132,
+  serialized_start=1069,
+  serialized_end=1242,
 )
 
 
@@ -712,8 +764,8 @@ _LISTTOPICRS_TOPICSENTRY = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1191,
-  serialized_end=1257,
+  serialized_start=1301,
+  serialized_end=1367,
 )
 
 _LISTTOPICRS = _descriptor.Descriptor(
@@ -742,8 +794,8 @@ _LISTTOPICRS = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1134,
-  serialized_end=1257,
+  serialized_start=1244,
+  serialized_end=1367,
 )
 
 
@@ -780,8 +832,8 @@ _LISTTOPICRQ = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1259,
-  serialized_end=1314,
+  serialized_start=1369,
+  serialized_end=1424,
 )
 
 
@@ -825,8 +877,8 @@ _LISTCONSUMERSRQ = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1316,
-  serialized_end=1380,
+  serialized_start=1426,
+  serialized_end=1490,
 )
 
 
@@ -856,8 +908,8 @@ _CONSUMERPARTITIONS = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1382,
-  serialized_end=1422,
+  serialized_start=1492,
+  serialized_end=1532,
 )
 
 
@@ -894,8 +946,8 @@ _CONSUMERGROUPS_CONSUMERSENTRY = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1494,
-  serialized_end=1563,
+  serialized_start=1604,
+  serialized_end=1673,
 )
 
 _CONSUMERGROUPS = _descriptor.Descriptor(
@@ -924,8 +976,8 @@ _CONSUMERGROUPS = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1425,
-  serialized_end=1563,
+  serialized_start=1535,
+  serialized_end=1673,
 )
 
 
@@ -962,8 +1014,8 @@ _LISTCONSUMERSRS_GROUPSENTRY = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1630,
-  serialized_end=1692,
+  serialized_start=1740,
+  serialized_end=1802,
 )
 
 _LISTCONSUMERSRS = _descriptor.Descriptor(
@@ -992,8 +1044,8 @@ _LISTCONSUMERSRS = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1565,
-  serialized_end=1692,
+  serialized_start=1675,
+  serialized_end=1802,
 )
 
 
@@ -1044,8 +1096,8 @@ _SETOFFSETSRQ = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1694,
-  serialized_end=1790,
+  serialized_start=1804,
+  serialized_end=1900,
 )
 
 
@@ -1068,10 +1120,12 @@ _SETOFFSETSRS = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1792,
-  serialized_end=1806,
+  serialized_start=1902,
+  serialized_end=1916,
 )
 
+_PRODRQ.fields_by_name['headers'].message_type = _RECORDHEADER
+_CONSRS.fields_by_name['headers'].message_type = _RECORDHEADER
 _GETOFFSETSRS.fields_by_name['offsets'].message_type = _PARTITIONOFFSET
 _GETTOPICMETADATARS_CONFIGENTRY.containing_type = _GETTOPICMETADATARS
 _GETTOPICMETADATARS.fields_by_name['config'].message_type = _GETTOPICMETADATARS_CONFIGENTRY
@@ -1086,6 +1140,7 @@ _LISTCONSUMERSRS_GROUPSENTRY.fields_by_name['value'].message_type = _CONSUMERGRO
 _LISTCONSUMERSRS_GROUPSENTRY.containing_type = _LISTCONSUMERSRS
 _LISTCONSUMERSRS.fields_by_name['groups'].message_type = _LISTCONSUMERSRS_GROUPSENTRY
 _SETOFFSETSRQ.fields_by_name['offsets'].message_type = _PARTITIONOFFSET
+DESCRIPTOR.message_types_by_name['RecordHeader'] = _RECORDHEADER
 DESCRIPTOR.message_types_by_name['ProdRq'] = _PRODRQ
 DESCRIPTOR.message_types_by_name['ProdRs'] = _PRODRS
 DESCRIPTOR.message_types_by_name['ConsNAckRq'] = _CONSNACKRQ
@@ -1107,6 +1162,13 @@ DESCRIPTOR.message_types_by_name['ListConsumersRs'] = _LISTCONSUMERSRS
 DESCRIPTOR.message_types_by_name['SetOffsetsRq'] = _SETOFFSETSRQ
 DESCRIPTOR.message_types_by_name['SetOffsetsRs'] = _SETOFFSETSRS
 _sym_db.RegisterFileDescriptor(DESCRIPTOR)
+
+RecordHeader = _reflection.GeneratedProtocolMessageType('RecordHeader', (_message.Message,), dict(
+  DESCRIPTOR = _RECORDHEADER,
+  __module__ = 'kafkapixy_pb2'
+  # @@protoc_insertion_point(class_scope:RecordHeader)
+  ))
+_sym_db.RegisterMessage(RecordHeader)
 
 ProdRq = _reflection.GeneratedProtocolMessageType('ProdRq', (_message.Message,), dict(
   DESCRIPTOR = _PRODRQ,
@@ -1298,8 +1360,8 @@ _KAFKAPIXY = _descriptor.ServiceDescriptor(
   file=DESCRIPTOR,
   index=0,
   options=None,
-  serialized_start=1809,
-  serialized_end=2170,
+  serialized_start=1919,
+  serialized_end=2280,
   methods=[
   _descriptor.MethodDescriptor(
     name='Produce',

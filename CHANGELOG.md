@@ -1,5 +1,12 @@
 # Changelog
 
+### Version 0.16.0 (TBD)
+
+Implemented:
+* [#144](https://github.com/mailgun/kafka-pixy/pull/144) Added support for
+  specifying and receiving Kafka record headers over both the HTTP and gRPC
+  produce and consume interfaces.
+
 #### Version 0.15.0 (2018-03-30)
 
 Implemented:

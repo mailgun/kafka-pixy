@@ -85,19 +85,20 @@ func (p *T) Stop() {
 //
 // Errors usually indicate a catastrophic failure of the Kafka cluster, or
 // missing topic if there cluster is not configured to auto create topics.
-func (p *T) Produce(topic string, key, message sarama.Encoder) (*sarama.ProducerMessage, error) {
-	rs := <-p.AsyncProduce(topic, key, message)
+func (p *T) Produce(topic string, key, message sarama.Encoder, headers []sarama.RecordHeader) (*sarama.ProducerMessage, error) {
+	rs := <-p.AsyncProduce(topic, key, message, headers)
 	return rs.Msg, rs.Err
 }
 
 // AsyncProduce is an asynchronously counterpart of the `Produce` function.
 // Errors are silently ignored.
-func (p *T) AsyncProduce(topic string, key, message sarama.Encoder) <-chan Response {
+func (p *T) AsyncProduce(topic string, key, message sarama.Encoder, headers []sarama.RecordHeader) <-chan Response {
 	responseCh := make(chan Response, 1)
 	prodMsg := &sarama.ProducerMessage{
 		Topic:    topic,
 		Key:      key,
 		Value:    message,
+		Headers:  headers,
 		Metadata: responseCh,
 	}
 	p.dispatcherCh <- prodMsg
