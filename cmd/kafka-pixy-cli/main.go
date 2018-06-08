@@ -203,8 +203,11 @@ func ProduceEvents(parser *args.ArgParser, cast interface{}) (int, error) {
 	desc := args.Dedent(`post messages to kafka-pixy from file or stdin
 
 	Examples:
-	   Post a simple event message from stdin
+	   Post a simple message from stdin
 	   $ echo -n 'Hello World' | kafka-pixy-cli produce my-topic
+
+	   Post a message with kafka headers 
+	   $ echo -n 'Hello World' | kafka-pixy-cli produce my-topic -H "kit=kat,foo=bar"
 
 	   Post multiple messages separated \r (carriage return)
 	   $ echo -n 'message-one\rmessage-two' | kafka-pixy-cli produce -t my-topic
@@ -245,6 +248,12 @@ func ProduceEvents(parser *args.ArgParser, cast interface{}) (int, error) {
 		Env("SYNC").
 		Help("message is submitted synchronously")
 
+	parser.AddOption("--headers").
+		IsStringMap().
+		Alias("-H").
+		Env("HEADERS").
+		Help(`map of kafka headers in the form "key=value1,key2=value2"`)
+
 	parser.AddArgument("event-file")
 
 	opts := parser.ParseSimple(nil)
@@ -275,6 +284,17 @@ func ProduceEvents(parser *args.ArgParser, cast interface{}) (int, error) {
 func sendEvents(client pb.KafkaPixyClient, opts *args.Options, source io.Reader) (int, error) {
 	count := opts.Int("count")
 
+	// Handle kafka headers if provided
+	var headers []*pb.RecordHeader
+	if opts.HasKey("headers") {
+		for key, value := range opts.StringMap("headers") {
+			headers = append(headers, &pb.RecordHeader{
+				Key:   key,
+				Value: []byte(value),
+			})
+		}
+	}
+
 	for reader := NewEventReader(source); ; {
 		body, err := reader.ReadEvent()
 		if err != nil {
@@ -290,6 +310,7 @@ func sendEvents(client pb.KafkaPixyClient, opts *args.Options, source io.Reader)
 				KeyValue:  []byte(opts.String("key")),
 				Message:   body,
 				AsyncMode: opts.Bool("sync"),
+				Headers:   headers,
 			}
 
 			if !opts.IsSet("key") {
@@ -418,10 +439,26 @@ func ConsumeEvents(parser *args.ArgParser, cast interface{}) (int, error) {
 
 	desc := args.Dedent(`consume events from kafka-pixy and print them to stdout
 
+    Output from this command can be parsed by delimiting on carriage return '\r' which
+    separates each message printed.
+
 	Examples:
-	   Watch for events on a topic
+	   # Watch for events on a topic
 	   $ kafka-pixy-cli consume my-topic -g my-group
 	   message-one
+	   message-two
+
+	   # Watch for events with kafka headers
+	   $ kafka-pixy-cli consume my-topic -H
+	   ---
+       kit=kat
+       foo=bar
+       ---
+	   message-one
+       ---
+       kit=kat
+       foo=bar
+       ---
 	   message-two
 	   ...`)
 
@@ -443,6 +480,11 @@ func ConsumeEvents(parser *args.ArgParser, cast interface{}) (int, error) {
 		Default("0").
 		Env("BUFFER").
 		Help("how many events to buffer before consumed")
+
+	parser.AddOption("--include-headers").
+		IsTrue().
+		Alias("-H").
+		Help("display any header data attached to the consumed message")
 
 	opts := parser.ParseSimple(nil)
 	if opts == nil {
@@ -469,7 +511,14 @@ func ConsumeEvents(parser *args.ArgParser, cast interface{}) (int, error) {
 		}
 		req.AckPartition = res.Partition
 		req.AckOffset = res.Offset
-		fmt.Println(string(res.Message))
+		if len(res.Headers) != 0 && opts.Bool("include-headers") {
+			fmt.Printf("---\n")
+			for _, kv := range res.Headers {
+				fmt.Printf("%s=%s\n", kv.Key, string(kv.Value))
+			}
+			fmt.Printf("---\n")
+		}
+		fmt.Printf("%s\n\r", string(res.Message))
 	}
 }
 
