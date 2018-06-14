@@ -46,6 +46,7 @@ func main() {
 		panic(errors.Wrap(err, "failed to dial gRPC server"))
 	}
 	clt := pb.NewKafkaPixyClient(cltConn)
+	begin := time.Now()
 
 	go func() {
 		var wg sync.WaitGroup
@@ -118,7 +119,6 @@ func main() {
 		close(progressCh)
 	}()
 
-	begin := time.Now()
 	checkpoint := begin
 	var count, totalCount int
 	var bytes, totalBytes int64
