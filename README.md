@@ -242,8 +242,8 @@ Note that headers are only supported if the Kafka protocol version (set via the
 ### Acknowledge
 
 ```
-POST /topics/<topic>/messages
-POST /clusters/<cluster>/topics/<topic>/messages
+POST /topics/<topic>/acks
+POST /clusters/<cluster>/topics/<topic>/acks
 ```
 
 Acknowledges a previously consumed message.
