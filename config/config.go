@@ -66,6 +66,19 @@ type Proxy struct {
 		Chroot string `yaml:"chroot"`
 	} `yaml:"zoo_keeper"`
 
+	// Networking timeouts. These all pass through to sarama's `config.Net`
+	// field.
+	Net struct {
+		// How long to wait for the initial connection.
+		DialTimeout time.Duration `yaml:"dial_timeout"`
+
+		// How long to wait for a response.
+		ReadTimeout time.Duration `yaml:"read_timeout"`
+
+		// How long to wait for a transmit.
+		WriteTimeout time.Duration `yaml:"write_timeout"`
+	} `yaml:"net"`
+
 	Producer struct {
 
 		// Size of all buffered channels created by the producer module.
@@ -96,6 +109,16 @@ type Proxy struct {
 		// messages to Kafka. It is recommended to make it large enough to survive
 		// a ZooKeeper leader election in your setup.
 		ShutdownTimeout time.Duration `yaml:"shutdown_timeout"`
+
+		// How to assign incoming messages to a Kafka partition. Defaults to
+		// using a hash of the specified message key, or random if the key is
+		// unspecified.
+		Partitioner PartitionerConstructor `yaml:"partitioner"`
+
+		// The timeout to specify on individual produce requests to the broker.
+		// The broker will wait for replication to complete up to this duration
+		// before returning an error.
+		Timeout time.Duration `yaml:"timeout"`
 	} `yaml:"producer"`
 
 	Consumer struct {
@@ -227,6 +250,20 @@ func (ra *RequiredAcks) UnmarshalText(text []byte) error {
 	return nil
 }
 
+type PartitionerConstructor string
+
+func (pc PartitionerConstructor) ToPartitionerConstructor() (sarama.PartitionerConstructor, error) {
+	v, ok := map[string]sarama.PartitionerConstructor{
+		"hash":       sarama.NewHashPartitioner,
+		"random":     sarama.NewRandomPartitioner,
+		"roundrobin": sarama.NewRoundRobinPartitioner,
+	}[string(pc)]
+	if !ok {
+		return nil, errors.Errorf("bad partitioner: %s", pc)
+	}
+	return v, nil
+}
+
 func (p *Proxy) KazooCfg() *kazoo.Config {
 	kazooCfg := kazoo.NewConfig()
 	kazooCfg.Chroot = p.ZooKeeper.Chroot
@@ -246,6 +283,10 @@ func (p *Proxy) SaramaProducerCfg() *sarama.Config {
 	saramaCfg.ClientID = p.ClientID
 	saramaCfg.Version = p.Kafka.Version.v
 
+	saramaCfg.Net.DialTimeout = p.Net.DialTimeout
+	saramaCfg.Net.ReadTimeout = p.Net.ReadTimeout
+	saramaCfg.Net.WriteTimeout = p.Net.WriteTimeout
+
 	saramaCfg.Producer.MaxMessageBytes = p.Producer.MaxMessageBytes
 	saramaCfg.Producer.Compression = sarama.CompressionCodec(p.Producer.Compression)
 	saramaCfg.Producer.Flush.Frequency = p.Producer.FlushFrequency
@@ -253,6 +294,8 @@ func (p *Proxy) SaramaProducerCfg() *sarama.Config {
 	saramaCfg.Producer.Retry.Backoff = p.Producer.RetryBackoff
 	saramaCfg.Producer.Retry.Max = p.Producer.RetryMax
 	saramaCfg.Producer.RequiredAcks = sarama.RequiredAcks(p.Producer.RequiredAcks)
+	saramaCfg.Producer.Partitioner, _ = p.Producer.Partitioner.ToPartitionerConstructor()
+	saramaCfg.Producer.Timeout = p.Producer.Timeout
 	return saramaCfg
 }
 
@@ -261,6 +304,11 @@ func (p *Proxy) SaramaClientCfg() *sarama.Config {
 	saramaCfg.ChannelBufferSize = p.Consumer.ChannelBufferSize
 	saramaCfg.ClientID = p.ClientID
 	saramaCfg.Version = p.Kafka.Version.v
+
+	saramaCfg.Net.DialTimeout = p.Net.DialTimeout
+	saramaCfg.Net.ReadTimeout = p.Net.ReadTimeout
+	saramaCfg.Net.WriteTimeout = p.Net.WriteTimeout
+
 	return saramaCfg
 }
 
@@ -365,6 +413,11 @@ func (p *Proxy) validate() error {
 		return errors.New("producer.retry_max must be > 0")
 	case p.Producer.ShutdownTimeout < 0:
 		return errors.New("producer.shutdown_timeout must be >= 0")
+	case p.Producer.Timeout < 0:
+		return errors.New("producer.timeout must be >= 0")
+	}
+	if _, err := p.Producer.Partitioner.ToPartitionerConstructor(); err != nil {
+		return fmt.Errorf("producer.partitioner is invalid: %q", err)
 	}
 	// Validate the Consumer parameters.
 	switch {
@@ -414,6 +467,10 @@ func defaultProxyWithClientID(clientID string) *Proxy {
 		c.Kafka.Version = kv
 	}
 
+	c.Net.DialTimeout = 30 * time.Second
+	c.Net.ReadTimeout = 30 * time.Second
+	c.Net.WriteTimeout = 30 * time.Second
+
 	c.Producer.ChannelBufferSize = 4096
 	c.Producer.MaxMessageBytes = 1000000
 	c.Producer.Compression = Compression(sarama.CompressionSnappy)
@@ -423,6 +480,8 @@ func defaultProxyWithClientID(clientID string) *Proxy {
 	c.Producer.RetryBackoff = 10 * time.Second
 	c.Producer.RetryMax = 6
 	c.Producer.ShutdownTimeout = 30 * time.Second
+	c.Producer.Partitioner = PartitionerConstructor("hash")
+	c.Producer.Timeout = 10 * time.Second
 
 	c.Consumer.AckTimeout = 300 * time.Second
 	c.Consumer.ChannelBufferSize = 64

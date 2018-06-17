@@ -34,6 +34,19 @@ proxies:
       # Version of the Kafka cluster. Supported versions are 0.8.2.2 - 1.0.0
       version: 0.8.2.2
 
+    # Networking parameters section. These all pass through to sarama's
+    # `config.Net` field.
+    net:
+
+      # How long to wait for the initial connection.
+      dial_timeout: 30s
+
+      # How long to wait for a response.
+      read_timeout: 30s
+
+      # How long to wait for a transmit.
+      write_timeout: 30s
+
     # ZooKeeper parameters section.
     zoo_keeper:
 
@@ -85,6 +98,21 @@ proxies:
       # messages to Kafka. It is recommended to make it large enough to survive
       # a ZooKeeper leader election in your setup.
       shutdown_timeout: 30s
+
+      # How to assign incoming messages to a Kafka partition. Defaults to using
+      # a hash of the specified message key, or random if the key is
+      # unspecified. Allowed values are:
+      #  * hash:       for messages with a key, take the FNV-1a hash of the
+      #                bytes, modulus the number of partitions; otherwise use a
+      #                random partition.
+      #  * random:     all messages are published to a random partition.
+      #  * roundrobin: iterate over partitions sequentially
+      partitioner: hash
+
+      # The timeout to specify on individual produce requests to the broker. The
+      # broker will wait for replication to complete up to this duration before
+      # returning an error.
+      timeout: 10s
 
     # Consumer parameters section.
     consumer:

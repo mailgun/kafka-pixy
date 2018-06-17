@@ -6,6 +6,9 @@ Implemented:
 * [#144](https://github.com/mailgun/kafka-pixy/pull/144) Added support for
   specifying and receiving Kafka record headers over both the HTTP and gRPC
   produce and consume interfaces.
+* [#146](https://github.com/mailgun/kafka-pixy/pull/146) Added new configuration
+  flags for the producer partitioner, broker-enforced produce timeout, and
+  network-level timeouts.
 
 #### Version 0.15.0 (2018-03-30)
 
