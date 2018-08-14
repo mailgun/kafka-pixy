@@ -52,6 +52,7 @@ const (
 
 var (
 	EmptyResponse = map[string]interface{}{}
+	JsonTest, JsonTestCompileErr = regexp.Compile("^application/(?:.*\\+)?json$")
 )
 
 type T struct {
@@ -230,9 +231,8 @@ func (s *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 
 // readMsg reads message from the HTTP request based on the Content-Type header.
 func (s *T) readMsg(r *http.Request) (sarama.Encoder, error) {
-	jsonTest, _ := regexp.Compile("^application/(?:.*\\+)?json$")
 	contentType := r.Header.Get(hdrContentType)
-	if contentType == "text/plain" || jsonTest.MatchString(contentType) {
+	if contentType == "text/plain" || JsonTest.MatchString(contentType) {
 		if _, ok := r.Header[hdrContentLength]; !ok {
 			return nil, errors.Errorf("missing %s header", hdrContentLength)
 		}
