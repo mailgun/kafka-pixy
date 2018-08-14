@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -229,8 +230,9 @@ func (s *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 
 // readMsg reads message from the HTTP request based on the Content-Type header.
 func (s *T) readMsg(r *http.Request) (sarama.Encoder, error) {
+	jsonTest, _ := regexp.Compile("^application/(?:.*\\+)?json$")
 	contentType := r.Header.Get(hdrContentType)
-	if contentType == "text/plain" || contentType == "application/json" {
+	if contentType == "text/plain" || jsonTest.MatchString(contentType) {
 		if _, ok := r.Header[hdrContentLength]; !ok {
 			return nil, errors.Errorf("missing %s header", hdrContentLength)
 		}
