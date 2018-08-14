@@ -23,6 +23,7 @@ import (
 	"github.com/mailgun/kafka-pixy/prettyfmt"
 	"github.com/mailgun/kafka-pixy/proxy"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -169,6 +170,7 @@ func (s *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 	// Get the message body from the HTTP request.
 	var msg sarama.Encoder
 	if msg, err = s.readMsg(r); err != nil {
+		log.Errorf("Failed to get HTTP message body for produce request: err=(%s)", err)
 		s.respondWithJSON(w, http.StatusBadRequest, errorRs{err.Error()})
 		return
 	}
