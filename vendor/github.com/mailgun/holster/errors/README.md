@@ -132,3 +132,65 @@ func main() {
 }
 ```
 
+
+## A Complete example
+The following is a complete example using
+http://github.com/mailgun/logrus-hooks/kafkahook to marshal the context into ES
+fields.
+
+```go
+package main
+
+import (
+    "github.com/mailgun/holster/errors"
+    "github.com/mailgun/logrus-hooks/kafkahook"
+    "github.com/sirupsen/logrus"
+    "log"
+    "io/ioutil"
+)
+
+func OpenWithError(fileName string) error {
+    _, err := ioutil.ReadFile(fileName)
+    if err != nil {
+            // pass the filename up via the error context
+            return errors.WithContext{
+                "file": fileName,
+            }.Wrap(err, "read failed")
+    }
+    return nil
+}
+
+func main() {
+    // Init the kafka hook logger
+    hook, err := kafkahook.New(kafkahook.Config{
+        Endpoints: []string{"kafka-n01", "kafka-n02"},
+        Topic:     "udplog",
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Add the hook to logrus
+    logrus.AddHook(hook)
+
+    // Create an error and log it
+    if err := OpenWithError("/tmp/non-existant.file"); err != nil {
+        // This log line will show up in ES with the additional fields
+        //
+        // excText: "read failed"
+        // excValue: "read failed: open /tmp/non-existant.file: no such file or directory"
+        // excType: "*errors.WithContext"
+        // filename: "/src/to/main.go"
+        // funcName: "main()"
+        // lineno: 25
+        // context.file: "/tmp/non-existant.file"
+        // context.domain.id: "some-id"
+        // context.foo: "bar"
+        logrus.WithFields(logrus.Fields{
+            "domain.id": "some-id",
+            "foo": "bar",
+            "err": err,
+        }).Error("log messge")
+    }
+}
+```

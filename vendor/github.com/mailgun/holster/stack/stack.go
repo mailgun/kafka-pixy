@@ -20,7 +20,7 @@ type FrameInfo struct {
 func GetCallStack(frames errors.StackTrace) string {
 	var trace []string
 	for i := len(frames) - 1; i >= 0; i-- {
-		trace = append(trace, fmt.Sprintf("%n()", frames[i]))
+		trace = append(trace, fmt.Sprintf("%v", frames[i]))
 	}
 	return strings.Join(trace, " ")
 }
@@ -33,7 +33,7 @@ func GetLastFrame(frames errors.StackTrace) FrameInfo {
 	pc := uintptr(frames[0]) - 1
 	fn := runtime.FuncForPC(pc)
 	if fn == nil {
-		return FrameInfo{Func: fmt.Sprintf("unknown func at %f", pc)}
+		return FrameInfo{Func: fmt.Sprintf("unknown func at %v", pc)}
 	}
 	filePath, lineNo := fn.FileLine(pc)
 	return FrameInfo{

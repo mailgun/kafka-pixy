@@ -5,7 +5,7 @@ import (
 
 	"sync"
 
-	"gopkg.in/fsnotify.v1"
+	"github.com/fsnotify/fsnotify"
 )
 
 func WatchFile(path string, interval time.Duration, callBack func(error)) (WatchCancelFunc, error) {

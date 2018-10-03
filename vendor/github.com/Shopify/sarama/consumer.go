@@ -310,6 +310,7 @@ type partitionConsumer struct {
 
 	trigger, dying chan none
 	responseResult error
+	closeOnce      sync.Once
 
 	fetchSize int32
 	offset    int64
@@ -412,7 +413,9 @@ func (child *partitionConsumer) AsyncClose() {
 	// the dispatcher to exit its loop, which removes it from the consumer then closes its 'messages' and
 	// 'errors' channel (alternatively, if the child is already at the dispatcher for some reason, that will
 	// also just close itself)
-	close(child.dying)
+	child.closeOnce.Do(func() {
+		close(child.dying)
+	})
 }
 
 func (child *partitionConsumer) Close() error {
@@ -461,7 +464,6 @@ feederLoop:
 						child.messages <- msg
 					}
 					child.broker.input <- child
-					expiryTicker.Stop()
 					continue feederLoop
 				} else {
 					// current message has not been sent, return to select
@@ -529,7 +531,7 @@ func (child *partitionConsumer) parseRecords(batch *RecordBatch) ([]*ConsumerMes
 		child.offset = offset + 1
 	}
 	if len(messages) == 0 {
-		return nil, ErrIncompleteResponse
+		child.offset += 1
 	}
 	return messages, nil
 }
@@ -577,10 +579,6 @@ func (child *partitionConsumer) parseResponse(response *FetchResponse) ([]*Consu
 
 	messages := []*ConsumerMessage{}
 	for _, records := range block.RecordsSet {
-		if control, err := records.isControl(); err != nil || control {
-			continue
-		}
-
 		switch records.recordsType {
 		case legacyRecords:
 			messageSetMessages, err := child.parseMessages(records.MsgSet)
@@ -593,6 +591,9 @@ func (child *partitionConsumer) parseResponse(response *FetchResponse) ([]*Consu
 			recordBatchMessages, err := child.parseRecords(records.RecordBatch)
 			if err != nil {
 				return nil, err
+			}
+			if control, err := records.isControl(); err != nil || control {
+				continue
 			}
 
 			messages = append(messages, recordBatchMessages...)

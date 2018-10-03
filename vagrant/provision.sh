@@ -7,7 +7,7 @@ yes | apt-get install default-jre
 
 export INSTALL_ROOT=/opt
 export KAFKA_HOSTNAME=192.168.100.67
-export KAFKA_VERSION=1.0.0
+export KAFKA_VERSION=1.1.1
 export KAFKA_NODE_COUNT=5
 export ZK_NODE_COUNT=3
 export REPLICATION_FACTOR=2
