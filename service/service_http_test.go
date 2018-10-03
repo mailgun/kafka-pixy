@@ -749,8 +749,14 @@ func (s *ServiceHTTPSuite) TestSetOffsetsInvalidPartition(c *C) {
 
 	// Then
 	c.Check(err, IsNil)
-	c.Check(r.StatusCode, Equals, http.StatusOK)
-	c.Check(ParseJSONBody(c, r), DeepEquals, httpsrv.EmptyResponse)
+	body := ParseJSONBody(c, r).(map[string]interface{})
+	if s.proxyCfg.Kafka.Version.IsAtLeast(sarama.V2_0_0_0) {
+		c.Check(r.StatusCode, Equals, http.StatusNotFound)
+		c.Check(body["error"], Equals, "Unknown topic")
+	} else {
+		c.Check(r.StatusCode, Equals, http.StatusOK)
+		c.Check(body, DeepEquals, httpsrv.EmptyResponse)
+	}
 }
 
 // Reported partition lags are correct, including those corresponding to -1 and
