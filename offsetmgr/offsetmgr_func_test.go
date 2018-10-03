@@ -45,9 +45,9 @@ func (s *OffsetMgrFuncSuite) TestLatestOffsetSaved(c *C) {
 	c.Assert(err, IsNil)
 
 	// When: several offsets are committed.
-	om0_1.SubmitOffset(offsetmgr.Offset{newOffset, "foo"})
-	om0_1.SubmitOffset(offsetmgr.Offset{newOffset + 1, "bar"})
-	om0_1.SubmitOffset(offsetmgr.Offset{newOffset + 2, "bazz"})
+	om0_1.SubmitOffset(offsetmgr.Offset{Val: newOffset, Meta: "foo"})
+	om0_1.SubmitOffset(offsetmgr.Offset{Val: newOffset + 1, Meta: "bar"})
+	om0_1.SubmitOffset(offsetmgr.Offset{Val: newOffset + 2, Meta: "bazz"})
 
 	// Then: last committed request is the one that becomes effective.
 	om0_1.Stop()
@@ -55,7 +55,7 @@ func (s *OffsetMgrFuncSuite) TestLatestOffsetSaved(c *C) {
 	c.Assert(err, IsNil)
 
 	offset := <-om0_2.CommittedOffsets()
-	c.Assert(offset, Equals, offsetmgr.Offset{newOffset + 2, "bazz"})
+	c.Assert(offset, Equals, offsetmgr.Offset{Val: newOffset + 2, Meta: "bazz"})
 
 	om0_2.Stop()
 }
@@ -87,7 +87,7 @@ func (s *OffsetMgrFuncSuite) TestMultipleGroups(c *C) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 100; j++ {
-				om.SubmitOffset(offsetmgr.Offset{newOffset + int64(j), meta})
+				om.SubmitOffset(offsetmgr.Offset{Val: newOffset + int64(j), Meta: meta})
 			}
 			om.Stop()
 		}()
@@ -109,7 +109,7 @@ func (s *OffsetMgrFuncSuite) TestMultipleGroups(c *C) {
 
 			offset := <-om.CommittedOffsets()
 			meta := fmt.Sprintf("meta%d", i)
-			c.Assert(offset, Equals, offsetmgr.Offset{newOffset + 99, meta})
+			c.Assert(offset, Equals, offsetmgr.Offset{Val: newOffset + 99, Meta: meta})
 		}()
 	}
 	wg.Wait()

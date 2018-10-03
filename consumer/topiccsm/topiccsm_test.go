@@ -104,7 +104,7 @@ func (s *TopicCsmSuite) TestRequestResponse(c *C) {
 		c.Assert(<-requests[i].ResponseCh, DeepEquals,
 			consumer.Response{Msg: messages[i]})
 		c.Assert(<-eventsChs[i], DeepEquals,
-			consumer.Event{consumer.EvOffered, messages[i].Offset})
+			consumer.Event{T: consumer.EvOffered, Offset: messages[i].Offset})
 	}
 }
 

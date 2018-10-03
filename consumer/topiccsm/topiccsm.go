@@ -153,7 +153,7 @@ func (tc *T) serveRequest(consumeRq consumer.Request) time.Time {
 	}
 	select {
 	case msg := <-tc.messagesCh:
-		msg.EventsCh <- consumer.Event{consumer.EvOffered, msg.Offset}
+		msg.EventsCh <- consumer.Event{T: consumer.EvOffered, Offset: msg.Offset}
 		consumeRq.ResponseCh <- consumer.Response{Msg: msg}
 	case <-clock.After(requestTTL):
 		consumeRq.ResponseCh <- requestTimeoutRs

@@ -172,7 +172,7 @@ func (kh *T) ResetOffsets(group, topic string) {
 			kh.c.Assert(err, IsNil)
 			om, err := omf.Spawn(kh.ns, group, topic, p)
 			kh.c.Assert(err, IsNil)
-			om.SubmitOffset(offsetmgr.Offset{offset, ""})
+			om.SubmitOffset(offsetmgr.Offset{Val: offset, Meta: ""})
 			log.Infof("*** set initial offset %s/%s/%d=%d", group, topic, p, offset)
 			om.Stop()
 		}(p)

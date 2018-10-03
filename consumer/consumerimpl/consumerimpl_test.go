@@ -63,7 +63,7 @@ func (s *ConsumerSuite) TestInitialOffsetTooLarge(c *C) {
 
 	om, err := s.omf.Spawn(s.ns, "g1", "test.1", 0)
 	c.Assert(err, IsNil)
-	om.SubmitOffset(offsetmgr.Offset{newestOffsets[0] + 3, ""})
+	om.SubmitOffset(offsetmgr.Offset{Val: newestOffsets[0] + 3, Meta: ""})
 	om.Stop()
 
 	cons, err := Spawn(s.ns, s.cfg, s.omf)
