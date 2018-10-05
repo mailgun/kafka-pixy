@@ -9,7 +9,7 @@ docker pull mailgun/kafka-pixy
 
 Create a configuration file using [default.yaml](https://github.com/mailgun/kafka-pixy/blob/master/default.yaml)
 as a template. The default settings in the config file should be good enough
-for you to give Kafka-Pixy a try, you can always fine turn it later. But for
+for you to give Kafka-Pixy a try, you can always fine tune it later. But for
 the first time you need to at least point it to your Kafka and Zookeeper
 clusters.
 
