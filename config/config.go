@@ -52,7 +52,7 @@ type Proxy struct {
 		// the Kafka cluster topology.
 		SeedPeers []string `yaml:"seed_peers"`
 
-		// Version of the Kafka cluster. Supported versions are 0.8.2.2 - 1.0.0
+		// Version of the Kafka cluster. Supported versions are 0.10.2.1 - 2.0.0
 		Version KafkaVersion
 	} `yaml:"kafka"`
 
@@ -196,11 +196,18 @@ func (kv *KafkaVersion) UnmarshalText(text []byte) error {
 		"0.10.0.1": sarama.V0_10_0_1,
 		"0.10.1.0": sarama.V0_10_1_0,
 		"0.10.2.0": sarama.V0_10_2_0,
-		"0.10.2.1": sarama.V0_10_2_0, // sarama does not define V0_10_2_1
+		"0.10.2.1": sarama.V0_10_2_1,
+		"0.10.2.2": sarama.V0_10_2_1, // sarama does not define V0_10_2_2
 		"0.11.0.0": sarama.V0_11_0_0,
-		"0.11.0.1": sarama.V0_11_0_0, // sarama does not define V0_11_0_1
-		"0.11.0.2": sarama.V0_11_0_0, // sarama does not define V0_11_0_2
+		"0.11.0.1": sarama.V0_11_0_1,
+		"0.11.0.2": sarama.V0_11_0_2,
+		"0.11.0.3": sarama.V0_11_0_2, // sarama does not define V0_11_0_3
 		"1.0.0":    sarama.V1_0_0_0,
+		"1.0.1":    sarama.V1_0_0_0, // sarama does not define V1_0_1_0
+		"1.0.2":    sarama.V1_0_0_0, // sarama does not define V1_0_2_0
+		"1.1.0":    sarama.V1_1_0_0,
+		"1.1.1":    sarama.V1_1_0_0, // sarama does not define V1_1_1_0
+		"2.0.0":    sarama.V2_0_0_0,
 	}[str]
 	if !ok {
 		return errors.Errorf("bad kafka version, %s", str)
@@ -458,7 +465,7 @@ func defaultProxyWithClientID(clientID string) *Proxy {
 
 	c.Kafka.SeedPeers = []string{"localhost:9092"}
 
-	c.Kafka.Version.v = sarama.V0_8_2_2
+	c.Kafka.Version.v = sarama.V0_10_2_1
 	// If a valid Kafka version provided in an environment variable then use it
 	// as the default value. This logic is only needed in tests.
 	envKafkaVersion := os.Getenv("KAFKA_VERSION")

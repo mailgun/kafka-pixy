@@ -12,7 +12,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/samuel/go-zookeeper/zk"
 	log "github.com/sirupsen/logrus"
-	"github.com/sirupsen/logrus/hooks/syslog"
+	syslogrus "github.com/sirupsen/logrus/hooks/syslog"
 )
 
 // Init initializes sirupsen/logrus hooks from the JSON config string. It also
@@ -34,7 +34,7 @@ func Init(jsonCfg string, cfg *config.App) error {
 		case "console":
 			stdoutEnabled = true
 		case "syslog":
-			h, err := logrus_syslog.NewSyslogHook("udp", "127.0.0.1:514", syslog.LOG_INFO|syslog.LOG_MAIL, "kafka-pixy")
+			h, err := syslogrus.NewSyslogHook("udp", "127.0.0.1:514", syslog.LOG_INFO|syslog.LOG_MAIL, "kafka-pixy")
 			if err != nil {
 				continue
 			}

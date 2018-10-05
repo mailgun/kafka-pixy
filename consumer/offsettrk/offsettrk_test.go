@@ -187,20 +187,20 @@ func (s *OffsetTrkSuite) TestNew(c *C) {
 		actual offsetmgr.Offset
 	}{
 		0: {
-			offsetmgr.Offset{1000, ""},
-			offsetmgr.Offset{1000, ""},
+			offsetmgr.Offset{Val: 1000, Meta: ""},
+			offsetmgr.Offset{Val: 1000, Meta: ""},
 		},
 		1: {
-			offsetmgr.Offset{1000, "abra1234+/P"},
-			offsetmgr.Offset{1000, "abra1234+/P"},
+			offsetmgr.Offset{Val: 1000, Meta: "abra1234+/P"},
+			offsetmgr.Offset{Val: 1000, Meta: "abra1234+/P"},
 		},
 		2: {
-			offsetmgr.Offset{1000, "abra1234+/PS"},
-			offsetmgr.Offset{1000, ""},
+			offsetmgr.Offset{Val: 1000, Meta: "abra1234+/PS"},
+			offsetmgr.Offset{Val: 1000, Meta: ""},
 		},
 		3: {
-			offsetmgr.Offset{1000, "a@b"},
-			offsetmgr.Offset{1000, ""},
+			offsetmgr.Offset{Val: 1000, Meta: "a@b"},
+			offsetmgr.Offset{Val: 1000, Meta: ""},
 		},
 	} {
 		// When
@@ -214,7 +214,7 @@ func (s *OffsetTrkSuite) TestNew(c *C) {
 func (s *OffsetTrkSuite) TestIsAcked(c *C) {
 	meta := encodeAckedRanges(301, []offsetRange{
 		{302, 305}, {307, 309}, {310, 313}})
-	offset := offsetmgr.Offset{301, meta}
+	offset := offsetmgr.Offset{Val: 301, Meta: meta}
 	ot := New(s.ns, offset, -1)
 	for i, tc := range []struct {
 		offset       int64

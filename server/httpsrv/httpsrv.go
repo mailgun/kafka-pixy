@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -50,7 +51,8 @@ const (
 )
 
 var (
-	EmptyResponse = map[string]interface{}{}
+	EmptyResponse          = map[string]interface{}{}
+	jsonContentTypePattern *regexp.Regexp
 )
 
 type T struct {
@@ -61,6 +63,13 @@ type T struct {
 	proxySet   *proxy.Set
 	wg         sync.WaitGroup
 	errorCh    chan error
+}
+
+func init() {
+	var err error
+	if jsonContentTypePattern, err = regexp.Compile("^application/(?:.*\\+)?json$"); err != nil {
+		panic(err)
+	}
 }
 
 // New creates an HTTP server instance that will accept API requests at the
@@ -230,7 +239,7 @@ func (s *T) handleProduce(w http.ResponseWriter, r *http.Request) {
 // readMsg reads message from the HTTP request based on the Content-Type header.
 func (s *T) readMsg(r *http.Request) (sarama.Encoder, error) {
 	contentType := r.Header.Get(hdrContentType)
-	if contentType == "text/plain" || contentType == "application/json" {
+	if contentType == "text/plain" || jsonContentTypePattern.MatchString(contentType) {
 		if _, ok := r.Header[hdrContentLength]; !ok {
 			return nil, errors.Errorf("missing %s header", hdrContentLength)
 		}

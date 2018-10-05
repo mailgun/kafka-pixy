@@ -71,9 +71,9 @@ func (s *PartitionCsmSuite) TearDownTest(c *C) {
 // then it is initialized to the actual offset value of the oldest message.
 func (s *PartitionCsmSuite) TestOldestOffset(c *C) {
 	oldestOffsets := s.kh.GetOldestOffsets(topic)
-	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{sarama.OffsetOldest, ""}})
+	s.kh.SetOffsets(group, topic, []offsetmgr.Offset{{Val: sarama.OffsetOldest, Meta: ""}})
 	offsets := s.kh.GetCommittedOffsets(group, topic)
-	c.Assert(offsets[partition], Equals, offsetmgr.Offset{sarama.OffsetOldest, ""})
+	c.Assert(offsets[partition], Equals, offsetmgr.Offset{Val: sarama.OffsetOldest, Meta: ""})
 	pc := Spawn(s.ns, group, topic, partition, s.cfg, s.groupMember, s.msgFetcherF, s.offsetMgrF)
 
 	// When
@@ -188,11 +188,11 @@ func (s *PartitionCsmSuite) TestOfferInvalid(c *C) {
 	c.Assert(ok, Equals, true)
 
 	// When
-	msg.EventsCh <- consumer.Event{consumer.EvOffered, msg.Offset + 1}
-	msg.EventsCh <- consumer.Event{consumer.EvOffered, msg.Offset - 1}
+	msg.EventsCh <- consumer.Event{T: consumer.EvOffered, Offset: msg.Offset + 1}
+	msg.EventsCh <- consumer.Event{T: consumer.EvOffered, Offset: msg.Offset - 1}
 
 	// Then
-	msg.EventsCh <- consumer.Event{consumer.EvOffered, msg.Offset}
+	msg.EventsCh <- consumer.Event{T: consumer.EvOffered, Offset: msg.Offset}
 	msg2, ok := <-pc.Messages()
 	c.Assert(msg2.Offset, Equals, msg.Offset+1)
 	c.Assert(ok, Equals, true)
@@ -569,7 +569,7 @@ func (s *PartitionCsmSuite) TestFetcherDeath(c *C) {
 func sendEvOffered(msg consumer.Message) {
 	log.Infof("*** sending EvOffered: offset=%d", msg.Offset)
 	select {
-	case msg.EventsCh <- consumer.Event{consumer.EvOffered, msg.Offset}:
+	case msg.EventsCh <- consumer.Event{T: consumer.EvOffered, Offset: msg.Offset}:
 	case <-time.After(500 * time.Millisecond):
 		log.Infof("*** timeout sending `offered`: offset=%d", msg.Offset)
 	}
@@ -578,7 +578,7 @@ func sendEvOffered(msg consumer.Message) {
 func sendEvAcked(msg consumer.Message) {
 	log.Infof("*** sending EvAcked: offset=%d", msg.Offset)
 	select {
-	case msg.EventsCh <- consumer.Event{consumer.EvAcked, msg.Offset}:
+	case msg.EventsCh <- consumer.Event{T: consumer.EvAcked, Offset: msg.Offset}:
 	case <-time.After(500 * time.Millisecond):
 		log.Infof("*** timeout sending `acked`: offset=%d", msg.Offset)
 	}

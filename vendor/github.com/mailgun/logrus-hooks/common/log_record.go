@@ -26,7 +26,8 @@ type LogRecord struct {
 	LineNo    int                    `json:"lineno"`
 	Message   string                 `json:"message"`
 	Timestamp Number                 `json:"timestamp"`
-	PID       int                    `json:"pid"`
+	CID       string                 `json:"cid,omitempty"`
+	PID       int                    `json:"pid,omitempty"`
 	TID       string                 `json:"tid,omitempty"`
 	ExcType   string                 `json:"excType,omitempty"`
 	ExcText   string                 `json:"excText,omitempty"`

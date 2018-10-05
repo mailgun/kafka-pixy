@@ -19,7 +19,13 @@ type HasFormat interface {
 // Creates errors that conform to the `HasContext` interface
 type WithContext map[string]interface{}
 
+// Wrapf returns an error annotating err with a stack trace
+// at the point Wrapf is call, and the format specifier.
+// If err is nil, Wrapf returns nil.
 func (c WithContext) Wrapf(err error, format string, args ...interface{}) error {
+	if err == nil {
+		return nil
+	}
 	return &withContext{
 		stack:   stack.New(1),
 		context: c,
@@ -28,7 +34,13 @@ func (c WithContext) Wrapf(err error, format string, args ...interface{}) error 
 	}
 }
 
+// Wrap returns an error annotating err with a stack trace
+// at the point Wrap is called, and the supplied message.
+// If err is nil, Wrap returns nil.
 func (c WithContext) Wrap(err error, msg string) error {
+	if err == nil {
+		return nil
+	}
 	return &withContext{
 		stack:   stack.New(1),
 		context: c,

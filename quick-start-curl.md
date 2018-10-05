@@ -27,7 +27,7 @@ A message can be produced byt the following call:
 
 ```
 curl -X POST localhost:19092/topics/foo/messages?sync \
-  -d 'May the Force be with you!'
+  -d msg='May the Force be with you!'
 ```
 
 The message was produced in `sync` mode, that by [default](https://github.com/mailgun/kafka-pixy/blob/master/default.yaml#L70-L78)

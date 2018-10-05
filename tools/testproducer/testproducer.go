@@ -50,6 +50,9 @@ func main() {
 	}
 	clt := pb.NewKafkaPixyClient(cltConn)
 
+	fmt.Printf("Producing...")
+	begin := time.Now()
+
 	go func() {
 		var wg sync.WaitGroup
 		chunkSize := count / threads
@@ -91,8 +94,6 @@ func main() {
 		close(progressCh)
 	}()
 
-	fmt.Printf("Producing...")
-	begin := time.Now()
 	totalProgress := 0
 	for progress := range progressCh {
 		totalProgress += progress

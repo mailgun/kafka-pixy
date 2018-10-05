@@ -14,7 +14,11 @@ package clock
 
 import "time"
 
-var frozenAt time.Time
+var (
+	frozenAt time.Time
+	realtime       = &systemTime{}
+	provider Clock = realtime
+)
 
 // Freeze after this function is called all time related functions start
 // generate deterministic timers that are triggered by Advance function. It is
@@ -26,7 +30,13 @@ func Freeze(now time.Time) {
 
 // Unfreeze reverses effect of Freeze.
 func Unfreeze() {
-	provider = &systemTime{}
+	provider = realtime
+}
+
+// Realtime returns a clock provider wrapping the SDK's time package. It is
+// supposed to be used in tests when time is frozen to schedule test timeouts.
+func Realtime() Clock {
+	return realtime
 }
 
 // Makes the deterministic time move forward by the specified duration, firing
@@ -104,7 +114,8 @@ func NewStoppedTimer() Timer {
 	return t
 }
 
-type clock interface {
+// Clock is an interface that mimics the one of the SDK time package.
+type Clock interface {
 	Now() time.Time
 	Sleep(d time.Duration)
 	After(d time.Duration) <-chan time.Time
@@ -114,5 +125,3 @@ type clock interface {
 	Tick(d time.Duration) <-chan time.Time
 	Wait4Scheduled(n int, timeout time.Duration) bool
 }
-
-var provider clock = &systemTime{}

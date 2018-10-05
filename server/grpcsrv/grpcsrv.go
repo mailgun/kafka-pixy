@@ -86,15 +86,18 @@ func (s *T) Produce(ctx context.Context, req *pb.ProdRq) (*pb.ProdRs, error) {
 		return nil, status.Errorf(codes.InvalidArgument, err.Error())
 	}
 
-	headers := make([]sarama.RecordHeader, 0, len(req.Headers))
-	for _, h := range req.Headers {
-		if h == nil {
-			continue
+	var headers []sarama.RecordHeader
+	if len(req.Headers) > 0 {
+		headers = make([]sarama.RecordHeader, 0, len(req.Headers))
+		for _, h := range req.Headers {
+			if h == nil {
+				continue
+			}
+			headers = append(headers, sarama.RecordHeader{
+				Key:   []byte(h.Key),
+				Value: h.Value,
+			})
 		}
-		headers = append(headers, sarama.RecordHeader{
-			Key:   []byte(h.Key),
-			Value: h.Value,
-		})
 	}
 
 	if req.AsyncMode {

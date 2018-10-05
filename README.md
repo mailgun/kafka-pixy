@@ -10,11 +10,14 @@ with automatic consumer group control. It is designed to hide the
 complexity of the Kafka client protocol and provide a stupid simple
 API that is trivial to implement in any language.
 
-Kafka-Pixy supports Kafka versions form **0.8.2.0** to **1.0.0**. It uses
+Kafka-Pixy is tested against Kafka versions form **0.10.2.1**, **1.1.1**, and
+**2.0.0**, but is likely to work with any version starting from **0.8.2.2**. It uses
 the Kafka [Offset Commit/Fetch API](https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol#AGuideToTheKafkaProtocol-OffsetCommit/FetchAPI)
 to keep track of consumer offsets. However [Group Membership API](https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol#AGuideToTheKafkaProtocol-GroupMembershipAPI)
 is not yet implemented, therefore it needs to talk to Zookeeper directly to
 manage consumer group membership.
+
+**Warning**: Kafka-Pixy does not support whiled card cannot share a consumer group with other clients
 
 If you are anxious to get started then [install](howto-install.md) Kafka-Pixy
 and proceed with a quick start guide for your weapon of choice:
@@ -242,8 +245,8 @@ Note that headers are only supported if the Kafka protocol version (set via the
 ### Acknowledge
 
 ```
-POST /topics/<topic>/messages
-POST /clusters/<cluster>/topics/<topic>/messages
+POST /topics/<topic>/acks
+POST /clusters/<cluster>/topics/<topic>/acks
 ```
 
 Acknowledges a previously consumed message.

@@ -12,6 +12,7 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -45,6 +46,7 @@ func main() {
 		panic(errors.Wrap(err, "failed to dial gRPC server"))
 	}
 	clt := pb.NewKafkaPixyClient(cltConn)
+	begin := time.Now()
 
 	go func() {
 		var wg sync.WaitGroup
@@ -54,7 +56,6 @@ func main() {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				startedAt := time.Now()
 				// Consume first message.
 				req := pb.ConsNAckRq{
 					Topic: topic,
@@ -65,14 +66,16 @@ func main() {
 				for {
 					res, err = clt.ConsumeNAck(context.Background(), &req)
 					if err != nil {
-						if grpc.Code(err) == codes.NotFound && waitForMore {
-							continue
+						if status.Code(err) == codes.NotFound {
+							if waitForMore {
+								continue
+							}
+							return
 						}
 						panic(errors.Wrap(err, "failed to consume first"))
 					}
 					break
 				}
-				fmt.Printf("First message consumed: thread=%d, took=%v, res=%+v\n", tid, time.Now().Sub(startedAt), res)
 				progressCh <- len(res.Message)
 				// Run consume+ack loop.
 				ackPartition := res.Partition
@@ -86,8 +89,11 @@ func main() {
 					}
 					res, err = clt.ConsumeNAck(context.Background(), &req)
 					if err != nil {
-						if grpc.Code(err) == codes.NotFound && waitForMore {
-							continue
+						if status.Code(err) == codes.NotFound {
+							if waitForMore {
+								continue
+							}
+							return
 						}
 						panic(errors.Wrapf(err, "failed to consume: thread=%d, no=%d", tid, i))
 					}
@@ -113,7 +119,6 @@ func main() {
 		close(progressCh)
 	}()
 
-	begin := time.Now()
 	checkpoint := begin
 	var count, totalCount int
 	var bytes, totalBytes int64
@@ -136,6 +141,8 @@ func main() {
 			checkpoint = now
 		}
 	}
+	totalCount += count
+	totalBytes += bytes
 	totalTook := time.Now().Sub(begin)
 	totalTookSec := float64(totalTook) / float64(time.Second)
 	fmt.Printf("\rConsumed %d(%s) for %s at %dmsg(%s)/sec             \n",
