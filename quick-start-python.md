@@ -25,8 +25,8 @@ To use Kafka-Pixy from a Python application you need to:
 
     ```python
     # Kafka-Pixy is supposed to be running on the same host hence 127.0.0.1,
-    # and by default it listens on port 19092.
-    grpc_chan = grpc.insecure_channel("127.0.0.1:19092")
+    # and by default it listens on port 19091.
+    grpc_chan = grpc.insecure_channel("127.0.0.1:19091")
     # The client is thread safe so you need only one.
     global _kp_clt
     _kp_clt = KafkaPixyStub(grpc_chan) 
