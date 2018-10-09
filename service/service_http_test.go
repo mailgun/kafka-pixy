@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,7 +25,6 @@ import (
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
 	"github.com/pkg/errors"
-	"github.com/wvanbergen/kazoo-go"
 	. "gopkg.in/check.v1"
 )
 
@@ -59,10 +59,10 @@ func (s *ServiceHTTPSuite) SetUpTest(c *C) {
 	// The default HTTP client cannot be used, because it caches connections,
 	// but each test must have a brand new connection.
 	s.tcpClient = &http.Client{Transport: &http.Transport{
-		Dial: (&net.Dialer{
+		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,
-		}).Dial,
+		}).DialContext,
 	}}
 }
 
@@ -351,7 +351,6 @@ func (s *ServiceHTTPSuite) TestLargestMessage(c *C) {
 	// individually. A message batch may consist of only a single message, so
 	// in most cases, the limitation on the size of individual messages is only
 	// reduced by the overhead of the batch format.
-	fmt.Printf("*** %v", saramaCfg.Version)
 	if saramaCfg.Version.IsAtLeast(sarama.V0_11_0_0) {
 		maxMsgSize -= 39
 	} else {
@@ -951,18 +950,9 @@ func (s *ServiceHTTPSuite) TestGetTopics(c *C) {
 	// Then
 	c.Check(err, IsNil)
 	c.Check(r.StatusCode, Equals, http.StatusOK)
-
-	topics := ParseJSONBody(c, r).([]interface{})
-
-	raw_topics, err := s.kh.KazooClt().Topics()
-	expected_topics := make(map[string]bool, len(raw_topics))
-	for _, s := range raw_topics {
-		expected_topics[s.Name] = true
-	}
-	c.Check(len(topics), Equals, len(expected_topics))
-	for _, topic := range topics {
-		c.Check(expected_topics[topic.(string)], Equals, true)
-	}
+	var topics []string
+	ParseResponseBody(c, r, &topics)
+	c.Check(topics, DeepEquals, []string{"__consumer_offsets", "test.1", "test.4", "test.64"})
 }
 
 func (s *ServiceHTTPSuite) TestGetTopicsWithPartitions(c *C) {
@@ -971,75 +961,58 @@ func (s *ServiceHTTPSuite) TestGetTopicsWithPartitions(c *C) {
 	defer svc.Stop()
 
 	// When
-	r, err := s.unixClient.Get("http://_/topics?withPartitions=true")
+	rs, err := s.unixClient.Get("http://_/topics?withPartitions=true")
 
 	// Then
 	c.Check(err, IsNil)
-	c.Check(r.StatusCode, Equals, http.StatusOK)
+	c.Check(rs.StatusCode, Equals, http.StatusOK)
 
-	topics := ParseJSONBody(c, r).(map[string]interface{})
-
-	raw_expected_topics, err := s.kh.KazooClt().Topics()
-	expected_topics := make(map[string]bool, len(raw_expected_topics))
-	for _, s := range raw_expected_topics {
-		expected_topics[s.Name] = true
+	var topicsWithPartition map[string]struct {
+		Config     *struct{} `json:"config"`
+		Partitions []struct {
+			Partition int   `json:"partition"`
+			Leader    int   `json:"leader"`
+			Replicas  []int `json:"replicas"`
+			ISR       []int `json:"isr"`
+		} `json:"partitions"`
 	}
+	ParseResponseBody(c, rs, &topicsWithPartition)
 
-	for topic, raw_metadata := range topics {
-		c.Check(expected_topics[topic], Equals, true)
+	var topics []string
+	for topic := range topicsWithPartition {
+		topics = append(topics, topic)
+	}
+	sort.Strings(topics)
+	c.Check(topics, DeepEquals, []string{"__consumer_offsets", "test.1", "test.4", "test.64"})
 
-		metadata := raw_metadata.(map[string]interface{})
-		c.Check(metadata["partitions"], NotNil)
+	for topic, topicMeta := range topicsWithPartition {
+		c.Check(topicMeta.Config, IsNil)
+		expectedPartitionCount := map[string]int{
+			"__consumer_offsets": 50,
+			"test.1":             1,
+			"test.4":             4,
+			"test.64":            64,
+		}[topic]
+		c.Check(len(topicMeta.Partitions), Equals, expectedPartitionCount)
 
-		partitions := metadata["partitions"].([]interface{})
-		raw_expected_partitions, err := s.kh.KazooClt().Topic(topic).Partitions()
-		if err != nil {
-			c.Error(fmt.Sprintf("Can't obtain config for %s error %v", topic, err))
+		// Get replication factor used, when bootstrapping the cluster.
+		defaultReplicationFactorStr := os.Getenv("REPLICATION_FACTOR")
+		defaultReplicationFactor, _ := strconv.Atoi(defaultReplicationFactorStr)
+		if defaultReplicationFactor == 0 {
+			defaultReplicationFactor = 2
 		}
-		expected_partitions := make(map[int32]*kazoo.Partition, len(raw_expected_partitions))
-		for _, p := range raw_expected_partitions {
-			expected_partitions[p.ID] = p
+
+		for _, partitionMeta := range topicMeta.Partitions {
+			replicationFactor := map[string]int{
+				"__consumer_offsets": 3,
+				"test.1":             defaultReplicationFactor,
+				"test.4":             defaultReplicationFactor,
+				"test.64":            defaultReplicationFactor,
+			}[topic]
+			c.Logf("Checking: topic=%v, partition=%v", topic, partitionMeta)
+			c.Check(len(partitionMeta.Replicas), Equals, replicationFactor)
+			c.Check(len(partitionMeta.ISR), Equals, replicationFactor)
 		}
-		c.Check(len(expected_partitions), Equals, len(partitions))
-
-		for _, v := range partitions {
-			partition := v.(map[string]interface{})
-
-			// check ID
-			id := int32(partition["partition"].(float64))
-			expected_partition := expected_partitions[id]
-			c.Check(expected_partition, NotNil)
-
-			// check leader
-			leader := int32(partition["leader"].(float64))
-			expected_leader, _ := expected_partition.Leader()
-			c.Check(leader, Equals, expected_leader)
-
-			// check replicas
-			raw_replicas := partition["replicas"].([]interface{})
-			replicas := make(map[int32]bool, len(raw_replicas))
-			for _, r := range raw_replicas {
-				replicas[int32(r.(float64))] = true
-			}
-			for _, r := range expected_partition.Replicas {
-				c.Check(replicas[r], Equals, true)
-			}
-
-			// check ISR
-			raw_isr := partition["isr"].([]interface{})
-			isr := make(map[int32]bool, len(raw_isr))
-			for _, r := range raw_isr {
-				isr[int32(r.(float64))] = true
-			}
-			expected_isr, err := expected_partition.ISR()
-			if err != nil {
-				c.Error(fmt.Sprintf("Can't obtain ISR for %v error %v", expected_partition, err))
-			}
-			for _, r := range expected_isr {
-				c.Check(isr[r], Equals, true)
-			}
-		}
-		c.Check(metadata["topic_config"], IsNil)
 	}
 }
 
@@ -1049,40 +1022,41 @@ func (s *ServiceHTTPSuite) TestGetTopicsWithConfig(c *C) {
 	defer svc.Stop()
 
 	// When
-	r, err := s.unixClient.Get("http://_/topics?withConfig")
+	rs, err := s.unixClient.Get("http://_/topics?withConfig")
 
 	// Then
 	c.Check(err, IsNil)
-	c.Check(r.StatusCode, Equals, http.StatusOK)
+	c.Check(rs.StatusCode, Equals, http.StatusOK)
 
-	topics := ParseJSONBody(c, r).(map[string]interface{})
-
-	raw_expected_topics, err := s.kh.KazooClt().Topics()
-	expected_topics := make(map[string]bool, len(raw_expected_topics))
-	for _, s := range raw_expected_topics {
-		expected_topics[s.Name] = true
+	var topicsWithConfig map[string]struct {
+		Config struct {
+			Version int               `json:"version"`
+			Config  map[string]string `json:"config"`
+		} `json:"config"`
+		Partitions []struct{} `json:"partitions"`
 	}
+	ParseResponseBody(c, rs, &topicsWithConfig)
 
-	for topic, raw_metadata := range topics {
-		c.Check(expected_topics[topic], Equals, true)
+	var topics []string
+	for topic := range topicsWithConfig {
+		topics = append(topics, topic)
+	}
+	sort.Strings(topics)
+	c.Check(topics, DeepEquals, []string{"__consumer_offsets", "test.1", "test.4", "test.64"})
 
-		metadata := raw_metadata.(map[string]interface{})
-		c.Check(metadata["partitions"], IsNil)
-
-		expected_params, err := s.kh.KazooClt().Topic(topic).Config()
-		if err != nil {
-			c.Error(fmt.Sprintf("Can't obtain config for %s error %v", topic, err))
-		}
-
-		cfg := metadata["config"].(map[string]interface{})
-		version := int(cfg["version"].(float64))
-		c.Check(version, Equals, 1)
-
-		params := cfg["config"].(map[string]interface{})
-		c.Check(len(expected_params), Equals, len(params))
-		for k, v := range expected_params {
-			c.Check(v, Equals, params[k].(string))
-		}
+	for topic, topicMeta := range topicsWithConfig {
+		c.Check(topicMeta.Partitions, IsNil)
+		c.Check(topicMeta.Config.Version, Equals, 1)
+		c.Check(topicMeta.Config.Config, DeepEquals,
+			map[string]map[string]string{
+				"__consumer_offsets": {
+					"cleanup.policy":   "compact",
+					"compression.type": "producer",
+					"segment.bytes":    "104857600"},
+				"test.1":  {},
+				"test.4":  {},
+				"test.64": {},
+			}[topic])
 	}
 }
 
@@ -1092,28 +1066,31 @@ func (s *ServiceHTTPSuite) TestGetTopicsWithPartitionsAndWithConfig(c *C) {
 	defer svc.Stop()
 
 	// When
-	r, err := s.unixClient.Get("http://_/topics?withPartitions&withConfig")
+	rs, err := s.unixClient.Get("http://_/topics?withPartitions&withConfig")
 
 	// Then
 	c.Check(err, IsNil)
-	c.Check(r.StatusCode, Equals, http.StatusOK)
+	c.Check(rs.StatusCode, Equals, http.StatusOK)
 
-	topics := ParseJSONBody(c, r).(map[string]interface{})
-
-	raw_expected_topics, err := s.kh.KazooClt().Topics()
-	expected_topics := make(map[string]bool, len(raw_expected_topics))
-	for _, s := range raw_expected_topics {
-		expected_topics[s.Name] = true
+	var topicsWithConfig map[string]struct {
+		Config struct {
+			Version int               `json:"version"`
+			Config  map[string]string `json:"config"`
+		} `json:"config"`
+		Partitions []struct{} `json:"partitions"`
 	}
+	ParseResponseBody(c, rs, &topicsWithConfig)
 
-	c.Check(len(topics), Equals, len(expected_topics))
+	var topics []string
+	for topic := range topicsWithConfig {
+		topics = append(topics, topic)
+	}
+	sort.Strings(topics)
+	c.Check(topics, DeepEquals, []string{"__consumer_offsets", "test.1", "test.4", "test.64"})
 
-	for topic, raw_metadata := range topics {
-		c.Check(expected_topics[topic], Equals, true)
-
-		metadata := raw_metadata.(map[string]interface{})
-		c.Check(metadata["partitions"], NotNil)
-		c.Check(metadata["config"], NotNil)
+	for _, topicMeta := range topicsWithConfig {
+		c.Check(topicMeta.Partitions, NotNil)
+		c.Check(topicMeta.Config.Version, NotNil)
 	}
 }
 
@@ -1308,4 +1285,10 @@ func ParseBase64(c *C, encoded string) string {
 		return ""
 	}
 	return string(decoded)
+}
+
+func ParseResponseBody(c *C, rs *http.Response, body interface{}) {
+	defer rs.Body.Close()
+	err := json.NewDecoder(rs.Body).Decode(&body)
+	c.Assert(err, IsNil)
 }

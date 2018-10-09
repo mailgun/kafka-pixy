@@ -11,8 +11,8 @@ import (
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/testhelpers"
+	"github.com/samuel/go-zookeeper/zk"
 	log "github.com/sirupsen/logrus"
-	"github.com/wvanbergen/kazoo-go"
 	. "gopkg.in/check.v1"
 )
 
@@ -20,8 +20,8 @@ type T struct {
 	cfg      *config.Proxy
 	ns       *actor.Descriptor
 	c        *C
-	kazooClt *kazoo.Kazoo
 	kafkaClt sarama.Client
+	zkClt    *zk.Conn
 	producer sarama.AsyncProducer
 	consumer sarama.Consumer
 }
@@ -35,7 +35,7 @@ func New(c *C) *T {
 	cfg.Producer.Return.Successes = true
 	cfg.Producer.Return.Errors = true
 	err := error(nil)
-	if kh.kazooClt, err = kazoo.NewKazoo(testhelpers.ZookeeperPeers, kazoo.NewConfig()); err != nil {
+	if kh.zkClt, _, err = zk.Connect(testhelpers.ZookeeperPeers, 10*time.Second); err != nil {
 		panic(err)
 	}
 	if kh.kafkaClt, err = sarama.NewClient(testhelpers.KafkaPeers, cfg); err != nil {
@@ -50,8 +50,8 @@ func New(c *C) *T {
 	return kh
 }
 
-func (kh *T) KazooClt() *kazoo.Kazoo {
-	return kh.kazooClt
+func (kh *T) ZooKeeperClt() *zk.Conn {
+	return kh.zkClt
 }
 
 func (kh *T) KafkaClt() sarama.Client {
@@ -59,10 +59,10 @@ func (kh *T) KafkaClt() sarama.Client {
 }
 
 func (kh *T) Close() {
-	kh.kazooClt.Close()
 	kh.producer.Close()
 	kh.consumer.Close()
 	kh.kafkaClt.Close()
+	kh.zkClt.Close()
 }
 
 func (kh *T) GetNewestOffsets(topic string) []int64 {
