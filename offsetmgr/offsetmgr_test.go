@@ -376,11 +376,13 @@ func (s *OffsetMgrSuite) TestCommitDifferentGroups(c *C) {
 func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 	// Given
 	broker1 := sarama.NewMockBroker(c, 101)
-	defer broker1.Close()
+	broker2 := sarama.NewMockBroker(c, 102)
+	defer broker2.Close()
 
-	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
+	mockResponses := map[string]sarama.MockResponse{
 		"MetadataRequest": sarama.NewMockMetadataResponse(c).
-			SetBroker(broker1.Addr(), broker1.BrokerID()),
+			SetBroker(broker1.Addr(), broker1.BrokerID()).
+			SetBroker(broker2.Addr(), broker2.BrokerID()),
 		"FindCoordinatorRequest": sarama.NewMockFindCoordinatorResponse(c).
 			SetCoordinator(sarama.CoordinatorGroup, "g1", broker1).
 			SetCoordinator(sarama.CoordinatorGroup, "g2", broker1),
@@ -388,14 +390,16 @@ func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 			SetOffset("g1", "t1", 7, 1000, "foo1", sarama.ErrNoError).
 			SetOffset("g1", "t1", 8, 2000, "foo2", sarama.ErrNoError).
 			SetOffset("g2", "t1", 7, 3000, "foo3", sarama.ErrNoError),
-	})
+	}
+	broker1.SetHandlerByMap(mockResponses)
+	broker2.SetHandlerByMap(mockResponses)
 
 	cfg := testhelpers.NewTestProxyCfg("c1")
 	cfg.Consumer.RetryBackoff = 100 * time.Millisecond
 	cfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
 	saramaCfg := sarama.NewConfig()
-	saramaCfg.Net.ReadTimeout = 50 * time.Millisecond
-	client, err := sarama.NewClient([]string{broker1.Addr()}, saramaCfg)
+	saramaCfg.Net.ReadTimeout = 100 * time.Millisecond
+	client, err := sarama.NewClient([]string{broker1.Addr(), broker2.Addr()}, saramaCfg)
 	c.Assert(err, IsNil)
 	f := SpawnFactory(s.ns.NewChild(), cfg, client)
 	defer f.Stop()
@@ -406,6 +410,10 @@ func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 	c.Assert(err, IsNil)
 	om3, err := f.Spawn(s.ns.NewChild("g2", "t1", 7), "g2", "t1", 7)
 	c.Assert(err, IsNil)
+
+	// Terminate mock broker to simulate network error.
+	broker1.Close()
+
 	om1.SubmitOffset(Offset{1001, "bar1"})
 	om2.SubmitOffset(Offset{2001, "bar2"})
 	om3.SubmitOffset(Offset{3001, "bar3"})
@@ -416,12 +424,21 @@ func (s *OffsetMgrSuite) TestCommitNetworkError(c *C) {
 	<-om3.(*offsetMgr).testErrorsCh
 
 	// When
-	time.Sleep(cfg.Consumer.RetryBackoff * 2)
 	log.Infof("*** Network recovering...")
+
+	broker1 = sarama.NewMockBrokerAddr(c, 101, broker1.Addr())
+	defer broker1.Close()
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
+		"MetadataRequest": sarama.NewMockMetadataResponse(c).
+			SetBroker(broker1.Addr(), broker1.BrokerID()).
+			SetBroker(broker2.Addr(), broker2.BrokerID()),
 		"FindCoordinatorRequest": sarama.NewMockFindCoordinatorResponse(c).
 			SetCoordinator(sarama.CoordinatorGroup, "g1", broker1).
 			SetCoordinator(sarama.CoordinatorGroup, "g2", broker1),
+		"OffsetFetchRequest": sarama.NewMockOffsetFetchResponse(c).
+			SetOffset("g1", "t1", 7, 1000, "foo1", sarama.ErrNoError).
+			SetOffset("g1", "t1", 8, 2000, "foo2", sarama.ErrNoError).
+			SetOffset("g2", "t1", 7, 3000, "foo3", sarama.ErrNoError),
 		"OffsetCommitRequest": sarama.NewMockOffsetCommitResponse(c).
 			SetError("g1", "t1", 7, sarama.ErrNoError).
 			SetError("g1", "t1", 8, sarama.ErrNoError).

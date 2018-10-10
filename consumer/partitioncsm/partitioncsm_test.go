@@ -15,6 +15,7 @@ import (
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
 	log "github.com/sirupsen/logrus"
+	"github.com/wvanbergen/kazoo-go"
 	. "gopkg.in/check.v1"
 )
 
@@ -56,7 +57,11 @@ func (s *PartitionCsmSuite) SetUpTest(c *C) {
 	check4RetryInterval = 50 * time.Millisecond
 
 	s.ns = actor.Root().NewChild("T")
-	s.groupMember = subscriber.Spawn(s.ns, group, s.cfg, s.kh.KazooClt())
+
+	kazooClt, err := kazoo.NewKazoo(testhelpers.ZookeeperPeers, kazoo.NewConfig())
+	c.Assert(err, IsNil)
+
+	s.groupMember = subscriber.Spawn(s.ns, group, s.cfg, kazooClt)
 	s.msgFetcherF = msgfetcher.SpawnFactory(s.ns, s.cfg, s.kh.KafkaClt())
 	s.offsetMgrF = offsetmgr.SpawnFactory(s.ns, s.cfg, s.kh.KafkaClt())
 

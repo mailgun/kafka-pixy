@@ -1,10 +1,9 @@
 package multiplexer
 
 import (
+	"fmt"
 	"testing"
 	"time"
-
-	"fmt"
 
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"

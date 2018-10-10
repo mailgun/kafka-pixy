@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/consumer"
@@ -93,19 +94,18 @@ func (m *T) IsSafe2Stop() bool {
 
 // WireUp ensures that assigned inputs are spawned and multiplexed to the
 // specified output. It stops inputs for partitions that are no longer
-// assigned, spawns inputs for newly assigned partitions, and restarts the
-// multiplexer, if either output or any of inputs has changed.
-//
-// The multiplexer may be stopped if either output or all inputs are removed.
+// assigned, spawns inputs for newly assigned partitions. Multiplexing is
+// stopped while rewiring is in progress.
 //
 // WARNING: do not ever pass (*T)(nil) in output, that will cause panic.
 func (m *T) WireUp(output Out, assigned []int32) {
 	var wg sync.WaitGroup
 
-	if m.output != output {
-		m.stopIfRunning()
-		m.output = output
-	}
+	// Stop multiplexer while rewiring is in progress to avoid data races.
+	wiringBegin := time.Now()
+	m.stopIfRunning()
+	m.output = output
+
 	// If output is not provided, then stop all inputs and return.
 	if output == nil {
 		for p, in := range m.inputs {
@@ -119,10 +119,10 @@ func (m *T) WireUp(output Out, assigned []int32) {
 		wg.Wait()
 		return
 	}
+
 	// Stop inputs that are not assigned anymore.
 	for p, in := range m.inputs {
 		if !hasPartition(p, assigned) {
-			m.stopIfRunning()
 			wg.Add(1)
 			go func(in *input) {
 				defer wg.Done()
@@ -131,20 +131,29 @@ func (m *T) WireUp(output Out, assigned []int32) {
 			delete(m.inputs, p)
 		}
 	}
+
 	// Spawn newly assigned inputs, but stop multiplexer before spawning the
 	// first input.
 	for _, p := range assigned {
 		if _, ok := m.inputs[p]; !ok {
-			m.stopIfRunning()
 			m.inputs[p] = &input{In: m.spawnInFn(p), partition: p}
 		}
 	}
 	m.refreshSortedIns()
-	if !m.IsRunning() && len(m.inputs) > 0 {
+
+	// Start multiplexer, but only if there are assigned inputs.
+	if len(m.inputs) > 0 {
 		m.start()
 	}
+
+	waitBegin := time.Now()
+	wiringTook := waitBegin.Sub(wiringBegin)
+
 	// Wait for stopping inputs to stop.
 	wg.Wait()
+
+	waitedFor := time.Since(waitBegin)
+	m.actDesc.Log().Infof("Wiring completed: took=%v, waited=%v", wiringTook, waitedFor)
 }
 
 // Stop synchronously stops the multiplexer.
