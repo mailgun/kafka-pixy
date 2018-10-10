@@ -13,6 +13,20 @@ import (
 	"github.com/pkg/errors"
 )
 
+const (
+	minOffsetCommitTimeout = 300 * time.Millisecond
+)
+
+var (
+	undefinedOffset = Offset{Val: math.MaxInt64}
+
+	// To be used in tests only! If true then offset manager will initialize
+	// their errors channel and will send internal errors.
+	testReportErrors bool
+
+	errRequestTimeout = errors.New("request timeout")
+)
+
 // Factory provides a method to spawn offset manager instances to commit
 // offsets for a particular group-topic-partition. It makes sure that there is
 // only one running manager instance for a particular group-topic-partition
@@ -70,16 +84,6 @@ type Offset struct {
 	Val  int64
 	Meta string
 }
-
-var (
-	undefinedOffset = Offset{Val: math.MaxInt64}
-
-	// To be used in tests only! If true then offset manager will initialize
-	// their errors channel and will send internal errors.
-	testReportErrors bool
-
-	errRequestTimeout = errors.New("request timeout")
-)
 
 // SpawnFactory creates a new offset manager factory from the given client.
 func SpawnFactory(parentActDesc *actor.Descriptor, cfg *config.Proxy, kafkaClt sarama.Client) Factory {
@@ -253,7 +257,7 @@ func (om *offsetMgr) run() {
 		latestRq        = submitRq{offset: undefinedOffset}
 		nilOrRequestsCh = om.submitRequestsCh
 		responseCh      = make(chan submitRs, 1)
-		stopped         = false
+		stopping        = false
 	)
 	// Retrieve the initial offset.
 	for {
@@ -278,7 +282,7 @@ func (om *offsetMgr) run() {
 				if latestRq.offset == initialOffset {
 					return
 				}
-				stopped = true
+				stopping = true
 				nilOrRequestsCh = nil
 				continue
 			}
@@ -297,7 +301,12 @@ handleRequests:
 	var submittedRq submitRq
 	var submittedAt time.Time
 	var be *brokerExecutor
+
 	offsetCommitTimeout := om.f.cfg.Consumer.OffsetsCommitInterval * 2
+	if offsetCommitTimeout < minOffsetCommitTimeout {
+		offsetCommitTimeout = minOffsetCommitTimeout
+	}
+
 	for {
 		select {
 		case bw := <-om.assignmentCh:
@@ -314,7 +323,7 @@ handleRequests:
 					return
 				}
 				// Keep running until the last submitter offset is committed.
-				stopped = true
+				stopping = true
 				// Signal broker executor to flush offsets to Kafka.
 				if be != nil {
 					be.flushAggregatorCh <- none.V
@@ -341,7 +350,7 @@ handleRequests:
 			}
 			committedOffset = rs.offset
 			om.committedOffsetsCh <- committedOffset
-			if stopped && latestRq.offset == committedOffset {
+			if stopping && latestRq.offset == committedOffset {
 				return
 			}
 		case <-om.nilOrRetryTimerCh:

@@ -158,7 +158,6 @@ func (kh *T) PutMessages(prefix, topic string, keys map[string]int) map[string][
 func (kh *T) ResetOffsets(group, topic string) {
 	cfg := config.DefaultProxy()
 	cfg.Consumer.OffsetsCommitInterval = 1 * time.Millisecond
-	cfg.Consumer.OffsetsCommitInterval = 1 * time.Millisecond
 	omf := offsetmgr.SpawnFactory(kh.ns, cfg, kh.kafkaClt)
 	defer omf.Stop()
 	partitions, err := kh.kafkaClt.Partitions(topic)
