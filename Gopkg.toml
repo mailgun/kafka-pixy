@@ -42,10 +42,6 @@
   version = "1.0.1"
 
 [[constraint]]
-  branch = "master"
-  name = "github.com/wvanbergen/kazoo-go"
-
-[[constraint]]
   name = "google.golang.org/grpc"
   version = "1.15.0"
 

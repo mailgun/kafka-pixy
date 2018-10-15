@@ -11,7 +11,6 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/pkg/errors"
-	"github.com/wvanbergen/kazoo-go"
 	"gopkg.in/yaml.v2"
 )
 
@@ -269,18 +268,6 @@ func (pc PartitionerConstructor) ToPartitionerConstructor() (sarama.PartitionerC
 		return nil, errors.Errorf("bad partitioner: %s", pc)
 	}
 	return v, nil
-}
-
-func (p *Proxy) KazooCfg() *kazoo.Config {
-	kazooCfg := kazoo.NewConfig()
-	kazooCfg.Chroot = p.ZooKeeper.Chroot
-	// ZooKeeper documentation says following about the session timeout: "The
-	// current (ZooKeeper) implementation requires that the timeout be a
-	// minimum of 2 times the tickTime (as set in the server configuration) and
-	// a maximum of 20 times the tickTime". The default tickTime is 2 seconds.
-	// See http://zookeeper.apache.org/doc/trunk/zookeeperProgrammers.html#ch_zkSessions
-	kazooCfg.Timeout = 15 * time.Second
-	return kazooCfg
 }
 
 // SaramaProducerCfg returns a config for sarama producer.

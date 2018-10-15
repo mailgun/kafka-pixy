@@ -1,6 +1,8 @@
 package consumerimpl
 
 import (
+	"time"
+
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
@@ -9,7 +11,7 @@ import (
 	"github.com/mailgun/kafka-pixy/consumer/groupcsm"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/pkg/errors"
-	"github.com/wvanbergen/kazoo-go"
+	"github.com/samuel/go-zookeeper/zk"
 )
 
 // T is a Kafka consumer implementation that automatically maintains consumer
@@ -29,7 +31,7 @@ type t struct {
 	cfg        *config.Proxy
 	dispatcher *dispatcher.T
 	kafkaClt   sarama.Client
-	kazooClt   *kazoo.Kazoo
+	zkConn     *zk.Conn
 	offsetMgrF offsetmgr.Factory
 }
 
@@ -41,7 +43,13 @@ func Spawn(parentActDesc *actor.Descriptor, cfg *config.Proxy, offsetMgrF offset
 		return nil, errors.Wrap(err, "failed to create Kafka client for message streams")
 	}
 
-	kazooClt, err := kazoo.NewKazoo(cfg.ZooKeeper.SeedPeers, cfg.KazooCfg())
+	// ZooKeeper documentation says following about the session timeout: "The
+	// current (ZooKeeper) implementation requires that the timeout be a
+	// minimum of 2 times the tickTime (as set in the server configuration) and
+	// a maximum of 20 times the tickTime". The default tickTime is 2 seconds.
+	// See http://zookeeper.apache.org/doc/trunk/zookeeperProgrammers.html#ch_zkSessions
+	sessionTimeout := 15 * time.Second
+	zkConn, _, err := zk.Connect(cfg.ZooKeeper.SeedPeers, sessionTimeout)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create kazoo.Kazoo")
 	}
@@ -51,7 +59,7 @@ func Spawn(parentActDesc *actor.Descriptor, cfg *config.Proxy, offsetMgrF offset
 		cfg:        cfg,
 		kafkaClt:   kafkaClt,
 		offsetMgrF: offsetMgrF,
-		kazooClt:   kazooClt,
+		zkConn:     zkConn,
 	}
 	c.dispatcher = dispatcher.Spawn(c.actDesc, c, c.cfg)
 	return c, nil
@@ -73,7 +81,7 @@ func (c *t) AsyncConsume(group, topic string) <-chan consumer.Response {
 // implements `consumer.T`
 func (c *t) Stop() {
 	c.dispatcher.Stop()
-	c.kazooClt.Close()
+	c.zkConn.Close()
 	c.kafkaClt.Close()
 }
 
@@ -84,7 +92,7 @@ func (c *t) KeyOf(rq consumer.Request) dispatcher.Key {
 
 // implements `dispatcher.Factory`.
 func (c *t) SpawnChild(childSpec dispatcher.ChildSpec) {
-	groupcsm.Spawn(c.actDesc, childSpec, c.cfg, c.kafkaClt, c.kazooClt, c.offsetMgrF)
+	groupcsm.Spawn(c.actDesc, childSpec, c.cfg, c.kafkaClt, c.zkConn, c.offsetMgrF)
 }
 
 // String returns a string ID of this instance to be used in logs.

@@ -19,7 +19,7 @@ import (
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/prettyfmt"
 	"github.com/pkg/errors"
-	"github.com/wvanbergen/kazoo-go"
+	"github.com/samuel/go-zookeeper/zk"
 )
 
 // groupConsumer manages a fleet of topic consumers and disposes of those that
@@ -33,7 +33,7 @@ type T struct {
 	group       string
 	dispatcher  *dispatcher.T
 	kafkaClt    sarama.Client
-	kazooClt    *kazoo.Kazoo
+	zkConn      *zk.Conn
 	msgFetcherF msgfetcher.Factory
 	offsetMgrF  offsetmgr.Factory
 	subscriber  *subscriber.T
@@ -45,8 +45,7 @@ type T struct {
 }
 
 func Spawn(parentActDesc *actor.Descriptor, childSpec dispatcher.ChildSpec,
-	cfg *config.Proxy, kafkaClt sarama.Client, kazooClt *kazoo.Kazoo,
-	offsetMgrF offsetmgr.Factory,
+	cfg *config.Proxy, kafkaClt sarama.Client, zkConn *zk.Conn, offsetMgrF offsetmgr.Factory,
 ) *T {
 	group := string(childSpec.Key())
 	actDesc := parentActDesc.NewChild(fmt.Sprintf("%s", group))
@@ -56,13 +55,13 @@ func Spawn(parentActDesc *actor.Descriptor, childSpec dispatcher.ChildSpec,
 		cfg:          cfg,
 		group:        group,
 		kafkaClt:     kafkaClt,
-		kazooClt:     kazooClt,
+		zkConn:       zkConn,
 		offsetMgrF:   offsetMgrF,
 		multiplexers: make(map[string]*multiplexer.T),
 		topicCsmCh:   make(chan *topiccsm.T, cfg.Consumer.ChannelBufferSize),
 	}
 
-	gc.subscriber = subscriber.Spawn(gc.actDesc, gc.group, gc.cfg, gc.kazooClt)
+	gc.subscriber = subscriber.Spawn(gc.actDesc, gc.group, gc.cfg, gc.zkConn)
 	gc.msgFetcherF = msgfetcher.SpawnFactory(gc.actDesc, gc.cfg, gc.kafkaClt)
 	actor.Spawn(gc.actDesc, &gc.wg, gc.run)
 

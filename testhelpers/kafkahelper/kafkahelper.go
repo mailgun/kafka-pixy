@@ -21,7 +21,7 @@ type T struct {
 	ns       *actor.Descriptor
 	c        *C
 	kafkaClt sarama.Client
-	zkClt    *zk.Conn
+	zkConn   *zk.Conn
 	producer sarama.AsyncProducer
 	consumer sarama.Consumer
 }
@@ -35,7 +35,7 @@ func New(c *C) *T {
 	cfg.Producer.Return.Successes = true
 	cfg.Producer.Return.Errors = true
 	err := error(nil)
-	if kh.zkClt, _, err = zk.Connect(testhelpers.ZookeeperPeers, 10*time.Second); err != nil {
+	if kh.zkConn, _, err = zk.Connect(testhelpers.ZookeeperPeers, 10*time.Second); err != nil {
 		panic(err)
 	}
 	if kh.kafkaClt, err = sarama.NewClient(testhelpers.KafkaPeers, cfg); err != nil {
@@ -50,8 +50,8 @@ func New(c *C) *T {
 	return kh
 }
 
-func (kh *T) ZooKeeperClt() *zk.Conn {
-	return kh.zkClt
+func (kh *T) ZKConn() *zk.Conn {
+	return kh.zkConn
 }
 
 func (kh *T) KafkaClt() sarama.Client {
@@ -62,7 +62,7 @@ func (kh *T) Close() {
 	kh.producer.Close()
 	kh.consumer.Close()
 	kh.kafkaClt.Close()
-	kh.zkClt.Close()
+	kh.zkConn.Close()
 }
 
 func (kh *T) GetNewestOffsets(topic string) []int64 {
