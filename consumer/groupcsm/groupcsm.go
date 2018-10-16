@@ -282,6 +282,10 @@ func (gc *T) resolvePartitions(subscriptions map[string][]string,
 	for topic := range subscribedTopics {
 		topicPartitions, err := topicPartitionsFn(topic)
 		if err != nil {
+			if errors.Cause(err) == sarama.ErrUnknownTopicOrPartition {
+				gc.actDesc.Log().Warnf("Topic %s missing", topic)
+				continue
+			}
 			return nil, errors.Wrapf(err, "failed to get partition list, topic=%s", topic)
 		}
 		subscribersToPartitions := assignTopicPartitions(topicPartitions, topicsToMembers[topic])

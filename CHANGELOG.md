@@ -5,8 +5,8 @@
 Implemented:
 * [#155](https://github.com/mailgun/kafka-pixy/pull/155) When the last group
   member leaves a consumer group, all group records are removed from ZooKeeper.
-  Group records were never deleted from ZooKeeper before that can cause issues
-  with disposable groups.
+  Group records were never deleted from ZooKeeper before, that could cause
+  issues with disposable groups.
 * [#151](https://github.com/mailgun/kafka-pixy/pull/151) Added formal support
   for Kafka versions up to v2.0.0.
 * [#144](https://github.com/mailgun/kafka-pixy/pull/144) Added support for
@@ -15,6 +15,10 @@ Implemented:
 * [#146](https://github.com/mailgun/kafka-pixy/pull/146) Added new configuration
   flags for the producer partitioner, broker-enforced produce timeout, and
   network-level timeouts.
+
+Fixed:
+* [#54](https://github.com/mailgun/kafka-pixy/issues/54) Rebalancing fails due 
+  to non existent topic.
 
 #### Version 0.15.0 (2018-03-30)
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"sync"
 	"time"
 
 	"github.com/Shopify/sarama"
@@ -650,6 +651,62 @@ func spawnGRPCSvc(c *C, index int, memberID string) (*T, pb.KafkaPixyClient) {
 	c.Assert(err, IsNil)
 	clt := pb.NewKafkaPixyClient(cltConn)
 	return svc, clt
+}
+
+// Attempts to consume from a missing topic do not disrupt consumption from an
+// existing one (Issue #54)[https://github.com/mailgun/kafka-pixy/issues/54].
+func (s *ServiceGRPCSuite) TestConsumeMissingTopic(c *C) {
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
+	s.waitSvcUp(c, 5*time.Second)
+
+	s.kh.ResetOffsets("foo", "test.1")
+	produced := s.kh.PutMessages("missing-topic", "test.1", map[string]int{"A": 10})
+	offsetsBefore := s.kh.GetCommittedOffsets("foo", "test.1")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// When: attempts to consume from a missing continue.
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, err = s.clt.ConsumeNAck(ctx, &pb.ConsNAckRq{
+			Topic:   "missing",
+			Group:   "foo",
+			AutoAck: true,
+		})
+		c.Assert(status.Code(err), Equals, codes.NotFound, Commentf("failed to consume message #%d"))
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+	}()
+
+	// Then: consumption from an existing topic is not disrupted.
+	consumed := make(map[string][]*pb.ConsRs)
+	for i := 0; i < len(produced["A"]); i++ {
+		rs, err := s.clt.ConsumeNAck(ctx, &pb.ConsNAckRq{
+			Topic:   "test.1",
+			Group:   "foo",
+			AutoAck: true,
+		})
+		c.Check(err, IsNil, Commentf("failed to consume message #%d", i))
+		if err == nil {
+			key := string(rs.KeyValue)
+			consumed[key] = append(consumed[key], rs)
+		}
+	}
+	svc.Stop()
+	offsetsAfter := s.kh.GetCommittedOffsets("foo", "test.1")
+	c.Check(offsetsAfter[0].Val, Equals, offsetsBefore[0].Val+int64(len(produced["A"])))
+	assertMsgs(c, consumed, produced)
+
+	// Cleanup
+	cancel()
+	wg.Wait()
 }
 
 func (s *ServiceGRPCSuite) waitSvcUp(c *C, timeout time.Duration) {
