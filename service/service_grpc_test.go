@@ -8,9 +8,10 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/config"
-	pb "github.com/mailgun/kafka-pixy/gen/golang"
+	"github.com/mailgun/kafka-pixy/gen/golang"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
+	"github.com/samuel/go-zookeeper/zk"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -569,6 +570,86 @@ func (s *ServiceGRPCSuite) TestConsumeDisabled(c *C) {
 	c.Check(grpcStatus.Message(), Equals, "service is disabled by configuration")
 	c.Check(grpcStatus.Code(), Equals, codes.Unavailable)
 	c.Check(res, IsNil)
+}
+
+// When the last group member leaves, the group znode in ZooKeeper is deleted.
+func (s *ServiceGRPCSuite) TestGroupZNodeDeleted(c *C) {
+	s.kh.PutMessages("missing-topic", "test.4", map[string]int{"A": 1, "B": 1, "C": 1, "D": 1})
+
+	svc1, clt1 := spawnGRPCSvc(c, 1, "m1")
+	svc2, clt2 := spawnGRPCSvc(c, 2, "m2")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	rq := &pb.ConsNAckRq{
+		Topic:   "test.4",
+		Group:   "g1",
+		AutoAck: true,
+	}
+	_, err := clt1.ConsumeNAck(ctx, rq)
+	c.Assert(err, IsNil)
+	_, err = clt2.ConsumeNAck(ctx, rq)
+	c.Assert(err, IsNil)
+
+	_, err = clt1.ConsumeNAck(ctx, rq)
+	c.Assert(err, IsNil)
+	_, err = clt2.ConsumeNAck(ctx, rq)
+	c.Assert(err, IsNil)
+
+	for _, path := range []string{
+		"/consumers",
+		"/consumers/g1",
+		"/consumers/g1/ids",
+		"/consumers/g1/ids/m1",
+		"/consumers/g1/ids/m2",
+		"/consumers/g1/owners",
+		"/consumers/g1/owners/test.4",
+	} {
+		_, _, err := s.kh.ZKConn().Get(path)
+		c.Assert(err, IsNil, Commentf(path))
+	}
+
+	svc1.Stop()
+	_, err = clt2.ConsumeNAck(ctx, rq)
+	c.Assert(err, IsNil)
+
+	_, _, err = s.kh.ZKConn().Get("/consumers/g1/ids/m1")
+	c.Assert(err, Equals, zk.ErrNoNode)
+	for _, path := range []string{
+		"/consumers",
+		"/consumers/g1",
+		"/consumers/g1/ids",
+		"/consumers/g1/ids/m2",
+		"/consumers/g1/owners",
+		"/consumers/g1/owners/test.4",
+	} {
+		_, _, err := s.kh.ZKConn().Get(path)
+		c.Assert(err, IsNil, Commentf(path))
+	}
+
+	// When
+	svc2.Stop()
+
+	// Then
+	_, _, err = s.kh.ZKConn().Get("/consumers/g1")
+	c.Assert(err, Equals, zk.ErrNoNode)
+}
+
+func spawnGRPCSvc(c *C, index int, memberID string) (*T, pb.KafkaPixyClient) {
+	cfg := &config.App{Proxies: make(map[string]*config.Proxy)}
+	cfg.GRPCAddr = fmt.Sprintf("127.0.0.1:1910%d", index)
+	proxyCfg := testhelpers.NewTestProxyCfg(memberID)
+	proxyCfg.Consumer.OffsetsCommitInterval = 50 * time.Millisecond
+	cfg.Proxies["default"] = proxyCfg
+	cfg.DefaultCluster = "default"
+	svc, err := Spawn(cfg)
+	c.Assert(err, IsNil)
+
+	cltConn, err := grpc.Dial(cfg.GRPCAddr, grpc.WithInsecure())
+	c.Assert(err, IsNil)
+	clt := pb.NewKafkaPixyClient(cltConn)
+	return svc, clt
 }
 
 func (s *ServiceGRPCSuite) waitSvcUp(c *C, timeout time.Duration) {

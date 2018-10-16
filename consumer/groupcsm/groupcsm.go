@@ -65,17 +65,9 @@ func Spawn(parentActDesc *actor.Descriptor, childSpec dispatcher.ChildSpec,
 	gc.msgFetcherF = msgfetcher.SpawnFactory(gc.actDesc, gc.cfg, gc.kafkaClt)
 	actor.Spawn(gc.actDesc, &gc.wg, gc.run)
 
-	// Finalizer is called when all downstream topic consumers expire or if
-	// the dispatcher is explicitly told to stop by the upstream dispatcher.
-	finalizer := func() {
-		gc.subscriber.Stop()
-		// The run goroutine stops when the subscriber's channel is closed.
-		gc.wg.Wait()
-		// Only after run is stopped it is safe to shutdown the fetcher factory.
-		gc.msgFetcherF.Stop()
-	}
 	gc.dispatcher = dispatcher.Spawn(gc.actDesc, gc, cfg,
-		dispatcher.WithChildSpec(childSpec), dispatcher.WithFinalizer(finalizer))
+		dispatcher.WithChildSpec(childSpec),
+		dispatcher.WithFinalizer(gc.finalizer))
 	return gc
 }
 
@@ -94,6 +86,18 @@ func (gc *T) SpawnChild(childSpec dispatcher.ChildSpec) {
 // String return string ID of this group consumer to be posted in logs.
 func (gc *T) String() string {
 	return gc.actDesc.String()
+}
+
+// finalizer is called when all downstream topic consumers expire or if
+// the dispatcher is explicitly told to stop by the upstream dispatcher.
+func (gc *T) finalizer() {
+	gc.subscriber.Stop()
+	// The run goroutine stops when the subscriber's channel is closed.
+	gc.wg.Wait()
+	// Only after run is stopped it is safe to shutdown the fetcher factory.
+	gc.msgFetcherF.Stop()
+	// If we are the last member of the group then remove it.
+	gc.subscriber.DeleteGroupIfEmpty()
 }
 
 func (gc *T) isSafe2Stop(topic string) bool {

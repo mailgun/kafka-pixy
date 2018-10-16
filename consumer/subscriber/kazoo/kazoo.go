@@ -159,6 +159,43 @@ func (m *Model) DeletePartitionOwner(topic string, partition int32) error {
 	return nil
 }
 
+// DeleteGroupIfEmpty deletes group data structures in ZooKeeper, if it is empty.
+func (m *Model) DeleteGroupIfEmpty() error {
+	// Check if the group still has members.
+	members, _, err := m.zkConn.Children(m.membersPath)
+	if err != nil {
+		if err == zk.ErrNoNode {
+			return nil
+		}
+		return errors.Wrapf(err, "while getting %v children", m.membersPath)
+	}
+	// If the group has members, then it should not be cleaned up.
+	if len(members) > 0 {
+		return nil
+	}
+	// Collect all group paths that need to be deleted. The orders has to be
+	// from bottom up, so when a path is deleted it has no children.
+	topics, _, err := m.zkConn.Children(m.ownersPath)
+	if err != nil && err != zk.ErrNoNode {
+		return errors.Wrapf(err, "while getting %v children", m.ownersPath)
+	}
+	// Sort topics to make tests deterministic.
+	sort.Strings(topics)
+	toDeletePaths := make([]string, 0, len(topics)+3)
+	for _, topic := range topics {
+		toDeletePaths = append(toDeletePaths, m.ownersPath+"/"+topic)
+	}
+	toDeletePaths = append(toDeletePaths, m.ownersPath, m.membersPath, m.groupPath)
+	// Delete all group data structure paths.
+	for _, path := range toDeletePaths {
+		err = m.zkConn.Delete(path, versionAny)
+		if err != nil && err != zk.ErrNoNode {
+			return errors.Wrapf(err, "while deleting %v", path)
+		}
+	}
+	return nil
+}
+
 func (m *Model) GetPartitionOwner(topic string, partition int32) (string, error) {
 	path := m.partitionOwnerZNodePath(topic, partition)
 	rawOwnerID, _, err := m.zkConn.Get(path)

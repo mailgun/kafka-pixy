@@ -3,6 +3,10 @@
 ### Version 0.16.0 (TBD)
 
 Implemented:
+* [#155](https://github.com/mailgun/kafka-pixy/pull/155) When the last group
+  member leaves a consumer group, all group records are removed from ZooKeeper.
+  Group records were never deleted from ZooKeeper before that can cause issues
+  with disposable groups.
 * [#151](https://github.com/mailgun/kafka-pixy/pull/151) Added formal support
   for Kafka versions up to v2.0.0.
 * [#144](https://github.com/mailgun/kafka-pixy/pull/144) Added support for

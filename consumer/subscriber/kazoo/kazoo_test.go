@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
+
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/pkg/errors"
@@ -17,13 +19,13 @@ func Test(t *testing.T) {
 	TestingT(t)
 }
 
-type KazooModelSuite struct {
+type ModelSuite struct {
 	kazoo Model
 }
 
-var _ = Suite(&KazooModelSuite{})
+var _ = Suite(&ModelSuite{})
 
-func (s *KazooModelSuite) SetUpSuite(c *C) {
+func (s *ModelSuite) SetUpSuite(c *C) {
 	testhelpers.InitLogging()
 	zkConn, _, err := zk.Connect(
 		testhelpers.ZookeeperPeers,
@@ -31,10 +33,10 @@ func (s *KazooModelSuite) SetUpSuite(c *C) {
 		zk.WithLogger(logrus.StandardLogger()))
 	c.Assert(err, IsNil)
 	log := logrus.StandardLogger().WithFields(nil)
-	s.kazoo = NewModel(zkConn, "", "group", "member0", log)
+	s.kazoo = NewModel(zkConn, "", "g0", "m0", log)
 }
 
-func (s *KazooModelSuite) TestCreateDeleteRace(c *C) {
+func (s *ModelSuite) TestCreateDeleteRace(c *C) {
 	s.kazoo.recursiveDeleteZNode("/eeny")
 
 	path := "/eeny/meeny/miny/moe/catch/a/tiger/by/the/toe/if/he/hollers/let/him/go/eeny/meeny/miny/moe"
@@ -122,7 +124,7 @@ func (s *KazooModelSuite) TestCreateDeleteRace(c *C) {
 }
 
 // Recursive delete fails if the node children are being changed concurrently.
-func (s *KazooModelSuite) TestDeepDeleteFail(c *C) {
+func (s *ModelSuite) TestDeepDeleteFail(c *C) {
 	s.kazoo.recursiveDeleteZNode("/eeny")
 
 	path := "/eeny/meeny/miny/moe/catch/a/tiger/by/the/toe"
@@ -173,7 +175,7 @@ func (s *KazooModelSuite) TestDeepDeleteFail(c *C) {
 }
 
 // Recursive delete fails if the node children are being changed concurrently.
-func (s *KazooModelSuite) TestUpsert(c *C) {
+func (s *ModelSuite) TestUpsert(c *C) {
 	s.kazoo.recursiveDeleteZNode("/eeny")
 
 	path := "/eeny/meeny/miny/moe/catch/a/tiger/by/the/toe"
@@ -193,7 +195,7 @@ func (s *KazooModelSuite) TestUpsert(c *C) {
 	c.Assert(string(got), Equals, "bar")
 }
 
-func (s *KazooModelSuite) TestUpsertDeleteRace(c *C) {
+func (s *ModelSuite) TestUpsertDeleteRace(c *C) {
 	s.kazoo.recursiveDeleteZNode("/eeny")
 
 	path := "/eeny/meeny/miny/moe/catch/a/tiger/by/the/toe/if/he/hollers/let/him/go/eeny/meeny/miny/moe"
@@ -277,7 +279,7 @@ func (s *KazooModelSuite) TestUpsertDeleteRace(c *C) {
 	wg.Wait()
 }
 
-func (s *KazooModelSuite) TestWatchChildren(c *C) {
+func (s *ModelSuite) TestWatchChildren(c *C) {
 	s.kazoo.recursiveDeleteZNode("/eeny")
 
 	path := "/eeny/meeny/miny/moe"
@@ -308,7 +310,7 @@ func (s *KazooModelSuite) TestWatchChildren(c *C) {
 	c.Assert(children, DeepEquals, []string{"bar", "foo"})
 }
 
-func (s *KazooModelSuite) TestChildrenWatchDelete(c *C) {
+func (s *ModelSuite) TestChildrenWatchDelete(c *C) {
 	s.kazoo.recursiveDeleteZNode("/eeny")
 
 	path := "/eeny/meeny/miny/moe"
@@ -325,5 +327,97 @@ func (s *KazooModelSuite) TestChildrenWatchDelete(c *C) {
 		c.Assert(e, Equals, zk.Event{Type: zk.EventNodeDeleted, State: 3, Path: path})
 	case <-time.After(3 * time.Second):
 		c.Error("Timeout waiting for watch event")
+	}
+}
+
+func (s *ModelSuite) TestDeleteGroupIfEmpty(c *C) {
+	paths := []string{
+		"/consumers",
+		"/consumers/g1",
+	}
+	for i, tc := range []struct {
+		inPaths    []string
+		outDeleted []string
+		outLeft    []string
+		outCause   error
+	}{{
+		inPaths:    nil,
+		outDeleted: nil,
+		outCause:   nil,
+	}, {
+		inPaths: []string{
+			"/consumers/g0",
+			"/consumers/g0/ids",
+			"/consumers/g0/owners",
+			"/consumers/g0/owners/foo",
+			"/consumers/g0/owners/bar"},
+		outDeleted: []string{
+			"/consumers/g0",
+			"/consumers/g0/ids",
+			"/consumers/g0/owners",
+			"/consumers/g0/owners/foo",
+			"/consumers/g0/owners/bar"},
+		outLeft:  nil,
+		outCause: nil,
+	}, {
+		inPaths: []string{
+			"/consumers/g0",
+			"/consumers/g0/ids",
+			"/consumers/g0/ids/another-member",
+			"/consumers/g0/owners",
+			"/consumers/g0/owners/foo",
+			"/consumers/g0/owners/bar"},
+		outDeleted: nil,
+		outLeft: []string{
+			"/consumers/g0",
+			"/consumers/g0/ids",
+			"/consumers/g0/ids/another-member",
+			"/consumers/g0/owners",
+			"/consumers/g0/owners/foo",
+			"/consumers/g0/owners/bar"},
+		outCause: nil,
+	}, {
+		inPaths: []string{
+			"/consumers/g0",
+			"/consumers/g0/ids",
+			"/consumers/g0/owners",
+			"/consumers/g0/owners/foo",
+			"/consumers/g0/owners/foo/1",
+			"/consumers/g0/owners/bar"},
+		outDeleted: []string{
+			"/consumers/g0/owners/bar"},
+		outLeft: []string{
+			"/consumers/g0",
+			"/consumers/g0/ids",
+			"/consumers/g0/owners",
+			"/consumers/g0/owners/foo",
+			"/consumers/g0/owners/foo/1"},
+		outCause: zk.ErrNotEmpty,
+	}} {
+		c.Logf("Test case #%d: %v", i, spew.Sdump(tc.inPaths))
+
+		err := s.kazoo.recursiveDeleteZNode("/consumers")
+		c.Assert(err, IsNil)
+		for _, path := range append(paths, tc.inPaths...) {
+			_, err := s.kazoo.zkConn.Create(path, nil, 0, zk.WorldACL(zk.PermAll))
+			c.Assert(err, IsNil)
+		}
+
+		// When
+		err = s.kazoo.DeleteGroupIfEmpty()
+
+		// Then
+		c.Assert(errors.Cause(err), Equals, tc.outCause)
+		for _, path := range append(paths, tc.outLeft...) {
+			_, _, err = s.kazoo.zkConn.Get(path)
+			c.Assert(err, IsNil, Commentf(path))
+		}
+		for _, path := range tc.outDeleted {
+			_, _, err = s.kazoo.zkConn.Get(path)
+			c.Assert(errors.Cause(err), Equals, zk.ErrNoNode, Commentf(path))
+		}
+		// Other groups are not affected
+		_, _, err = s.kazoo.zkConn.Get("/consumers/g1")
+		c.Assert(err, IsNil)
 	}
 }

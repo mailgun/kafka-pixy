@@ -103,23 +103,19 @@ func (s *T) Stop() {
 	s.wg.Wait()
 }
 
+// DeleteGroupIfEmpty deletes the consumer group data structures from ZooKeeper
+// if there are no more members registered.
+func (s *T) DeleteGroupIfEmpty() {
+	if err := s.kazooModel.DeleteGroupIfEmpty(); err != nil {
+		s.actDesc.Log().WithError(err).Errorf("Failed to delete empty group %s", s.group)
+		return
+	}
+	s.actDesc.Log().Infof("Empty group %s was deleted", s.group)
+}
+
 func (s *T) run() {
 	defer close(s.subscriptionsCh)
-
-	var err error
-	// Ensure that the member leaves the group in ZooKeeper on stop. We retry
-	// indefinitely here until ZooKeeper confirms that there is no registration.
-	defer func() {
-		for {
-			err := s.kazooModel.EnsureMemberSubscription(nil)
-			if err == nil {
-				return
-			}
-			s.actDesc.Log().WithError(err).Error("Failed to unregister")
-			<-time.After(s.cfg.Consumer.RetryBackoff)
-		}
-	}()
-
+	defer s.deleteMemberSubscription()
 	var (
 		nilOrSubscriptionsCh     chan<- map[string][]string
 		nilOrWatchCh             <-chan none.T
@@ -130,6 +126,7 @@ func (s *T) run() {
 		topics                   []string
 		subscriptions            map[string][]string
 		submittedAt              = time.Now()
+		err                      error
 	)
 	for {
 		select {
@@ -196,6 +193,18 @@ func (s *T) run() {
 			s.actDesc.Log().Errorf("Outdated subscription: want=%v, got=%v", topics, fetchedTopics)
 			shouldSubmitTopics = true
 		}
+	}
+}
+
+// deleteMemberSubscription reliably unsubscribes from all topics.
+func (s *T) deleteMemberSubscription() {
+	for {
+		err := s.kazooModel.EnsureMemberSubscription(nil)
+		if err == nil {
+			break
+		}
+		s.actDesc.Log().WithError(err).Error("Failed to unregister")
+		<-time.After(s.cfg.Consumer.RetryBackoff)
 	}
 }
 

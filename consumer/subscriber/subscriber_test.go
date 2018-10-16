@@ -97,7 +97,7 @@ func (s *SubscriberSuite) TestReSubscribe(c *C) {
 	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
 }
 
-// To unsubscribe from all topics an empty topic list can be sent.
+// To deleteMemberSubscription from all topics an empty topic list can be sent.
 func (s *SubscriberSuite) TestSubscribeToNothing(c *C) {
 	cfg1 := newConfig("m1")
 	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.zkConn)
@@ -120,7 +120,7 @@ func (s *SubscriberSuite) TestSubscribeToNothing(c *C) {
 	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
 }
 
-// To unsubscribe from all topics nil value can be sent.
+// To deleteMemberSubscription from all topics nil value can be sent.
 func (s *SubscriberSuite) TestSubscribeToNil(c *C) {
 	cfg1 := newConfig("m1")
 	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.zkConn)
@@ -489,7 +489,9 @@ func (s *SubscriberSuite) TestClaimClaimed(c *C) {
 	defer claim1()
 
 	// When: try to claim a partition that is claimed by another member.
+	wg.Add(1)
 	go func() {
+		wg.Done()
 		ss2.ClaimPartition(s.ns, "foo", 1, cancelCh)()
 	}()
 
@@ -501,6 +503,93 @@ func (s *SubscriberSuite) TestClaimClaimed(c *C) {
 	close(cancelCh)
 	// Wait for all test goroutines to stop.
 	wg.Wait()
+}
+
+func (s *SubscriberSuite) TestDeleteGroupIfEmpty(c *C) {
+	cfg1 := newConfig("m1")
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.zkConn)
+	cfg2 := newConfig("m2")
+	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.zkConn)
+
+	ss1.Topics() <- []string{"foo"}
+	ss2.Topics() <- []string{"foo"}
+
+	membership := map[string][]string{
+		"m1": {"foo"},
+		"m2": {"foo"}}
+	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
+
+	cancelCh := make(chan none.T)
+
+	claim1 := ss1.ClaimPartition(s.ns, "foo", 1, cancelCh)
+	claim2 := ss2.ClaimPartition(s.ns, "foo", 2, cancelCh)
+
+	ss1.DeleteGroupIfEmpty()
+	for _, path := range []string{
+		"/consumers",
+		"/consumers/g1",
+		"/consumers/g1/ids",
+		"/consumers/g1/ids/m1",
+		"/consumers/g1/ids/m2",
+		"/consumers/g1/owners",
+		"/consumers/g1/owners/foo",
+		"/consumers/g1/owners/foo/1",
+		"/consumers/g1/owners/foo/2",
+	} {
+		_, _, err := s.zkConn.Get(path)
+		c.Assert(err, IsNil, Commentf(path))
+	}
+
+	claim1()
+	ss1.DeleteGroupIfEmpty()
+	for _, path := range []string{
+		"/consumers",
+		"/consumers/g1",
+		"/consumers/g1/ids",
+		"/consumers/g1/ids/m1",
+		"/consumers/g1/ids/m2",
+		"/consumers/g1/owners",
+		"/consumers/g1/owners/foo",
+		"/consumers/g1/owners/foo/2",
+	} {
+		_, _, err := s.zkConn.Get(path)
+		c.Assert(err, IsNil, Commentf(path))
+	}
+
+	ss1.Stop()
+	ss1.DeleteGroupIfEmpty()
+	for _, path := range []string{
+		"/consumers",
+		"/consumers/g1",
+		"/consumers/g1/ids",
+		"/consumers/g1/ids/m2",
+		"/consumers/g1/owners",
+		"/consumers/g1/owners/foo",
+		"/consumers/g1/owners/foo/2",
+	} {
+		_, _, err := s.zkConn.Get(path)
+		c.Assert(err, IsNil, Commentf(path))
+	}
+
+	claim2()
+	ss1.DeleteGroupIfEmpty()
+	for _, path := range []string{
+		"/consumers",
+		"/consumers/g1",
+		"/consumers/g1/ids",
+		"/consumers/g1/ids/m2",
+		"/consumers/g1/owners",
+		"/consumers/g1/owners/foo",
+	} {
+		_, _, err := s.zkConn.Get(path)
+		c.Assert(err, IsNil, Commentf(path))
+	}
+
+	ss2.Stop()
+	ss1.DeleteGroupIfEmpty()
+	_, _, err := s.zkConn.Get("/consumers/g1")
+	c.Assert(err, Equals, zk.ErrNoNode)
 }
 
 func newConfig(clientId string) *config.Proxy {
