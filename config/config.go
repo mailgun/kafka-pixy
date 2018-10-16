@@ -61,7 +61,7 @@ type Proxy struct {
 		// resolve the ZooKeeper cluster topology.
 		SeedPeers []string `yaml:"seed_peers"`
 
-		// Path to the directory where Kafka keeps its data.
+		// A root directory in ZooKeeper to store consumers data.
 		Chroot string `yaml:"chroot"`
 
 		// ZooKeeper session timeout has to be a minimum of 2 times the
