@@ -63,6 +63,13 @@ type Proxy struct {
 
 		// Path to the directory where Kafka keeps its data.
 		Chroot string `yaml:"chroot"`
+
+		// ZooKeeper session timeout has to be a minimum of 2 times the
+		// tickTime (as set in the server configuration) and a maximum of 20
+		// times the tickTime. The default ZooKeeper tickTime is 2 seconds.
+		//
+		// See http://zookeeper.apache.org/doc/trunk/zookeeperProgrammers.html#ch_zkSessions
+		SessionTimeout time.Duration `yaml:"session_timeout"`
 	} `yaml:"zoo_keeper"`
 
 	// Networking timeouts. These all pass through to sarama's `config.Net`
@@ -449,6 +456,7 @@ func defaultProxyWithClientID(clientID string) *Proxy {
 	c := &Proxy{}
 	c.ClientID = clientID
 	c.ZooKeeper.SeedPeers = []string{"localhost:2181"}
+	c.ZooKeeper.SessionTimeout = 15 * time.Second
 
 	c.Kafka.SeedPeers = []string{"localhost:9092"}
 

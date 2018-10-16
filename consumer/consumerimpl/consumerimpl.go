@@ -1,8 +1,6 @@
 package consumerimpl
 
 import (
-	"time"
-
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
@@ -43,13 +41,7 @@ func Spawn(parentActDesc *actor.Descriptor, cfg *config.Proxy, offsetMgrF offset
 		return nil, errors.Wrap(err, "failed to create Kafka client for message streams")
 	}
 
-	// ZooKeeper documentation says following about the session timeout: "The
-	// current (ZooKeeper) implementation requires that the timeout be a
-	// minimum of 2 times the tickTime (as set in the server configuration) and
-	// a maximum of 20 times the tickTime". The default tickTime is 2 seconds.
-	// See http://zookeeper.apache.org/doc/trunk/zookeeperProgrammers.html#ch_zkSessions
-	sessionTimeout := 15 * time.Second
-	zkConn, _, err := zk.Connect(cfg.ZooKeeper.SeedPeers, sessionTimeout)
+	zkConn, _, err := zk.Connect(cfg.ZooKeeper.SeedPeers, cfg.ZooKeeper.SessionTimeout)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create kazoo.Kazoo")
 	}
