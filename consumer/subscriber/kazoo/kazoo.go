@@ -151,7 +151,8 @@ func (m *Model) DeletePartitionOwner(topic string, partition int32) error {
 	}
 	ownerID := string(rawOwnerID)
 	if ownerID != m.memberID {
-		return errors.Errorf("owned by %s", ownerID)
+		m.log.Warnf("Could not release partition owned by %s", ownerID)
+		return nil
 	}
 	if err := m.zkConn.Delete(path, stat.Version); err != nil {
 		return errors.Wrap(err, "while deleting owner znode")

@@ -455,6 +455,40 @@ func (s *SubscriberSuite) TestClaimPartitionCanceled(c *C) {
 	wg.Wait()
 }
 
+// Claim release should not fail if it is not this instance that owns the
+// partition. This situation can happen when a Kafka-Pixy looses connection
+// with ZooKeeper for longer then the ZooKeeper session timeout, so the rest
+// of Kafka-Pixy has a chance to rebalance.
+func (s *SubscriberSuite) TestReleasePartitionNotOwner(c *C) {
+	cfg := newConfig("m1")
+	ss := Spawn(s.ns.NewChild("m1"), "g1", cfg, s.zkConn)
+	defer ss.Stop()
+	cancelCh := make(chan none.T)
+
+	claim := ss.ClaimPartition(s.ns, "foo", 1, cancelCh)
+
+	// Hijack the claim to simulate connection loss.
+	_, err := s.zkConn.Set("/consumers/g1/owners/foo/1", []byte("m2"), -1)
+	c.Assert(err, IsNil)
+	owner, err := ss.kazooModel.GetPartitionOwner("foo", 1)
+	c.Assert(err, IsNil)
+	c.Assert(owner, Equals, "m2")
+
+	// When
+	doneCh := make(chan struct{})
+	go func() {
+		defer close(doneCh)
+		claim()
+	}()
+
+	// Then
+	select {
+	case <-doneCh:
+	case <-time.After(3 * time.Second):
+		c.Error("Timeout waiting for claim to be release")
+	}
+}
+
 // If claiming a partition fails then the subscription is updated to make all
 // group members re-read the entire group subscription state.
 func (s *SubscriberSuite) TestClaimClaimed(c *C) {
