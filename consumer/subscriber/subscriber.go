@@ -9,7 +9,7 @@ import (
 
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
-	"github.com/mailgun/kafka-pixy/consumer/subscriber/kazoo"
+	"github.com/mailgun/kafka-pixy/consumer/kazoo"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/kafka-pixy/prettyfmt"
 	"github.com/samuel/go-zookeeper/zk"
