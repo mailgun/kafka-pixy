@@ -14,6 +14,10 @@ import (
 	. "gopkg.in/check.v1"
 )
 
+const (
+	chroot = "/test"
+)
+
 func Test(t *testing.T) {
 	TestingT(t)
 }
@@ -32,11 +36,15 @@ func (s *ModelSuite) SetUpSuite(c *C) {
 		zk.WithLogger(logrus.StandardLogger()))
 	c.Assert(err, IsNil)
 	log := logrus.StandardLogger().WithFields(nil)
-	s.kazoo = NewModel(zkConn, "", "g0", "m0", log)
+	s.kazoo = NewModel(zkConn, chroot, "g0", "m0", log)
+}
+
+func (s *ModelSuite) TearDownSuite(c *C) {
+	s.kazoo.recursiveDeleteZNode(chroot)
 }
 
 func (s *ModelSuite) TestCreateDeleteRace(c *C) {
-	s.kazoo.recursiveDeleteZNode("/eeny")
+	s.kazoo.recursiveDeleteZNode(chroot + "/eeny")
 
 	path := "/eeny/meeny/miny/moe/catch/a/tiger/by/the/toe/if/he/hollers/let/him/go/eeny/meeny/miny/moe"
 	var wg sync.WaitGroup
@@ -45,7 +53,7 @@ func (s *ModelSuite) TestCreateDeleteRace(c *C) {
 	destructor := func(cancelCh <-chan none.T, wg *sync.WaitGroup) {
 		defer wg.Done()
 		for {
-			err := s.kazoo.recursiveDeleteZNode("/eeny")
+			err := s.kazoo.recursiveDeleteZNode(chroot + "/eeny")
 			cause := errors.Cause(err)
 			if err != nil && cause != zk.ErrNoNode && cause != zk.ErrNotEmpty {
 				c.Errorf("Unexpected destructor error %v", err)
@@ -60,7 +68,7 @@ func (s *ModelSuite) TestCreateDeleteRace(c *C) {
 	constructor := func(cancelCh <-chan none.T, wg *sync.WaitGroup) {
 		defer wg.Done()
 		for {
-			err := s.kazoo.durableCreateZNode(path, []byte("foo"), 0)
+			err := s.kazoo.durableCreateZNode(chroot+path, []byte("foo"), 0)
 			cause := errors.Cause(err)
 			if err != nil && cause != zk.ErrNodeExists {
 				c.Errorf("Unexpected constructor error %v", err)
@@ -74,8 +82,8 @@ func (s *ModelSuite) TestCreateDeleteRace(c *C) {
 	}
 
 	// Create a long path node.
-	s.kazoo.durableCreateZNode(path, []byte("foo"), 0)
-	_, _, err := s.kazoo.zkConn.Get(path)
+	s.kazoo.durableCreateZNode(chroot+path, []byte("foo"), 0)
+	_, _, err := s.kazoo.zkConn.Get(chroot + path)
 	c.Assert(err, IsNil)
 
 	// Start competing destructors
@@ -86,7 +94,7 @@ func (s *ModelSuite) TestCreateDeleteRace(c *C) {
 
 	// Wait for the root node to be deleted.
 	for {
-		_, _, err := s.kazoo.zkConn.Get("/eeny")
+		_, _, err := s.kazoo.zkConn.Get(chroot + "/eeny")
 		if err == zk.ErrNoNode {
 			break
 		}
@@ -103,14 +111,14 @@ func (s *ModelSuite) TestCreateDeleteRace(c *C) {
 	for i := 0; i < 3; i++ {
 		// Wait for the long path node to be created (constructors victory)
 		for {
-			_, _, err := s.kazoo.zkConn.Get(path)
+			_, _, err := s.kazoo.zkConn.Get(chroot + path)
 			if err == nil {
 				break
 			}
 		}
 		// Wait for the root to be deleted (destructors victory)
 		for {
-			_, _, err := s.kazoo.zkConn.Get("/eeny")
+			_, _, err := s.kazoo.zkConn.Get(chroot + "/eeny")
 			if err == zk.ErrNoNode {
 				break
 			}
@@ -175,27 +183,27 @@ func (s *ModelSuite) TestDeepDeleteFail(c *C) {
 
 // Recursive delete fails if the node children are being changed concurrently.
 func (s *ModelSuite) TestUpsert(c *C) {
-	s.kazoo.recursiveDeleteZNode("/eeny")
+	s.kazoo.recursiveDeleteZNode(chroot + "/eeny")
 
 	path := "/eeny/meeny/miny/moe/catch/a/tiger/by/the/toe"
 
-	err := s.kazoo.durableUpsertZNode(path, []byte("foo"), 0)
+	err := s.kazoo.durableUpsertZNode(chroot+path, []byte("foo"), 0)
 	c.Assert(err, IsNil)
 
-	got, _, err := s.kazoo.zkConn.Get(path)
+	got, _, err := s.kazoo.zkConn.Get(chroot + path)
 	c.Assert(err, IsNil)
 	c.Assert(string(got), Equals, "foo")
 
-	err = s.kazoo.durableUpsertZNode(path, []byte("bar"), 0)
+	err = s.kazoo.durableUpsertZNode(chroot+path, []byte("bar"), 0)
 	c.Assert(err, IsNil)
 
-	got, _, err = s.kazoo.zkConn.Get(path)
+	got, _, err = s.kazoo.zkConn.Get(chroot + path)
 	c.Assert(err, IsNil)
 	c.Assert(string(got), Equals, "bar")
 }
 
 func (s *ModelSuite) TestUpsertDeleteRace(c *C) {
-	s.kazoo.recursiveDeleteZNode("/eeny")
+	s.kazoo.recursiveDeleteZNode(chroot + "/eeny")
 
 	path := "/eeny/meeny/miny/moe/catch/a/tiger/by/the/toe/if/he/hollers/let/him/go/eeny/meeny/miny/moe"
 	var wg sync.WaitGroup
@@ -204,7 +212,7 @@ func (s *ModelSuite) TestUpsertDeleteRace(c *C) {
 	destructor := func(cancelCh <-chan none.T, wg *sync.WaitGroup) {
 		defer wg.Done()
 		for {
-			err := s.kazoo.recursiveDeleteZNode("/eeny")
+			err := s.kazoo.recursiveDeleteZNode(chroot + "/eeny")
 			cause := errors.Cause(err)
 			if err != nil && cause != zk.ErrNoNode && cause != zk.ErrNotEmpty && cause != zk.ErrBadVersion {
 				c.Errorf("Unexpected destructor error %v", err)
@@ -219,7 +227,7 @@ func (s *ModelSuite) TestUpsertDeleteRace(c *C) {
 	upserter := func(cancelCh <-chan none.T, wg *sync.WaitGroup) {
 		defer wg.Done()
 		for {
-			err := s.kazoo.durableUpsertZNode(path, []byte("foo"), 0)
+			err := s.kazoo.durableUpsertZNode(chroot+path, []byte("foo"), 0)
 			if err != nil {
 				c.Errorf("Unexpected upserter error %v", err)
 			}
@@ -232,8 +240,8 @@ func (s *ModelSuite) TestUpsertDeleteRace(c *C) {
 	}
 
 	// Create a long path node.
-	s.kazoo.durableCreateZNode(path, []byte("foo"), 0)
-	_, _, err := s.kazoo.zkConn.Get(path)
+	s.kazoo.durableCreateZNode(chroot+path, []byte("foo"), 0)
+	_, _, err := s.kazoo.zkConn.Get(chroot + path)
 	c.Assert(err, IsNil)
 
 	// Start competing destructors
@@ -244,7 +252,7 @@ func (s *ModelSuite) TestUpsertDeleteRace(c *C) {
 
 	// Wait for the root node to be deleted.
 	for {
-		_, _, err := s.kazoo.zkConn.Get("/eeny")
+		_, _, err := s.kazoo.zkConn.Get(chroot + "/eeny")
 		if err == zk.ErrNoNode {
 			break
 		}
@@ -259,14 +267,14 @@ func (s *ModelSuite) TestUpsertDeleteRace(c *C) {
 	for i := 0; i < 3; i++ {
 		// Wait for the long path node to be created (upserter victory)
 		for {
-			_, _, err := s.kazoo.zkConn.Get(path)
+			_, _, err := s.kazoo.zkConn.Get(chroot + path)
 			if err == nil {
 				break
 			}
 		}
 		// Wait for the root to be deleted (destructors victory)
 		for {
-			_, _, err := s.kazoo.zkConn.Get("/eeny")
+			_, _, err := s.kazoo.zkConn.Get(chroot + "/eeny")
 			if err == zk.ErrNoNode {
 				break
 			}
@@ -310,20 +318,20 @@ func (s *ModelSuite) TestWatchChildren(c *C) {
 }
 
 func (s *ModelSuite) TestChildrenWatchDelete(c *C) {
-	s.kazoo.recursiveDeleteZNode("/eeny")
+	s.kazoo.recursiveDeleteZNode(chroot + "/eeny")
 
 	path := "/eeny/meeny/miny/moe"
-	children, eventsCh, err := s.kazoo.watchZNodeChildren(path)
+	children, eventsCh, err := s.kazoo.watchZNodeChildren(chroot + path)
 	c.Assert(err, IsNil)
 	c.Assert(children, DeepEquals, []string{})
 
 	// When
-	err = s.kazoo.zkConn.Delete(path, versionAny)
+	err = s.kazoo.zkConn.Delete(chroot+path, versionAny)
 	c.Assert(err, IsNil)
 
 	select {
 	case e := <-eventsCh:
-		c.Assert(e, Equals, zk.Event{Type: zk.EventNodeDeleted, State: 3, Path: path})
+		c.Assert(e, Equals, zk.Event{Type: zk.EventNodeDeleted, State: 3, Path: chroot + path})
 	case <-time.After(3 * time.Second):
 		c.Error("Timeout waiting for watch event")
 	}
@@ -395,10 +403,10 @@ func (s *ModelSuite) TestDeleteGroupIfEmpty(c *C) {
 	}} {
 		c.Logf("Test case #%d: %v", i, spew.Sdump(tc.inPaths))
 
-		err := s.kazoo.recursiveDeleteZNode("/consumers")
+		err := s.kazoo.recursiveDeleteZNode(chroot + "/consumers")
 		c.Assert(err, IsNil)
 		for _, path := range append(paths, tc.inPaths...) {
-			_, err := s.kazoo.zkConn.Create(path, nil, 0, zk.WorldACL(zk.PermAll))
+			_, err := s.kazoo.zkConn.Create(chroot+path, nil, 0, zk.WorldACL(zk.PermAll))
 			c.Assert(err, IsNil)
 		}
 
@@ -408,15 +416,15 @@ func (s *ModelSuite) TestDeleteGroupIfEmpty(c *C) {
 		// Then
 		c.Assert(errors.Cause(err), Equals, tc.outCause)
 		for _, path := range append(paths, tc.outLeft...) {
-			_, _, err = s.kazoo.zkConn.Get(path)
+			_, _, err = s.kazoo.zkConn.Get(chroot + path)
 			c.Assert(err, IsNil, Commentf(path))
 		}
 		for _, path := range tc.outDeleted {
-			_, _, err = s.kazoo.zkConn.Get(path)
+			_, _, err = s.kazoo.zkConn.Get(chroot + path)
 			c.Assert(errors.Cause(err), Equals, zk.ErrNoNode, Commentf(path))
 		}
 		// Other groups are not affected
-		_, _, err = s.kazoo.zkConn.Get("/consumers/g1")
+		_, _, err = s.kazoo.zkConn.Get(chroot + "/consumers/g1")
 		c.Assert(err, IsNil)
 	}
 }

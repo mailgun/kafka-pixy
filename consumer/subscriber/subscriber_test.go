@@ -14,6 +14,10 @@ import (
 	. "gopkg.in/check.v1"
 )
 
+const (
+	chroot = "/test"
+)
+
 func Test(t *testing.T) {
 	TestingT(t)
 }
@@ -468,7 +472,7 @@ func (s *SubscriberSuite) TestReleasePartitionNotOwner(c *C) {
 	claim := ss.ClaimPartition(s.ns, "foo", 1, cancelCh)
 
 	// Hijack the claim to simulate connection loss.
-	_, err := s.zkConn.Set("/consumers/g1/owners/foo/1", []byte("m2"), -1)
+	_, err := s.zkConn.Set(chroot+"/consumers/g1/owners/foo/1", []byte("m2"), -1)
 	c.Assert(err, IsNil)
 	owner, err := ss.kazooModel.GetPartitionOwner("foo", 1)
 	c.Assert(err, IsNil)
@@ -571,7 +575,7 @@ func (s *SubscriberSuite) TestDeleteGroupIfEmpty(c *C) {
 		"/consumers/g1/owners/foo/1",
 		"/consumers/g1/owners/foo/2",
 	} {
-		_, _, err := s.zkConn.Get(path)
+		_, _, err := s.zkConn.Get(chroot + path)
 		c.Assert(err, IsNil, Commentf(path))
 	}
 
@@ -587,7 +591,7 @@ func (s *SubscriberSuite) TestDeleteGroupIfEmpty(c *C) {
 		"/consumers/g1/owners/foo",
 		"/consumers/g1/owners/foo/2",
 	} {
-		_, _, err := s.zkConn.Get(path)
+		_, _, err := s.zkConn.Get(chroot + path)
 		c.Assert(err, IsNil, Commentf(path))
 	}
 
@@ -602,7 +606,7 @@ func (s *SubscriberSuite) TestDeleteGroupIfEmpty(c *C) {
 		"/consumers/g1/owners/foo",
 		"/consumers/g1/owners/foo/2",
 	} {
-		_, _, err := s.zkConn.Get(path)
+		_, _, err := s.zkConn.Get(chroot + path)
 		c.Assert(err, IsNil, Commentf(path))
 	}
 
@@ -616,18 +620,19 @@ func (s *SubscriberSuite) TestDeleteGroupIfEmpty(c *C) {
 		"/consumers/g1/owners",
 		"/consumers/g1/owners/foo",
 	} {
-		_, _, err := s.zkConn.Get(path)
+		_, _, err := s.zkConn.Get(chroot + path)
 		c.Assert(err, IsNil, Commentf(path))
 	}
 
 	ss2.Stop()
 	ss1.DeleteGroupIfEmpty()
-	_, _, err := s.zkConn.Get("/consumers/g1")
+	_, _, err := s.zkConn.Get(chroot + "/consumers/g1")
 	c.Assert(err, Equals, zk.ErrNoNode)
 }
 
 func newConfig(clientId string) *config.Proxy {
 	cfg := config.DefaultProxy()
+	cfg.ZooKeeper.Chroot = chroot
 	cfg.ClientID = clientId
 	return cfg
 }
