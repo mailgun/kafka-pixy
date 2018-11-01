@@ -11,7 +11,6 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/pkg/errors"
-	"github.com/wvanbergen/kazoo-go"
 	"gopkg.in/yaml.v2"
 )
 
@@ -62,8 +61,15 @@ type Proxy struct {
 		// resolve the ZooKeeper cluster topology.
 		SeedPeers []string `yaml:"seed_peers"`
 
-		// Path to the directory where Kafka keeps its data.
+		// A root directory in ZooKeeper to store consumers data.
 		Chroot string `yaml:"chroot"`
+
+		// ZooKeeper session timeout has to be a minimum of 2 times the
+		// tickTime (as set in the server configuration) and a maximum of 20
+		// times the tickTime. The default ZooKeeper tickTime is 2 seconds.
+		//
+		// See http://zookeeper.apache.org/doc/trunk/zookeeperProgrammers.html#ch_zkSessions
+		SessionTimeout time.Duration `yaml:"session_timeout"`
 	} `yaml:"zoo_keeper"`
 
 	// Networking timeouts. These all pass through to sarama's `config.Net`
@@ -271,18 +277,6 @@ func (pc PartitionerConstructor) ToPartitionerConstructor() (sarama.PartitionerC
 	return v, nil
 }
 
-func (p *Proxy) KazooCfg() *kazoo.Config {
-	kazooCfg := kazoo.NewConfig()
-	kazooCfg.Chroot = p.ZooKeeper.Chroot
-	// ZooKeeper documentation says following about the session timeout: "The
-	// current (ZooKeeper) implementation requires that the timeout be a
-	// minimum of 2 times the tickTime (as set in the server configuration) and
-	// a maximum of 20 times the tickTime". The default tickTime is 2 seconds.
-	// See http://zookeeper.apache.org/doc/trunk/zookeeperProgrammers.html#ch_zkSessions
-	kazooCfg.Timeout = 15 * time.Second
-	return kazooCfg
-}
-
 // SaramaProducerCfg returns a config for sarama producer.
 func (p *Proxy) SaramaProducerCfg() *sarama.Config {
 	saramaCfg := sarama.NewConfig()
@@ -462,6 +456,7 @@ func defaultProxyWithClientID(clientID string) *Proxy {
 	c := &Proxy{}
 	c.ClientID = clientID
 	c.ZooKeeper.SeedPeers = []string{"localhost:2181"}
+	c.ZooKeeper.SessionTimeout = 15 * time.Second
 
 	c.Kafka.SeedPeers = []string{"localhost:9092"}
 

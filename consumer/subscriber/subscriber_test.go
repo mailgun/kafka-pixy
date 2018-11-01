@@ -10,8 +10,12 @@ import (
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/kafka-pixy/testhelpers"
-	"github.com/wvanbergen/kazoo-go"
+	"github.com/samuel/go-zookeeper/zk"
 	. "gopkg.in/check.v1"
+)
+
+const (
+	chroot = "/test"
 )
 
 func Test(t *testing.T) {
@@ -19,8 +23,8 @@ func Test(t *testing.T) {
 }
 
 type SubscriberSuite struct {
-	ns       *actor.Descriptor
-	kazooClt *kazoo.Kazoo
+	ns     *actor.Descriptor
+	zkConn *zk.Conn
 }
 
 var _ = Suite(&SubscriberSuite{})
@@ -28,7 +32,8 @@ var _ = Suite(&SubscriberSuite{})
 func (s *SubscriberSuite) SetUpSuite(c *C) {
 	testhelpers.InitLogging()
 	var err error
-	s.kazooClt, err = kazoo.NewKazoo(testhelpers.ZookeeperPeers, kazoo.NewConfig())
+	sessionTimeout := 300 * time.Second
+	s.zkConn, _, err = zk.Connect(testhelpers.ZookeeperPeers, sessionTimeout)
 	c.Assert(err, IsNil)
 }
 
@@ -40,7 +45,7 @@ func (s *SubscriberSuite) SetUpTest(c *C) {
 // is received with the same list of topics for the registrator name.
 func (s *SubscriberSuite) TestSimpleSubscribe(c *C) {
 	cfg := newConfig("m1")
-	ss := Spawn(s.ns.NewChild("m1"), "g1", cfg, s.kazooClt)
+	ss := Spawn(s.ns.NewChild("m1"), "g1", cfg, s.zkConn)
 	defer ss.Stop()
 
 	// When
@@ -56,7 +61,7 @@ func (s *SubscriberSuite) TestSimpleSubscribe(c *C) {
 // list for the registrator name.
 func (s *SubscriberSuite) TestSubscribeSequence(c *C) {
 	cfg := newConfig("m1")
-	ss := Spawn(s.ns.NewChild("m1"), "g1", cfg, s.kazooClt)
+	ss := Spawn(s.ns.NewChild("m1"), "g1", cfg, s.zkConn)
 	defer ss.Stop()
 	ss.Topics() <- []string{"foo", "bar"}
 
@@ -72,12 +77,12 @@ func (s *SubscriberSuite) TestSubscribeSequence(c *C) {
 // member subscriptions are returned.
 func (s *SubscriberSuite) TestReSubscribe(c *C) {
 	cfg1 := newConfig("m1")
-	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.zkConn)
 	defer ss1.Stop()
 	ss1.Topics() <- []string{"foo", "bar"}
 
 	cfg2 := newConfig("m2")
-	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.kazooClt)
+	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.zkConn)
 	defer ss2.Stop()
 	ss2.Topics() <- []string{"bazz", "bar"}
 
@@ -96,13 +101,13 @@ func (s *SubscriberSuite) TestReSubscribe(c *C) {
 	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
 }
 
-// To unsubscribe from all topics an empty topic list can be sent.
+// To deleteMemberSubscription from all topics an empty topic list can be sent.
 func (s *SubscriberSuite) TestSubscribeToNothing(c *C) {
 	cfg1 := newConfig("m1")
-	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.zkConn)
 	defer ss1.Stop()
 	cfg2 := newConfig("m2")
-	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.kazooClt)
+	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.zkConn)
 	defer ss2.Stop()
 	ss1.Topics() <- []string{"foo", "bar"}
 	ss2.Topics() <- []string{"foo"}
@@ -119,13 +124,13 @@ func (s *SubscriberSuite) TestSubscribeToNothing(c *C) {
 	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
 }
 
-// To unsubscribe from all topics nil value can be sent.
+// To deleteMemberSubscription from all topics nil value can be sent.
 func (s *SubscriberSuite) TestSubscribeToNil(c *C) {
 	cfg1 := newConfig("m1")
-	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.zkConn)
 	defer ss1.Stop()
 	cfg2 := newConfig("m2")
-	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.kazooClt)
+	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.zkConn)
 	defer ss2.Stop()
 	ss1.Topics() <- []string{"foo", "bar"}
 	ss2.Topics() <- []string{"foo"}
@@ -146,7 +151,7 @@ func (s *SubscriberSuite) TestSubscribeToNil(c *C) {
 // unsubscribing from everything.
 func (s *SubscriberSuite) TestSomethingAfterNothingBug(c *C) {
 	cfg1 := newConfig("m1")
-	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.zkConn)
 	defer ss1.Stop()
 
 	ss1.Topics() <- []string{"foo"}
@@ -167,13 +172,13 @@ func (s *SubscriberSuite) TestSomethingAfterNothingBug(c *C) {
 // their subscription.
 func (s *SubscriberSuite) TestMembershipChanges(c *C) {
 	cfg1 := newConfig("m1")
-	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.zkConn)
 	defer ss1.Stop()
 	cfg2 := newConfig("m2")
-	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.kazooClt)
+	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.zkConn)
 	defer ss2.Stop()
 	cfg3 := newConfig("m3")
-	ss3 := Spawn(s.ns.NewChild("m3"), "g1", cfg3, s.kazooClt)
+	ss3 := Spawn(s.ns.NewChild("m3"), "g1", cfg3, s.zkConn)
 	defer ss3.Stop()
 
 	// When
@@ -199,10 +204,10 @@ func (s *SubscriberSuite) TestMembershipChanges(c *C) {
 // topic consumers could have been changed and in need of rewiring.
 func (s *SubscriberSuite) TestRedundantUpdateBug(c *C) {
 	cfg1 := newConfig("m1")
-	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.zkConn)
 	defer ss1.Stop()
 	cfg2 := newConfig("m2")
-	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.kazooClt)
+	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.zkConn)
 	defer ss2.Stop()
 
 	ss1.Topics() <- []string{"foo", "bar"}
@@ -225,10 +230,10 @@ func (s *SubscriberSuite) TestRedundantUpdateBug(c *C) {
 // during a long failover, then it is restored.
 func (s *SubscriberSuite) TestMissingSubscriptionBug(c *C) {
 	cfg1 := newConfig("m1")
-	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.zkConn)
 	defer ss1.Stop()
 	cfg2 := newConfig("m2")
-	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.kazooClt)
+	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.zkConn)
 	defer ss2.Stop()
 
 	ss1.Topics() <- []string{"foo", "bar"}
@@ -242,8 +247,7 @@ func (s *SubscriberSuite) TestMissingSubscriptionBug(c *C) {
 
 	// When: brute-force remove g1/m1 subscription to simulate session
 	// expiration due to ZooKeeper connection loss.
-	gm := s.kazooClt.Consumergroup("g1").Instance("m1")
-	gm.Deregister()
+	ss1.kazooModel.EnsureMemberSubscription(nil)
 
 	// Then
 	// Both nodes see the group state without m1:
@@ -263,10 +267,10 @@ func (s *SubscriberSuite) TestMissingSubscriptionBug(c *C) {
 // subscribed topics, then correct registration is restored.
 func (s *SubscriberSuite) TestMissingOutdatedSubscription(c *C) {
 	cfg1 := newConfig("m1")
-	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.zkConn)
 	defer ss1.Stop()
 	cfg2 := newConfig("m2")
-	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.kazooClt)
+	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.zkConn)
 	defer ss2.Stop()
 
 	ss1.Topics() <- []string{"foo", "bar"}
@@ -280,8 +284,7 @@ func (s *SubscriberSuite) TestMissingOutdatedSubscription(c *C) {
 
 	// When: Modify the m1 subscriptions to simulate stale data session
 	// expiration due to ZooKeeper connection loss.
-	gm := s.kazooClt.Consumergroup("g1").Instance("m1")
-	gm.UpdateRegistration([]string{"foo", "bazz"})
+	ss1.kazooModel.EnsureMemberSubscription([]string{"foo", "bazz"})
 
 	// Then
 	// Both nodes see the group state with the incorrect m1 subscription first:
@@ -301,11 +304,11 @@ func (s *SubscriberSuite) TestMissingOutdatedSubscription(c *C) {
 // When a group registrator claims a topic partitions it becomes its owner.
 func (s *SubscriberSuite) TestClaimPartition(c *C) {
 	cfg := newConfig("m1")
-	ss := Spawn(s.ns.NewChild("m1"), "g1", cfg, s.kazooClt)
+	ss := Spawn(s.ns.NewChild("m1"), "g1", cfg, s.zkConn)
 	defer ss.Stop()
 	cancelCh := make(chan none.T)
 
-	owner, err := partitionOwner(ss, "foo", 1)
+	owner, err := ss.kazooModel.GetPartitionOwner("foo", 1)
 	c.Assert(err, IsNil)
 	c.Assert(owner, Equals, "")
 
@@ -314,7 +317,7 @@ func (s *SubscriberSuite) TestClaimPartition(c *C) {
 	defer claim1()
 
 	// Then
-	owner, err = partitionOwner(ss, "foo", 1)
+	owner, err = ss.kazooModel.GetPartitionOwner("foo", 1)
 	c.Assert(err, IsNil)
 	c.Assert(owner, Equals, "m1")
 }
@@ -323,10 +326,10 @@ func (s *SubscriberSuite) TestClaimPartition(c *C) {
 // already been acquired by another member then it fails.
 func (s *SubscriberSuite) TestClaimPartitionClaimed(c *C) {
 	cfg1 := newConfig("m1")
-	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.zkConn)
 	defer ss1.Stop()
 	cfg2 := newConfig("m2")
-	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.kazooClt)
+	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.zkConn)
 	defer ss2.Stop()
 	cancelCh := make(chan none.T)
 	claim1 := ss1.ClaimPartition(s.ns, "foo", 1, cancelCh)
@@ -341,7 +344,7 @@ func (s *SubscriberSuite) TestClaimPartitionClaimed(c *C) {
 	defer claim2()
 
 	// Then
-	owner, err := partitionOwner(ss1, "foo", 1)
+	owner, err := ss1.kazooModel.GetPartitionOwner("foo", 1)
 	c.Assert(err, IsNil)
 	c.Assert(owner, Equals, "m1")
 }
@@ -349,7 +352,7 @@ func (s *SubscriberSuite) TestClaimPartitionClaimed(c *C) {
 // It is ok to claim the same partition twice by the same group member.
 func (s *SubscriberSuite) TestClaimPartitionTwice(c *C) {
 	cfg := newConfig("m1")
-	ss := Spawn(s.ns.NewChild("m1"), "g1", cfg, s.kazooClt)
+	ss := Spawn(s.ns.NewChild("m1"), "g1", cfg, s.zkConn)
 	defer ss.Stop()
 	cancelCh := make(chan none.T)
 
@@ -360,7 +363,7 @@ func (s *SubscriberSuite) TestClaimPartitionTwice(c *C) {
 	defer claim2()
 
 	// Then
-	owner, err := partitionOwner(ss, "foo", 1)
+	owner, err := ss.kazooModel.GetPartitionOwner("foo", 1)
 	c.Assert(err, IsNil)
 	c.Assert(owner, Equals, "m1")
 }
@@ -369,7 +372,7 @@ func (s *SubscriberSuite) TestClaimPartitionTwice(c *C) {
 // any of the claims is revoked.
 func (s *SubscriberSuite) TestReleasePartition(c *C) {
 	cfg := newConfig("m1")
-	ss := Spawn(s.ns.NewChild("m1"), "g1", cfg, s.kazooClt)
+	ss := Spawn(s.ns.NewChild("m1"), "g1", cfg, s.zkConn)
 	defer ss.Stop()
 	cancelCh := make(chan none.T)
 	claim1 := ss.ClaimPartition(s.ns, "foo", 1, cancelCh)
@@ -379,7 +382,7 @@ func (s *SubscriberSuite) TestReleasePartition(c *C) {
 	claim2() // the second claim is revoked here but it could have been any.
 
 	// Then
-	owner, err := partitionOwner(ss, "foo", 1)
+	owner, err := ss.kazooModel.GetPartitionOwner("foo", 1)
 	c.Assert(err, IsNil)
 	c.Assert(owner, Equals, "")
 
@@ -390,10 +393,10 @@ func (s *SubscriberSuite) TestReleasePartition(c *C) {
 // blocks until it is released.
 func (s *SubscriberSuite) TestClaimPartitionParallel(c *C) {
 	cfg1 := newConfig("m1")
-	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.zkConn)
 	defer ss1.Stop()
 	cfg2 := newConfig("m2")
-	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.kazooClt)
+	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.zkConn)
 	defer ss2.Stop()
 	cancelCh := make(chan none.T)
 
@@ -401,6 +404,7 @@ func (s *SubscriberSuite) TestClaimPartitionParallel(c *C) {
 	go func() {
 		time.Sleep(300 * time.Millisecond)
 		claim1()
+		print("*** m1 released\n")
 	}()
 
 	// When: block here until m1 releases the claim over foo/1.
@@ -408,7 +412,7 @@ func (s *SubscriberSuite) TestClaimPartitionParallel(c *C) {
 	defer claim2()
 
 	// Then: the partition is claimed by m2.
-	owner, err := partitionOwner(ss2, "foo", 1)
+	owner, err := ss2.kazooModel.GetPartitionOwner("foo", 1)
 	c.Assert(err, IsNil)
 	c.Assert(owner, Equals, "m2")
 }
@@ -417,10 +421,10 @@ func (s *SubscriberSuite) TestClaimPartitionParallel(c *C) {
 // blocks until it is released.
 func (s *SubscriberSuite) TestClaimPartitionCanceled(c *C) {
 	cfg1 := newConfig("m1")
-	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.zkConn)
 	defer ss1.Stop()
 	cfg2 := newConfig("m2")
-	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.kazooClt)
+	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.zkConn)
 	defer ss2.Stop()
 	cancelCh1 := make(chan none.T)
 	cancelCh2 := make(chan none.T)
@@ -447,7 +451,7 @@ func (s *SubscriberSuite) TestClaimPartitionCanceled(c *C) {
 	defer claim2()
 
 	// Then: the partition is still claimed by m1.
-	owner, err := partitionOwner(ss2, "foo", 1)
+	owner, err := ss2.kazooModel.GetPartitionOwner("foo", 1)
 	c.Assert(err, IsNil)
 	c.Assert(owner, Equals, "m1")
 
@@ -455,20 +459,54 @@ func (s *SubscriberSuite) TestClaimPartitionCanceled(c *C) {
 	wg.Wait()
 }
 
+// Claim release should not fail if it is not this instance that owns the
+// partition. This situation can happen when a Kafka-Pixy looses connection
+// with ZooKeeper for longer then the ZooKeeper session timeout, so the rest
+// of Kafka-Pixy has a chance to rebalance.
+func (s *SubscriberSuite) TestReleasePartitionNotOwner(c *C) {
+	cfg := newConfig("m1")
+	ss := Spawn(s.ns.NewChild("m1"), "g1", cfg, s.zkConn)
+	defer ss.Stop()
+	cancelCh := make(chan none.T)
+
+	claim := ss.ClaimPartition(s.ns, "foo", 1, cancelCh)
+
+	// Hijack the claim to simulate connection loss.
+	_, err := s.zkConn.Set(chroot+"/consumers/g1/owners/foo/1", []byte("m2"), -1)
+	c.Assert(err, IsNil)
+	owner, err := ss.kazooModel.GetPartitionOwner("foo", 1)
+	c.Assert(err, IsNil)
+	c.Assert(owner, Equals, "m2")
+
+	// When
+	doneCh := make(chan struct{})
+	go func() {
+		defer close(doneCh)
+		claim()
+	}()
+
+	// Then
+	select {
+	case <-doneCh:
+	case <-time.After(3 * time.Second):
+		c.Error("Timeout waiting for claim to be release")
+	}
+}
+
 // If claiming a partition fails then the subscription is updated to make all
 // group members re-read the entire group subscription state.
 func (s *SubscriberSuite) TestClaimClaimed(c *C) {
 	cfg1 := newConfig("m1")
 	cfg1.Consumer.RetryBackoff = 150 * time.Millisecond
-	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.kazooClt)
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.zkConn)
 	defer ss1.Stop()
 	cfg2 := newConfig("m2")
 	cfg2.Consumer.RetryBackoff = 150 * time.Millisecond
-	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.kazooClt)
+	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.zkConn)
 	defer ss2.Stop()
 	cfg3 := newConfig("m3")
 	cfg3.Consumer.RetryBackoff = 150 * time.Millisecond
-	ss3 := Spawn(s.ns.NewChild("m3"), "g1", cfg3, s.kazooClt)
+	ss3 := Spawn(s.ns.NewChild("m3"), "g1", cfg3, s.zkConn)
 	defer ss3.Stop()
 	cancelCh := make(chan none.T)
 	wg := &sync.WaitGroup{}
@@ -489,7 +527,9 @@ func (s *SubscriberSuite) TestClaimClaimed(c *C) {
 	defer claim1()
 
 	// When: try to claim a partition that is claimed by another member.
+	wg.Add(1)
 	go func() {
+		wg.Done()
 		ss2.ClaimPartition(s.ns, "foo", 1, cancelCh)()
 	}()
 
@@ -503,21 +543,96 @@ func (s *SubscriberSuite) TestClaimClaimed(c *C) {
 	wg.Wait()
 }
 
-// partitionOwner returns the id of the consumer group member that has claimed
-// the specified topic/partition.
-func partitionOwner(gm *T, topic string, partition int32) (string, error) {
-	owner, err := gm.groupZNode.PartitionOwner(topic, partition)
-	if err != nil {
-		return "", err
+func (s *SubscriberSuite) TestDeleteGroupIfEmpty(c *C) {
+	cfg1 := newConfig("m1")
+	ss1 := Spawn(s.ns.NewChild("m1"), "g1", cfg1, s.zkConn)
+	cfg2 := newConfig("m2")
+	ss2 := Spawn(s.ns.NewChild("m2"), "g1", cfg2, s.zkConn)
+
+	ss1.Topics() <- []string{"foo"}
+	ss2.Topics() <- []string{"foo"}
+
+	membership := map[string][]string{
+		"m1": {"foo"},
+		"m2": {"foo"}}
+	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
+
+	cancelCh := make(chan none.T)
+
+	claim1 := ss1.ClaimPartition(s.ns, "foo", 1, cancelCh)
+	claim2 := ss2.ClaimPartition(s.ns, "foo", 2, cancelCh)
+
+	ss1.DeleteGroupIfEmpty()
+	for _, path := range []string{
+		"/consumers",
+		"/consumers/g1",
+		"/consumers/g1/ids",
+		"/consumers/g1/ids/m1",
+		"/consumers/g1/ids/m2",
+		"/consumers/g1/owners",
+		"/consumers/g1/owners/foo",
+		"/consumers/g1/owners/foo/1",
+		"/consumers/g1/owners/foo/2",
+	} {
+		_, _, err := s.zkConn.Get(chroot + path)
+		c.Assert(err, IsNil, Commentf(path))
 	}
-	if owner == nil {
-		return "", nil
+
+	claim1()
+	ss1.DeleteGroupIfEmpty()
+	for _, path := range []string{
+		"/consumers",
+		"/consumers/g1",
+		"/consumers/g1/ids",
+		"/consumers/g1/ids/m1",
+		"/consumers/g1/ids/m2",
+		"/consumers/g1/owners",
+		"/consumers/g1/owners/foo",
+		"/consumers/g1/owners/foo/2",
+	} {
+		_, _, err := s.zkConn.Get(chroot + path)
+		c.Assert(err, IsNil, Commentf(path))
 	}
-	return owner.ID, nil
+
+	ss1.Stop()
+	ss1.DeleteGroupIfEmpty()
+	for _, path := range []string{
+		"/consumers",
+		"/consumers/g1",
+		"/consumers/g1/ids",
+		"/consumers/g1/ids/m2",
+		"/consumers/g1/owners",
+		"/consumers/g1/owners/foo",
+		"/consumers/g1/owners/foo/2",
+	} {
+		_, _, err := s.zkConn.Get(chroot + path)
+		c.Assert(err, IsNil, Commentf(path))
+	}
+
+	claim2()
+	ss1.DeleteGroupIfEmpty()
+	for _, path := range []string{
+		"/consumers",
+		"/consumers/g1",
+		"/consumers/g1/ids",
+		"/consumers/g1/ids/m2",
+		"/consumers/g1/owners",
+		"/consumers/g1/owners/foo",
+	} {
+		_, _, err := s.zkConn.Get(chroot + path)
+		c.Assert(err, IsNil, Commentf(path))
+	}
+
+	ss2.Stop()
+	ss1.DeleteGroupIfEmpty()
+	_, _, err := s.zkConn.Get(chroot + "/consumers/g1")
+	c.Assert(err, Equals, zk.ErrNoNode)
 }
 
 func newConfig(clientId string) *config.Proxy {
 	cfg := config.DefaultProxy()
+	cfg.ZooKeeper.Chroot = chroot
 	cfg.ClientID = clientId
 	return cfg
 }
@@ -533,13 +648,5 @@ func assertSubscription(c *C, ch <-chan map[string][]string, want map[string][]s
 			c.Errorf("Timeout waiting for %v", want)
 			return
 		}
-	}
-}
-
-func assertNoneReceived(c *C, ch <-chan map[string][]string, timeout time.Duration) {
-	select {
-	case got := <-ch:
-		c.Errorf("Unexpected update %v", got)
-	case <-time.After(timeout):
 	}
 }

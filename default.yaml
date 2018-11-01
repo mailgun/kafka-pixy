@@ -55,8 +55,15 @@ proxies:
       seed_peers:
         - localhost:2181
 
-      # Path to the directory where Kafka keeps its data.
-      # chroot: "/"
+      # A root directory in ZooKeeper to store consumers data.
+      # chroot: ""
+
+      # ZooKeeper session timeout has to be a minimum of 2 times the tickTime
+      # (as set in the server configuration) and a maximum of 20 times the
+      # tickTime. The default ZooKeeper tickTime is 2 seconds.
+      #
+      # See http://zookeeper.apache.org/doc/trunk/zookeeperProgrammers.html#ch_zkSessions
+      session_timeout: 15s
 
     # Producer parameters section.
     producer:

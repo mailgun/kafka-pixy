@@ -20,7 +20,7 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
-	pb "github.com/mailgun/kafka-pixy/gen/golang"
+	"github.com/mailgun/kafka-pixy/gen/golang"
 	"github.com/mailgun/kafka-pixy/server/httpsrv"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
@@ -786,9 +786,26 @@ func (s *ServiceHTTPSuite) TestGetOffsetsLag(c *C) {
 	c.Check(partition2View["lag"], Equals, partition2View["end"].(float64)-partition2View["offset"].(float64))
 }
 
-// If a topic is not consumed by any member of a group at the moment then
-// empty consumer map is returned.
-func (s *ServiceHTTPSuite) TestGetTopicConsumersNone(c *C) {
+func (s *ServiceHTTPSuite) TestGetConsumersTopicNotConsumed(c *C) {
+	svc, err := Spawn(s.cfg)
+	c.Assert(err, IsNil)
+	defer svc.Stop()
+
+	// Issue a consume request to initialize the consumer group.
+	_, err = s.unixClient.Get("http://_/topics/test.1/messages?group=foo")
+	c.Assert(err, IsNil)
+
+	// When
+	r, err := s.unixClient.Get("http://_/topics/test.4/consumers?group=foo")
+
+	// Then
+	c.Check(err, IsNil)
+	c.Check(r.StatusCode, Equals, http.StatusBadRequest)
+	body := ParseJSONBody(c, r).(map[string]interface{})
+	c.Check(body["error"], Equals, "topic test.4 is not consumed by foo")
+}
+
+func (s *ServiceHTTPSuite) TestGetConsumersUnknownGroup(c *C) {
 	svc, err := Spawn(s.cfg)
 	c.Assert(err, IsNil)
 	defer svc.Stop()
@@ -798,24 +815,9 @@ func (s *ServiceHTTPSuite) TestGetTopicConsumersNone(c *C) {
 
 	// Then
 	c.Check(err, IsNil)
-	c.Check(r.StatusCode, Equals, http.StatusOK)
-	consumers := ParseJSONBody(c, r).(map[string]interface{})
-	c.Check(len(consumers), Equals, 0)
-}
-
-func (s *ServiceHTTPSuite) TestGetTopicConsumersInvalid(c *C) {
-	svc, err := Spawn(s.cfg)
-	c.Assert(err, IsNil)
-	defer svc.Stop()
-
-	// When
-	r, err := s.unixClient.Get("http://_/topics/test.5/consumers?group=foo")
-
-	// Then
-	c.Check(err, IsNil)
 	c.Check(r.StatusCode, Equals, http.StatusBadRequest)
 	body := ParseJSONBody(c, r).(map[string]interface{})
-	c.Check(body["error"], Equals, "either group or topic is incorrect")
+	c.Check(body["error"], Equals, "unknown consumer group foo")
 }
 
 func (s *ServiceHTTPSuite) TestGetTopicConsumersOne(c *C) {
@@ -856,7 +858,7 @@ func (s *ServiceHTTPSuite) TestGetAllTopicConsumers(c *C) {
 	for i := range svc {
 		i := i
 		actor.Spawn(s.ns.NewChild("spawn_svc"), &wg, func() {
-			svc[i] = spawnTestService(c, 55501+i)
+			svc[i] = spawnHTTPSvc(c, 55501+i)
 		})
 	}
 	wg.Wait()
@@ -912,9 +914,9 @@ func (s *ServiceHTTPSuite) TestGetTopicConsumers(c *C) {
 	s.kh.ResetOffsets("bar", "test.4")
 	s.kh.PutMessages("get.consumers", "test.4", map[string]int{"A": 1, "B": 1, "C": 1})
 
-	svc1 := spawnTestService(c, 55501)
+	svc1 := spawnHTTPSvc(c, 55501)
 	defer svc1.Stop()
-	svc2 := spawnTestService(c, 55502)
+	svc2 := spawnHTTPSvc(c, 55502)
 	defer svc2.Stop()
 
 	_, err := s.tcpClient.Get("http://127.0.0.1:55501/topics/test.4/messages?group=foo")
@@ -1135,7 +1137,7 @@ func (s *ServiceHTTPSuite) TestExplicitProxyAPIEndpoints(c *C) {
 	c.Check(int64(body["offset"].(float64)), Equals, prodOffset)
 }
 
-func spawnTestService(c *C, port int) *T {
+func spawnHTTPSvc(c *C, port int) *T {
 	cfg := &config.App{Proxies: make(map[string]*config.Proxy)}
 	cfg.UnixAddr = path.Join(os.TempDir(), fmt.Sprintf("kafka-pixy.%d.sock", port))
 	cluster := fmt.Sprintf("pxy%d", port)

@@ -19,7 +19,7 @@ import (
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/prettyfmt"
 	"github.com/pkg/errors"
-	"github.com/wvanbergen/kazoo-go"
+	"github.com/samuel/go-zookeeper/zk"
 )
 
 // groupConsumer manages a fleet of topic consumers and disposes of those that
@@ -33,7 +33,7 @@ type T struct {
 	group       string
 	dispatcher  *dispatcher.T
 	kafkaClt    sarama.Client
-	kazooClt    *kazoo.Kazoo
+	zkConn      *zk.Conn
 	msgFetcherF msgfetcher.Factory
 	offsetMgrF  offsetmgr.Factory
 	subscriber  *subscriber.T
@@ -45,8 +45,7 @@ type T struct {
 }
 
 func Spawn(parentActDesc *actor.Descriptor, childSpec dispatcher.ChildSpec,
-	cfg *config.Proxy, kafkaClt sarama.Client, kazooClt *kazoo.Kazoo,
-	offsetMgrF offsetmgr.Factory,
+	cfg *config.Proxy, kafkaClt sarama.Client, zkConn *zk.Conn, offsetMgrF offsetmgr.Factory,
 ) *T {
 	group := string(childSpec.Key())
 	actDesc := parentActDesc.NewChild(fmt.Sprintf("%s", group))
@@ -56,27 +55,19 @@ func Spawn(parentActDesc *actor.Descriptor, childSpec dispatcher.ChildSpec,
 		cfg:          cfg,
 		group:        group,
 		kafkaClt:     kafkaClt,
-		kazooClt:     kazooClt,
+		zkConn:       zkConn,
 		offsetMgrF:   offsetMgrF,
 		multiplexers: make(map[string]*multiplexer.T),
 		topicCsmCh:   make(chan *topiccsm.T, cfg.Consumer.ChannelBufferSize),
 	}
 
-	gc.subscriber = subscriber.Spawn(gc.actDesc, gc.group, gc.cfg, gc.kazooClt)
+	gc.subscriber = subscriber.Spawn(gc.actDesc, gc.group, gc.cfg, gc.zkConn)
 	gc.msgFetcherF = msgfetcher.SpawnFactory(gc.actDesc, gc.cfg, gc.kafkaClt)
 	actor.Spawn(gc.actDesc, &gc.wg, gc.run)
 
-	// Finalizer is called when all downstream topic consumers expire or if
-	// the dispatcher is explicitly told to stop by the upstream dispatcher.
-	finalizer := func() {
-		gc.subscriber.Stop()
-		// The run goroutine stops when the subscriber's channel is closed.
-		gc.wg.Wait()
-		// Only after run is stopped it is safe to shutdown the fetcher factory.
-		gc.msgFetcherF.Stop()
-	}
 	gc.dispatcher = dispatcher.Spawn(gc.actDesc, gc, cfg,
-		dispatcher.WithChildSpec(childSpec), dispatcher.WithFinalizer(finalizer))
+		dispatcher.WithChildSpec(childSpec),
+		dispatcher.WithFinalizer(gc.finalizer))
 	return gc
 }
 
@@ -95,6 +86,18 @@ func (gc *T) SpawnChild(childSpec dispatcher.ChildSpec) {
 // String return string ID of this group consumer to be posted in logs.
 func (gc *T) String() string {
 	return gc.actDesc.String()
+}
+
+// finalizer is called when all downstream topic consumers expire or if
+// the dispatcher is explicitly told to stop by the upstream dispatcher.
+func (gc *T) finalizer() {
+	gc.subscriber.Stop()
+	// The run goroutine stops when the subscriber's channel is closed.
+	gc.wg.Wait()
+	// Only after run is stopped it is safe to shutdown the fetcher factory.
+	gc.msgFetcherF.Stop()
+	// If we are the last member of the group then remove it.
+	gc.subscriber.DeleteGroupIfEmpty()
 }
 
 func (gc *T) isSafe2Stop(topic string) bool {
@@ -279,6 +282,10 @@ func (gc *T) resolvePartitions(subscriptions map[string][]string,
 	for topic := range subscribedTopics {
 		topicPartitions, err := topicPartitionsFn(topic)
 		if err != nil {
+			if errors.Cause(err) == sarama.ErrUnknownTopicOrPartition {
+				gc.actDesc.Log().Warnf("Topic %s missing", topic)
+				continue
+			}
 			return nil, errors.Wrapf(err, "failed to get partition list, topic=%s", topic)
 		}
 		subscribersToPartitions := assignTopicPartitions(topicPartitions, topicsToMembers[topic])

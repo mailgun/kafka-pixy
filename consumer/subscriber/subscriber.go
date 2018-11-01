@@ -9,17 +9,18 @@ import (
 
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
+	"github.com/mailgun/kafka-pixy/consumer/kazoo"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/kafka-pixy/prettyfmt"
-	"github.com/pkg/errors"
 	"github.com/samuel/go-zookeeper/zk"
-	"github.com/wvanbergen/kazoo-go"
 )
 
-// It is ok for an attempt to claim a partition to fail, for it might take
-// some time for the current partition owner to release it. So we won't report
-// first several failures to claim a partition as an error.
-const safeClaimRetriesCount = 10
+const (
+	// It is ok for an attempt to claim a partition to fail, for it might take
+	// some time for the current partition owner to release it. So we won't report
+	// first several failures to claim a partition as an error.
+	safeClaimRetriesCount = 10
+)
 
 // T is a subscriber implementation based on ZooKeeper. It maintains consumer
 // group membership and topic subscriptions, watches for other members to join,
@@ -31,35 +32,37 @@ const safeClaimRetriesCount = 10
 // FIXME: `static` pattern. If a member that pattern is either `white_list` or
 // FIXME: `black_list` joins the group the result will be unpredictable.
 type T struct {
-	actDesc          *actor.Descriptor
-	cfg              *config.Proxy
-	group            string
-	groupZNode       *kazoo.Consumergroup
-	groupMemberZNode *kazoo.ConsumergroupInstance
-	registered       bool
-	topicsCh         chan []string
-	subscriptionsCh  chan map[string][]string
-	stopCh           chan none.T
-	claimErrorsCh    chan none.T
-	wg               sync.WaitGroup
+	actDesc         *actor.Descriptor
+	cfg             *config.Proxy
+	group           string
+	kazooModel      kazoo.Model
+	registered      bool
+	topicsCh        chan []string
+	subscriptionsCh chan map[string][]string
+	stopCh          chan none.T
+	claimErrorsCh   chan none.T
+	wg              sync.WaitGroup
 }
 
 // Spawn creates a subscriber instance and starts its goroutine.
-func Spawn(parentActDesc *actor.Descriptor, group string, cfg *config.Proxy, kazooClt *kazoo.Kazoo) *T {
-	groupZNode := kazooClt.Consumergroup(group)
-	groupMemberZNode := groupZNode.Instance(cfg.ClientID)
+func Spawn(parentActDesc *actor.Descriptor, group string, cfg *config.Proxy, zkConn *zk.Conn) *T {
 	actDesc := parentActDesc.NewChild("member")
 	actDesc.AddLogField("kafka.group", group)
+	kazooModel := kazoo.NewModel(
+		zkConn,
+		cfg.ZooKeeper.Chroot,
+		group,
+		cfg.ClientID,
+		actDesc.Log())
 	ss := &T{
-		actDesc:          actDesc,
-		cfg:              cfg,
-		group:            group,
-		groupZNode:       groupZNode,
-		groupMemberZNode: groupMemberZNode,
-		topicsCh:         make(chan []string),
-		subscriptionsCh:  make(chan map[string][]string),
-		stopCh:           make(chan none.T),
-		claimErrorsCh:    make(chan none.T, 1),
+		actDesc:         actDesc,
+		cfg:             cfg,
+		group:           group,
+		kazooModel:      kazooModel,
+		topicsCh:        make(chan []string),
+		subscriptionsCh: make(chan map[string][]string),
+		stopCh:          make(chan none.T),
+		claimErrorsCh:   make(chan none.T, 1),
 	}
 	actor.Spawn(ss.actDesc, &ss.wg, ss.run)
 	return ss
@@ -68,101 +71,51 @@ func Spawn(parentActDesc *actor.Descriptor, group string, cfg *config.Proxy, kaz
 // Topics returns a channel to receive a list of topics the member should
 // subscribe to. To make the member unsubscribe from all topics either nil or
 // an empty topic list can be sent.
-func (ss *T) Topics() chan<- []string {
-	return ss.topicsCh
+func (s *T) Topics() chan<- []string {
+	return s.topicsCh
 }
 
 // Subscriptions returns a channel that subscriptions will be sent whenever a
 // member joins or leaves the group or when an existing member updates its
 // subscription.
-func (ss *T) Subscriptions() <-chan map[string][]string {
-	return ss.subscriptionsCh
+func (s *T) Subscriptions() <-chan map[string][]string {
+	return s.subscriptionsCh
 }
 
 // ClaimPartition claims a topic/partition to be consumed by this member of the
 // consumer group. It blocks until either succeeds or canceled by the caller. It
 // returns a function that should be called to release the claim.
-func (ss *T) ClaimPartition(claimerActDesc *actor.Descriptor, topic string, partition int32, cancelCh <-chan none.T) func() {
-	beginAt := time.Now()
-	retries := 0
-	err := ss.groupMemberZNode.ClaimPartition(topic, partition)
-	for err != nil {
-		logEntry := claimerActDesc.Log().WithError(err)
-		logFailureFn := logEntry.Infof
-		if retries++; retries > safeClaimRetriesCount {
-			logFailureFn = logEntry.Errorf
-		}
-		logFailureFn("Failed to claim partition: via=%s, retries=%d, took=%s",
-			ss.actDesc, retries, millisSince(beginAt))
-
-		// Let the subscriber actor know that a claim attempt failed.
-		select {
-		case ss.claimErrorsCh <- none.V:
-		default:
-		}
-		// Wait until either the retry timeout expires or the claim is canceled.
-		select {
-		case <-time.After(ss.cfg.Consumer.RetryBackoff):
-		case <-cancelCh:
-			return func() {}
-		}
-		err = ss.groupMemberZNode.ClaimPartition(topic, partition)
+func (s *T) ClaimPartition(claimerActDesc *actor.Descriptor, topic string, partition int32, cancelCh <-chan none.T) func() {
+	pc := partitionClaimer{
+		subscriber: s,
+		actDesc:    claimerActDesc,
+		topic:      topic,
+		partition:  partition,
+		cancelCh:   cancelCh,
 	}
-	claimerActDesc.Log().Infof("Partition claimed: via=%s, retries=%d, took=%s",
-		ss.actDesc, retries, millisSince(beginAt))
-	return func() {
-		beginAt := time.Now()
-		retries := 0
-		err := ss.groupMemberZNode.ReleasePartition(topic, partition)
-		for err != nil && err != kazoo.ErrPartitionNotClaimed {
-			logEntry := claimerActDesc.Log().WithError(err)
-			logFailureFn := logEntry.Infof
-			if retries++; retries > safeClaimRetriesCount {
-				logFailureFn = logEntry.Errorf
-			}
-			logFailureFn("Failed to release partition: via=%s, retries=%d, took=%s",
-				ss.actDesc, retries, millisSince(beginAt))
-			<-time.After(ss.cfg.Consumer.RetryBackoff)
-			err = ss.groupMemberZNode.ReleasePartition(topic, partition)
-		}
-		claimerActDesc.Log().Infof("Partition released: via=%s, retries=%d, took=%s",
-			ss.actDesc, retries, millisSince(beginAt))
-	}
+	return pc.claim()
 }
 
 // Stop signals the consumer group member to stop and blocks until its
 // goroutines are over.
-func (ss *T) Stop() {
-	close(ss.stopCh)
-	ss.wg.Wait()
+func (s *T) Stop() {
+	close(s.stopCh)
+	s.wg.Wait()
 }
 
-func (ss *T) run() {
-	defer close(ss.subscriptionsCh)
-
-	// Ensure a group ZNode exists.
-	err := ss.groupZNode.Create()
-	for err != nil {
-		ss.actDesc.Log().WithError(err).Error("Failed to create a group znode")
-		select {
-		case <-time.After(ss.cfg.Consumer.RetryBackoff):
-		case <-ss.stopCh:
-			return
-		}
-		err = ss.groupZNode.Create()
+// DeleteGroupIfEmpty deletes the consumer group data structures from ZooKeeper
+// if there are no more members registered.
+func (s *T) DeleteGroupIfEmpty() {
+	if err := s.kazooModel.DeleteGroupIfEmpty(); err != nil {
+		s.actDesc.Log().WithError(err).Errorf("Failed to delete empty group %s", s.group)
+		return
 	}
+	s.actDesc.Log().Infof("Empty group %s was deleted", s.group)
+}
 
-	// Ensure that the member leaves the group in ZooKeeper on stop. We retry
-	// indefinitely here until ZooKeeper confirms that there is no registration.
-	defer func() {
-		err := ss.groupMemberZNode.Deregister()
-		for err != nil && err != kazoo.ErrInstanceNotRegistered {
-			ss.actDesc.Log().WithError(err).Error("Failed to deregister")
-			<-time.After(ss.cfg.Consumer.RetryBackoff)
-			err = ss.groupMemberZNode.Deregister()
-		}
-	}()
-
+func (s *T) run() {
+	defer close(s.subscriptionsCh)
+	defer s.deleteMemberSubscription()
 	var (
 		nilOrSubscriptionsCh     chan<- map[string][]string
 		nilOrWatchCh             <-chan none.T
@@ -173,10 +126,11 @@ func (ss *T) run() {
 		topics                   []string
 		subscriptions            map[string][]string
 		submittedAt              = time.Now()
+		err                      error
 	)
 	for {
 		select {
-		case topics = <-ss.topicsCh:
+		case topics = <-s.topicsCh:
 			sort.Strings(topics)
 			shouldSubmitTopics = true
 
@@ -188,16 +142,16 @@ func (ss *T) run() {
 			cancelWatch()
 			shouldFetchSubscriptions = true
 
-		case <-ss.claimErrorsCh:
+		case <-s.claimErrorsCh:
 			sinceLastSubmit := time.Now().Sub(submittedAt)
-			if sinceLastSubmit > ss.cfg.Consumer.RetryBackoff {
-				ss.actDesc.Log().Infof("Resubmit triggered by claim failure: since=%v", sinceLastSubmit)
+			if sinceLastSubmit > s.cfg.Consumer.RetryBackoff {
+				s.actDesc.Log().Infof("Resubmit triggered by claim failure: since=%v", sinceLastSubmit)
 				shouldSubmitTopics = true
 			}
 		case <-nilOrTimeoutCh:
 			nilOrTimeoutCh = nil
 
-		case <-ss.stopCh:
+		case <-s.stopCh:
 			if cancelWatch != nil {
 				cancelWatch()
 			}
@@ -205,13 +159,13 @@ func (ss *T) run() {
 		}
 
 		if shouldSubmitTopics {
-			if err = ss.submitTopics(topics); err != nil {
-				ss.actDesc.Log().WithError(err).Error("Failed to submit topics")
-				nilOrTimeoutCh = time.After(ss.cfg.Consumer.RetryBackoff)
+			if err = s.kazooModel.EnsureMemberSubscription(topics); err != nil {
+				s.actDesc.Log().WithError(err).Error("Failed to submit topics")
+				nilOrTimeoutCh = time.After(s.cfg.Consumer.RetryBackoff)
 				continue
 			}
 			submittedAt = time.Now()
-			ss.actDesc.Log().Infof("Submitted: topics=%v", topics)
+			s.actDesc.Log().Infof("Submitted: topics=%v", topics)
 			shouldSubmitTopics = false
 			if cancelWatch != nil {
 				cancelWatch()
@@ -220,102 +174,98 @@ func (ss *T) run() {
 		}
 
 		if shouldFetchSubscriptions {
-			subscriptions, nilOrWatchCh, cancelWatch, err = ss.fetchSubscriptions()
+			subscriptions, nilOrWatchCh, cancelWatch, err = s.kazooModel.FetchGroupSubscriptions()
 			if err != nil {
-				ss.actDesc.Log().WithError(err).Error("Failed to fetch subscriptions")
-				nilOrTimeoutCh = time.After(ss.cfg.Consumer.RetryBackoff)
+				s.actDesc.Log().WithError(err).Error("Failed to fetch subscriptions")
+				nilOrTimeoutCh = time.After(s.cfg.Consumer.RetryBackoff)
 				continue
 			}
 			shouldFetchSubscriptions = false
-			ss.actDesc.Log().Infof("Fetched subscriptions: %s", prettyfmt.Val(subscriptions))
-			nilOrSubscriptionsCh = ss.subscriptionsCh
+			s.actDesc.Log().Infof("Fetched subscriptions: %s", prettyfmt.Val(subscriptions))
+			nilOrSubscriptionsCh = s.subscriptionsCh
 
 			// If fetched topics are not the same as the current subscription
 			// then initiate topic submission.
-			fetchedTopics := subscriptions[ss.cfg.ClientID]
+			fetchedTopics := subscriptions[s.cfg.ClientID]
 			if reflect.DeepEqual(topics, fetchedTopics) {
 				continue
 			}
-			ss.actDesc.Log().Errorf("Outdated subscription: want=%v, got=%v", topics, fetchedTopics)
+			s.actDesc.Log().Errorf("Outdated subscription: want=%v, got=%v", topics, fetchedTopics)
 			shouldSubmitTopics = true
 		}
 	}
 }
 
-// fetchSubscriptions retrieves subscription topics for all group members and
-// returns a channel that will be closed
-func (ss *T) fetchSubscriptions() (map[string][]string, <-chan none.T, context.CancelFunc, error) {
-	members, groupUpdateWatchCh, err := ss.groupZNode.WatchInstances()
-	if err != nil {
-		return nil, nil, nil, errors.Wrapf(err, "failed to watch members")
-	}
-
-	memberUpdateWatchChs := make(map[string]<-chan zk.Event, len(members))
-	subscriptions := make(map[string][]string, len(members))
-	for _, member := range members {
-		var registration *kazoo.Registration
-		registration, memberUpdateWatchCh, err := member.WatchRegistration()
-		for err != nil {
-			return nil, nil, nil, errors.Wrapf(err, "failed to watch registration, member=%s", member.ID)
+// deleteMemberSubscription reliably unsubscribes from all topics.
+func (s *T) deleteMemberSubscription() {
+	for {
+		err := s.kazooModel.EnsureMemberSubscription(nil)
+		if err == nil {
+			break
 		}
-		memberUpdateWatchChs[member.ID] = memberUpdateWatchCh
-
-		topics := make([]string, 0, len(registration.Subscription))
-		for topic := range registration.Subscription {
-			topics = append(topics, topic)
-		}
-		// Sort topics to ensure deterministic output.
-		sort.Strings(topics)
-		subscriptions[member.ID] = topics
+		s.actDesc.Log().WithError(err).Error("Failed to unregister")
+		<-time.After(s.cfg.Consumer.RetryBackoff)
 	}
-	aggregateWatchCh := make(chan none.T)
-	ctx, cancel := context.WithCancel(context.Background())
-
-	go ss.forwardWatch(ctx, "members", groupUpdateWatchCh, aggregateWatchCh)
-	for memberID, memberUpdateWatchCh := range memberUpdateWatchChs {
-		go ss.forwardWatch(ctx, memberID, memberUpdateWatchCh, aggregateWatchCh)
-	}
-	return subscriptions, aggregateWatchCh, cancel, nil
 }
 
-func (ss *T) submitTopics(topics []string) error {
-	if len(topics) == 0 {
-		err := ss.groupMemberZNode.Deregister()
-		if err != nil && err != kazoo.ErrInstanceNotRegistered {
-			return errors.Wrap(err, "failed to deregister")
-		}
-		ss.registered = false
-		return nil
-	}
-
-	if ss.registered {
-		err := ss.groupMemberZNode.UpdateRegistration(topics)
-		if err != kazoo.ErrInstanceNotRegistered {
-			return errors.Wrap(err, "failed to update registration")
-		}
-		ss.registered = false
-		ss.actDesc.Log().Errorf("Registration disappeared")
-	}
-
-	if err := ss.groupMemberZNode.Register(topics); err != nil {
-		return errors.Wrap(err, "failed to register")
-	}
-	ss.registered = true
-	return nil
+type partitionClaimer struct {
+	subscriber *T
+	actDesc    *actor.Descriptor
+	topic      string
+	partition  int32
+	cancelCh   <-chan none.T
 }
 
-func (ss *T) forwardWatch(ctx context.Context, alias string, fromCh <-chan zk.Event, toCh chan<- none.T) {
-	select {
-	case <-fromCh:
-		ss.actDesc.Log().Infof("Watch triggered: alias=%s", alias)
+func (pc *partitionClaimer) claim() func() {
+	beginAt := time.Now()
+	retries := 0
+	for {
+		err := pc.subscriber.kazooModel.CreatePartitionOwner(pc.topic, pc.partition)
+		if err == nil {
+			break
+		}
+		logEntry := pc.actDesc.Log().WithError(err)
+		logFailureFn := logEntry.Infof
+		if retries++; retries > safeClaimRetriesCount {
+			logFailureFn = logEntry.Errorf
+		}
+		logFailureFn("Failed to claim partition: via=%s, retries=%d, took=%s",
+			pc.subscriber.actDesc, retries, time.Since(beginAt))
+
+		// Let the subscriber actor know that a claim attempt failed.
 		select {
-		case toCh <- none.V:
-		case <-ctx.Done():
+		case pc.subscriber.claimErrorsCh <- none.V:
+		default:
 		}
-	case <-ctx.Done():
+		// Wait until either the retry timeout expires or the claim is canceled.
+		select {
+		case <-time.After(pc.subscriber.cfg.Consumer.RetryBackoff):
+		case <-pc.cancelCh:
+			return func() {}
+		}
 	}
+	pc.actDesc.Log().Infof("Partition claimed: via=%s, retries=%d, took=%s",
+		pc.subscriber.actDesc, retries, time.Since(beginAt))
+	return pc.release
 }
 
-func millisSince(t time.Time) time.Duration {
-	return time.Now().Sub(t) / time.Millisecond * time.Millisecond
+func (pc *partitionClaimer) release() {
+	beginAt := time.Now()
+	retries := 0
+	for {
+		err := pc.subscriber.kazooModel.DeletePartitionOwner(pc.topic, pc.partition)
+		if err == nil {
+			break
+		}
+		logEntry := pc.actDesc.Log().WithError(err)
+		logFailureFn := logEntry.Infof
+		if retries++; retries > safeClaimRetriesCount {
+			logFailureFn = logEntry.Errorf
+		}
+		logFailureFn("Failed to release partition: via=%s, retries=%d, took=%s",
+			pc.subscriber.actDesc, retries, time.Since(beginAt))
+		<-time.After(pc.subscriber.cfg.Consumer.RetryBackoff)
+	}
+	pc.actDesc.Log().Infof("Partition released: via=%s, retries=%d, took=%s",
+		pc.subscriber.actDesc, retries, time.Since(beginAt))
 }

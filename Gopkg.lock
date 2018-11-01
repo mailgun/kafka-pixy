@@ -228,14 +228,6 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:dbc1b70d7841d3dded4615acd5a369945d784c092209c6ed4eddc1839fb2e301"
-  name = "github.com/wvanbergen/kazoo-go"
-  packages = ["."]
-  pruneopts = "UT"
-  revision = "f72d8611297a7cf105da904c04198ad701a60101"
-
-[[projects]]
-  branch = "master"
   digest = "1:3f3a05ae0b95893d90b9b3b5afdb79a9b3d96e4e36e099d841ae602e4aca0da8"
   name = "golang.org/x/crypto"
   packages = ["ssh/terminal"]
@@ -356,6 +348,7 @@
   analyzer-version = 1
   input-imports = [
     "github.com/Shopify/sarama",
+    "github.com/davecgh/go-spew/spew",
     "github.com/golang/protobuf/proto",
     "github.com/gorilla/mux",
     "github.com/mailgun/holster/clock",
@@ -366,7 +359,6 @@
     "github.com/sirupsen/logrus",
     "github.com/sirupsen/logrus/hooks/syslog",
     "github.com/thrawn01/args",
-    "github.com/wvanbergen/kazoo-go",
     "golang.org/x/net/context",
     "google.golang.org/grpc",
     "google.golang.org/grpc/codes",

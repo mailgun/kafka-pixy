@@ -248,12 +248,16 @@ func (a *T) GetTopicConsumers(group, topic string) (map[string][]int32, error) {
 	if err != nil {
 		return nil, err
 	}
-	consumedPartitionsPath := fmt.Sprintf("%s/consumers/%s/owners/%s",
-		a.cfg.ZooKeeper.Chroot, group, topic)
-	partitionNodes, _, err := zkConn.Children(consumedPartitionsPath)
+	partitionOwnersPath := fmt.Sprintf("%s/consumers/%s/owners/%s", a.cfg.ZooKeeper.Chroot, group, topic)
+	partitionNodes, _, err := zkConn.Children(partitionOwnersPath)
 	if err != nil {
 		if err == zk.ErrNoNode {
-			return nil, ErrInvalidParam(errors.New("either group or topic is incorrect"))
+			groupPath := fmt.Sprintf("%s/consumers/%s", a.cfg.ZooKeeper.Chroot, group)
+			_, _, err := zkConn.Children(groupPath)
+			if err == zk.ErrNoNode {
+				return nil, ErrInvalidParam(errors.Errorf("unknown consumer group %v", group))
+			}
+			return nil, ErrInvalidParam(errors.Errorf("topic %s is not consumed by %s", topic, group))
 		}
 		return nil, errors.Wrap(err, "failed to fetch partition owners data")
 	}
@@ -264,7 +268,7 @@ func (a *T) GetTopicConsumers(group, topic string) (map[string][]int32, error) {
 		if err != nil {
 			return nil, errors.Wrapf(err, "invalid partition id, %s", partitionNode)
 		}
-		partitionPath := fmt.Sprintf("%s/%s", consumedPartitionsPath, partitionNode)
+		partitionPath := fmt.Sprintf("%s/%s", partitionOwnersPath, partitionNode)
 		partitionNodeData, _, err := zkConn.Get(partitionPath)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to fetch partition owner")
