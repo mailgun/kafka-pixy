@@ -1,4 +1,4 @@
-FROM golang:1.11.1-alpine3.8 AS builder
+FROM golang:1.11.2-alpine3.8 AS builder
 RUN mkdir -p /go/src/github.com/mailgun/kafka-pixy
 COPY . /go/src/github.com/mailgun/kafka-pixy
 WORKDIR /go/src/github.com/mailgun/kafka-pixy

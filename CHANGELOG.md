@@ -1,14 +1,15 @@
 # Changelog
 
-### Version 0.16.0 (TBD)
+#### Version 0.16.0 (2018-11-23)
 
 Implemented:
+* [#156](https://github.com/mailgun/kafka-pixy/pull/156) 
+  [#151](https://github.com/mailgun/kafka-pixy/pull/151) Added formal support
+  for Kafka versions up to v2.1.0.
 * [#155](https://github.com/mailgun/kafka-pixy/pull/155) When the last group
   member leaves a consumer group, all group records are removed from ZooKeeper.
   Group records were never deleted from ZooKeeper before, that could cause
   issues with disposable groups.
-* [#151](https://github.com/mailgun/kafka-pixy/pull/151) Added formal support
-  for Kafka versions up to v2.0.0.
 * [#144](https://github.com/mailgun/kafka-pixy/pull/144) Added support for
   specifying and receiving Kafka record headers over both the HTTP and gRPC
   produce and consume interfaces.
