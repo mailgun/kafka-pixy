@@ -11,14 +11,18 @@ complexity of the Kafka client protocol and provide a stupid simple
 API that is trivial to implement in any language.
 
 Kafka-Pixy is tested against Kafka versions form **0.10.2.1**, **1.1.1**, and
-**2.0.0**, but is likely to work with any version starting from **0.8.2.2**. It uses
+**2.1.0**, but is likely to work with any version starting from **0.8.2.2**. It uses
 the Kafka [Offset Commit/Fetch API](https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol#AGuideToTheKafkaProtocol-OffsetCommit/FetchAPI)
 to keep track of consumer offsets. However [Group Membership API](https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol#AGuideToTheKafkaProtocol-GroupMembershipAPI)
 is not yet implemented, therefore it needs to talk to Zookeeper directly to
 manage consumer group membership.
 
-**Warning**: Kafka-Pixy does not support whiled card cannot share a consumer group with other clients
-
+**Warning**: Kafka-Pixy does not support wildcard subscriptions and therefore
+cannot coexist in a consumer group with clients using them. It should be
+possible to use other clients in the same consumer group as kafka-pixy instance
+if they subscribe to topics by their full names, but that **has never been 
+tested** so do that at your own risk.
+ 
 If you are anxious to get started then [install](howto-install.md) Kafka-Pixy
 and proceed with a quick start guide for your weapon of choice:
 [Curl](quick-start-curl.md), [Python](quick-start-python.md), or [Golang](quick-start-golang.md).

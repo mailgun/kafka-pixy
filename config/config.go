@@ -214,6 +214,8 @@ func (kv *KafkaVersion) UnmarshalText(text []byte) error {
 		"1.1.0":    sarama.V1_1_0_0,
 		"1.1.1":    sarama.V1_1_0_0, // sarama does not define V1_1_1_0
 		"2.0.0":    sarama.V2_0_0_0,
+		"2.0.1":    sarama.V2_0_0_0, // sarama does not define V2_0_1_0
+		"2.1.0":    sarama.V2_0_0_0, // sarama does not define V2_1_0_0
 	}[str]
 	if !ok {
 		return errors.Errorf("bad kafka version, %s", str)
