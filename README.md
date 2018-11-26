@@ -180,7 +180,7 @@ topic can be optionally acknowledged.
  Parameter    | Opt | Description
 --------------|-----|------------------------------------------------------
  cluster      | yes | The name of a cluster to operate on. By default the cluster mentioned first in the `proxies` section of the config file is used.
- topic        |     | The name of a topic to produce to.
+ topic        |     | The name of a topic to consume from.
  group        |     | The name of a consumer group.
  noAck        | yes | A flag (value is ignored) that no message should be acknowledged. For default behaviour read below.
  ackPartition | yes | A partition number that the acknowledged message was consumed from. For default behaviour read below.
