@@ -16,13 +16,6 @@ type ConfigSuite struct{}
 
 var _ = Suite(&ConfigSuite{})
 
-func (s *ConfigSuite) TestGetIP(c *C) {
-	ip, err := getIP()
-	c.Assert(err, IsNil)
-	c.Assert(ip.String(), Matches, "\\d+.\\d+.\\d+.\\d+")
-	c.Assert(ip.String(), Not(Equals), "127.0.0.1")
-}
-
 func (s *ConfigSuite) TestFromYAMLNoProxies(c *C) {
 	// When
 	_, err := FromYAML([]byte(""))
