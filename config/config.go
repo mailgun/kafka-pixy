@@ -1,11 +1,13 @@
 package config
 
 import (
+	"bufio"
 	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io/ioutil"
-	"net"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -505,41 +507,36 @@ func defaultProxyWithClientID(clientID string) *Proxy {
 func newClientID() string {
 	hostname, err := os.Hostname()
 	if err != nil {
-		ip, err := getIP()
-		if err != nil {
-			buffer := make([]byte, 8)
-			_, _ = rand.Read(buffer)
-			hostname = fmt.Sprintf("%X", buffer)
-
-		} else {
-			hostname = ip.String()
-		}
+		token := make([]byte, 4)
+		_, _ = rand.Read(token)
+		return "kp_" + hex.EncodeToString(token)
 	}
-	timestamp := time.Now().UTC().Format(time.RFC3339)
-	// sarama validation regexp for the client ID doesn't allow ':' characters
-	timestamp = strings.Replace(timestamp, ":", ".", -1)
-	return fmt.Sprintf("pixy_%s_%s_%d", hostname, timestamp, os.Getpid())
+	cid, err := getDockerCID()
+	if err != nil {
+		return "kp_" + hostname + "_" + strconv.Itoa(os.Getpid())
+	}
+	return "kp_" + hostname + "_" + cid
 }
 
-func getIP() (net.IP, error) {
-	interfaceAddrs, err := net.InterfaceAddrs()
+func getDockerCID() (string, error) {
+	f, err := os.Open("/proc/self/cgroup")
 	if err != nil {
-		return nil, err
+		return "", errors.Wrap(err, "cannot open /proc/self/cgroup")
 	}
-	var ipv6 net.IP
-	for _, interfaceAddr := range interfaceAddrs {
-		if ipAddr, ok := interfaceAddr.(*net.IPNet); ok && !ipAddr.IP.IsLoopback() {
-			ipv4 := ipAddr.IP.To4()
-			if ipv4 != nil {
-				return ipv4, nil
-			}
-			ipv6 = ipAddr.IP
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts := strings.Split(line, "/docker/")
+		if len(parts) != 2 {
+			continue
 		}
+
+		fullDockerCID := parts[1]
+		return fullDockerCID[:12], nil
 	}
-	if ipv6 != nil {
-		return ipv6, nil
-	}
-	return nil, errors.New("Unknown IP address")
+	return "", errors.New("cannot find Docker cgroup")
 }
 
 type proxyProb struct {

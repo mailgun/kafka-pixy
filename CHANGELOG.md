@@ -1,5 +1,11 @@
 # Changelog
 
+#### Version 0.17.0 (TBD)
+Implemented:
+* Default client ID was changed to `kp_<hostname>_<contain-id>` if running in a
+  docker container, otherwise `kp_<hostname>_<pid>`. If hostname cannot be
+  retrieved, then the client ID is `kp_<random-token>`.  
+
 #### Version 0.16.0 (2018-11-23)
 
 Implemented:
