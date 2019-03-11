@@ -54,7 +54,7 @@ func New(addr string, proxySet *proxy.Set) (*T, error) {
 	return &s, nil
 }
 
-// Starts triggers asynchronous gRPC server start. If it fails then the error
+// Start starts triggers asynchronous gRPC server start. If it fails then the error
 // will be sent down to `ErrorCh()`.
 func (s *T) Start() {
 	actor.Spawn(s.actDesc, &s.wg, func() {
