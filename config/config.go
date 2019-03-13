@@ -327,12 +327,12 @@ func DefaultApp(cluster string) *App {
 	return appCfg
 }
 
-// DefaultCluster returns configuration used by default.
+// DefaultProxy returns configuration used by default.
 func DefaultProxy() *Proxy {
 	return defaultProxyWithClientID(newClientID())
 }
 
-// FromYAML parses configuration from a YAML file and performs basic
+// FromYAMLFile parses configuration from a YAML file and performs basic
 // validation of parameters.
 func FromYAMLFile(filename string) (*App, error) {
 	configFile, err := os.Open(filename)
