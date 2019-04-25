@@ -119,3 +119,15 @@ func (s *ConfigSuite) TestFromYAMLTLS(c *C) {
 	c.Assert(appCfg.TLS.CertPath, Equals, "/usr/local/etc/server.crt")
 	c.Assert(appCfg.TLS.KeyPath, Equals, "/usr/local/etc/server.key")
 }
+
+// default.yaml contains the same configuration as returned by Default()
+func (s *ConfigSuite) TestFromYAMLCustomTCP(c *C) {
+	// When
+	appCfg, err := FromYAMLFile("../testdata/custom-hostname.yaml")
+
+	// Then
+	c.Assert(err, IsNil)
+	expected := DefaultApp("default")
+	expected.TCPAddr = "foo.bar:443"
+	c.Assert(appCfg.TCPAddr, Equals, expected.TCPAddr)
+}
