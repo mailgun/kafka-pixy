@@ -395,12 +395,18 @@ func FromYAML(data []byte) (*App, error) {
 		return nil, errors.Wrap(err, "invalid config parameter")
 	}
 
-	var tls App
-	if err := yaml.Unmarshal(data, &tls); err != nil {
+	var inCfg App
+	if err := yaml.Unmarshal(data, &inCfg); err != nil {
 		return nil, errors.Wrap(err, "failed to parse configuration")
 	}
 
-	appCfg.TLS = tls.TLS
+	appCfg.TLS = inCfg.TLS
+	if inCfg.GRPCAddr != "" {
+		appCfg.GRPCAddr = inCfg.GRPCAddr
+	}
+	if inCfg.TCPAddr != "" {
+		appCfg.TCPAddr = inCfg.TCPAddr
+	}
 	return appCfg, nil
 }
 
