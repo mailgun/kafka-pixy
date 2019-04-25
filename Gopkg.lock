@@ -362,6 +362,7 @@
     "golang.org/x/net/context",
     "google.golang.org/grpc",
     "google.golang.org/grpc/codes",
+    "google.golang.org/grpc/credentials",
     "google.golang.org/grpc/status",
     "gopkg.in/check.v1",
     "gopkg.in/yaml.v2",

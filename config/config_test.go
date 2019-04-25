@@ -109,3 +109,13 @@ func (s *ConfigSuite) TestFromYAMLFile(c *C) {
 	appCfg.Proxies["default"].ClientID = "ID"
 	c.Assert(appCfg, DeepEquals, expected)
 }
+
+func (s *ConfigSuite) TestFromYAMLTLS(c *C) {
+	// When
+	appCfg, err := FromYAMLFile("../testdata/tls.yaml")
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert(appCfg.AppTLS.CertPath, Equals, "/usr/local/etc/server.crt")
+	c.Assert(appCfg.AppTLS.KeyPath, Equals, "/usr/local/etc/server.key")
+}
