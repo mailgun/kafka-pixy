@@ -116,6 +116,6 @@ func (s *ConfigSuite) TestFromYAMLTLS(c *C) {
 
 	// Then
 	c.Assert(err, IsNil)
-	c.Assert(appCfg.AppTLS.CertPath, Equals, "/usr/local/etc/server.crt")
-	c.Assert(appCfg.AppTLS.KeyPath, Equals, "/usr/local/etc/server.key")
+	c.Assert(appCfg.TLS.CertPath, Equals, "/usr/local/etc/server.crt")
+	c.Assert(appCfg.TLS.KeyPath, Equals, "/usr/local/etc/server.key")
 }

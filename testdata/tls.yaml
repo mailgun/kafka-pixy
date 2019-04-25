@@ -177,16 +177,13 @@ proxies:
       # topic by a group in absence of requests to from the consumer group.
       subscription_timeout: 15s
 
-# Configuration for securely accessing the gRPC and web serversx
+# Configuration for securely accessing the gRPC and web servers
 tls:
 
-  # gRPC specific configuration
-  grpc:
+  # Path to the server certificate file.
+  # Required if using gRPC SSL/TLS or HTTPS.
+  certificate_path: /usr/local/etc/server.crt
 
-    # Path to the server certificate file.
-    # Required if using gRPC SSL/TLS.
-    certificate_path: /usr/local/etc/server.crt
-
-    # Path to the server certificate key file.
-    # Required if using gRPC SSL/TLS.
-    key_path: /usr/local/etc/server.key
+  # Path to the server certificate key file.
+  # Required if using gRPC SSL/TLS or HTTPS.
+  key_path: /usr/local/etc/server.key

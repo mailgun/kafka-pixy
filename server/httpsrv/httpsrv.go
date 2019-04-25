@@ -63,6 +63,10 @@ type T struct {
 	proxySet   *proxy.Set
 	wg         sync.WaitGroup
 	errorCh    chan error
+
+	// needed to pass in security info
+	certPath string
+	keyPath  string
 }
 
 func init() {
@@ -75,7 +79,10 @@ func init() {
 // New creates an HTTP server instance that will accept API requests at the
 // specified `network`/`address` and execute them with the specified `producer`,
 // `consumer`, or `admin`, depending on the request type.
-func New(addr string, proxySet *proxy.Set) (*T, error) {
+//
+// It also passes in the provided certificate and key paths for TLS. If
+// empty strings, it is run in non-TLS mode.
+func New(addr string, proxySet *proxy.Set, certPath, keyPath string) (*T, error) {
 	network := networkUnix
 	if strings.Contains(addr, ":") {
 		network = networkTCP
@@ -94,13 +101,16 @@ func New(addr string, proxySet *proxy.Set) (*T, error) {
 	// Create a graceful HTTP server instance.
 	router := mux.NewRouter()
 	httpServer := &http.Server{Handler: router}
+
 	hs := &T{
-		actDesc:    actor.Root().NewChild(fmt.Sprintf("http://%s", addr)),
+		actDesc:    actor.Root().NewChild(addr),
 		addr:       addr,
 		listener:   listener,
 		httpServer: httpServer,
 		proxySet:   proxySet,
 		errorCh:    make(chan error, 1),
+		certPath:   certPath,
+		keyPath:    keyPath,
 	}
 	// Configure the API request handlers.
 	router.HandleFunc(fmt.Sprintf("/clusters/{%s}/topics/{%s}/messages", prmCluster, prmTopic), hs.handleProduce).Methods("POST")
@@ -135,8 +145,14 @@ func New(addr string, proxySet *proxy.Set) (*T, error) {
 // will be sent down to `ErrorCh()`.
 func (s *T) Start() {
 	actor.Spawn(s.actDesc, &s.wg, func() {
-		if err := s.httpServer.Serve(s.listener); err != nil {
-			s.errorCh <- errors.Wrap(err, "HTTP API server failed")
+		if s.certPath != "" && s.keyPath != "" {
+			if err := s.httpServer.ServeTLS(s.listener, s.certPath, s.keyPath); err != nil {
+				s.errorCh <- errors.Wrap(err, "HTTP API server failed")
+			}
+		} else {
+			if err := s.httpServer.Serve(s.listener); err != nil {
+				s.errorCh <- errors.Wrap(err, "HTTP API server failed")
+			}
 		}
 	})
 }
