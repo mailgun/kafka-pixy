@@ -9,6 +9,10 @@ Implemented:
   advantage of this feature.
   [Issue 160](https://github.com/mailgun/kafka-pixy/issues/54)
 
+Fixed:
+* [#168](https://github.com/mailgun/kafka-pixy/issues/168) Configured
+  addresses for HTTP, gRPC and Unix were not being respected.
+
 #### Version 0.17.0 (TBD)
 Implemented:
 * Default client ID was changed to `kp_<hostname>_<contain-id>` if running in a
