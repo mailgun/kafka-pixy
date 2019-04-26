@@ -1,23 +1,19 @@
 # Changelog
 
-#### Version 0.18.0 (TBD)
+#### Version 0.17.0 (TBD)
 
 Implemented:
 * [#167](https://github.com/mailgun/kafka-pixy/pull/167)
-  Add support for SSL/TLS connections in both gRPC and HTTP services.
-  Set both a certificate and key file in the configuration to take
-  advantage of this feature.
-  [Issue 160](https://github.com/mailgun/kafka-pixy/issues/54)
-
-Fixed:
-* [#168](https://github.com/mailgun/kafka-pixy/issues/168) Configured
-  addresses for HTTP, gRPC and Unix were not being respected.
-
-#### Version 0.17.0 (TBD)
-Implemented:
+  Add support for SSL/TLS connections in both gRPC and HTTP services. Set both
+  a certificate and key file in the configuration to take advantage of this
+  feature. (Requested in [#160](https://github.com/mailgun/kafka-pixy/issues/54)).
 * Default client ID was changed to `kp_<hostname>_<contain-id>` if running in a
   docker container, otherwise `kp_<hostname>_<pid>`. If hostname cannot be
   retrieved, then the client ID is `kp_<random-token>`.
+
+Fixed:
+* [#168](https://github.com/mailgun/kafka-pixy/issues/168) Configured addresses
+  for HTTP, gRPC and Unix were not being respected.
 
 #### Version 0.16.0 (2018-11-23)
 
