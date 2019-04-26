@@ -1,15 +1,24 @@
 # Changelog
 
+#### Version 0.18.0 (TBD)
+
+Implemented:
+* [#167](https://github.com/mailgun/kafka-pixy/pull/167)
+  Add support for SSL/TLS connections in both gRPC and HTTP services.
+  Set both a certificate and key file in the configuration to take
+  advantage of this feature.
+  [Issue 160](https://github.com/mailgun/kafka-pixy/issues/54)
+
 #### Version 0.17.0 (TBD)
 Implemented:
 * Default client ID was changed to `kp_<hostname>_<contain-id>` if running in a
   docker container, otherwise `kp_<hostname>_<pid>`. If hostname cannot be
-  retrieved, then the client ID is `kp_<random-token>`.  
+  retrieved, then the client ID is `kp_<random-token>`.
 
 #### Version 0.16.0 (2018-11-23)
 
 Implemented:
-* [#156](https://github.com/mailgun/kafka-pixy/pull/156) 
+* [#156](https://github.com/mailgun/kafka-pixy/pull/156)
   [#151](https://github.com/mailgun/kafka-pixy/pull/151) Added formal support
   for Kafka versions up to v2.1.0.
 * [#155](https://github.com/mailgun/kafka-pixy/pull/155) When the last group
@@ -24,7 +33,7 @@ Implemented:
   network-level timeouts.
 
 Fixed:
-* [#54](https://github.com/mailgun/kafka-pixy/issues/54) Rebalancing fails due 
+* [#54](https://github.com/mailgun/kafka-pixy/issues/54) Rebalancing fails due
   to non existent topic.
 
 #### Version 0.15.0 (2018-03-30)
@@ -45,7 +54,7 @@ Fixed:
   topic stopped for a group.
 * [#123](https://github.com/mailgun/kafka-pixy/issues/123) Inexplicable offset
   manager timeouts.
-* [#124](https://github.com/mailgun/kafka-pixy/issues/124) Subscription to a 
+* [#124](https://github.com/mailgun/kafka-pixy/issues/124) Subscription to a
   topic fails indefinitely after ZooKeeper connection loss.
 * [#140](https://github.com/mailgun/kafka-pixy/issues/140) Offset manager keeps
   loosing connection with a broker.
@@ -142,7 +151,7 @@ This release aims to make getting started with Kafka-Pixy easier.
   `GET /topics/<>/consumers` easier to read.
 * By default services listens on 19092 port for incoming API requests and a
   unix domain socket is activated only if the `--unixAddr` command line
-  parameter is specified. 
+  parameter is specified.
 * By default a pid file is not created anymore. You need to explicitly specify
   `--pidFile` command line argument to get it created.
 * The source code was refactored into packages to make it easier to understand

@@ -20,16 +20,16 @@ manage consumer group membership.
 **Warning**: Kafka-Pixy does not support wildcard subscriptions and therefore
 cannot coexist in a consumer group with clients using them. It should be
 possible to use other clients in the same consumer group as kafka-pixy instance
-if they subscribe to topics by their full names, but that **has never been 
+if they subscribe to topics by their full names, but that **has never been
 tested** so do that at your own risk.
- 
+
 If you are anxious to get started then [install](howto-install.md) Kafka-Pixy
 and proceed with a quick start guide for your weapon of choice:
 [Curl](quick-start-curl.md), [Python](quick-start-python.md), or [Golang](quick-start-golang.md).
 If you want to use some other language, then you still can use either of the
 guides for inspiration, but you would need to generate gRPC client stubs
 from [kafkapixy.proto](kafkapixy.proto) yourself (please refer to [gRPC documentation](http://www.grpc.io/docs/)
-for details). 
+for details).
 
 #### Key Features:
 
@@ -38,8 +38,8 @@ for details).
   by [Confluent](https://www.confluent.io/) clients do not need to explicitly
   create a consumer instance. When Kafka-Pixy gets a consume request for a
   group-topic pair for the first time, it automatically joins the group and
-  subscribes to the topic. When requests stop coming for longer than the 
-  [subscription timeout](https://www.confluent.io/) it cancels the subscription;    
+  subscribes to the topic. When requests stop coming for longer than the
+  [subscription timeout](https://www.confluent.io/) it cancels the subscription;
 - **At Least Once Guarantee**: The main feature of Kafka-Pixy is that
   it guarantees at-least-once message delivery. The guarantee is
   achieved via combination of synchronous production and explicit
@@ -116,7 +116,7 @@ strings, the value of the HTTP header must be Base 64-encoded.
  cluster   | yes | The name of a cluster to operate on. By default the cluster mentioned first in the `proxies` section of the config file is used.
  topic     |     | The name of a topic to produce to
  key       | yes | A string whose hash is used to determine a partition to produce to. By default a random partition is selected.
- msg       |  *  | Used only if the request content type is `x-www-form-urlencoded`. In other cases the request body is the message.  
+ msg       |  *  | Used only if the request content type is `x-www-form-urlencoded`. In other cases the request body is the message.
  sync      | yes | A flag (value is ignored) that makes Kafka-Pixy wait for all ISR to confirm write before sending a response back. By default a response is sent immediatelly after the request is received.
 
 By default the message is written to Kafka asynchronously, that is the
@@ -146,7 +146,7 @@ curl -X POST localhost:8080/topics/foo/messages?key=bar&sync \
 
 If the message is submitted asynchronously then the response will be an
 empty json object `{}`.
- 
+
 If the message is submitted synchronously then in case of success (HTTP
 status **200**) the response will be like:
 
@@ -206,7 +206,7 @@ If a Kafka-Pixy instance has not received consume requests for a topic for the d
 [subscription timeout](https://github.com/mailgun/kafka-pixy/blob/master/default.yaml#L139),
 then it unsubscribes from the topic, and the topic partitions are
 redistributed among Kafka-Pixy instances that are still consuming from it.
- 
+
 If there are no unread messages in the topic the request will block
 waiting for the duration of the [long polling timeout](https://github.com/mailgun/kafka-pixy/blob/master/default.yaml#L109).
 If there are no messages produced during this long poll waiting then the request
@@ -264,7 +264,7 @@ Acknowledges a previously consumed message.
  offset    |     | An offset of the acknowledged message.
 
 ### Get Offsets
- 
+
 ```
 GET /topics/<topic>/offsets
 GET /clusters/<cluster>/topics/<topic>/offsets
@@ -416,7 +416,7 @@ Returns topic configuration optionally with a list of partitions.
 
 ## Configuration
 
-Kafa-Pixy is designed to be very simple to run. It consists of a single
+Kafka-Pixy is designed to be very simple to run. It consists of a single
 executable that can be started just by passing a bunch of command line
 parameters to it - no configuration file needed.
 
@@ -442,6 +442,14 @@ Command line parameters that Kafka-Pixy accepts are listed below:
 
 You can run `kafka-pixy -help` to make it list all available command line
 parameters.
+
+### Security
+
+SSL/TLS can be configured on both the gRPC and HTTP servers by
+specifying a certificate and key file in the configuration. Both files
+must be specified in order to run with security enabled.
+
+If configured, both the gRPC and HTTP servers will run with TLS enabled.
 
 ## License
 
