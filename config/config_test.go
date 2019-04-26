@@ -69,9 +69,9 @@ func (s *ConfigSuite) TestFromYAMLInvalid(c *C) {
 	_, err := FromYAML(data)
 
 	// Then
-	c.Assert(err.Error(), Equals, "failed to parse proxy config, cluster=default: "+
+	c.Assert(err.Error(), Equals, "failed to parse config: "+
 		"yaml: unmarshal errors:\n"+
-		"  line 7: cannot unmarshal !!str `Kaboom!` into time.Duration")
+		"  line 9: cannot unmarshal !!str `Kaboom!` into time.Duration")
 }
 
 // The first proxy mentioned is returned as default.
@@ -118,4 +118,20 @@ func (s *ConfigSuite) TestFromYAMLTLS(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(appCfg.TLS.CertPath, Equals, "/usr/local/etc/server.crt")
 	c.Assert(appCfg.TLS.KeyPath, Equals, "/usr/local/etc/server.key")
+}
+
+func (s *ConfigSuite) TestFromYAMLCustomAddresses(c *C) {
+	// When
+	appCfg, err := FromYAMLFile("../testdata/custom-hostname.yaml")
+
+	// Then
+	c.Assert(err, IsNil)
+
+	expected := DefaultApp("default")
+	expected.TCPAddr = "foo.bar:443"
+	expected.GRPCAddr = "bar.baz:50000"
+	expected.UnixAddr = "/var/run/kafka-pixy.sock"
+	c.Assert(appCfg.TCPAddr, Equals, expected.TCPAddr)
+	c.Assert(appCfg.GRPCAddr, Equals, expected.GRPCAddr)
+	c.Assert(appCfg.UnixAddr, Equals, expected.UnixAddr)
 }

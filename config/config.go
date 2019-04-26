@@ -361,14 +361,18 @@ func FromYAMLFile(filename string) (*App, error) {
 // FromYAML parses configuration from a YAML string and performs basic
 // validation of parameters.
 func FromYAML(data []byte) (*App, error) {
-	var prob proxyProb
-	if err := yaml.Unmarshal(data, &prob); err != nil {
+	appCfg := newApp()
+	if err := yaml.Unmarshal(data, appCfg); err != nil {
 		return nil, errors.Wrap(err, "failed to parse config")
 	}
 
-	appCfg := newApp()
+	// for the sake of dealing with default values (see below),
+	// unmarshal this again as a different struct
+	var prob proxyProb
+	if err := yaml.Unmarshal(data, &prob); err != nil {
+		return nil, errors.Wrap(err, "failed to parse configuration")
+	}
 	clientID := newClientID()
-
 	for _, proxyItem := range prob.Proxies {
 		cluster, ok := proxyItem.Key.(string)
 		if !ok {
@@ -395,12 +399,6 @@ func FromYAML(data []byte) (*App, error) {
 		return nil, errors.Wrap(err, "invalid config parameter")
 	}
 
-	var tls App
-	if err := yaml.Unmarshal(data, &tls); err != nil {
-		return nil, errors.Wrap(err, "failed to parse configuration")
-	}
-
-	appCfg.TLS = tls.TLS
 	return appCfg, nil
 }
 
