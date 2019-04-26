@@ -1,12 +1,12 @@
 # TCP address that gRPC API server should listen on.
-grpc_addr: 0.0.0.0:19091
+grpc_addr: bar.baz:50000
 
 # TCP address that RESTful API server should listen on.
 tcp_addr: foo.bar:443
 
 # Unix domain socket address that RESTful API server should listen on.
 # Listening on a unix domain socket is disabled by default.
-# unix_addr: "/var/run/kafka-pixy.sock"
+unix_addr: "/var/run/kafka-pixy.sock"
 
 # A map of cluster names to respective proxy configurations. The first proxy
 # in the map is considered to be `default`. It is used in API calls that do not
