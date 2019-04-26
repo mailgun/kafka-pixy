@@ -36,13 +36,14 @@ type T struct {
 }
 
 // New creates a gRPC server instance.
-func New(addr string, proxySet *proxy.Set) (*T, error) {
+func New(addr string, proxySet *proxy.Set, srvOpts ...grpc.ServerOption) (*T, error) {
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create listener")
 	}
 
-	grpcSrv := grpc.NewServer(grpc.MaxMsgSize(maxRequestSize))
+	opts := append(srvOpts, grpc.MaxMsgSize(maxRequestSize))
+	grpcSrv := grpc.NewServer(opts...)
 	s := T{
 		actDesc:  actor.Root().NewChild(fmt.Sprintf("grpc://%s", addr)),
 		listener: listener,

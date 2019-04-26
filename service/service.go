@@ -41,7 +41,12 @@ func Spawn(cfg *config.App) (*T, error) {
 	proxySet := proxy.NewSet(s.proxies, s.proxies[cfg.DefaultCluster])
 
 	if cfg.GRPCAddr != "" {
-		grpcSrv, err := grpcsrv.New(cfg.GRPCAddr, proxySet)
+		securityOpts, err := cfg.GRPCSecurityOpts()
+		if err != nil {
+			s.stopProxies()
+			return nil, errors.Wrap(err, "failed to configure gRPC security")
+		}
+		grpcSrv, err := grpcsrv.New(cfg.GRPCAddr, proxySet, securityOpts...)
 		if err != nil {
 			s.stopProxies()
 			return nil, errors.Wrap(err, "failed to start gRPC server")
@@ -49,7 +54,7 @@ func Spawn(cfg *config.App) (*T, error) {
 		s.servers = append(s.servers, grpcSrv)
 	}
 	if cfg.TCPAddr != "" {
-		tcpSrv, err := httpsrv.New(cfg.TCPAddr, proxySet)
+		tcpSrv, err := httpsrv.New(cfg.TCPAddr, proxySet, cfg.TLS.CertPath, cfg.TLS.KeyPath)
 		if err != nil {
 			s.stopProxies()
 			return nil, errors.Wrap(err, "failed to start TCP socket based HTTP API server")
@@ -57,7 +62,7 @@ func Spawn(cfg *config.App) (*T, error) {
 		s.servers = append(s.servers, tcpSrv)
 	}
 	if cfg.UnixAddr != "" {
-		unixSrv, err := httpsrv.New(cfg.UnixAddr, proxySet)
+		unixSrv, err := httpsrv.New(cfg.UnixAddr, proxySet, "", "")
 		if err != nil {
 			s.stopProxies()
 			return nil, errors.Wrapf(err, "failed to start Unix socket based HTTP API server")

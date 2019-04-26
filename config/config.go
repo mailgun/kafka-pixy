@@ -3,6 +3,7 @@ package config
 import (
 	"bufio"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/pkg/errors"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"gopkg.in/yaml.v2"
 )
 
@@ -37,6 +40,9 @@ type App struct {
 	// prefix `/clusters/<cluster>`. If it is not explicitly provided, then the
 	// one mentioned in the `Proxies` section first is assumed.
 	DefaultCluster string `yaml:"default_cluster"`
+
+	// TLS is the application TLS configuration
+	TLS `yaml:"tls"`
 }
 
 // Proxy defines configuration of a proxy to a particular Kafka/ZooKeeper
@@ -388,6 +394,13 @@ func FromYAML(data []byte) (*App, error) {
 	if err := appCfg.validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config parameter")
 	}
+
+	var tls App
+	if err := yaml.Unmarshal(data, &tls); err != nil {
+		return nil, errors.Wrap(err, "failed to parse configuration")
+	}
+
+	appCfg.TLS = tls.TLS
 	return appCfg, nil
 }
 
@@ -541,4 +554,33 @@ func getDockerCID() (string, error) {
 
 type proxyProb struct {
 	Proxies yaml.MapSlice
+}
+
+type TLS struct {
+	CertPath string `yaml:"certificate_path"`
+	KeyPath  string `yaml:"key_path"`
+}
+
+// GRPCSecurityOpts returns an array (possibly empty) with gRPC security
+// configuration if properly configured
+func (a *App) GRPCSecurityOpts() ([]grpc.ServerOption, error) {
+	srvOpts := []grpc.ServerOption{}
+	// use security only if both cert and key paths are set
+	if a.TLS.CertPath != "" && a.TLS.KeyPath != "" {
+		cert, err := ioutil.ReadFile(a.TLS.CertPath)
+		if err != nil {
+			return nil, err
+		}
+		key, err := ioutil.ReadFile(a.TLS.KeyPath)
+		if err != nil {
+			return nil, err
+		}
+		signedCert, err := tls.X509KeyPair(cert, key)
+		if err != nil {
+			return nil, err
+		}
+		sslCert := credentials.NewServerTLSFromCert(&signedCert)
+		srvOpts = append(srvOpts, grpc.Creds(sslCert))
+	}
+	return srvOpts, nil
 }

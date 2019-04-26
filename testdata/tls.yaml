@@ -182,8 +182,8 @@ tls:
 
   # Path to the server certificate file.
   # Required if using gRPC SSL/TLS or HTTPS.
-  # certificate_path: /usr/local/etc/server.crt
+  certificate_path: /usr/local/etc/server.crt
 
   # Path to the server certificate key file.
   # Required if using gRPC SSL/TLS or HTTPS.
-  # key_path: /usr/local/etc/server.key
+  key_path: /usr/local/etc/server.key
