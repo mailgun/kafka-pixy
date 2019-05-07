@@ -42,7 +42,7 @@ func New(addr string, proxySet *proxy.Set, srvOpts ...grpc.ServerOption) (*T, er
 		return nil, errors.Wrap(err, "failed to create listener")
 	}
 
-	opts := append(srvOpts, grpc.MaxMsgSize(maxRequestSize))
+	opts := append(srvOpts, grpc.MaxRecvMsgSize(maxRequestSize))
 	grpcSrv := grpc.NewServer(opts...)
 	s := T{
 		actDesc:  actor.Root().NewChild(fmt.Sprintf("grpc://%s", addr)),
