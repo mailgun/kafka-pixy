@@ -1,6 +1,6 @@
 language: go
 go:
-  - 1.11
+  - 1.12
 
 env:
   global:
@@ -14,9 +14,10 @@ env:
   matrix:
     - KAFKA_VERSION=0.10.2.1
     - KAFKA_VERSION=1.1.1
-    - KAFKA_VERSION=2.1.0
+    - KAFKA_VERSION=2.2.1
 
 before_install:
+  - export GO111MODULE=on
   - export REPOSITORY_ROOT=${TRAVIS_BUILD_DIR}
   - ./vagrant/install_cluster.sh
   - ./vagrant/boot_cluster.sh
