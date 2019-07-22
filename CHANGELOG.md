@@ -1,6 +1,6 @@
 # Changelog
 
-#### Version 0.17.0 (TBD)
+#### Version 0.17.0 (2018-07-22)
 
 Implemented:
 * [#167](https://github.com/mailgun/kafka-pixy/pull/167)
