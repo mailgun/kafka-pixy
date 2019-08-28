@@ -17,7 +17,6 @@ import (
 
 const (
 	defaultLoggingCfg = `[{"name": "console", "severity": "info"}]`
-	defaultCluster    = "_"
 )
 
 var (
@@ -97,7 +96,7 @@ func makeConfig() (*config.App, error) {
 			return nil, err
 		}
 	} else {
-		cfg = config.DefaultApp(defaultCluster)
+		cfg = config.DefaultApp("default")
 	}
 
 	if cmdGRPCAddr != "" {
@@ -110,15 +109,15 @@ func makeConfig() (*config.App, error) {
 		cfg.UnixAddr = cmdUnixAddr
 	}
 	if cmdKafkaPeers != "" {
-		cfg.Proxies[defaultCluster].Kafka.SeedPeers = strings.Split(cmdKafkaPeers, ",")
+		cfg.Proxies[cfg.DefaultCluster].Kafka.SeedPeers = strings.Split(cmdKafkaPeers, ",")
 	}
 	if cmdZookeeperPeers != "" {
 		chrootStartIdx := strings.Index(cmdZookeeperPeers, "/")
 		if chrootStartIdx >= 0 {
-			cfg.Proxies[defaultCluster].ZooKeeper.SeedPeers = strings.Split(cmdZookeeperPeers[:chrootStartIdx], ",")
-			cfg.Proxies[defaultCluster].ZooKeeper.Chroot = cmdZookeeperPeers[chrootStartIdx:]
+			cfg.Proxies[cfg.DefaultCluster].ZooKeeper.SeedPeers = strings.Split(cmdZookeeperPeers[:chrootStartIdx], ",")
+			cfg.Proxies[cfg.DefaultCluster].ZooKeeper.Chroot = cmdZookeeperPeers[chrootStartIdx:]
 		} else {
-			cfg.Proxies[defaultCluster].ZooKeeper.SeedPeers = strings.Split(cmdZookeeperPeers, ",")
+			cfg.Proxies[cfg.DefaultCluster].ZooKeeper.SeedPeers = strings.Split(cmdZookeeperPeers, ",")
 		}
 	}
 	return cfg, nil

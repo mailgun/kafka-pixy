@@ -1,5 +1,10 @@
 # Changelog
 
+#### Version 0.18.0 (TBD)
+
+* [#174](https://github.com/mailgun/kafka-pixy/pull/174) Added formal support
+  for Kafka versions up to v2.3.0.
+
 #### Version 0.17.0 (2018-07-22)
 
 Implemented:

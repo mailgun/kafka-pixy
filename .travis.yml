@@ -1,9 +1,10 @@
 language: go
 go:
-  - 1.11
+  - 1.12
 
 env:
   global:
+    - GO111MODULE=on
     - KAFKA_PEERS=localhost:9091
     - ZOOKEEPER_PEERS=localhost:2181
     - INSTALL_ROOT=/home/travis
@@ -12,9 +13,8 @@ env:
     - KAFKA_NODE_COUNT=3
     - REPLICATION_FACTOR=1
   matrix:
-    - KAFKA_VERSION=0.10.2.1
     - KAFKA_VERSION=1.1.1
-    - KAFKA_VERSION=2.1.0
+    - KAFKA_VERSION=2.3.0
 
 before_install:
   - export REPOSITORY_ROOT=${TRAVIS_BUILD_DIR}
