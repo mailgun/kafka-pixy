@@ -4,11 +4,15 @@ import (
 	"bufio"
 	"bytes"
 	"testing"
+	"flag"
 
 	"github.com/mailru/easyjson"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )
+
+// Allow travis tests to pass with -check.vv even if we are not using check testing package
+var _ = flag.Bool("check.vv", false, "")
 
 func TestNewJSONFormatter(t *testing.T) {
 	var log = logrus.New()

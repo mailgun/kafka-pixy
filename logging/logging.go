@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"log/syslog"
+	"os"
 
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/config"
@@ -35,21 +36,19 @@ func Init(jsonCfg string, cfg *config.App) error {
 	// Default to plain text formatter
 	formatter = &textFormatter{}
 	log.SetFormatter(formatter)
+	log.StandardLogger().Out = ioutil.Discard
 
 	var hooks []log.Hook
-	stdoutEnabled := false
-	nonStdoutEnabled := false
 	for _, loggerCfg := range loggingCfg {
 		switch loggerCfg.Name {
 		case "console":
-			stdoutEnabled = true
+			log.StandardLogger().Out = os.Stdout
 		case "syslog":
 			h, err := syslogrus.NewSyslogHook("udp", "127.0.0.1:514", syslog.LOG_INFO|syslog.LOG_MAIL, "kafka-pixy")
 			if err != nil {
 				continue
 			}
 			hooks = append(hooks, levelfilter.New(h, loggerCfg.Level()))
-			nonStdoutEnabled = true
 		case "udplog":
 			if cfg == nil {
 				return errors.Errorf("App config must be provided")
@@ -75,11 +74,10 @@ func Init(jsonCfg string, cfg *config.App) error {
 				continue
 			}
 			hooks = append(hooks, levelfilter.New(h, loggerCfg.Level()))
-			nonStdoutEnabled = true
 		case "json":
 			formatter = newJSONFormatter()
 			log.SetFormatter(formatter)
-			stdoutEnabled = true
+			log.StandardLogger().Out = os.Stdout
 		}
 	}
 
@@ -88,17 +86,15 @@ func Init(jsonCfg string, cfg *config.App) error {
 
 	// Shopify/sarama formatter removes trailing `\n` from log entries
 	saramaLogger := log.New()
+	saramaLogger.Out = log.StandardLogger().Out
 	saramaLogger.Formatter = &saramaFormatter{formatter}
 	sarama.Logger = saramaLogger.WithField("category", "sarama")
 
-	for _, logger := range []*log.Logger{log.StandardLogger(), saramaLogger} {
-		if !stdoutEnabled || nonStdoutEnabled {
-			logger.Out = ioutil.Discard
-		}
-		for _, hook := range hooks {
-			logger.Hooks.Add(hook)
-		}
+	for _, hook := range hooks {
+		saramaLogger.Hooks.Add(hook)
+		log.StandardLogger().Hooks.Add(hook)
 	}
+
 	return nil
 }
 

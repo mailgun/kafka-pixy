@@ -106,6 +106,10 @@ func (s *ConfigSuite) TestFromYAMLFile(c *C) {
 	expected := DefaultApp("default")
 	expected.Proxies["default"].ClientID = "ID"
 	expected.Proxies["default"].Kafka.Version.Set(sarama.V0_10_2_1)
+	expected.Logging = append(expected.Logging, LoggerCfg{
+		Name:     "console",
+		Severity: "info",
+	})
 	appCfg.Proxies["default"].ClientID = "ID"
 	c.Assert(appCfg, DeepEquals, expected)
 }

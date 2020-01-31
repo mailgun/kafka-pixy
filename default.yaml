@@ -190,15 +190,15 @@ tls:
 
 # A list of defined loggers, multiple loggers are allowed and each log line will be sent to every logger defined.
 logging:
-  # Logs to stdout in a JSON format
-  - name: json
-    severity: info
   # Logs to stdout in human readable format
   - name: console
     severity: info
-  # Logs to kafka topic in JSON format
-  - name: udplog
-    severity: error
-  # Logs to syslog
-  - name: syslog
-    severity: debug
+  # # Logs to stdout in a JSON format
+  # - name: json
+  #  severity: info
+  # # Logs to kafka topic in JSON format
+  # - name: udplog
+  #  severity: error
+  # # Logs to syslog
+  # - name: syslog
+  #  severity: debug
