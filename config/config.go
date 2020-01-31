@@ -14,6 +14,7 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"gopkg.in/yaml.v2"
@@ -43,7 +44,32 @@ type App struct {
 
 	// TLS is the application TLS configuration
 	TLS `yaml:"tls"`
+
+	// Logging config
+	Logging []LoggerCfg
 }
+
+// LoggerCfg represents a configuration of an individual logger.
+type LoggerCfg struct {
+	// Name defines a logger to be used. It can be one of: console, syslog, or
+	// udplog.
+	Name string `json:"name"`
+
+	// Severity indicates the minimum severity a logger will be logging messages at.
+	Severity string `json:"severity"`
+
+	// Logger parameters
+	Params map[string]string `json:"params"`
+}
+
+func (lc *LoggerCfg) Level() log.Level {
+	level, err := log.ParseLevel(lc.Severity)
+	if err != nil {
+		return log.WarnLevel
+	}
+	return level
+}
+
 
 // Proxy defines configuration of a proxy to a particular Kafka/ZooKeeper
 // cluster.
