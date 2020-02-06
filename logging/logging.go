@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"log/syslog"
+	"os"
 
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/config"
@@ -18,28 +19,36 @@ import (
 // Init initializes sirupsen/logrus hooks from the JSON config string. It also
 // sets the sirupsen/logrus as a logger for 3rd party libraries.
 func Init(jsonCfg string, cfg *config.App) error {
-	var loggingCfg []loggerCfg
-	if err := json.Unmarshal([]byte(jsonCfg), &loggingCfg); err != nil {
-		return errors.Wrap(err, "failed to parse logger config")
+	var formatter log.Formatter
+	var loggingCfg []config.LoggerCfg
+
+	if len(jsonCfg) != 0 {
+		if err := json.Unmarshal([]byte(jsonCfg), &loggingCfg); err != nil {
+			return errors.Wrap(err, "failed to parse logger config")
+		}
 	}
 
-	formatter := &textFormatter{}
+	// Prefer the command line logging config over the config file
+	if loggingCfg == nil {
+		loggingCfg = cfg.Logging
+	}
+
+	// Default to plain text formatter
+	formatter = &textFormatter{}
 	log.SetFormatter(formatter)
+	log.StandardLogger().Out = ioutil.Discard
 
 	var hooks []log.Hook
-	stdoutEnabled := false
-	nonStdoutEnabled := false
 	for _, loggerCfg := range loggingCfg {
 		switch loggerCfg.Name {
 		case "console":
-			stdoutEnabled = true
+			log.StandardLogger().Out = os.Stdout
 		case "syslog":
 			h, err := syslogrus.NewSyslogHook("udp", "127.0.0.1:514", syslog.LOG_INFO|syslog.LOG_MAIL, "kafka-pixy")
 			if err != nil {
 				continue
 			}
-			hooks = append(hooks, levelfilter.New(h, loggerCfg.level()))
-			nonStdoutEnabled = true
+			hooks = append(hooks, levelfilter.New(h, loggerCfg.Level()))
 		case "udplog":
 			if cfg == nil {
 				return errors.Errorf("App config must be provided")
@@ -64,49 +73,29 @@ func Init(jsonCfg string, cfg *config.App) error {
 			if err != nil {
 				continue
 			}
-			hooks = append(hooks, levelfilter.New(h, loggerCfg.level()))
-			nonStdoutEnabled = true
+			hooks = append(hooks, levelfilter.New(h, loggerCfg.Level()))
+		case "json":
+			formatter = newJSONFormatter()
+			log.SetFormatter(formatter)
+			log.StandardLogger().Out = os.Stdout
 		}
 	}
 
 	// samuel/go-zookeeper/zk is using the standard logger.
 	zk.DefaultLogger = log.WithField("category", "zk")
 
-	// Shopify/sarama needs different formatter so it has a dedicated logger.
+	// Shopify/sarama formatter removes trailing `\n` from log entries
 	saramaLogger := log.New()
+	saramaLogger.Out = log.StandardLogger().Out
 	saramaLogger.Formatter = &saramaFormatter{formatter}
 	sarama.Logger = saramaLogger.WithField("category", "sarama")
 
-	for _, logger := range []*log.Logger{log.StandardLogger(), saramaLogger} {
-		if !stdoutEnabled || nonStdoutEnabled {
-			logger.Out = ioutil.Discard
-		}
-		for _, hook := range hooks {
-			logger.Hooks.Add(hook)
-		}
+	for _, hook := range hooks {
+		saramaLogger.Hooks.Add(hook)
+		log.StandardLogger().Hooks.Add(hook)
 	}
+
 	return nil
-}
-
-// loggerCfg represents a configuration of an individual logger.
-type loggerCfg struct {
-	// Name defines a logger to be used. It can be one of: console, syslog, or
-	// udplog.
-	Name string `json:"name"`
-
-	// Severity indicates the minimum severity a logger will be logging messages at.
-	Severity string `json:"severity"`
-
-	// Logger parameters
-	Params map[string]string `json:"params"`
-}
-
-func (lc *loggerCfg) level() log.Level {
-	level, err := log.ParseLevel(lc.Severity)
-	if err != nil {
-		return log.WarnLevel
-	}
-	return level
 }
 
 // saramaFormatter is a sirupsen/logrus formatter that strips trailing new

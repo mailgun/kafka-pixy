@@ -9,14 +9,11 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/mailgun/holster/v3/setter"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/logging"
 	"github.com/mailgun/kafka-pixy/service"
 	log "github.com/sirupsen/logrus"
-)
-
-const (
-	defaultLoggingCfg = `[{"name": "console", "severity": "info"}]`
 )
 
 var (
@@ -38,7 +35,7 @@ func init() {
 	flag.StringVar(&cmdKafkaPeers, "kafkaPeers", "", "Comma separated list of brokers")
 	flag.StringVar(&cmdZookeeperPeers, "zookeeperPeers", "", "Comma separated list of ZooKeeper nodes followed by optional chroot")
 	flag.StringVar(&cmdPIDFile, "pidFile", "", "Path to the PID file")
-	flag.StringVar(&cmdLoggingJSONCfg, "logging", defaultLoggingCfg, "Logging configuration")
+	flag.StringVar(&cmdLoggingJSONCfg, "logging", "", "Logging configuration")
 	flag.Parse()
 }
 
@@ -120,6 +117,12 @@ func makeConfig() (*config.App, error) {
 			cfg.Proxies[cfg.DefaultCluster].ZooKeeper.SeedPeers = strings.Split(cmdZookeeperPeers, ",")
 		}
 	}
+	setter.SetDefault(&cfg.Logging, []config.LoggerCfg{
+		{
+			Name: "console",
+			Severity: "info",
+		},
+	})
 	return cfg, nil
 }
 
