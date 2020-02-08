@@ -139,3 +139,18 @@ func (s *ConfigSuite) TestFromYAMLCustomAddresses(c *C) {
 	c.Assert(appCfg.GRPCAddr, Equals, expected.GRPCAddr)
 	c.Assert(appCfg.UnixAddr, Equals, expected.UnixAddr)
 }
+
+func (s *ConfigSuite) TestFromYAMLKafkaTLS(c *C) {
+	// When
+	appCfg, err := FromYAMLFile("../testdata/kafka-tls.yaml")
+
+	// Then
+	c.Assert(err, IsNil)
+
+	kafkaCfg := appCfg.Proxies["default"].Kafka
+	c.Assert(kafkaCfg.TLSEnabled, Equals, true)
+	c.Assert(kafkaCfg.CACertFile, Equals, "../testdata/ca.crt")
+	c.Assert(kafkaCfg.ClientCertFile, Equals, "../testdata/client.crt")
+	c.Assert(kafkaCfg.ClientCertKeyFile, Equals, "../testdata/client.key")
+	c.Assert(kafkaCfg.InsecureSkipVerify, Equals, false)
+}

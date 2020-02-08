@@ -17,14 +17,19 @@ import (
 )
 
 var (
-	cmdGRPCAddr       string
-	cmdConfig         string
-	cmdTCPAddr        string
-	cmdUnixAddr       string
-	cmdKafkaPeers     string
-	cmdZookeeperPeers string
-	cmdPIDFile        string
-	cmdLoggingJSONCfg string
+	cmdGRPCAddr          string
+	cmdConfig            string
+	cmdTCPAddr           string
+	cmdUnixAddr          string
+	cmdKafkaPeers        string
+	cmdZookeeperPeers    string
+	cmdPIDFile           string
+	cmdLoggingJSONCfg    string
+	cmdTLSEnabled        bool
+	cmdCACertFile        string
+	cmdClientCertFile    string
+	cmdClientCertKeyFile string
+	cmdInsecure          bool
 )
 
 func init() {
@@ -36,6 +41,11 @@ func init() {
 	flag.StringVar(&cmdZookeeperPeers, "zookeeperPeers", "", "Comma separated list of ZooKeeper nodes followed by optional chroot")
 	flag.StringVar(&cmdPIDFile, "pidFile", "", "Path to the PID file")
 	flag.StringVar(&cmdLoggingJSONCfg, "logging", "", "Logging configuration")
+	flag.BoolVar(&cmdTLSEnabled, "tls", false, "Enable TLS (Kafka consumer/producer)")
+	flag.StringVar(&cmdCACertFile, "caCertFile", "", "CA certificate file")
+	flag.StringVar(&cmdClientCertFile, "clientCertFile", "", "Client certificate file")
+	flag.StringVar(&cmdClientCertKeyFile, "clientCertKeyFile", "", "Client certificate key file")
+	flag.BoolVar(&cmdInsecure, "insecureTLS", false, "Disable TLS hostname verification")
 	flag.Parse()
 }
 
@@ -108,6 +118,21 @@ func makeConfig() (*config.App, error) {
 	if cmdKafkaPeers != "" {
 		cfg.Proxies[cfg.DefaultCluster].Kafka.SeedPeers = strings.Split(cmdKafkaPeers, ",")
 	}
+	if cmdTLSEnabled {
+		cfg.Proxies[cfg.DefaultCluster].Kafka.TLSEnabled = cmdTLSEnabled
+	}
+	if cmdCACertFile != "" {
+		cfg.Proxies[cfg.DefaultCluster].Kafka.CACertFile = cmdCACertFile
+	}
+	if cmdClientCertFile != "" {
+		cfg.Proxies[cfg.DefaultCluster].Kafka.ClientCertFile = cmdClientCertFile
+	}
+	if cmdClientCertKeyFile != "" {
+		cfg.Proxies[cfg.DefaultCluster].Kafka.ClientCertKeyFile = cmdClientCertKeyFile
+	}
+	if cmdInsecure {
+		cfg.Proxies[cfg.DefaultCluster].Kafka.InsecureSkipVerify = cmdInsecure
+	}
 	if cmdZookeeperPeers != "" {
 		chrootStartIdx := strings.Index(cmdZookeeperPeers, "/")
 		if chrootStartIdx >= 0 {
@@ -119,7 +144,7 @@ func makeConfig() (*config.App, error) {
 	}
 	setter.SetDefault(&cfg.Logging, []config.LoggerCfg{
 		{
-			Name: "console",
+			Name:     "console",
 			Severity: "info",
 		},
 	})

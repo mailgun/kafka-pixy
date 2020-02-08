@@ -32,19 +32,19 @@ proxies:
         - localhost:9092
 
       # Version of the Kafka cluster. Supported versions are 0.10.2.1 - 2.0.0
-      version: 0.10.2.1
+      version: 2.0.0
 
       # Enable TLS when connecting to the Kafka cluster
-      tls: false
+      tls: true 
 
       # The filepath to the CA root certificate
-      # ca_certificate_file:
+      ca_certificate_file: ../testdata/ca.crt
       
       # The filepath to the client certificate
-      # client_certificate_file:
+      client_certificate_file: ../testdata/client.crt
 
       # The filepath to the client certificate key
-      # client_key_file:
+      client_key_file: ../testdata/client.key
 
       # Disable hostname verification
       # insecure: false
