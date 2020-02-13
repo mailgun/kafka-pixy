@@ -451,6 +451,10 @@ must be specified in order to run with security enabled.
 
 If configured, both the gRPC and HTTP servers will run with TLS enabled.
 
+Additionally TLS may be configured for the Kafka cluster by enabling `tls` in
+the `kafka` section of the configuration YAML (along with any required
+certificates). Details can be found in the default YAML file (`default.yaml`).
+
 ## License
 
 Kafka-Pixy is under the Apache 2.0 license. See the [LICENSE](LICENSE) file for details.

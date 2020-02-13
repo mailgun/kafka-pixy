@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
@@ -70,7 +71,6 @@ func (lc *LoggerCfg) Level() log.Level {
 	return level
 }
 
-
 // Proxy defines configuration of a proxy to a particular Kafka/ZooKeeper
 // cluster.
 type Proxy struct {
@@ -87,6 +87,28 @@ type Proxy struct {
 
 		// Version of the Kafka cluster. Supported versions are 0.10.2.1 - 2.0.0
 		Version KafkaVersion
+
+		// Optionally use TLS when connecting to Kafka. This must be enabled
+		// for following options to be used.
+		TLSEnabled bool `yaml:"tls"`
+
+		// The path to the CA certificate (PEM)
+		CACertFile string `yaml:"ca_certificate_file"`
+
+		// The path to the Client Certificate (PEM)
+		ClientCertFile string `yaml:"client_certificate_file"`
+
+		// The path to the Client Key (PEM)
+		ClientCertKeyFile string `yaml:"client_key_file"`
+
+		// From the tls package:
+		//  InsecureSkipVerify controls whether a client verifies the
+		//  server's certificate chain and host name.
+		//  If InsecureSkipVerify is true, TLS accepts any certificate
+		//  presented by the server and any host name in that certificate.
+		//  In this mode, TLS is susceptible to man-in-the-middle attacks.
+		//  This should be used only for testing.
+		InsecureSkipVerify bool `yaml:"insecure"`
 	} `yaml:"kafka"`
 
 	ZooKeeper struct {
@@ -337,6 +359,13 @@ func (p *Proxy) SaramaProducerCfg() *sarama.Config {
 	saramaCfg.Producer.RequiredAcks = sarama.RequiredAcks(p.Producer.RequiredAcks)
 	saramaCfg.Producer.Partitioner, _ = p.Producer.Partitioner.ToPartitionerConstructor()
 	saramaCfg.Producer.Timeout = p.Producer.Timeout
+
+	if p.Kafka.TLSEnabled {
+		saramaCfg.Net.TLS.Enable = true
+		tlsCfg, _ := p.newTLSConfig() // Ok to ignore err since we validated
+		saramaCfg.Net.TLS.Config = tlsCfg
+	}
+
 	return saramaCfg
 }
 
@@ -350,7 +379,46 @@ func (p *Proxy) SaramaClientCfg() *sarama.Config {
 	saramaCfg.Net.ReadTimeout = p.Net.ReadTimeout
 	saramaCfg.Net.WriteTimeout = p.Net.WriteTimeout
 
+	if p.Kafka.TLSEnabled {
+		saramaCfg.Net.TLS.Enable = true
+		tlsCfg, _ := p.newTLSConfig() // Ok to ignore err since we validated
+		saramaCfg.Net.TLS.Config = tlsCfg
+	}
+
 	return saramaCfg
+}
+
+func (p *Proxy) newTLSConfig() (*tls.Config, error) {
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: p.Kafka.InsecureSkipVerify,
+	}
+
+	if p.Kafka.CACertFile != "" {
+		// build root CA
+		roots := x509.NewCertPool()
+		caCert, err := ioutil.ReadFile(p.Kafka.CACertFile)
+		if err != nil {
+			return nil, err
+		}
+		ok := roots.AppendCertsFromPEM(caCert)
+		if !ok {
+			return nil, err
+		}
+
+		tlsConfig.RootCAs = roots
+	}
+
+	if p.Kafka.ClientCertFile != "" && p.Kafka.ClientCertKeyFile != "" {
+		// setup client certs
+		cert, err := tls.LoadX509KeyPair(p.Kafka.ClientCertFile, p.Kafka.ClientCertKeyFile)
+		if err != nil {
+			return nil, err
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
+
+	tlsConfig.BuildNameToCertificate()
+	return tlsConfig, nil
 }
 
 // DefaultApp returns default application configuration where default proxy has
@@ -486,6 +554,47 @@ func (p *Proxy) validate() error {
 	case p.Consumer.RetryBackoff <= 0:
 		return errors.New("consumer.retry_backoff must be > 0")
 	}
+
+	// Validate TLS configuration.
+	if err := p.validateTLS(); err != nil {
+		return fmt.Errorf("invalid tls configuration: %q", err)
+	}
+
+	return nil
+}
+
+func (p *Proxy) validateTLS() error {
+	// Validate the CA certificate
+	if p.Kafka.CACertFile != "" {
+		caCert, err := ioutil.ReadFile(p.Kafka.CACertFile)
+		if err != nil {
+			return fmt.Errorf("kafka.ca_cert_file: %s", err)
+		}
+		roots := x509.NewCertPool()
+		ok := roots.AppendCertsFromPEM(caCert)
+		if !ok {
+			return errors.New("kafka.ca_cert_file does not appear to be a valid CA certificate")
+		}
+	}
+
+	// Validate the client certificate and key
+	if p.Kafka.ClientCertFile != "" && p.Kafka.ClientCertKeyFile != "" {
+		_, err := ioutil.ReadFile(p.Kafka.ClientCertFile)
+		if err != nil {
+			return fmt.Errorf("kafka.client_cert_file: %s", err)
+		}
+
+		_, err = ioutil.ReadFile(p.Kafka.ClientCertKeyFile)
+		if err != nil {
+			return fmt.Errorf("kafka.client_cert_key_file: %s", err)
+		}
+
+		_, err = tls.LoadX509KeyPair(p.Kafka.ClientCertFile, p.Kafka.ClientCertKeyFile)
+		if err != nil {
+			return errors.New("kafka.client_cert_file and kafka.client_cert_key_file are not a valid certificate pair")
+		}
+	}
+
 	return nil
 }
 

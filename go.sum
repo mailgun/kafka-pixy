@@ -89,6 +89,7 @@ github.com/kr/text v0.1.0 h1:45sCR5RtlFHMR4UwH9sdQ5TC8v0qDQCHnXt+kaKSTVE=
 github.com/kr/text v0.1.0/go.mod h1:4Jbv+DJW3UT/LiOwJeYQe1efqtUx/iVham/4vfdArNI=
 github.com/mailgun/holster v3.0.0+incompatible h1:bpt8ZCwLBrzjqfBZ5mobNb2NjesNeDHmsOO++Ek9Swc=
 github.com/mailgun/holster v3.0.0+incompatible/go.mod h1:crzolGx27RP/IBT/BnPQiYBB9igmAFHGRrz0zlMP0b0=
+github.com/mailgun/holster/v3 v3.8.0 h1:unYHTrMBlMqzozNrddT84jC/jRfZ6h0jGVLXYQr9mZw=
 github.com/mailgun/holster/v3 v3.8.0/go.mod h1:rNcFlhMTxFDa1dnQC4sUqI71IpAa9/aPeU6w8IGF3aQ=
 github.com/mailgun/logrus-hooks v1.2.1 h1:1paOVAsjXbvqoI1dft6gG+8WRc+CPJtnJjOjxhBkmuo=
 github.com/mailgun/logrus-hooks v1.2.1/go.mod h1:YRm/XRR8Kmhtyq6FbqszTPq+RxEHvtc1Dlf0Beo8P1k=
@@ -144,6 +145,7 @@ github.com/stretchr/objx v0.1.1/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+
 github.com/stretchr/testify v1.2.2/go.mod h1:a8OnRcib4nhh0OaRAV+Yts87kKdq0PP7pXfy6kDkUVs=
 github.com/stretchr/testify v1.3.0 h1:TivCn/peBQ7UY8ooIcPgZFpTNSz0Q2U6UrFlUfqbe0Q=
 github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UVUgZn+9EI=
+github.com/stretchr/testify v1.4.0 h1:2E4SXV/wtOkTonXsotYi4li6zVWxYlZuYNCXe9XRJyk=
 github.com/stretchr/testify v1.4.0/go.mod h1:j7eGeouHqKxXV5pUuKE4zz7dFj8WfuZ+81PSLYec5m4=
 github.com/thrawn01/args v0.3.0 h1:XbMnfGaw6nFbm8hgSncHu20cGrZMTP8BnxiusA43AeE=
 github.com/thrawn01/args v0.3.0/go.mod h1:TnRiOFjyh7Wa6oC8ACFPc7KIvbzCiluphA3mJUiPIEo=
@@ -184,6 +186,7 @@ golang.org/x/sys v0.0.0-20190215142949-d0b11bdaac8a/go.mod h1:STP8DvDyc/dI5b8T5h
 golang.org/x/sys v0.0.0-20190403152447-81d4e9dc473e/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
 golang.org/x/sys v0.0.0-20190422165155-953cdadca894 h1:Cz4ceDQGXuKRnVBDTS23GTn/pU5OE2C0WrNTOYK1Uuc=
 golang.org/x/sys v0.0.0-20190422165155-953cdadca894/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
+golang.org/x/sys v0.0.0-20190801041406-cbf593c0f2f3 h1:4y9KwBHBgBNwDbtu44R5o1fdOCQUEXhbk/P4A9WmJq0=
 golang.org/x/sys v0.0.0-20190801041406-cbf593c0f2f3/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
 golang.org/x/text v0.3.0 h1:g61tztE5qeGQ89tm6NTjjM9VPIm088od1l6aSorWRWg=
 golang.org/x/text v0.3.0/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=
