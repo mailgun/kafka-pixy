@@ -11,8 +11,8 @@ all:
 	go install github.com/mailgun/kafka-pixy
 	go build -v -ldflags "-X main.Version=$(VERSION)" -o $(GOPATH)/bin/kafka-pixy-cli \
 		github.com/mailgun/kafka-pixy/cmd/kafka-pixy-cli
-	go install github.com/mailgun/kafka-pixy/tools/testproducer
-	go install github.com/mailgun/kafka-pixy/tools/testconsumer
+	go install github.com/mailgun/kafka-pixy/cmd/testproducer
+	go install github.com/mailgun/kafka-pixy/cmd/testconsumer
 
 vet:
 	go vet `go list ./... | grep -v '/vendor/'`
