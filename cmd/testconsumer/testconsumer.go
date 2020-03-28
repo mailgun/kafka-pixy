@@ -26,6 +26,7 @@ var (
 	threads     int
 	count       int
 	waitForMore bool
+	verbose     bool
 )
 
 func init() {
@@ -35,6 +36,7 @@ func init() {
 	flag.IntVar(&threads, "threads", 1, "number of concurrent consumer threads")
 	flag.IntVar(&count, "count", 10000, "number of messages to consume by all threads")
 	flag.BoolVar(&waitForMore, "wait", false, "should wait for more messages when the end of the topic is reached")
+	flag.BoolVar(&verbose, "verbose", false, "print out every consumed message")
 	flag.Parse()
 }
 
@@ -62,9 +64,9 @@ func main() {
 					Group: group,
 					NoAck: true,
 				}
-				var res *pb.ConsRs
+				var rs *pb.ConsRs
 				for {
-					res, err = clt.ConsumeNAck(context.Background(), &req)
+					rs, err = clt.ConsumeNAck(context.Background(), &req)
 					if err != nil {
 						if status.Code(err) == codes.NotFound {
 							if waitForMore {
@@ -74,20 +76,23 @@ func main() {
 						}
 						panic(errors.Wrap(err, "failed to consume first"))
 					}
+					if verbose {
+						fmt.Printf("Got: key=%s, partition=%d, offset=%d\n", string(rs.KeyValue), rs.Partition, rs.Offset)
+					}
 					break
 				}
-				progressCh <- len(res.Message)
+				progressCh <- len(rs.Message)
 				// Run consume+ack loop.
-				ackPartition := res.Partition
-				ackOffset := res.Offset
+				ackPartition := rs.Partition
+				ackOffset := rs.Offset
 				for i := 1; i < chunkSize; i++ {
-					req := pb.ConsNAckRq{
+					rq := pb.ConsNAckRq{
 						Topic:        topic,
 						Group:        group,
 						AckPartition: ackPartition,
 						AckOffset:    ackOffset,
 					}
-					res, err = clt.ConsumeNAck(context.Background(), &req)
+					rs, err = clt.ConsumeNAck(context.Background(), &rq)
 					if err != nil {
 						if status.Code(err) == codes.NotFound {
 							if waitForMore {
@@ -97,10 +102,12 @@ func main() {
 						}
 						panic(errors.Wrapf(err, "failed to consume: thread=%d, no=%d", tid, i))
 					}
-					ackPartition = res.Partition
-					ackOffset = res.Offset
-					progressCh <- len(res.Message)
-
+					ackPartition = rs.Partition
+					ackOffset = rs.Offset
+					progressCh <- len(rs.Message)
+					if verbose {
+						fmt.Printf("Got: key=%s, partition=%d, offset=%d\n", string(rs.KeyValue), rs.Partition, rs.Offset)
+					}
 				}
 				// Ack the last consumed message.
 				ackReq := pb.AckRq{
@@ -119,6 +126,15 @@ func main() {
 		close(progressCh)
 	}()
 
+	progressFmt := "Consuming... %d(%s) for %s at %dmsg(%s)/sec             "
+	summaryFmt := "Consumed %d(%s) for %s at %dmsg(%s)/sec             \n"
+	if verbose {
+		progressFmt = progressFmt + "\n"
+	} else {
+		progressFmt = "\r" + progressFmt
+		summaryFmt = "\r" + summaryFmt
+	}
+
 	checkpoint := begin
 	var count, totalCount int
 	var bytes, totalBytes int64
@@ -132,10 +148,8 @@ func main() {
 			totalCount += count
 			totalBytes += bytes
 			tookSec := float64(took) / float64(time.Second)
-			fmt.Printf("\rConsuming... %d(%s) for %s at %dmsg(%s)/sec             ",
-				totalCount, prettyfmt.Bytes(totalBytes), totalTook,
-				int64(float64(count)/tookSec),
-				prettyfmt.Bytes(int64(float64(bytes)/tookSec)))
+			fmt.Printf(progressFmt, totalCount, prettyfmt.Bytes(totalBytes), totalTook,
+				int64(float64(count)/tookSec), prettyfmt.Bytes(int64(float64(bytes)/tookSec)))
 			count = 0
 			bytes = 0
 			checkpoint = now
@@ -145,8 +159,6 @@ func main() {
 	totalBytes += bytes
 	totalTook := time.Now().Sub(begin)
 	totalTookSec := float64(totalTook) / float64(time.Second)
-	fmt.Printf("\rConsumed %d(%s) for %s at %dmsg(%s)/sec             \n",
-		totalCount, prettyfmt.Bytes(totalBytes), totalTook,
-		int64(float64(totalCount)/totalTookSec),
-		prettyfmt.Bytes(int64(float64(totalBytes)/totalTookSec)))
+	fmt.Printf(summaryFmt, totalCount, prettyfmt.Bytes(totalBytes), totalTook,
+		int64(float64(totalCount)/totalTookSec), prettyfmt.Bytes(int64(float64(totalBytes)/totalTookSec)))
 }

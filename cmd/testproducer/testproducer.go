@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"flag"
 	"fmt"
-	"strconv"
 	"sync"
 	"time"
 
@@ -22,12 +21,14 @@ const (
 )
 
 var (
-	grpcAddr string
-	topic    string
-	isSync   bool
-	threads  int
-	count    int
-	size     int
+	grpcAddr  string
+	topic     string
+	isSync    bool
+	threads   int
+	count     int
+	size      int
+	verbose   bool
+	keyPrefix string
 )
 
 func init() {
@@ -37,6 +38,8 @@ func init() {
 	flag.IntVar(&threads, "threads", 1, "number of concurrent producer threads")
 	flag.IntVar(&count, "count", 10000, "number of messages to produce by all threads")
 	flag.IntVar(&size, "size", 1000, "message size in bytes")
+	flag.BoolVar(&verbose, "verbose", false, "print out every produced message")
+	flag.StringVar(&keyPrefix, "prefix", "", "key prefix")
 	flag.Parse()
 }
 
@@ -50,8 +53,13 @@ func main() {
 	}
 	clt := pb.NewKafkaPixyClient(cltConn)
 
-	fmt.Printf("Producing...")
+	if !verbose {
+		fmt.Printf("Producing...")
+	}
 	begin := time.Now()
+	if keyPrefix == "" {
+		keyPrefix = begin.Format(time.RFC3339)
+	}
 
 	go func() {
 		var wg sync.WaitGroup
@@ -70,15 +78,19 @@ func main() {
 				recentProgress := 0
 				checkpoint := time.Now()
 				for i := messageIndexBegin; i < messageIndexEnd; i++ {
-					req := pb.ProdRq{
+					key := fmt.Sprintf("%s_%d", keyPrefix, i)
+					rq := pb.ProdRq{
 						Topic:     topic,
-						KeyValue:  []byte(strconv.Itoa(i)),
+						KeyValue:  []byte(key),
 						Message:   msg,
 						AsyncMode: !isSync,
 					}
-					_, err := clt.Produce(context.Background(), &req)
+					rs, err := clt.Produce(context.Background(), &rq)
 					if err != nil {
 						panic(errors.Wrapf(err, "failed to produce: thread=%d, no=%d", tid, i-messageIndexBegin))
+					}
+					if verbose {
+						fmt.Printf("Put: key=%s, partition=%d, offset=%d\n", key, rs.Partition, rs.Offset)
 					}
 					recentProgress += 1
 					if time.Now().Sub(checkpoint) > reportingPeriod {
@@ -94,19 +106,26 @@ func main() {
 		close(progressCh)
 	}()
 
+	progressFmt := "Producing... %d/%d for %s at %dmsg(%s)/sec"
+	summaryFmt := "Produced %d messages of size %d for %s at %dmsg(%s)/sec\n"
+	if verbose {
+		progressFmt = progressFmt + "\n"
+	} else {
+		progressFmt = "\r" + progressFmt
+		summaryFmt = "\r" + summaryFmt
+	}
+
 	totalProgress := 0
 	for progress := range progressCh {
 		totalProgress += progress
 		took := time.Now().Sub(begin)
 		tookSec := float64(took) / float64(time.Second)
-		fmt.Printf("\rProducing... %d/%d for %s at %dmsg(%s)/sec",
-			totalProgress, count, took, int64(float64(totalProgress)/tookSec),
+		fmt.Printf(progressFmt, totalProgress, count, took, int64(float64(totalProgress)/tookSec),
 			prettyfmt.Bytes(int64(float64(size*totalProgress)/tookSec)))
 	}
 	took := time.Now().Sub(begin)
 	tookSec := float64(took) / float64(time.Second)
-	fmt.Printf("\rProduced %d messages of size %d for %s at %dmsg(%s)/sec\n",
-		totalProgress, size, took, int64(float64(totalProgress)/tookSec),
+	fmt.Printf(summaryFmt, totalProgress, size, took, int64(float64(totalProgress)/tookSec),
 		prettyfmt.Bytes(int64(float64(size*totalProgress)/tookSec)))
 }
 
