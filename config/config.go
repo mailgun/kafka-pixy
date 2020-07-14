@@ -655,6 +655,13 @@ func defaultProxyWithClientID(clientID string) *Proxy {
 // newClientID creates a unique id that identifies this particular Kafka-Pixy
 // in both Kafka and ZooKeeper.
 func newClientID() string {
+	if nomad := os.Getenv("NOMAD_ALLOC_ID"); nomad != "" {
+		parts := strings.Split(nomad, "-")
+		if idx := os.Getenv("NOMAD_ALLOC_INDEX"); idx != "" {
+			return "kp_nomad_" + parts[0] + "_" + idx
+		}
+		return "kp_nomad_" + parts[0]
+	}
 	hostname, err := os.Hostname()
 	if err != nil {
 		token := make([]byte, 4)
