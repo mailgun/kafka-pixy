@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -153,4 +154,19 @@ func (s *ConfigSuite) TestFromYAMLKafkaTLS(c *C) {
 	c.Assert(kafkaCfg.ClientCertFile, Equals, "../testdata/client.crt")
 	c.Assert(kafkaCfg.ClientCertKeyFile, Equals, "../testdata/client.key")
 	c.Assert(kafkaCfg.InsecureSkipVerify, Equals, false)
+}
+
+func (s *ConfigSuite) TestClientIDFromNomad(c *C) {
+	// When
+	os.Setenv("NOMAD_ALLOC_ID", "b313e983-c906-49df-b5f7-f6fbc59b3297")
+	os.Setenv("NOMAD_ALLOC_INDEX", "0")
+	defer func() {
+		os.Setenv("NOMAD_ALLOC_ID", "")
+		os.Setenv("NOMAD_ALLOC_INDEX", "")
+	}()
+	appCfg, err := FromYAMLFile("../default.yaml")
+
+	// Then
+	c.Assert(err, IsNil)
+	c.Assert("kp_nomad_b313e983_0", Equals, appCfg.Proxies["default"].ClientID)
 }
