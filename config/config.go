@@ -139,6 +139,24 @@ type Proxy struct {
 
 		// How long to wait for a transmit.
 		WriteTimeout time.Duration `yaml:"write_timeout"`
+
+		// SASL support for SASL PLAIN
+		SASL struct {
+			// Whether or not to use SASL authentication when connecting to the broker (defaults to false).
+			Enable bool `yaml:"enable"`
+
+			// Whether or not to send the Kafka SASL handshake first if enabled
+			// (defaults to true). You should only set this to false if you're using
+			// a non-Kafka SASL proxy.
+			Handshake bool `yaml:"handshake"`
+
+			// User is the authentication identity (authcid) to present for
+			// SASL/PLAIN
+			User string `yaml:"user"`
+
+			// Password for SASL/PLAIN authentication
+			Password string `yaml:"password"`
+		} `yaml:"sasl"`
 	} `yaml:"net"`
 
 	Producer struct {
@@ -350,6 +368,13 @@ func (p *Proxy) SaramaProducerCfg() *sarama.Config {
 	saramaCfg.Net.ReadTimeout = p.Net.ReadTimeout
 	saramaCfg.Net.WriteTimeout = p.Net.WriteTimeout
 
+	if p.Net.SASL.Enable {
+		saramaCfg.Net.SASL.Enable = p.Net.SASL.Enable
+		saramaCfg.Net.SASL.Handshake = p.Net.SASL.Handshake
+		saramaCfg.Net.SASL.User = p.Net.SASL.User
+		saramaCfg.Net.SASL.Password = p.Net.SASL.Password
+	}
+
 	saramaCfg.Producer.MaxMessageBytes = p.Producer.MaxMessageBytes
 	saramaCfg.Producer.Compression = sarama.CompressionCodec(p.Producer.Compression)
 	saramaCfg.Producer.Flush.Frequency = p.Producer.FlushFrequency
@@ -378,6 +403,13 @@ func (p *Proxy) SaramaClientCfg() *sarama.Config {
 	saramaCfg.Net.DialTimeout = p.Net.DialTimeout
 	saramaCfg.Net.ReadTimeout = p.Net.ReadTimeout
 	saramaCfg.Net.WriteTimeout = p.Net.WriteTimeout
+
+	if p.Net.SASL.Enable {
+		saramaCfg.Net.SASL.Enable = p.Net.SASL.Enable
+		saramaCfg.Net.SASL.Handshake = p.Net.SASL.Handshake
+		saramaCfg.Net.SASL.User = p.Net.SASL.User
+		saramaCfg.Net.SASL.Password = p.Net.SASL.Password
+	}
 
 	if p.Kafka.TLSEnabled {
 		saramaCfg.Net.TLS.Enable = true
