@@ -1,9 +1,10 @@
 # Changelog
 
-#### Version 0.18.0 (TBD)
+#### Version 0.18.0 (2021-07-05)
 
 * [#174](https://github.com/mailgun/kafka-pixy/pull/174) Added formal support
   for Kafka versions up to v2.3.0.
+* Switched [Go Protobuf API v2](https://blog.golang.org/protobuf-apiv2)
 
 #### Version 0.17.0 (2018-07-22)
 
