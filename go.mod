@@ -11,7 +11,6 @@ require (
 	github.com/gorilla/mux v1.7.3
 	github.com/mailgun/holster v3.0.0+incompatible
 	github.com/mailgun/holster/v3 v3.8.0
-	github.com/mailgun/logrus-hooks v1.2.1
 	github.com/mailru/easyjson v0.0.0-20190626092158-b2ccc519800e
 	github.com/onsi/ginkgo v1.9.0 // indirect
 	github.com/onsi/gomega v1.6.0 // indirect

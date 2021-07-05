@@ -8,8 +8,6 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/config"
-	"github.com/mailgun/logrus-hooks/kafkahook"
-	"github.com/mailgun/logrus-hooks/levelfilter"
 	"github.com/pkg/errors"
 	"github.com/samuel/go-zookeeper/zk"
 	log "github.com/sirupsen/logrus"
@@ -48,32 +46,7 @@ func Init(jsonCfg string, cfg *config.App) error {
 			if err != nil {
 				continue
 			}
-			hooks = append(hooks, levelfilter.New(h, loggerCfg.Level()))
-		case "udplog":
-			if cfg == nil {
-				return errors.Errorf("App config must be provided")
-			}
-			// If a Kafka cluster is not specified in logging config or does
-			// not exist in the Kafka-Pixy config, then the default cluster is
-			// used.
-			cluster := loggerCfg.Params["cluster"]
-			proxyCfg := cfg.Proxies[cluster]
-			if proxyCfg == nil {
-				proxyCfg = cfg.Proxies[cfg.DefaultCluster]
-			}
-			// If the log topic is not specified then "udplog" is assumed.
-			topic := loggerCfg.Params["topic"]
-			if topic == "" {
-				topic = "udplog"
-			}
-			h, err := kafkahook.New(kafkahook.Config{
-				Endpoints: proxyCfg.Kafka.SeedPeers,
-				Topic:     topic,
-			})
-			if err != nil {
-				continue
-			}
-			hooks = append(hooks, levelfilter.New(h, loggerCfg.Level()))
+			hooks = append(hooks, newLevelFilter(h, loggerCfg.Level()))
 		case "json":
 			formatter = newJSONFormatter()
 			log.SetFormatter(formatter)
