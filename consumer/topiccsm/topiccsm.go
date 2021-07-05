@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mailgun/holster/clock"
+	"github.com/mailgun/holster/v4/clock"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer"

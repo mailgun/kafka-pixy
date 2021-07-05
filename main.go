@@ -9,7 +9,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/mailgun/holster/v3/setter"
+	"github.com/mailgun/holster/v4/setter"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/logging"
 	"github.com/mailgun/kafka-pixy/service"

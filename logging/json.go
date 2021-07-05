@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/mailgun/holster/v3/callstack"
+	"github.com/mailgun/holster/v4/callstack"
 	"github.com/mailru/easyjson/jwriter"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -22,8 +22,8 @@ type jsonFormater struct {
 
 func newJSONFormatter() *jsonFormater {
 	f := &jsonFormater{
-		appName:  "kafka-pixy",
-		pid:      os.Getpid(),
+		appName: "kafka-pixy",
+		pid:     os.Getpid(),
 	}
 
 	var err error

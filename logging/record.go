@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/mailgun/holster/v3/callstack"
-	"github.com/mailgun/holster/v3/errors"
+	"github.com/mailgun/holster/v4/callstack"
+	"github.com/mailgun/holster/v4/errors"
 	"github.com/sirupsen/logrus"
 )
 
