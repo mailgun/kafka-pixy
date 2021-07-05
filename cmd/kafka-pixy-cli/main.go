@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/mailgun/kafka-pixy/gen/golang"
+	pb "github.com/mailgun/kafka-pixy/gen/golang"
 	"github.com/pkg/errors"
 	"github.com/thrawn01/args"
 	"golang.org/x/net/context"

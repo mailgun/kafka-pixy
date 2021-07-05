@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/mailgun/kafka-pixy/gen/golang"
+	pb "github.com/mailgun/kafka-pixy/gen/golang"
 	"google.golang.org/grpc"
 )
 

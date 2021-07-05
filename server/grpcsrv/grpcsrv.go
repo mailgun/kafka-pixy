@@ -11,7 +11,7 @@ import (
 	"github.com/mailgun/kafka-pixy/admin"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/consumer/offsettrk"
-	"github.com/mailgun/kafka-pixy/gen/golang"
+	pb "github.com/mailgun/kafka-pixy/gen/golang"
 	"github.com/mailgun/kafka-pixy/offsetmgr"
 	"github.com/mailgun/kafka-pixy/proxy"
 	"github.com/pkg/errors"
@@ -27,6 +27,7 @@ const (
 )
 
 type T struct {
+	pb.UnimplementedKafkaPixyServer
 	actDesc  *actor.Descriptor
 	listener net.Listener
 	grpcSrv  *grpc.Server

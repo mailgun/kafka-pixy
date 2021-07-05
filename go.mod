@@ -1,13 +1,12 @@
 module github.com/mailgun/kafka-pixy
 
-go 1.12
+go 1.16
 
 require (
 	github.com/Shopify/sarama v1.23.1
 	github.com/davecgh/go-spew v1.1.1
 	github.com/fatih/structs v1.1.0 // indirect
 	github.com/go-ini/ini v1.46.0 // indirect
-	github.com/golang/protobuf v1.5.2
 	github.com/gorilla/mux v1.8.0
 	github.com/mailgun/holster/v4 v4.0.0
 	github.com/mailru/easyjson v0.0.0-20190626092158-b2ccc519800e
@@ -21,7 +20,8 @@ require (
 	github.com/stretchr/testify v1.7.0
 	github.com/thrawn01/args v0.3.0
 	golang.org/x/net v0.0.0-20210405180319-a5a99cb37ef4
-	google.golang.org/grpc v1.38.0
+	google.golang.org/grpc v1.39.0
+	google.golang.org/protobuf v1.27.1
 	gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15
 	gopkg.in/ini.v1 v1.46.0 // indirect
 	gopkg.in/jcmturner/goidentity.v3 v3.0.0 // indirect
