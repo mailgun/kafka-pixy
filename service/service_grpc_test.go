@@ -9,7 +9,7 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/config"
-	"github.com/mailgun/kafka-pixy/gen/golang"
+	pb "github.com/mailgun/kafka-pixy/gen/golang"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/mailgun/kafka-pixy/testhelpers/kafkahelper"
 	"github.com/samuel/go-zookeeper/zk"
