@@ -9,6 +9,7 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/none"
+	"github.com/sirupsen/logrus"
 )
 
 // T fetches messages from inputs and multiplexes them to the output, giving
@@ -203,9 +204,11 @@ reset:
 		isAtLeastOneAvailable := false
 		for _, in := range m.sortedIns {
 			if in.msgOk {
+				m.actDesc.Log().Infof("partition '%d' has messages", in.partition)
 				isAtLeastOneAvailable = true
 				continue
 			}
+			m.actDesc.Log().Info("waiting for messages")
 			select {
 			case msg, ok := <-in.Messages():
 				// If a channel of an input is closed, then the input should be
@@ -216,6 +219,7 @@ reset:
 					m.refreshSortedIns()
 					goto reset
 				}
+				m.actDesc.Log().Infof("partition '%d' now has messages", in.partition)
 				in.msg = msg
 				in.msgOk = true
 				isAtLeastOneAvailable = true
@@ -225,18 +229,22 @@ reset:
 		// If none of the inputs has a message available, then wait until
 		// a message is fetched on any of them or a stop signal is received.
 		if !isAtLeastOneAvailable {
+			m.actDesc.Log().Info("no partition has messages; waiting...")
 			idx, value, _ := reflect.Select(selectCases)
 			// Check if it is a stop signal.
 			if idx == inputCount {
+				m.actDesc.Log().Info("selected stop signal")
 				return
 			}
 			m.sortedIns[idx].msg = value.Interface().(consumer.Message)
 			m.sortedIns[idx].msgOk = true
 		}
+		m.actDesc.Log().Info("selecting partition to read")
 		// At this point there is at least one message available.
-		inputIdx = selectInput(inputIdx, m.sortedIns)
+		inputIdx = selectInputWithLog(m.actDesc.Log(), inputIdx, m.sortedIns)
 		// Block until the output reads the next message of the selected input
 		// or a stop signal is received.
+		m.actDesc.Log().Infof("selected '%d' to read", inputIdx)
 		select {
 		case <-m.stopCh:
 			return
@@ -295,5 +303,37 @@ func selectInput(prevSelectedIdx int, sortedIns []*input) int {
 			selectedIdx = i
 		}
 	}
+	return selectedIdx
+}
+
+func selectInputWithLog(log logrus.FieldLogger, prevSelectedIdx int, sortedIns []*input) int {
+	maxLag := int64(-1)
+	selectedIdx := -1
+	for i, input := range sortedIns {
+		if !input.msgOk {
+			continue
+		}
+		lag := input.msg.HighWaterMark - input.msg.Offset
+		log.Infof("selectInput: partition '%d' has messages with lag %d", input.partition, lag)
+		if lag > maxLag {
+			maxLag = lag
+			selectedIdx = i
+			log.Info("lag > maxLag")
+			continue
+		}
+		if lag < maxLag {
+			log.Info("lag < maxLag")
+			continue
+		}
+		if selectedIdx > prevSelectedIdx {
+			log.Info("selectedIdx > prevSelectedIdx")
+			continue
+		}
+		log.Info("i > prevSelectedIdx")
+		if i > prevSelectedIdx {
+			selectedIdx = i
+		}
+	}
+	log.Infof("selectInput: selected '%d'", selectedIdx)
 	return selectedIdx
 }

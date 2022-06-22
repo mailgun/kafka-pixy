@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	. "gopkg.in/check.v1"
+
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/config"
 	pb "github.com/mailgun/kafka-pixy/gen/golang"
@@ -16,7 +18,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	. "gopkg.in/check.v1"
 )
 
 type ServiceGRPCSuite struct {
@@ -76,7 +77,7 @@ func (s *ServiceGRPCSuite) TestProduceWithKey(c *C) {
 		}
 		res, err := s.clt.Produce(ctx, &req, grpc.FailFast(false))
 		c.Check(err, IsNil)
-		c.Check(*res, Equals, pb.ProdRs{Partition: -1, Offset: -1})
+		c.Check(res, Equals, pb.ProdRs{Partition: -1, Offset: -1})
 	}
 	// Stop service to make it commit asynchronously produced messages to Kafka.
 	svc.Stop()
@@ -110,7 +111,7 @@ func (s *ServiceGRPCSuite) TestProduceKeyUndefined(c *C) {
 		}
 		res, err := s.clt.Produce(ctx, &req, grpc.FailFast(false))
 		c.Check(err, IsNil)
-		c.Check(*res, Equals, pb.ProdRs{Partition: -1, Offset: -1})
+		c.Check(res, Equals, pb.ProdRs{Partition: -1, Offset: -1})
 	}
 	// Stop service to make it commit asynchronously produced messages to Kafka.
 	svc.Stop()
@@ -144,7 +145,7 @@ func (s *ServiceGRPCSuite) TestProduceDefaultKey(c *C) {
 		}
 		res, err := s.clt.Produce(ctx, &req, grpc.FailFast(false))
 		c.Check(err, IsNil)
-		c.Check(*res, Equals, pb.ProdRs{Partition: -1, Offset: -1})
+		c.Check(res, Equals, pb.ProdRs{Partition: -1, Offset: -1})
 	}
 	// Stop service to make it commit asynchronously produced messages to Kafka.
 	svc.Stop()
@@ -180,7 +181,7 @@ func (s *ServiceGRPCSuite) TestProduceSync(c *C) {
 
 	// Then
 	c.Check(err, IsNil)
-	c.Check(*res, Equals, pb.ProdRs{Partition: 2, Offset: offsetsBefore[2]})
+	c.Check(res, Equals, pb.ProdRs{Partition: 2, Offset: offsetsBefore[2]})
 }
 
 func (s *ServiceGRPCSuite) TestProduceInvalidProxy(c *C) {
@@ -436,7 +437,7 @@ func (s *ServiceGRPCSuite) TestConsumeExplicitProxy(c *C) {
 
 	// Then
 	c.Check(err, IsNil)
-	c.Check(*consRes, DeepEquals, pb.ConsRs{
+	c.Check(consRes, DeepEquals, pb.ConsRs{
 		Partition: prodRes.Partition,
 		Offset:    prodRes.Offset,
 		KeyValue:  prodReq.KeyValue,
@@ -471,7 +472,7 @@ func (s *ServiceGRPCSuite) TestConsumeKeyUndefined(c *C) {
 
 	// Then
 	c.Check(err, IsNil)
-	c.Check(*consRes, DeepEquals, pb.ConsRs{
+	c.Check(consRes, DeepEquals, pb.ConsRs{
 		Partition:    prodRes.Partition,
 		Offset:       prodRes.Offset,
 		KeyUndefined: true,
@@ -513,7 +514,7 @@ func (s *ServiceGRPCSuite) TestConsumeHeaders(c *C) {
 
 	// Then
 	c.Check(err, IsNil)
-	c.Check(*consRes, DeepEquals, pb.ConsRs{
+	c.Check(consRes, DeepEquals, pb.ConsRs{
 		Partition:    prodRes.Partition,
 		Offset:       prodRes.Offset,
 		KeyUndefined: true,
