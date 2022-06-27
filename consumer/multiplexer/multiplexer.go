@@ -1,11 +1,15 @@
 package multiplexer
 
 import (
+	"fmt"
+	"os"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/mailgun/holster/v4/callstack"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/none"
@@ -183,6 +187,7 @@ func (m *T) refreshSortedIns() {
 }
 
 func (m *T) run() {
+	rid := callstack.GoRoutineID()
 reset:
 	inputCount := len(m.inputs)
 	if inputCount == 0 {
@@ -200,26 +205,28 @@ reset:
 
 	inputIdx := -1
 	for {
+		var b strings.Builder
+		b.Grow(1000)
+		fmt.Fprintf(&b, "begin trace for: %d\n", rid)
 		// Collect next messages from inputs that have them available.
 		isAtLeastOneAvailable := false
 		for _, in := range m.sortedIns {
 			if in.msgOk {
-				m.actDesc.Log().Infof("partition '%d' has messages", in.partition)
+				fmt.Fprintf(&b, "partition '%d' has messages\n", in.partition)
 				isAtLeastOneAvailable = true
 				continue
 			}
-			m.actDesc.Log().Info("waiting for messages")
 			select {
 			case msg, ok := <-in.Messages():
 				// If a channel of an input is closed, then the input should be
 				// removed from the list of multiplexed inputs.
 				if !ok {
-					m.actDesc.Log().Infof("input channel closed: partition=%d", in.partition)
+					fmt.Fprintf(&b, "input channel closed: partition=%d\n", in.partition)
 					delete(m.inputs, in.partition)
 					m.refreshSortedIns()
 					goto reset
 				}
-				m.actDesc.Log().Infof("partition '%d' now has messages", in.partition)
+				fmt.Fprintf(&b, "partition '%d' now has messages\n", in.partition)
 				in.msg = msg
 				in.msgOk = true
 				isAtLeastOneAvailable = true
@@ -229,22 +236,32 @@ reset:
 		// If none of the inputs has a message available, then wait until
 		// a message is fetched on any of them or a stop signal is received.
 		if !isAtLeastOneAvailable {
-			m.actDesc.Log().Info("no partition has messages; waiting...")
+			fmt.Fprint(&b, "no partition has messages; waiting...\n")
 			idx, value, _ := reflect.Select(selectCases)
 			// Check if it is a stop signal.
 			if idx == inputCount {
-				m.actDesc.Log().Info("selected stop signal")
+				fmt.Fprint(&b, "selected stop signal\n")
 				return
 			}
 			m.sortedIns[idx].msg = value.Interface().(consumer.Message)
 			m.sortedIns[idx].msgOk = true
 		}
-		m.actDesc.Log().Info("selecting partition to read")
 		// At this point there is at least one message available.
-		inputIdx = selectInputWithLog(m.actDesc.Log(), inputIdx, m.sortedIns)
+		inputIdx = selectInputWithLog(&b, m.actDesc.Log(), inputIdx, m.sortedIns)
+
+		// If no partition was selected
+		if inputIdx == -1 {
+			fmt.Fprintf(os.Stderr,
+				"======================================================================\n"+
+					"invalid partition selected '%d'\n"+
+					"======================================================================\n", inputIdx)
+			fmt.Fprint(os.Stderr, b.String())
+			time.Sleep(time.Second)
+			continue
+		}
+
 		// Block until the output reads the next message of the selected input
 		// or a stop signal is received.
-		m.actDesc.Log().Infof("selected '%d' to read", inputIdx)
 		select {
 		case <-m.stopCh:
 			return
@@ -306,7 +323,7 @@ func selectInput(prevSelectedIdx int, sortedIns []*input) int {
 	return selectedIdx
 }
 
-func selectInputWithLog(log logrus.FieldLogger, prevSelectedIdx int, sortedIns []*input) int {
+func selectInputWithLog(b *strings.Builder, log logrus.FieldLogger, prevSelectedIdx int, sortedIns []*input) int {
 	maxLag := int64(-1)
 	selectedIdx := -1
 	for i, input := range sortedIns {
@@ -314,26 +331,24 @@ func selectInputWithLog(log logrus.FieldLogger, prevSelectedIdx int, sortedIns [
 			continue
 		}
 		lag := input.msg.HighWaterMark - input.msg.Offset
-		log.Infof("selectInput: partition '%d' has messages with lag %d", input.partition, lag)
 		if lag > maxLag {
 			maxLag = lag
 			selectedIdx = i
-			log.Info("lag > maxLag")
+			fmt.Fprintf(b, "lag > maxLag: partition '%d' has messages with lag %d\n", input.partition, lag)
 			continue
 		}
 		if lag < maxLag {
-			log.Info("lag < maxLag")
+			fmt.Fprintf(b, "lag < maxLag: partition '%d' has messages with lag %d\n", input.partition, lag)
 			continue
 		}
 		if selectedIdx > prevSelectedIdx {
-			log.Info("selectedIdx > prevSelectedIdx")
+			fmt.Fprintf(b, "selectedIdx > prevSelectedIdx: partition '%d' has messages with lag %d\n", input.partition, lag)
 			continue
 		}
-		log.Info("i > prevSelectedIdx")
 		if i > prevSelectedIdx {
+			fmt.Fprintf(b, "i > prevSelectedIdx: partition '%d' has messages with lag %d\n", input.partition, lag)
 			selectedIdx = i
 		}
 	}
-	log.Infof("selectInput: selected '%d'", selectedIdx)
 	return selectedIdx
 }
