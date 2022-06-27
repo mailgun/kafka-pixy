@@ -1,0 +1,72 @@
+# ==============================================================
+# NOTE: This workflow only builds a deployable container,
+#  See travis config for running tests.
+# ==============================================================
+
+name: Build Deployable Container
+
+on:
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the repo
+        uses: actions/checkout@v3
+      # Create a build container which buildx will use as a driver when building the container.
+      # See https://github.com/docker/buildx/blob/master/docs/reference/buildx_create.md#driver
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+        with:
+          # Enables host networking which allows tests run by buildx to access
+          # the containers started by docker compose on localhost
+          driver-opts: network=host
+      # Login to the registry
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.PKG_WRITER_PAT }}
+      # This creates a cache for the current PR, if none exists then
+      # the cache from the most recent PR will be used.
+      - name: Setup Docker layer Cache
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-docker-${{ github.event.number }}
+          restore-keys: ${{ runner.os }}-docker-
+      # Automagically extract useful information from the current github context and creates
+      # a set of labels for use by build-push-action to be attached to the final image.
+      - name: Extract Metadata for Docker
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ github.repository }}
+        id: meta
+      # This action runs Buildx, which allows for a more complex Dockerfile.
+      # We use a buildx Dockerfile to run tests as well as build the final image.
+      - name: Build and push
+        uses: docker/build-push-action@v2
+        with:
+          # We change the path context here since the github context does not include
+          # changes to local files, like when we download `Dockerfile`.
+          # See https://github.com/docker/build-push-action#git-context
+          context: .
+          file: .github/Dockerfile
+          tags: ghcr.io/${{ github.repository }}:PR${{ github.event.number }}
+          # We use local cache type, so we can clean up the cache
+          # https://github.com/docker/build-push-action/blob/master/docs/advanced/cache.md#local-cache
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,mode=max,dest=/tmp/.buildx-cache-new
+          labels: ${{ steps.meta.outputs.labels }}
+          push: true
+      # This is to avoid the cache sizes from continually growing as new image layers
+      # are created. See the following issues:
+      #   https://github.com/docker/build-push-action/issues/252
+      #   https://github.com/moby/buildkit/issues/1896
+      - name: Retire old cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
