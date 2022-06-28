@@ -13,7 +13,6 @@ import (
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/none"
-	"github.com/sirupsen/logrus"
 )
 
 // T fetches messages from inputs and multiplexes them to the output, giving
@@ -207,7 +206,7 @@ reset:
 	for {
 		var b strings.Builder
 		b.Grow(1000)
-		fmt.Fprintf(&b, "begin trace for: %d\n", rid)
+		fmt.Fprintf(&b, "begin trace for: %s %d\n", m.actDesc.String(), rid)
 		// Collect next messages from inputs that have them available.
 		isAtLeastOneAvailable := false
 		for _, in := range m.sortedIns {
@@ -247,14 +246,11 @@ reset:
 			m.sortedIns[idx].msgOk = true
 		}
 		// At this point there is at least one message available.
-		inputIdx = selectInputWithLog(&b, m.actDesc.Log(), inputIdx, m.sortedIns)
+		inputIdx = selectInputWithLogV2(&b, inputIdx, m.sortedIns)
 
 		// If no partition was selected
 		if inputIdx == -1 {
-			fmt.Fprintf(os.Stderr,
-				"======================================================================\n"+
-					"invalid partition selected '%d'\n"+
-					"======================================================================\n", inputIdx)
+			fmt.Fprintf(os.Stderr, "invalid partition selected '%d'\n", inputIdx)
 			fmt.Fprint(os.Stderr, b.String())
 			time.Sleep(time.Second)
 			continue
@@ -323,14 +319,17 @@ func selectInput(prevSelectedIdx int, sortedIns []*input) int {
 	return selectedIdx
 }
 
-func selectInputWithLog(b *strings.Builder, log logrus.FieldLogger, prevSelectedIdx int, sortedIns []*input) int {
+func selectInputWithLogV2(b *strings.Builder, prevSelectedIdx int, sortedIns []*input) int {
+	fmt.Fprintf(b, "selectInput() prev: '%d' len '%d'\n", prevSelectedIdx, len(sortedIns))
 	maxLag := int64(-1)
 	selectedIdx := -1
 	for i, input := range sortedIns {
 		if !input.msgOk {
+			fmt.Fprintf(b, "idx '%d' partition '%d' has no messages\n", i, input.partition)
 			continue
 		}
 		lag := input.msg.HighWaterMark - input.msg.Offset
+		fmt.Fprintf(b, "idx '%d' partition '%d' has messages and '%d' lag \n", i, input.partition, lag)
 		if lag > maxLag {
 			maxLag = lag
 			selectedIdx = i
@@ -348,7 +347,10 @@ func selectInputWithLog(b *strings.Builder, log logrus.FieldLogger, prevSelected
 		if i > prevSelectedIdx {
 			fmt.Fprintf(b, "i > prevSelectedIdx: partition '%d' has messages with lag %d\n", input.partition, lag)
 			selectedIdx = i
+			continue
 		}
+		fmt.Fprintf(b, "idx '%d' partition '%d' was not choosen\n", i, input.partition)
 	}
+	fmt.Fprintf(b, "selectedIdx '%d'\n", selectedIdx)
 	return selectedIdx
 }
