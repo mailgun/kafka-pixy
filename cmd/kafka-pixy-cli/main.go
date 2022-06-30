@@ -179,7 +179,7 @@ func printOffsets(opts *args.Options, client pb.KafkaPixyClient) (int, error) {
 			Lag:   lag,
 		}
 
-		data, err := json.MarshalIndent(offset, "", "    ")
+		data, err := json.MarshalIndent(&offset, "", "    ")
 		if err != nil {
 			return 1, errors.Wrap(err, "during JSON marshal")
 		}
