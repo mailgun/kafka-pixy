@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	. "gopkg.in/check.v1"
+
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/config"
 	pb "github.com/mailgun/kafka-pixy/gen/golang"
@@ -16,7 +18,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	. "gopkg.in/check.v1"
 )
 
 type ServiceGRPCSuite struct {
@@ -29,7 +30,7 @@ type ServiceGRPCSuite struct {
 
 var _ = Suite(&ServiceGRPCSuite{})
 
-func (s *ServiceGRPCSuite) SetUpSuite(c *C) {
+func (s *ServiceGRPCSuite) SetUpSuite(_ *C) {
 	testhelpers.InitLogging()
 }
 
@@ -49,8 +50,8 @@ func (s *ServiceGRPCSuite) SetUpTest(c *C) {
 	s.kh = kafkahelper.New(c)
 }
 
-func (s *ServiceGRPCSuite) TearDownTest(c *C) {
-	s.cltConn.Close()
+func (s *ServiceGRPCSuite) TearDownTest(_ *C) {
+	_ = s.cltConn.Close()
 	s.kh.Close()
 }
 
@@ -76,7 +77,8 @@ func (s *ServiceGRPCSuite) TestProduceWithKey(c *C) {
 		}
 		res, err := s.clt.Produce(ctx, &req, grpc.FailFast(false))
 		c.Check(err, IsNil)
-		c.Check(*res, Equals, pb.ProdRs{Partition: -1, Offset: -1})
+		c.Check(res.Offset, DeepEquals, int64(-1))
+		c.Check(res.Partition, DeepEquals, int32(-1))
 	}
 	// Stop service to make it commit asynchronously produced messages to Kafka.
 	svc.Stop()
@@ -110,7 +112,8 @@ func (s *ServiceGRPCSuite) TestProduceKeyUndefined(c *C) {
 		}
 		res, err := s.clt.Produce(ctx, &req, grpc.FailFast(false))
 		c.Check(err, IsNil)
-		c.Check(*res, Equals, pb.ProdRs{Partition: -1, Offset: -1})
+		c.Check(res.Offset, DeepEquals, int64(-1))
+		c.Check(res.Partition, DeepEquals, int32(-1))
 	}
 	// Stop service to make it commit asynchronously produced messages to Kafka.
 	svc.Stop()
@@ -144,7 +147,8 @@ func (s *ServiceGRPCSuite) TestProduceDefaultKey(c *C) {
 		}
 		res, err := s.clt.Produce(ctx, &req, grpc.FailFast(false))
 		c.Check(err, IsNil)
-		c.Check(*res, Equals, pb.ProdRs{Partition: -1, Offset: -1})
+		c.Check(res.Offset, DeepEquals, int64(-1))
+		c.Check(res.Partition, DeepEquals, int32(-1))
 	}
 	// Stop service to make it commit asynchronously produced messages to Kafka.
 	svc.Stop()
@@ -180,7 +184,8 @@ func (s *ServiceGRPCSuite) TestProduceSync(c *C) {
 
 	// Then
 	c.Check(err, IsNil)
-	c.Check(*res, Equals, pb.ProdRs{Partition: 2, Offset: offsetsBefore[2]})
+	c.Check(res.Offset, DeepEquals, offsetsBefore[2])
+	c.Check(res.Partition, DeepEquals, int32(2))
 }
 
 func (s *ServiceGRPCSuite) TestProduceInvalidProxy(c *C) {
@@ -436,12 +441,10 @@ func (s *ServiceGRPCSuite) TestConsumeExplicitProxy(c *C) {
 
 	// Then
 	c.Check(err, IsNil)
-	c.Check(*consRes, DeepEquals, pb.ConsRs{
-		Partition: prodRes.Partition,
-		Offset:    prodRes.Offset,
-		KeyValue:  prodReq.KeyValue,
-		Message:   prodReq.Message,
-	})
+	c.Check(consRes.Partition, DeepEquals, prodRes.Partition)
+	c.Check(consRes.Offset, DeepEquals, prodRes.Offset)
+	c.Check(consRes.KeyValue, DeepEquals, prodReq.KeyValue)
+	c.Check(consRes.Message, DeepEquals, prodReq.Message)
 }
 
 // When a message that was produced with undefined key is consumed, then
@@ -471,12 +474,10 @@ func (s *ServiceGRPCSuite) TestConsumeKeyUndefined(c *C) {
 
 	// Then
 	c.Check(err, IsNil)
-	c.Check(*consRes, DeepEquals, pb.ConsRs{
-		Partition:    prodRes.Partition,
-		Offset:       prodRes.Offset,
-		KeyUndefined: true,
-		Message:      prodReq.Message,
-	})
+	c.Check(consRes.Partition, DeepEquals, prodRes.Partition)
+	c.Check(consRes.Offset, DeepEquals, prodRes.Offset)
+	c.Check(consRes.KeyUndefined, DeepEquals, true)
+	c.Check(consRes.Message, DeepEquals, prodReq.Message)
 }
 
 // When a message that was produced with headers is conusmed, the headers should
@@ -513,13 +514,11 @@ func (s *ServiceGRPCSuite) TestConsumeHeaders(c *C) {
 
 	// Then
 	c.Check(err, IsNil)
-	c.Check(*consRes, DeepEquals, pb.ConsRs{
-		Partition:    prodRes.Partition,
-		Offset:       prodRes.Offset,
-		KeyUndefined: true,
-		Message:      prodReq.Message,
-		Headers:      prodReq.Headers,
-	})
+	c.Check(consRes.Partition, DeepEquals, prodRes.Partition)
+	c.Check(consRes.Offset, DeepEquals, prodRes.Offset)
+	c.Check(consRes.KeyUndefined, DeepEquals, true)
+	c.Check(consRes.Message, DeepEquals, prodReq.Message)
+	c.Check(consRes.Headers, DeepEquals, prodReq.Headers)
 }
 
 func (s *ServiceGRPCSuite) TestConsumeInvalidProxy(c *C) {

@@ -12,7 +12,7 @@ env:
   KAFKA_HOSTNAME: 127.0.0.1
 
 jobs:
-  build-and-publish:
+  test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -22,8 +22,6 @@ jobs:
         uses: actions/setup-go@v2
         with:
           go-version: 1.17
-
-      - run: go env
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v2
@@ -50,6 +48,9 @@ jobs:
 
       - name: Start containers
         run: docker-compose up -d
+
+      - name: Create test topics
+        run: .github/create_topics.sh
 
       - name: Run tests
         run: make test

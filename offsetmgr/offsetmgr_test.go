@@ -6,12 +6,13 @@ import (
 	"testing"
 	"time"
 
+	. "gopkg.in/check.v1"
+
 	"github.com/Shopify/sarama"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	. "gopkg.in/check.v1"
 )
 
 func Test(t *testing.T) {
@@ -585,6 +586,8 @@ func (s *OffsetMgrSuite) TestBugConnectionRestored(c *C) {
 func (s *OffsetMgrSuite) TestBugOffsetDroppedOnStop(c *C) {
 	// Given
 	broker1 := sarama.NewMockBroker(c, 101)
+	// Set broker latency to ensure proper test timing.
+	broker1.SetLatency(200 * time.Millisecond)
 	defer broker1.Close()
 
 	broker1.SetHandlerByMap(map[string]sarama.MockResponse{
@@ -607,8 +610,6 @@ func (s *OffsetMgrSuite) TestBugOffsetDroppedOnStop(c *C) {
 	om, err := f.Spawn(s.ns.NewChild("g1", "t1", 1), "g1", "t1", 1)
 	c.Assert(err, IsNil)
 	time.Sleep(100 * time.Millisecond)
-	// Set broker latency to ensure proper test timing.
-	broker1.SetLatency(200 * time.Millisecond)
 	<-om.CommittedOffsets() // Ignore initial offset.
 
 	// When
