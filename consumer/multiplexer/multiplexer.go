@@ -201,13 +201,10 @@ reset:
 	// NOTE: When Stop() or WireUp() occurs the current `msg` might not
 	// be delivered before `case <-m.stopCh` is evaluated. In this case
 	// we store the message in m.sortedIns[X].msg for possible delivery
-	// on the next iteration after a `reset` has occurred.
-
-	// TODO: It is possible that an unconfirmed message keep kafka-pixy from releasing a
-	//   partition during a re-balance? I think this situation also existed with
-	//   the previous version of this code, so... should be okay?
-	//   It's possible that KP will not shutdown the multiplexer until all outstanding
-	//   messages are acknowledged, so this might not be a problem at all?
+	// on the next iteration after a `reset` has occurred. The exception
+	// to this is if KP shuts down the multiplexer while we have a message
+	// waiting, this messsage will be lost, however the offset tracker should
+	// eventually retry that message again some time in the fiture.
 
 	for {
 		isAtLeastOneAvailable := false
