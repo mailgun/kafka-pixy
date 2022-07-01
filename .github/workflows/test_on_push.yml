@@ -7,10 +7,9 @@ on:
     branches: [ master, main ]
 
 env:
-  KAFKA_PEERS: localhost:9091
-  ZOOKEEPER_PEERS: localhost:2181
-  INSTALL_ROOT: /home/travis
-  KAFKA_HOSTNAME: localhost
+  KAFKA_PEERS: 127.0.0.1:9092
+  ZOOKEEPER_PEERS: 127.0.0.1:2181
+  KAFKA_HOSTNAME: 127.0.0.1
 
 jobs:
   build-and-publish:
@@ -27,7 +26,7 @@ jobs:
       - run: go env
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v
+        uses: docker/login-action@v2
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
