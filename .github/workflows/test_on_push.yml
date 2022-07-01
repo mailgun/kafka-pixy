@@ -1,6 +1,8 @@
 name: Run tests
 
 on:
+  pull_request:
+    branches: [ master, main ]
   push:
     branches: [ master, main ]
 
@@ -23,6 +25,13 @@ jobs:
           go-version: 1.17
 
       - run: go env
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.PKG_WRITER_PAT }}
 
       - name: Cache deps
         uses: actions/cache@v2
