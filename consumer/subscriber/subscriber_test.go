@@ -6,12 +6,13 @@ import (
 	"testing"
 	"time"
 
+	. "gopkg.in/check.v1"
+
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/none"
 	"github.com/mailgun/kafka-pixy/testhelpers"
 	"github.com/samuel/go-zookeeper/zk"
-	. "gopkg.in/check.v1"
 )
 
 const (
@@ -70,7 +71,7 @@ func (s *SubscriberSuite) TestSubscribeSequence(c *C) {
 
 	// Then
 	assertSubscription(c, ss.Subscriptions(),
-		map[string][]string{"m1": {"bazz", "blah"}}, 3*time.Second)
+		map[string][]string{"m1": {"bazz", "blah"}}, 5*time.Second)
 }
 
 // If a group member resubscribes to the same list of topics, then the same
@@ -90,15 +91,15 @@ func (s *SubscriberSuite) TestReSubscribe(c *C) {
 		"m1": {"bar", "foo"},
 		"m2": {"bar", "bazz"},
 	}
-	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
-	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss1.Subscriptions(), membership, 5*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 5*time.Second)
 
 	// When
 	ss1.Topics() <- []string{"foo", "bar"}
 
 	// Then
-	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
-	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss1.Subscriptions(), membership, 5*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 5*time.Second)
 }
 
 // To deleteMemberSubscription from all topics an empty topic list can be sent.
@@ -112,16 +113,16 @@ func (s *SubscriberSuite) TestSubscribeToNothing(c *C) {
 	ss1.Topics() <- []string{"foo", "bar"}
 	ss2.Topics() <- []string{"foo"}
 	membership := map[string][]string{"m1": {"bar", "foo"}, "m2": {"foo"}}
-	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
-	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss1.Subscriptions(), membership, 5*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 5*time.Second)
 
 	// When
 	ss1.Topics() <- []string{}
 
 	// Then
 	membership = map[string][]string{"m2": {"foo"}}
-	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
-	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss1.Subscriptions(), membership, 5*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 5*time.Second)
 }
 
 // To deleteMemberSubscription from all topics nil value can be sent.
@@ -135,16 +136,16 @@ func (s *SubscriberSuite) TestSubscribeToNil(c *C) {
 	ss1.Topics() <- []string{"foo", "bar"}
 	ss2.Topics() <- []string{"foo"}
 	membership := map[string][]string{"m1": {"bar", "foo"}, "m2": {"foo"}}
-	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
-	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss1.Subscriptions(), membership, 5*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 5*time.Second)
 
 	// When
 	ss1.Topics() <- nil
 
 	// Then
 	membership = map[string][]string{"m2": {"foo"}}
-	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
-	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss1.Subscriptions(), membership, 5*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 5*time.Second)
 }
 
 // It is possible to subscribe to a non-empty list of topics after
@@ -216,14 +217,14 @@ func (s *SubscriberSuite) TestRedundantUpdateBug(c *C) {
 	membership := map[string][]string{
 		"m1": {"bar", "foo"},
 		"m2": {"bazz", "blah", "foo"}}
-	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss1.Subscriptions(), membership, 5*time.Second)
 
 	// When
 	ss2.Topics() <- []string{"bar"}
 	ss2.Topics() <- []string{"foo", "bazz", "blah"}
 
 	// Then
-	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss1.Subscriptions(), membership, 5*time.Second)
 }
 
 // If a subscriber registration in ZooKeeper disappears, that can happened
@@ -242,8 +243,8 @@ func (s *SubscriberSuite) TestMissingSubscriptionBug(c *C) {
 	membership := map[string][]string{
 		"m1": {"bar", "foo"},
 		"m2": {"bazz", "blah", "foo"}}
-	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
-	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss1.Subscriptions(), membership, 5*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 5*time.Second)
 
 	// When: brute-force remove g1/m1 subscription to simulate session
 	// expiration due to ZooKeeper connection loss.
@@ -253,14 +254,14 @@ func (s *SubscriberSuite) TestMissingSubscriptionBug(c *C) {
 	// Both nodes see the group state without m1:
 	membership = map[string][]string{
 		"m2": {"bazz", "blah", "foo"}}
-	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
-	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss1.Subscriptions(), membership, 5*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 5*time.Second)
 	// But then m1 restores its subscriptions:
 	membership = map[string][]string{
 		"m1": {"bar", "foo"},
 		"m2": {"bazz", "blah", "foo"}}
-	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
-	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss1.Subscriptions(), membership, 5*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 5*time.Second)
 }
 
 // If a subscriber registration in ZooKeeper is different from the list of
@@ -279,8 +280,8 @@ func (s *SubscriberSuite) TestMissingOutdatedSubscription(c *C) {
 	membership := map[string][]string{
 		"m1": {"bar", "foo"},
 		"m2": {"bazz", "blah", "foo"}}
-	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
-	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss1.Subscriptions(), membership, 5*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 5*time.Second)
 
 	// When: Modify the m1 subscriptions to simulate stale data session
 	// expiration due to ZooKeeper connection loss.
@@ -291,14 +292,14 @@ func (s *SubscriberSuite) TestMissingOutdatedSubscription(c *C) {
 	membership = map[string][]string{
 		"m1": {"bazz", "foo"},
 		"m2": {"bazz", "blah", "foo"}}
-	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
-	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss1.Subscriptions(), membership, 5*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 5*time.Second)
 	// But then m1 restores its subscriptions:
 	membership = map[string][]string{
 		"m1": {"bar", "foo"},
 		"m2": {"bazz", "blah", "foo"}}
-	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
-	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss1.Subscriptions(), membership, 5*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 5*time.Second)
 }
 
 // When a group registrator claims a topic partitions it becomes its owner.
@@ -519,9 +520,9 @@ func (s *SubscriberSuite) TestClaimClaimed(c *C) {
 		"m1": {"bar", "foo"},
 		"m2": {"bazz", "blah", "foo"},
 		"m3": {"bazz"}}
-	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
-	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
-	assertSubscription(c, ss3.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss1.Subscriptions(), membership, 5*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 5*time.Second)
+	assertSubscription(c, ss3.Subscriptions(), membership, 5*time.Second)
 
 	claim1 := ss1.ClaimPartition(s.ns, "foo", 1, cancelCh)
 	defer claim1()
@@ -534,9 +535,9 @@ func (s *SubscriberSuite) TestClaimClaimed(c *C) {
 	}()
 
 	// After the retry backoff timeout is elapsed all members get their
-	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
-	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
-	assertSubscription(c, ss3.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss1.Subscriptions(), membership, 5*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 5*time.Second)
+	assertSubscription(c, ss3.Subscriptions(), membership, 5*time.Second)
 
 	close(cancelCh)
 	// Wait for all test goroutines to stop.
@@ -555,8 +556,8 @@ func (s *SubscriberSuite) TestDeleteGroupIfEmpty(c *C) {
 	membership := map[string][]string{
 		"m1": {"foo"},
 		"m2": {"foo"}}
-	assertSubscription(c, ss1.Subscriptions(), membership, 3*time.Second)
-	assertSubscription(c, ss2.Subscriptions(), membership, 3*time.Second)
+	assertSubscription(c, ss1.Subscriptions(), membership, 5*time.Second)
+	assertSubscription(c, ss2.Subscriptions(), membership, 5*time.Second)
 
 	cancelCh := make(chan none.T)
 
