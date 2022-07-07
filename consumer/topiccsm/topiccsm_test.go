@@ -5,13 +5,14 @@ import (
 	"testing"
 	"time"
 
+	. "gopkg.in/check.v1"
+
 	"github.com/mailgun/holster/v4/clock"
 	"github.com/mailgun/kafka-pixy/actor"
 	"github.com/mailgun/kafka-pixy/config"
 	"github.com/mailgun/kafka-pixy/consumer"
 	"github.com/mailgun/kafka-pixy/consumer/dispatcher"
 	"github.com/mailgun/kafka-pixy/testhelpers"
-	. "gopkg.in/check.v1"
 )
 
 const (
@@ -186,7 +187,7 @@ func (s *TopicCsmSuite) TestSubscriptionExpires(c *C) {
 	c.Assert(clock.Advance(1), Equals, time.Duration(999))
 
 	// Then
-	assertStopped(c, s.lifespanCh, time.Second)
+	assertStopped(c, s.lifespanCh, time.Second*5)
 }
 
 // If there has been no requests for SubscriptionTimeout, but it is not safe to
@@ -203,17 +204,17 @@ func (s *TopicCsmSuite) TestAckTimeoutExpires(c *C) {
 
 	// When/Then
 	c.Assert(clock.Advance(500), Equals, time.Duration(500))
-	assertRunning(c, s.lifespanCh, 50*time.Millisecond)
+	assertRunning(c, s.lifespanCh, 550*time.Millisecond)
 
 	c.Assert(clock.Advance(199), Equals, time.Duration(699))
-	assertRunning(c, s.lifespanCh, 50*time.Millisecond)
+	assertRunning(c, s.lifespanCh, 550*time.Millisecond)
 
 	// The time in test is deterministic but the topic consumer goroutine is
 	// still reacts to deterministic events in realtime that is why we have to
 	// advance at least safe2StopPollingInterval, unlike in real life where
 	// after 1 nanosecond the topic consumer would have started termination.
 	c.Assert(clock.Advance(5), Equals, time.Duration(704))
-	assertStopped(c, s.lifespanCh, time.Second)
+	assertStopped(c, s.lifespanCh, time.Second*5)
 }
 
 // If a request arrives while waiting for a AckTimeout the expire timeout is
@@ -244,7 +245,7 @@ func (s *TopicCsmSuite) TestAckTimeoutRequest(c *C) {
 	assertRunning(c, s.lifespanCh, 50*time.Millisecond)
 
 	c.Assert(clock.Advance(100), Equals, time.Duration(1498))
-	assertStopped(c, s.lifespanCh, time.Second)
+	assertStopped(c, s.lifespanCh, time.Second*5)
 }
 
 // If the requests channel is closed signaling to stop while waiting for stop
@@ -267,7 +268,7 @@ func (s *TopicCsmSuite) TestAckTimeoutStop(c *C) {
 	close(s.requestsCh)
 
 	// Then
-	assertStopped(c, s.lifespanCh, time.Second)
+	assertStopped(c, s.lifespanCh, time.Second*5)
 }
 
 // If an expired topic consumer polls that it is safe to stop now, then it does
@@ -293,7 +294,7 @@ func (s *TopicCsmSuite) TestAckTimeoutSafe(c *C) {
 	c.Assert(clock.Advance(5), Equals, time.Duration(605))
 
 	// Then
-	assertStopped(c, s.lifespanCh, time.Second)
+	assertStopped(c, s.lifespanCh, time.Second*5)
 }
 
 func newRequest() consumer.Request {
