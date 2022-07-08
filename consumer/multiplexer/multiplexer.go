@@ -248,27 +248,29 @@ reset:
 			}
 		}
 
+		if isAtLeastOneAvailable {
+			continue
+		}
+
 		// If none of the inputs has a message available, then wait until
 		// a message is fetched on any of them or a stop signal is received.
-		if !isAtLeastOneAvailable {
-			idx, value, _ := reflect.Select(selectCases)
-			// Check if it is a stop signal.
-			if idx == inputCount {
-				return
-			}
+		idx, value, _ := reflect.Select(selectCases)
+		// Check if it is a stop signal.
+		if idx == inputCount {
+			return
+		}
 
-			// Block until the output reads the next message of the selected input
-			// or a stop signal is received.
-			msg := value.Interface().(consumer.Message)
-			select {
-			case m.output.Messages() <- msg:
-			case <-m.stopCh:
-				// Store the message in case stopCh eval is due to a WireUp() call, and we
-				// need to provide this message later
-				m.sortedIns[idx].msgOk = true
-				m.sortedIns[idx].msg = msg
-				return
-			}
+		// Block until the output reads the next message of the selected input
+		// or a stop signal is received.
+		msg := value.Interface().(consumer.Message)
+		select {
+		case m.output.Messages() <- msg:
+		case <-m.stopCh:
+			// Store the message in case stopCh eval is due to a WireUp() call, and we
+			// need to provide this message later
+			m.sortedIns[idx].msgOk = true
+			m.sortedIns[idx].msg = msg
+			return
 		}
 	}
 }
