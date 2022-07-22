@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"runtime"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 	"sync"
@@ -136,6 +138,8 @@ func New(addr string, proxySet *proxy.Set, certPath, keyPath string) (*T, error)
 
 	router.HandleFunc(fmt.Sprintf("/clusters/{%s}/topics/{%s}", prmCluster, prmTopic), hs.handleGetTopicMetadata).Methods("GET")
 	router.HandleFunc(fmt.Sprintf("/topics/{%s}", prmTopic), hs.handleGetTopicMetadata).Methods("GET")
+
+	router.HandleFunc("/pprof/heap", http.HandlerFunc(getHeapProfile)).Methods("GET")
 
 	router.HandleFunc("/_ping", hs.handlePing).Methods("GET")
 	return hs, nil
@@ -603,6 +607,18 @@ func (s *T) handlePing(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("pong"))
+}
+
+// getHeapProfile responds with a pprof-formatted heap profile.
+func getHeapProfile(w http.ResponseWriter, r *http.Request) {
+	// Ensure up-to-date data.
+	runtime.GC()
+	w.Header().Set("Content-Type", "application/octet-stream")
+	if err := pprof.Lookup("heap").WriteTo(w, 0); err != nil {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintf(w, "Could not get heap profile: %s\n", err)
+	}
 }
 
 type produceRs struct {

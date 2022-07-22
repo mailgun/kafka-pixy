@@ -345,7 +345,7 @@ func ListConsumers(parser *args.ArgParser, cast interface{}) (int, error) {
 		return 1, nil
 	}
 
-	ctx, _ := context.WithTimeout(context.Background(), time.Second*10)
+	ctx, _ := context.WithTimeout(context.Background(), time.Second*60)
 	resp, err := client.ListConsumers(ctx, &pb.ListConsumersRq{
 		Group: opts.String("group"),
 		Topic: opts.String("topic"),
