@@ -49,53 +49,6 @@ func (s *MultiplexerSuite) TestSortedInputs(c *C) {
 		[]*input{ins[1], ins[2], ins[3], ins[4], ins[5]})
 }
 
-// SelectInput chooses an input that has a next message with the biggest lag.
-func (s *MultiplexerSuite) TestSelectInput(c *C) {
-	inputs := []*input{
-		{},
-		{msg: lag(11), msgOk: true},
-		{msg: lag(13), msgOk: true},
-		{},
-		{msg: lag(12), msgOk: true},
-	}
-	c.Assert(selectInput(-1, inputs), Equals, 2)
-	c.Assert(selectInput(2, inputs), Equals, 2)
-	c.Assert(selectInput(3, inputs), Equals, 2)
-	c.Assert(selectInput(100, inputs), Equals, 2)
-}
-
-// If there are several inputs with the same biggest lag, then the last input
-// index is used to chose between them.
-func (s *MultiplexerSuite) TestSelectInputSameLag(c *C) {
-	inputs := []*input{
-		{},
-		{msg: lag(11), msgOk: true},
-		{msg: lag(11), msgOk: true},
-		{msg: lag(10), msgOk: true},
-		{msg: lag(11), msgOk: true},
-	}
-	c.Assert(selectInput(-1, inputs), Equals, 1)
-	c.Assert(selectInput(0, inputs), Equals, 1)
-	c.Assert(selectInput(1, inputs), Equals, 2)
-	c.Assert(selectInput(2, inputs), Equals, 4)
-	c.Assert(selectInput(3, inputs), Equals, 4)
-	c.Assert(selectInput(4, inputs), Equals, 1)
-	c.Assert(selectInput(100, inputs), Equals, 1)
-}
-
-// If there are several inputs with the same biggest lag, then the last input
-// index is used to chose between them.
-func (s *MultiplexerSuite) TestSelectInputNone(c *C) {
-	inputs := []*input{
-		{},
-		{},
-	}
-	c.Assert(selectInput(-1, inputs), Equals, -1)
-	c.Assert(selectInput(0, inputs), Equals, -1)
-	c.Assert(selectInput(1, inputs), Equals, -1)
-	c.Assert(selectInput(100, inputs), Equals, -1)
-}
-
 // If there is just one input then it is forwarded to the output.
 func (s *MultiplexerSuite) TestOneInput(c *C) {
 	ins := map[int32]In{
@@ -166,8 +119,8 @@ func (s *MultiplexerSuite) TestSameLag(c *C) {
 	checkMsg(c, out.messagesCh, msg(1005, 1))
 }
 
-// Messages with the largest lag among current channel heads is selected.
-func (s *MultiplexerSuite) TestLargeLagPreferred(c *C) {
+// Messages are chosen in round-robin style regardless of lag
+func (s *MultiplexerSuite) TestRoundRobin(c *C) {
 	ins := map[int32]In{
 		1: newMockIn(
 			msg(1001, 1),
@@ -190,12 +143,12 @@ func (s *MultiplexerSuite) TestLargeLagPreferred(c *C) {
 	m.WireUp(out, []int32{1, 2, 3})
 
 	// Then
+	checkMsg(c, out.messagesCh, msg(1001, 1))
 	checkMsg(c, out.messagesCh, msg(2001, 2))
 	checkMsg(c, out.messagesCh, msg(3001, 1))
-	checkMsg(c, out.messagesCh, msg(3002, 4))
-	checkMsg(c, out.messagesCh, msg(1001, 1))
 	checkMsg(c, out.messagesCh, msg(1002, 3))
 	checkMsg(c, out.messagesCh, msg(2002, 1))
+	checkMsg(c, out.messagesCh, msg(3002, 4))
 }
 
 // If there are no messages available on the inputs, multiplexer blocks waiting
@@ -273,6 +226,8 @@ func (s *MultiplexerSuite) TestWireUpAdd(c *C) {
 
 	// Then
 	c.Assert(m.IsRunning(), Equals, true)
+
+	// NOTE: This is
 	checkMsg(c, out.messagesCh, msg(2001, 1))
 	checkMsg(c, out.messagesCh, msg(3001, 1))
 	checkMsg(c, out.messagesCh, msg(4001, 1))
@@ -503,42 +458,44 @@ func (s *MultiplexerSuite) TestStop(c *C) {
 	}
 }
 
-// TODO(thrawn01): Removed due to race condition
-// If an input channel closes then respective input is removed from rotation.
-//func (s *MultiplexerSuite) TestInputChanClose(c *C) {
-//	ins := map[int32]In{
-//		1: newSafeMockIn(
-//			msg(1001, 1),
-//			msg(1002, 1),
-//			msg(1003, 1)),
-//		2: newMockIn(
-//			msg(2001, 1)),
-//		3: newSafeMockIn(
-//			msg(3001, 1),
-//			msg(3002, 1),
-//			msg(3003, 1)),
-//	}
-//	out := newMockOut(0)
-//	m := New(s.ns, func(p int32) In { return ins[p] })
-//	defer m.Stop()
-//	m.WireUp(out, []int32{1, 2, 3})
-//	c.Assert(m.IsRunning(), Equals, true)
-//
-//	// When
-//	close(ins[2].(*mockIn).messagesCh)
-//
-//	// Then
-//	checkMsg(c, out.messagesCh, msg(1001, 1))
-//	checkMsg(c, out.messagesCh, msg(2001, 1))
-//	// TODO(thrawn01): Race Condition here, will fix when we remove lag preference
-//	c.Assert(m.IsSafe2Stop(), Equals, false)
-//	checkMsg(c, out.messagesCh, msg(1002, 1))
-//	c.Assert(m.IsSafe2Stop(), Equals, true)
-//	checkMsg(c, out.messagesCh, msg(3001, 1))
-//	checkMsg(c, out.messagesCh, msg(1003, 1))
-//	checkMsg(c, out.messagesCh, msg(3002, 1))
-//	checkMsg(c, out.messagesCh, msg(3003, 1))
-//}
+func (s *MultiplexerSuite) TestInputChanClose(c *C) {
+	ins := map[int32]In{
+		1: newSafeMockIn(
+			msg(1001, 1),
+			msg(1002, 1),
+			msg(1003, 1),
+			msg(1004, 1)),
+		2: newMockIn(
+			msg(2001, 1)),
+		3: newSafeMockIn(
+			msg(3001, 1),
+			msg(3002, 1),
+			msg(3003, 1)),
+	}
+	out := newMockOut(0)
+	m := New(s.ns, func(p int32) In { return ins[p] })
+	defer m.Stop()
+	m.WireUp(out, []int32{1, 2, 3})
+	c.Assert(m.IsRunning(), Equals, true)
+
+	// When
+	close(ins[2].(*mockIn).messagesCh)
+
+	// Then
+	checkMsg(c, out.messagesCh, msg(1001, 1))
+	checkMsg(c, out.messagesCh, msg(2001, 1))
+	c.Assert(m.IsSafe2Stop(), Equals, false)
+	checkMsg(c, out.messagesCh, msg(3001, 1))
+	c.Assert(m.IsSafe2Stop(), Equals, false)
+	checkMsg(c, out.messagesCh, msg(1002, 1))
+	// Because we reset after '2' closed its channel, we start
+	// the round-robin over again at the partition at index '1'
+	checkMsg(c, out.messagesCh, msg(1003, 1))
+	checkMsg(c, out.messagesCh, msg(3002, 1))
+	checkMsg(c, out.messagesCh, msg(1004, 1))
+	checkMsg(c, out.messagesCh, msg(3003, 1))
+	c.Assert(m.IsSafe2Stop(), Equals, true)
+}
 
 func (s *MultiplexerSuite) TestIsSafe2Stop(c *C) {
 	ins := map[int32]*mockIn{

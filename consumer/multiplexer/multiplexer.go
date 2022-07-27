@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mailgun/kafka-pixy/actor"
@@ -20,7 +21,7 @@ type T struct {
 	spawnInFn SpawnInFn
 	inputs    map[int32]*input
 	output    Out
-	isRunning bool
+	isRunning int64
 	stopCh    chan none.T
 	wg        sync.WaitGroup
 
@@ -75,7 +76,7 @@ type input struct {
 // IsRunning returns `true` if multiplexer is running pumping events from the
 // inputs to the output.
 func (m *T) IsRunning() bool {
-	return m.isRunning
+	return atomic.LoadInt64(&m.isRunning) == 1
 }
 
 // IsSafe2Stop returns true if it is safe to stop all of the multiplexer
@@ -163,14 +164,14 @@ func (m *T) Stop() {
 
 func (m *T) start() {
 	actor.Spawn(m.actDesc, &m.wg, m.run)
-	m.isRunning = true
+	atomic.StoreInt64(&m.isRunning, 1)
 }
 
 func (m *T) stopIfRunning() {
-	if m.isRunning {
+	if atomic.LoadInt64(&m.isRunning) == 1 {
 		m.stopCh <- none.V
 		m.wg.Wait()
-		m.isRunning = false
+		atomic.StoreInt64(&m.isRunning, 0)
 	}
 }
 
@@ -197,51 +198,79 @@ reset:
 	}
 	selectCases[inputCount] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(m.stopCh)}
 
-	inputIdx := -1
+	// NOTE: When Stop() or WireUp() occurs the current `msg` might not
+	// be delivered before `case <-m.stopCh` is evaluated. In this case
+	// we store the message in m.sortedIns[X].msg for possible delivery
+	// on the next iteration after a `reset` has occurred. The exception
+	// to this is if KP shuts down the multiplexer while we have a message
+	// waiting, this messsage will be lost, however the offset tracker should
+	// eventually retry that message again some time in the fiture.
+
 	for {
-		// Collect next messages from inputs that have them available.
 		isAtLeastOneAvailable := false
 		for _, in := range m.sortedIns {
+
+			// If we have a message to deliver from a previous iteration,
+			// and we were interrupted by a WireUp(), send that message first.
 			if in.msgOk {
 				isAtLeastOneAvailable = true
+
+				select {
+				case m.output.Messages() <- in.msg:
+					in.msgOk = false
+				case <-m.stopCh:
+					return
+				}
 				continue
 			}
+
 			select {
 			case msg, ok := <-in.Messages():
 				// If a channel of an input is closed, then the input should be
 				// removed from the list of multiplexed inputs.
 				if !ok {
-					m.actDesc.Log().Infof("input channel closed: partition=%d", in.partition)
 					delete(m.inputs, in.partition)
 					m.refreshSortedIns()
 					goto reset
 				}
-				in.msg = msg
-				in.msgOk = true
 				isAtLeastOneAvailable = true
+
+				select {
+				case m.output.Messages() <- msg:
+				case <-m.stopCh:
+					// Store the message in case stopCh eval is due to a WireUp() call, and we
+					// need to provide this message later
+					in.msgOk = true
+					in.msg = msg
+					return
+				}
 			default:
 			}
 		}
+
+		if isAtLeastOneAvailable {
+			continue
+		}
+
 		// If none of the inputs has a message available, then wait until
 		// a message is fetched on any of them or a stop signal is received.
-		if !isAtLeastOneAvailable {
-			idx, value, _ := reflect.Select(selectCases)
-			// Check if it is a stop signal.
-			if idx == inputCount {
-				return
-			}
-			m.sortedIns[idx].msg = value.Interface().(consumer.Message)
-			m.sortedIns[idx].msgOk = true
+		idx, value, _ := reflect.Select(selectCases)
+		// Check if it is a stop signal.
+		if idx == inputCount {
+			return
 		}
-		// At this point there is at least one message available.
-		inputIdx = selectInput(inputIdx, m.sortedIns)
+
 		// Block until the output reads the next message of the selected input
 		// or a stop signal is received.
+		msg := value.Interface().(consumer.Message)
 		select {
+		case m.output.Messages() <- msg:
 		case <-m.stopCh:
+			// Store the message in case stopCh eval is due to a WireUp() call, and we
+			// need to provide this message later
+			m.sortedIns[idx].msgOk = true
+			m.sortedIns[idx].msg = msg
 			return
-		case m.output.Messages() <- m.sortedIns[inputIdx].msg:
-			m.sortedIns[inputIdx].msgOk = false
 		}
 	}
 }
@@ -267,33 +296,4 @@ func hasPartition(partition int32, partitions []int32) bool {
 		return false
 	}
 	return partitions[0] <= partition && partition <= partitions[count-1]
-}
-
-// selectInput picks an input that should be multiplexed next. It prefers the
-// inputs with the largest lag. If there is more then one input with the same
-// largest lag, then it picks the one that has index following prevSelectedIdx.
-func selectInput(prevSelectedIdx int, sortedIns []*input) int {
-	maxLag := int64(-1)
-	selectedIdx := -1
-	for i, input := range sortedIns {
-		if !input.msgOk {
-			continue
-		}
-		lag := input.msg.HighWaterMark - input.msg.Offset
-		if lag > maxLag {
-			maxLag = lag
-			selectedIdx = i
-			continue
-		}
-		if lag < maxLag {
-			continue
-		}
-		if selectedIdx > prevSelectedIdx {
-			continue
-		}
-		if i > prevSelectedIdx {
-			selectedIdx = i
-		}
-	}
-	return selectedIdx
 }
