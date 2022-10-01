@@ -37,12 +37,14 @@ func NewEventReader(source io.Reader) *EventReader {
 	}
 }
 
-func (self *EventReader) ReadEvent() ([]byte, error) {
-	if self.scanner.Scan() {
-		event := self.scanner.Bytes()
+// ReadEvent reads the next event from the source. It returns io.EOF if no
+// more events are available.
+func (r *EventReader) ReadEvent() ([]byte, error) {
+	if r.scanner.Scan() {
+		event := r.scanner.Bytes()
 		return event, nil
 	}
-	if err := self.scanner.Err(); err != nil {
+	if err := r.scanner.Err(); err != nil {
 		return nil, err
 	}
 	return nil, io.EOF
