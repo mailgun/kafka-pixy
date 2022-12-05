@@ -2,7 +2,6 @@ package logging
 
 import (
 	"encoding/json"
-	"io/ioutil"
 	"log/syslog"
 	"os"
 
@@ -31,10 +30,8 @@ func Init(jsonCfg string, cfg *config.App) error {
 		loggingCfg = cfg.Logging
 	}
 
-	// Default to plain text formatter
-	formatter = &textFormatter{}
-	log.SetFormatter(formatter)
-	log.StandardLogger().Out = ioutil.Discard
+	log.SetFormatter(newJSONFormatter())
+	log.StandardLogger().Out = os.Stdout
 
 	var hooks []log.Hook
 	for _, loggerCfg := range loggingCfg {
