@@ -7,7 +7,7 @@
 # See https://github.com/mailgun/dockerworld/images for current pinned version
 
 # This creates an cached layer of our dependencies for subsequent builds to use
-FROM golang:1.18.3 AS deps
+FROM golang:1.22 AS deps
 WORKDIR /go/src
 RUN --mount=type=bind,target=/go/src,rw go mod download
 
