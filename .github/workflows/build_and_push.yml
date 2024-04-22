@@ -29,7 +29,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.PKG_WRITER_PAT }}
+          password: ${{ secrets.CI_PAT }}
       # This creates a cache for the current PR, if none exists then
       # the cache from the most recent PR will be used.
       - name: Setup Docker layer Cache
